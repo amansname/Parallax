@@ -224,6 +224,33 @@ post-debounce state; elapsed time alone never proves completion.
 For screenshot verification, disable nonessential animation when practical and
 capture console errors and the relevant DOM state on failure.
 
+### Bounded legacy-verifier transition
+
+At adoption, `scripts/verify.mjs` contains pre-existing static checks that use
+regular expressions to infer HTML structure and browser sequences that use
+fixed post-action delays. Those checks remain temporarily runnable only as a
+legacy compatibility gate. They are not authoritative DOM-parsing or readiness
+evidence under sections 7 and 8.
+
+This transition exception:
+
+- is limited to the exact legacy checks present at base commit
+  `7634c47b5846d70caccb0e2c0dcbaa6635954592`;
+- does not permit a new check, broader match, longer delay, copied pattern, or
+  additional flow to use those techniques;
+- expires for an affected check when its UI flow or asserted artifact is next
+  materially modified, or when that check is migrated, whichever occurs first;
+- requires every touched flow to use a standards-based parser or live DOM for
+  structure and an observable condition for readiness before completion can be
+  claimed; and
+- requires the next UI implementation PR after this protocol is adopted to
+  create or link a repository-tracked migration item that inventories the
+  untouched legacy checks and defines their removal criteria.
+
+Running the legacy verifier remains required during this transition because it
+still guards broad compatibility. Its pass does not compensate for missing
+deterministic evidence on a touched flow.
+
 ## 9. Failure discipline
 
 Classify a failure before changing code or tests:
@@ -269,6 +296,12 @@ For files not classified by that matrix, verify by impact:
   validation, then the impacted test and browser suites;
 - uncertain impact: use the stronger applicable verification rather than the
   weaker one.
+
+During the bounded transition in section 8, UI work still runs
+`node scripts/verify.mjs`, but a passing legacy verifier is not sufficient by
+itself. The completion receipt must identify every touched UI flow and the
+parser/live-DOM and observable-readiness evidence that replaced or superseded
+its relevant legacy checks.
 
 Documentation-only work still requires:
 

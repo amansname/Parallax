@@ -65,6 +65,15 @@ Non-negotiable guardrails:
    compensating verification, and explicit approval. Convenience is not an
    exception.
 
+The sole adoption-time transition is the pre-existing legacy behavior in
+`scripts/verify.mjs` recorded in `docs/EXECUTION-PROTOCOL.md` section 8. It is
+bounded to checks already present at base commit
+`7634c47b5846d70caccb0e2c0dcbaa6635954592`, is compatibility evidence rather
+than authoritative DOM or readiness evidence, and does not permit new or
+expanded regex-structure checks or fixed-sleep readiness. A UI flow touched
+after adoption must replace the relevant legacy check with parser/live-DOM and
+observable-state verification.
+
 ---
 
 ## Cursor Cloud specific instructions
@@ -84,6 +93,9 @@ Non-obvious caveats:
 - `npm ci` postinstall downloads Chrome for Puppeteer.
 - No lint step configured.
 - `localStorage` persists scenarios/households; `verify.mjs` clears it for deterministic runs. Clear site data if manual testing looks wrong.
+- `verify.mjs` remains a required legacy compatibility gate during the bounded
+  transition above, but passing it alone is not completion evidence for a
+  touched UI flow.
 
 ---
 
