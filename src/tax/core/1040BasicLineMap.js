@@ -45,17 +45,19 @@ export const FORM1040_BASIC_LINES = [
   { lineId: 'line15', label: 'Taxable income', intakePath: 'passThrough.line15', coverage: LINE_COVERAGE.CALCULATED, spineLine: 'line15', notes: 'Calculated; passThrough.line15 used for validation only.' },
 
   { lineId: 'line16', label: 'Tax', coverage: LINE_COVERAGE.CALCULATED, spineLine: 'line16', notes: 'Ordinary + preferential stacking.' },
-  { lineId: 'line17', label: 'Schedule 2, line 3', intakePath: 'passThrough.line17', coverage: LINE_COVERAGE.PASS_THROUGH, spineLine: 'line17', notes: 'Not calculated (NIIT/AMT/etc. deferred).' },
+  { lineId: 'line17', label: 'Schedule 2, line 3', intakePath: 'passThrough.line17', coverage: LINE_COVERAGE.PASS_THROUGH, spineLine: 'line17', notes: 'AMT and other Schedule 2 Part I amounts remain supplied/pass-through.' },
   { lineId: 'line18', label: 'Total tax before credits', coverage: LINE_COVERAGE.CALCULATED, spineLine: 'line18' },
   { lineId: 'line19', label: 'Child tax credit / other dependents', intakePath: 'passThrough.line19', coverage: LINE_COVERAGE.PASS_THROUGH, spineLine: 'line19' },
   { lineId: 'line20', label: 'Schedule 3, line 8', intakePath: 'passThrough.line20', coverage: LINE_COVERAGE.PASS_THROUGH, spineLine: 'line20' },
   { lineId: 'line21', label: 'Total credits', coverage: LINE_COVERAGE.CALCULATED, spineLine: 'line21' },
   { lineId: 'line22', label: 'Tax after credits', coverage: LINE_COVERAGE.CALCULATED, spineLine: 'line22' },
-  { lineId: 'line23', label: 'Other taxes (Schedule 2, line 21)', intakePath: 'schedule2', coverage: LINE_COVERAGE.CALCULATED, spineLine: 'line23', notes: 'Calculated when Schedule SE and the remaining Schedule 2 components are supplied; legacy pass-through remains supported.' },
+  { lineId: 'line23', label: 'Other taxes (Schedule 2, line 21)', intakePath: 'schedule2', coverage: LINE_COVERAGE.CALCULATED, spineLine: 'line23', notes: 'Calculated from a complete supplied Schedule 2 component set, plus calculated Schedule SE tax when present; legacy pass-through remains supported.' },
   { lineId: 'line24', label: 'Total tax', intakePath: 'reconciliation.theirLine24', coverage: LINE_COVERAGE.CALCULATED, spineLine: 'line24', notes: 'Calculated roll-up; includes supplied pass-through tax lines.' },
 
   { lineId: 'scheduleD', label: 'Schedule D ST/LT detail', intakePath: 'scheduleD', coverage: LINE_COVERAGE.ARCHITECTURE_LATER, notes: 'Needed when line 7 mixes short- and long-term gains.' },
-  { lineId: 'niit', label: 'Net investment income tax', coverage: LINE_COVERAGE.UNSUPPORTED_INTENTIONAL },
+  { lineId: 'niit', label: 'Net investment income tax', intakePath: 'schedule2.netInvestmentIncomeTax', coverage: LINE_COVERAGE.CAPTURED, notes: 'Supplied Form 8960 component; not independently calculated.' },
+  { lineId: 'additionalMedicareTax', label: 'Additional Medicare tax', intakePath: 'schedule2.additionalMedicareTax', coverage: LINE_COVERAGE.CAPTURED, notes: 'Supplied Form 8959 component; not independently calculated.' },
+  { lineId: 'otherPartIITaxes', label: 'Other Schedule 2 Part II taxes', intakePath: 'schedule2.otherPartIITaxes', coverage: LINE_COVERAGE.CAPTURED, notes: 'Supplied component; not independently calculated.' },
   { lineId: 'amt', label: 'Alternative minimum tax', coverage: LINE_COVERAGE.UNSUPPORTED_INTENTIONAL },
   { lineId: 'payments', label: 'Withholding / estimated payments (25–33)', intakePath: 'passThrough.payments', coverage: LINE_COVERAGE.PASS_THROUGH, notes: 'Captured for completeness; not used in line 24 calc.' },
 ];

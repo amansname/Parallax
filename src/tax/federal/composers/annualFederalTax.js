@@ -13,6 +13,7 @@ import {
 import { buildForm1040IncomeSpine, resolvePreferentialComponents } from './form1040Spine.js';
 import { capitalGainsStacking } from '../rules/capitalGainsStacking.js';
 import { ordinaryIncomeTax } from '../rules/ordinaryIncomeTax.js';
+import { TaxInputError } from '../../core/errors.js';
 
 const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
 
@@ -24,7 +25,21 @@ function resolvePassThroughTaxLine(input, lineId){
 }
 
 function resolveSchedule2Line23(input, scheduleSETotals){
-  if(!scheduleSETotals){
+  const suppliedLine23 = input.passThrough?.line23;
+  const hasCalculatedSchedule2Source =
+    input.schedule2 !== undefined || scheduleSETotals != null;
+  if(suppliedLine23 !== undefined && hasCalculatedSchedule2Source){
+    throw new TaxInputError(
+      'Supplied Form 1040 line 23 cannot be combined with Schedule 2 components or calculated Schedule SE',
+      {
+        code: 'SCHEDULE_2_SOURCE_CONFLICT',
+        suppliedLine23,
+        hasSchedule2Components: input.schedule2 !== undefined,
+        hasCalculatedScheduleSE: scheduleSETotals != null,
+      }
+    );
+  }
+  if(suppliedLine23 !== undefined){
     return resolvePassThroughTaxLine(input, 'line23');
   }
 
@@ -37,15 +52,22 @@ function resolveSchedule2Line23(input, scheduleSETotals){
     return deferredLine('line23');
   }
 
+  const selfEmploymentTaxTotal =
+    scheduleSETotals?.selfEmploymentTaxTotal ?? 0;
   const line23Value = round2(
-    scheduleSETotals.selfEmploymentTaxTotal
+    selfEmploymentTaxTotal
     + schedule2.netInvestmentIncomeTax
     + schedule2.additionalMedicareTax
     + schedule2.otherPartIITaxes
   );
+  const combinedWithScheduleSE = scheduleSETotals != null;
   return calculatedLine('line23', line23Value, {
-    ruleId: 'FED_SELF_EMPLOYMENT_TAX+SCHEDULE_2_SUPPLIED_TAXES',
-    auditIndex: scheduleSETotals.auditIndexes[0],
+    ruleId: combinedWithScheduleSE
+      ? 'FED_SELF_EMPLOYMENT_TAX+SCHEDULE_2_SUPPLIED_TAXES'
+      : 'SCHEDULE_2_SUPPLIED_TAXES',
+    auditIndex: combinedWithScheduleSE
+      ? scheduleSETotals.auditIndexes[0]
+      : null,
   });
 }
 

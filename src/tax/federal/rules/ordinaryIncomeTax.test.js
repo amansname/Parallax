@@ -9,6 +9,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
 import { ordinaryIncomeTax, meta } from './ordinaryIncomeTax.js';
+import { getDataSource } from '../../core/dataSourceRegistry.js';
 
 // A fixed, caller-supplied context. calculatedAt is injected (never generated
 // inside the rule), so results are deterministic and replayable.
@@ -106,6 +107,67 @@ test('audit carries provenance from context and data source', () => {
   assert.strictEqual(audit.scenarioId, 'test_scenario');
   assert.deepStrictEqual(audit.dataSourcesUsed, ['IRS_2026_TAX_TABLES_v1.0']);
   assert.ok(Array.isArray(audit.calculationSteps) && audit.calculationSteps.length === 3);
+});
+
+test('metadata and audits route verified primary authority for 2025 and 2026', () => {
+  assert.strictEqual(meta.ruleVersion, '1.0.1');
+  assert.deepStrictEqual(meta.supportedTaxYears, [2025, 2026]);
+  assert.deepStrictEqual(
+    meta.supportedLawVersions,
+    ['2025_FINAL', '2026_FINAL']
+  );
+  assert.deepStrictEqual(meta.dataSourcesRequired, [
+    'IRS_2025_TAX_TABLES_v1.0',
+    'IRS_2026_TAX_TABLES_v1.0',
+  ]);
+
+  for(const {
+    taxYear,
+    lawVersion,
+    sourceId,
+    url,
+  } of [
+    {
+      taxYear: 2025,
+      lawVersion: '2025_FINAL',
+      sourceId: 'IRS_2025_TAX_TABLES_v1.0',
+      url: 'https://www.irs.gov/pub/irs-drop/rp-24-40.pdf',
+    },
+    {
+      taxYear: 2026,
+      lawVersion: '2026_FINAL',
+      sourceId: 'IRS_2026_TAX_TABLES_v1.0',
+      url: 'https://www.irs.gov/pub/irs-drop/rp-25-32.pdf',
+    },
+  ]){
+    const source = getDataSource(sourceId);
+    assert.strictEqual(source.status, 'verified');
+    assert.strictEqual(source.url, url);
+    assert.strictEqual(source.retrievedAt, '2026-07-29');
+    assert.strictEqual(source.taxYear, taxYear);
+    assert.strictEqual(source.lawVersion, lawVersion);
+
+    const { audit } = ordinaryIncomeTax.calculate({
+      filingStatus: 'single',
+      taxableOrdinaryIncome: 100000,
+    }, ctx({ taxYear, lawVersion }));
+    assert.strictEqual(audit.taxYear, taxYear);
+    assert.strictEqual(audit.lawVersion, lawVersion);
+    assert.deepStrictEqual(audit.dataSourcesUsed, [sourceId]);
+    assert.deepStrictEqual(audit.authority, [source.authority]);
+  }
+});
+
+test('crossed 2025 and 2026 contexts fail closed', () => {
+  for(const overrides of [
+    { taxYear: 2025, lawVersion: '2026_FINAL' },
+    { taxYear: 2026, lawVersion: '2025_FINAL' },
+  ]){
+    assert.throws(() => ordinaryIncomeTax.calculate(
+      { filingStatus: 'single', taxableOrdinaryIncome: 100000 },
+      ctx(overrides)
+    ), /taxYear does not match/);
+  }
 });
 
 // ── Reproducibility & purity ────────────────────────────────────────────────

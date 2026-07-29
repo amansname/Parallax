@@ -4,6 +4,10 @@ import assert from 'node:assert/strict';
 import { defaultPlan, resolveInputs, runSimulation } from '../../../engine.js';
 import { createAccount } from '../../household/createAccount.js';
 import { createBlankTaxProfiles, createFact } from '../../household/factEnvelope.js';
+import {
+  getLineMapEntry,
+  LINE_COVERAGE,
+} from '../../tax/core/1040BasicLineMap.js';
 import { buildWithdrawalTaxCounterfactualContext } from './buildWithdrawalTaxCounterfactualContext.js';
 import { createFederalTaxResolver } from './createFederalTaxResolver.js';
 import { runWithdrawalTaxCounterfactual } from './runWithdrawalTaxCounterfactual.js';
@@ -133,7 +137,13 @@ test('counterfactual runs all eight 1040 coalitions and reconciles tax attributi
   );
   assert.equal(result.taxCoverage.status, 'modeled-income-tax-only');
   assert.equal(result.taxCoverage.taxTotalScope, 'INCOME_TAX_ONLY');
-  assert.ok(result.taxCoverage.unsupportedIntentional.some(item => item.lineId === 'niit'));
+  const niitCoverage = getLineMapEntry('niit');
+  assert.equal(niitCoverage.coverage, LINE_COVERAGE.CAPTURED);
+  assert.equal(
+    niitCoverage.intakePath,
+    'schedule2.netInvestmentIncomeTax'
+  );
+  assert.match(niitCoverage.notes, /Supplied Form 8960 component/);
   assert.ok(result.comparisonEligibility.reasonCodes.includes('NIIT_NOT_MODELED'));
   assert.ok(result.comparisonEligibility.reasonCodes.includes(
     'TAXABLE_PORTFOLIO_YIELD_INCOME_NOT_MODELED'

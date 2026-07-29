@@ -50,11 +50,6 @@ export function validateCanonicalSuppliedFields(errors, intake){
         'Canonical Schedule 2 components cannot be mixed with supplied line 23',
         'schedule2');
     }
-    if(intake.scheduleSE === undefined){
-      issue(errors, 'SCHEDULE_2_COMPONENTS_REQUIRE_COMPOSER',
-        'Schedule 2 components without Schedule SE must be supplied as Form 1040 line 23 for now',
-        'schedule2');
-    }
   }
 
   if(intake.deductions?.qbi !== undefined){

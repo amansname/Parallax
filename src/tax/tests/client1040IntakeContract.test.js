@@ -302,6 +302,60 @@ test('canonical adjustments preserve supplied-total versus IRA-component provena
   })).includes('ADJUSTMENT_SOURCE_CONFLICT'));
 });
 
+test('canonical IRA engine mode and its facts remain fail-closed', () => {
+  const engineMode = canonical({
+    adjustments: {
+      mode: 'Engine rule from MAGI',
+      magi: 100000,
+      iraCovered1: true,
+      iraCovered2: false,
+    },
+  });
+  assert.deepStrictEqual(
+    contractCodes(engineMode),
+    ['INVALID_ADJUSTMENTS_MODE']
+  );
+  assert.throws(
+    () => client1040IntakeToComposerInput(engineMode),
+    error => error.validation.errors
+      .some(entry => entry.code === 'INVALID_ADJUSTMENTS_MODE')
+  );
+
+  for(const adjustments of [
+    {
+      mode: 'supplied-line10',
+      amount: 0,
+      magi: 100000,
+      iraCovered1: true,
+      iraCovered2: false,
+    },
+    {
+      mode: 'supplied-traditional-ira-deduction',
+      traditionalIraDeduction: 0,
+      magi: 100000,
+      iraCovered1: true,
+      iraCovered2: false,
+    },
+  ]){
+    const intake = canonical({ adjustments });
+    const validation = validateClient1040Contract(intake, context());
+    const conflict = validation.errors.find(
+      entry => entry.code === 'ADJUSTMENT_SOURCE_CONFLICT'
+    );
+    assert.ok(conflict);
+    assert.deepStrictEqual(conflict.details.unexpected, [
+      'magi',
+      'iraCovered1',
+      'iraCovered2',
+    ]);
+    assert.throws(
+      () => client1040IntakeToComposerInput(intake),
+      error => error.validation.errors
+        .some(entry => entry.code === 'ADJUSTMENT_SOURCE_CONFLICT')
+    );
+  }
+});
+
 test('canonical deduction method and source are explicit and mutually exclusive', () => {
   assert.ok(codes(canonical({
     deductions: { source: 'calculated' },
@@ -1457,6 +1511,149 @@ test('missing canonical qualified-dividend classification defers tax but preserv
   assert.ok(
     pipeline.annual1040Result.readiness.unresolvedTaxableIncomeLines
       .includes('line3a')
+  );
+});
+
+test('standalone Schedule 2 components preserve line 23 source presence', () => {
+  const components = {
+    netInvestmentIncomeTax: 100,
+    additionalMedicareTax: 200,
+    otherPartIITaxes: 300,
+  };
+  const intake = canonical({
+    passThrough: {
+      line17: 0,
+      line19: 0,
+      line20: 0,
+    },
+    schedule2: components,
+  });
+  assert.deepStrictEqual(codes(intake), []);
+
+  const pipeline = runClient1040Intake(intake, context());
+  assert.strictEqual(pipeline.result.form1040.line23.status, 'CALCULATED');
+  assert.strictEqual(pipeline.result.form1040.line23.value, 600);
+  assert.strictEqual(
+    pipeline.result.form1040.line23.ruleId,
+    'SCHEDULE_2_SUPPLIED_TAXES'
+  );
+  assert.strictEqual(
+    pipeline.result.form1040.line24.value,
+    pipeline.result.form1040.line22.value + 600
+  );
+  for(const [intakePath, value] of [
+    ['schedule2.netInvestmentIncomeTax', 100],
+    ['schedule2.additionalMedicareTax', 200],
+    ['schedule2.otherPartIITaxes', 300],
+  ]){
+    assert.ok(pipeline.report.captured.some(
+      row => row.intakePath === intakePath && row.value === value
+    ));
+  }
+  assert.ok(!pipeline.report.unsupportedIntentional.some(
+    row => row.lineId === 'niit'
+  ));
+
+  const explicitZero = structuredClone(intake);
+  explicitZero.schedule2 = {
+    netInvestmentIncomeTax: 0,
+    additionalMedicareTax: 0,
+    otherPartIITaxes: 0,
+  };
+  const zeroPipeline = runClient1040Intake(explicitZero, context());
+  assert.strictEqual(zeroPipeline.result.form1040.line23.status, 'CALCULATED');
+  assert.strictEqual(zeroPipeline.result.form1040.line23.value, 0);
+
+  const absent = structuredClone(intake);
+  delete absent.schedule2;
+  const absentPipeline = runClient1040Intake(absent, context());
+  assert.strictEqual(absentPipeline.result.form1040.line23.status, 'DEFERRED');
+
+  for(const field of [
+    'netInvestmentIncomeTax',
+    'additionalMedicareTax',
+    'otherPartIITaxes',
+  ]){
+    const incomplete = structuredClone(intake);
+    delete incomplete.schedule2[field];
+    const validation = validateClient1040Contract(incomplete, context());
+    assert.ok(validation.errors.some(entry =>
+      entry.code === 'INVALID_NONNEGATIVE_AMOUNT'
+        && entry.path === `schedule2.${field}`
+    ));
+    assert.throws(
+      () => runClient1040Intake(incomplete, context()),
+      error => error.validation.errors.some(entry =>
+        entry.code === 'INVALID_NONNEGATIVE_AMOUNT'
+          && entry.path === `schedule2.${field}`
+      )
+    );
+  }
+
+  const incompleteComposerInput =
+    client1040IntakeToComposerInput(canonical());
+  incompleteComposerInput.schedule2 = {
+    netInvestmentIncomeTax: 0,
+    additionalMedicareTax: 0,
+  };
+  const incompleteComposition = composeAnnualFederalTax(
+    incompleteComposerInput,
+    context()
+  );
+  assert.strictEqual(
+    incompleteComposition.result.form1040.line23.status,
+    'DEFERRED'
+  );
+});
+
+test('Schedule 2 conflicts fail hard and Schedule SE is added exactly once', () => {
+  const components = {
+    netInvestmentIncomeTax: 100,
+    additionalMedicareTax: 200,
+    otherPartIITaxes: 300,
+  };
+  const conflict = canonical({
+    schedule2: components,
+    passThrough: { line23: 0 },
+  });
+  assert.ok(codes(conflict).includes('SCHEDULE_2_SOURCE_CONFLICT'));
+  assert.throws(
+    () => runClient1040Intake(conflict, context()),
+    error => error.validation.errors
+      .some(entry => entry.code === 'SCHEDULE_2_SOURCE_CONFLICT')
+  );
+
+  const directConflictInput = client1040IntakeToComposerInput(canonical({
+    passThrough: { line23: 0 },
+  }));
+  directConflictInput.schedule2 = components;
+  assert.throws(
+    () => composeAnnualFederalTax(directConflictInput, context()),
+    error => error.details?.code === 'SCHEDULE_2_SOURCE_CONFLICT'
+  );
+
+  const combined = canonical({
+    scheduleSE: [{
+      taxpayerOwner: 'client',
+      netEarningsFromSelfEmployment: 10000,
+      socialSecurityWagesAndTips: 0,
+      socialSecurityWagesAndTipsIsScheduleSELine8d: true,
+    }],
+    schedule2: components,
+  });
+  delete combined.adjustments;
+  assert.deepStrictEqual(codes(combined), []);
+  const combinedPipeline = runClient1040Intake(combined, context());
+  assert.strictEqual(combinedPipeline.result.form1040.line23.value, 2130);
+  assert.strictEqual(
+    combinedPipeline.result.form1040.line23.ruleId,
+    'FED_SELF_EMPLOYMENT_TAX+SCHEDULE_2_SUPPLIED_TAXES'
+  );
+  assert.strictEqual(
+    combinedPipeline.audits.filter(
+      audit => audit.ruleId === 'FED_SELF_EMPLOYMENT_TAX'
+    ).length,
+    1
   );
 });
 

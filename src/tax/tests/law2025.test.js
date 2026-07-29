@@ -12,23 +12,34 @@ test('2025 tax year resolves to 2025_FINAL law tables', () => {
   assert.deepStrictEqual(supportedTaxYears(), [2025, 2026]);
 });
 
-test('2025 ordinary brackets match Schwab SCFR MFJ table tops', () => {
+test('2025 ordinary brackets match IRS Revenue Procedure 2024-40', () => {
   const mfj = ORDINARY_BRACKETS['2025_FINAL'].marriedFilingJointly;
   assert.strictEqual(mfj[0].upTo, 23850);
   assert.strictEqual(mfj[6].rate, 0.37);
   assert.strictEqual(mfj[5].upTo, 751600);
 });
 
-test('2025 standard deduction and LTCG thresholds match Schwab SCFR', () => {
+test('2025 standard deduction and LTCG thresholds match verified annual sources', () => {
   assert.strictEqual(STANDARD_DEDUCTION['2025_FINAL'].marriedFilingJointly, 31500);
   assert.strictEqual(CAPITAL_GAINS_THRESHOLDS['2025_FINAL'].single.zeroRateMax, 48350);
   assert.strictEqual(CAPITAL_GAINS_THRESHOLDS['2025_FINAL'].marriedFilingJointly.fifteenRateMax, 600050);
 });
 
 test('2025 data sources align with taxYear and lawVersion', () => {
-  const source = getDataSource('IRS_2025_TAX_TABLES_v1.0');
-  assert.strictEqual(source.taxYear, 2025);
-  assert.strictEqual(source.lawVersion, '2025_FINAL');
+  for(const sourceId of [
+    'IRS_2025_TAX_TABLES_v1.0',
+    'IRS_2025_CAPITAL_GAINS_RATES_v1.0',
+  ]){
+    const source = getDataSource(sourceId);
+    assert.strictEqual(source.taxYear, 2025);
+    assert.strictEqual(source.lawVersion, '2025_FINAL');
+    assert.strictEqual(source.status, 'verified');
+    assert.strictEqual(
+      source.url,
+      'https://www.irs.gov/pub/irs-drop/rp-24-40.pdf'
+    );
+    assert.strictEqual(source.retrievedAt, '2026-07-29');
+  }
 });
 
 test('2025 MFJ wages-only return uses 2025 brackets without tax-year warning', () => {
