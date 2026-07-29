@@ -1,6 +1,6 @@
 export const CLIENT_1040_INTAKE_CONTRACT_ID = 'parallax.client-1040-intake';
 export const CLIENT_1040_INTAKE_SCHEMA_VERSION = 1;
-export const CLIENT_1040_INTAKE_CONTRACT_VERSION = '1.3.0';
+export const CLIENT_1040_INTAKE_CONTRACT_VERSION = '1.4.0';
 export const CLIENT_1040_SUPPORTED_TAX_YEARS = Object.freeze([2025, 2026]);
 
 export const CLIENT_1040_COMPATIBILITY_MODES = Object.freeze({
@@ -13,6 +13,9 @@ export const CLIENT_1040_DEDUCTION_METHODS = Object.freeze(['standard', 'itemize
 export const CLIENT_1040_DEDUCTION_SOURCES = Object.freeze([
   'calculated',
   'supplied-line12e',
+]);
+export const CLIENT_1040_STANDARD_DEDUCTION_SCOPES = Object.freeze([
+  'base-and-age',
 ]);
 export const CLIENT_1040_MODELED_TAXPAYERS = Object.freeze([
   'client',
@@ -28,6 +31,7 @@ export const CLIENT_1040_SCHEDULE_1A_MODES = Object.freeze([
   'calculate-enhanced-senior',
 ]);
 export const CLIENT_1040_SCHEDULE_D_MODES = Object.freeze([
+  'manual-net-long-term',
   'simple-net-long-term',
   'supplied-form1040-line7',
 ]);

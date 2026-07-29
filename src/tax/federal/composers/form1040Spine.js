@@ -89,15 +89,20 @@ function buildLine6b(input, context, audits, scheduleSETotals){
 
 function resolveScheduleDClassification(input, context, audits){
   if(!input.scheduleD) return null;
-  const classified = scheduleDClassification.calculate({
-    filingStatus: input.filingStatus,
-    line7: input.scheduleD.line7,
-    line15: input.scheduleD.line15,
-    line16: input.scheduleD.line16,
-    line18: input.scheduleD.line18 ?? 0,
-    line19: input.scheduleD.line19 ?? 0,
-    form4952Line4g: input.scheduleD.form4952Line4g ?? 0,
-  }, context);
+  const classified = input.scheduleD.mode === 'manual-net-long-term'
+    ? scheduleDClassification.calculateManualNetLongTerm({
+      filingStatus: input.filingStatus,
+      netLongTermGainOrLoss: input.scheduleD.netLongTermGainOrLoss,
+    }, context)
+    : scheduleDClassification.calculate({
+      filingStatus: input.filingStatus,
+      line7: input.scheduleD.line7,
+      line15: input.scheduleD.line15,
+      line16: input.scheduleD.line16,
+      line18: input.scheduleD.line18 ?? 0,
+      line19: input.scheduleD.line19 ?? 0,
+      form4952Line4g: input.scheduleD.form4952Line4g ?? 0,
+    }, context);
   audits.push(classified.audit);
   return {
     ...classified.result,
@@ -344,14 +349,25 @@ function buildLine12e(input, context, audits, {
   if(wantsStandardDeduction(input)){
     const canonicalCalculated = input.deductions?.source === 'calculated'
       && input.deductions?.method === 'standard';
+    let canonicalStandardFacts = {};
+    if(canonicalCalculated){
+      const baseAndAgeScope = input.deductions.standardScope
+        === 'base-and-age';
+      canonicalStandardFacts = baseAndAgeScope
+        ? {
+          taxpayers: input.taxpayers,
+          standardScope: input.deductions.standardScope,
+        }
+        : {
+          modeledTaxpayer: input.returnScope?.modeledTaxpayer,
+          spouseItemizes: input.returnScope?.spouseItemizes,
+          taxpayers: input.taxpayers,
+          standardEligibility: input.deductions.standardEligibility,
+        };
+    }
     const std = standardDeduction.calculate({
       filingStatus: input.filingStatus,
-      ...(canonicalCalculated ? {
-        modeledTaxpayer: input.returnScope?.modeledTaxpayer,
-        spouseItemizes: input.returnScope?.spouseItemizes,
-        taxpayers: input.taxpayers,
-        standardEligibility: input.deductions.standardEligibility,
-      } : {}),
+      ...(canonicalCalculated ? canonicalStandardFacts : {}),
     }, context);
     audits.push(std.audit);
     return calculatedLine('line12e', std.result.standardDeduction, {

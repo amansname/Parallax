@@ -189,6 +189,122 @@ test('MFS calculated facts require explicit spouse-itemizes status', () => {
   assert.strictEqual(disallowed.spouseItemizesDisallowance, true);
 });
 
+test('base-and-age calculates only DOB-proven age additions for supported statuses', () => {
+  const cases = [
+    [2025, 'single', { client: { birthDate: '1960-06-15' } }, 17750],
+    [2025, 'headOfHousehold', { client: { birthDate: '1960-06-15' } }, 25625],
+    [2026, 'single', { client: { birthDate: '1962-01-01' } }, 18150],
+    [2026, 'headOfHousehold', { client: { birthDate: '1962-01-01' } }, 26200],
+    [
+      2026,
+      'marriedFilingJointly',
+      {
+        client: { birthDate: '1950-01-01' },
+        spouse: { birthDate: '1955-12-31' },
+      },
+      35500,
+    ],
+  ];
+  for(const [taxYear, filingStatus, taxpayers, expected] of cases){
+    const { result, audit } = standardDeduction.calculate({
+      filingStatus,
+      standardScope: 'base-and-age',
+      taxpayers,
+    }, ctx(taxYear));
+    assert.strictEqual(result.standardDeduction, expected);
+    assert.strictEqual(
+      audit.inputsUsed.standardScope,
+      'base-and-age'
+    );
+    assert.strictEqual(Object.hasOwn(audit.inputsUsed, 'standardEligibility'), false);
+    assert.strictEqual(Object.hasOwn(audit.inputsUsed, 'spouseItemizes'), false);
+    assert.ok(
+      audit.calculationSteps
+        .filter(step => step.step === 'age_checks')
+        .every(step => !Object.hasOwn(step, 'blind'))
+    );
+  }
+
+  const jan2 = standardDeduction.calculate({
+    filingStatus: 'single',
+    standardScope: 'base-and-age',
+    taxpayers: { client: { birthDate: '1962-01-02' } },
+  }, ctx(2026)).result;
+  assert.strictEqual(jan2.standardDeduction, 16100);
+
+  const retainedInactiveSpouse = standardDeduction.calculate({
+    filingStatus: 'single',
+    standardScope: 'base-and-age',
+    taxpayers: {
+      client: { birthDate: '1960-06-15' },
+      spouse: {
+        birthDate: '1960-06-15',
+        blind: false,
+        unrelatedRetainedFact: 'not-used',
+      },
+    },
+  }, ctx(2026));
+  assert.strictEqual(retainedInactiveSpouse.result.standardDeduction, 18150);
+  assert.deepStrictEqual(retainedInactiveSpouse.audit.inputsUsed.taxpayers, {
+    client: { birthDate: '1960-06-15' },
+  });
+});
+
+test('base-and-age rejects unsupported statuses and strict-only facts', () => {
+  const base = {
+    filingStatus: 'single',
+    standardScope: 'base-and-age',
+    taxpayers: { client: { birthDate: '1960-06-15' } },
+  };
+  const invalidInputs = [
+    { ...base, standardScope: 'unknown' },
+    { ...base, standardEligibility: {} },
+    { ...base, spouseItemizes: false },
+    {
+      ...base,
+      taxpayers: { client: { birthDate: '1960-06-15', blind: false } },
+    },
+    {
+      ...base,
+      taxpayers: { client: {} },
+    },
+    {
+      ...base,
+      filingStatus: 'marriedFilingSeparately',
+      modeledTaxpayer: 'client',
+    },
+    {
+      ...base,
+      filingStatus: 'qualifyingSurvivingSpouse',
+    },
+  ];
+  for(const input of invalidInputs){
+    assert.throws(
+      () => standardDeduction.calculate(input, ctx()),
+      /standardDeduction/
+    );
+  }
+});
+
+test('omitting standardScope preserves the strict calculated-facts contract', () => {
+  const strict = {
+    filingStatus: 'single',
+    taxpayers: {
+      client: {
+        birthDate: '1960-06-15',
+      },
+    },
+    standardEligibility: {
+      anyActiveTaxpayerCanBeClaimedAsDependent: false,
+      anyActiveTaxpayerIsDualStatusAlien: false,
+    },
+  };
+  assert.throws(
+    () => standardDeduction.calculate(strict, ctx()),
+    /blind must be a boolean/
+  );
+});
+
 test('bad inputs throw', () => {
   assert.throws(() => standardDeduction.calculate({ filingStatus: 'martian' }, ctx()));
   assert.throws(() => standardDeduction.calculate({}, ctx()));

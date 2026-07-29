@@ -36,6 +36,10 @@ function canonicalCurrent1040(overrides = {}){
       line20: 0,
       line23: 0,
     },
+    scheduleD: {
+      mode: 'supplied-form1040-line7',
+      amount: 0,
+    },
     ...overrides,
   };
 }
@@ -183,6 +187,21 @@ test('explicit canonical route honors year, deduction source, and supplied total
   assert.equal(summary.standardDeduction, null);
   assert.equal(summary.premiumTaxCredit, 0);
   assert.equal(summary.taxTotalScope, 'FULL_1040');
+});
+
+test('omitted optional Schedule D remains missing instead of becoming confirmed zero', () => {
+  const subject = plan();
+  const envelope = canonicalCurrent1040();
+  delete envelope.scheduleD;
+  subject.incomeTax.current1040 = envelope;
+
+  const summary = buildCurrentIncomeTaxSummary(subject);
+
+  assert.equal(summary.status, 'needs_facts');
+  assert.equal(summary.taxTotalScope, 'NOT_CALCULABLE');
+  assert.equal(summary.totalIncome, null);
+  assert.ok(summary.unresolvedTaxableIncomeLines.includes('line9'));
+  assert.ok(summary.reasonCodes.includes('CURRENT_1040_LINE9_DEFERRED'));
 });
 
 test('canonical supplied Social Security cannot become a false ready zero return', () => {

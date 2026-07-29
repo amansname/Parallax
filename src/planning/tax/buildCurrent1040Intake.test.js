@@ -21,6 +21,7 @@ function canonicalEnvelope(overrides = {}){
     returnScope: { modeledTaxpayer: 'client' },
     taxpayers: { client: {} },
     adjustments: { mode: 'supplied-line10', amount: 0 },
+    scheduleD: { mode: 'supplied-form1040-line7', amount: 0 },
     deductions: {
       method: 'standard',
       source: 'supplied-line12e',
@@ -345,6 +346,105 @@ test('simple Schedule D derives and preserves a signed owned long-term result', 
   });
   assert.ok(codes(buildCurrent1040Intake(subject))
     .includes('CURRENT_1040_SIMPLE_SCHEDULE_D_SHORT_TERM_NOT_ZERO'));
+});
+
+test('manual long-term mode preserves blank, zero, signed rows, and source precedence', () => {
+  const untouched = plan();
+  delete untouched.incomeTax.current1040.scheduleD;
+  const blank = buildCurrent1040Intake(untouched);
+  assert.equal(Object.hasOwn(blank.intake, 'scheduleD'), false);
+  assert.equal(blank.totalIncome, null);
+
+  const storedBlank = plan();
+  storedBlank.incomeTax.current1040.scheduleD = {
+    mode: 'manual-net-long-term',
+  };
+  const missing = buildCurrent1040Intake(storedBlank);
+  assert.ok(codes(missing).includes('CURRENT_1040_SCHEDULE_D_AMOUNT_REQUIRED'));
+  assert.equal(missing.intake.scheduleD.mode, 'manual-net-long-term');
+  assert.equal(
+    Object.hasOwn(missing.intake.scheduleD, 'netLongTermGainOrLoss'),
+    false
+  );
+
+  const malformed = plan();
+  malformed.incomeTax.current1040.scheduleD = {
+    mode: 'manual-net-long-term',
+    netLongTermGainOrLoss: 5000,
+    confirmations: {},
+  };
+  const rejected = buildCurrent1040Intake(malformed);
+  assert.ok(codes(rejected).includes('CURRENT_1040_SCHEDULE_D_SOURCE_CONFLICT'));
+  assert.equal(Object.hasOwn(rejected.intake.scheduleD, 'confirmations'), true);
+
+  const directZero = plan();
+  directZero.incomeTax.current1040.scheduleD = {
+    mode: 'manual-net-long-term',
+    netLongTermGainOrLoss: 0,
+  };
+  const zero = buildCurrent1040Intake(directZero);
+  assert.deepEqual(zero.gaps, []);
+  assert.deepEqual(zero.intake.scheduleD, {
+    mode: 'manual-net-long-term',
+    netLongTermGainOrLoss: 0,
+  });
+  assert.equal(zero.totalIncome, 75000);
+
+  const directLoss = plan();
+  directLoss.incomeTax.current1040.scheduleD = {
+    mode: 'manual-net-long-term',
+    netLongTermGainOrLoss: -5000,
+  };
+  const loss = buildCurrent1040Intake(directLoss);
+  assert.deepEqual(loss.gaps, []);
+  assert.equal(loss.intake.scheduleD.netLongTermGainOrLoss, -5000);
+  assert.equal(loss.totalIncome, null);
+
+  const rowDerived = plan();
+  rowDerived.income.other.push(
+    {
+      typeId: 'long_term_capital_gain',
+      owner: 'client',
+      amount: 2000,
+      startAge: 50,
+      endAge: 50,
+    },
+    {
+      typeId: 'long_term_capital_gain',
+      owner: 'client',
+      amount: -500,
+      startAge: 50,
+      endAge: 50,
+    }
+  );
+  rowDerived.incomeTax.current1040.scheduleD = {
+    mode: 'manual-net-long-term',
+  };
+  const summed = buildCurrent1040Intake(rowDerived);
+  assert.deepEqual(summed.gaps, []);
+  assert.equal(summed.intake.scheduleD.netLongTermGainOrLoss, 1500);
+  assert.equal(summed.totalIncome, 76500);
+
+  rowDerived.incomeTax.current1040.scheduleD.netLongTermGainOrLoss = 0;
+  assert.ok(codes(buildCurrent1040Intake(rowDerived))
+    .includes('CURRENT_1040_SCHEDULE_D_SOURCE_CONFLICT'));
+
+  const shortTerm = plan();
+  shortTerm.income.other.push({
+    typeId: 'short_term_capital_gain',
+    owner: 'client',
+    amount: 1,
+    startAge: 50,
+    endAge: 50,
+  });
+  shortTerm.incomeTax.current1040.scheduleD = {
+    mode: 'manual-net-long-term',
+    netLongTermGainOrLoss: -5000,
+  };
+  const conflict = buildCurrent1040Intake(shortTerm);
+  assert.ok(codes(conflict)
+    .includes('CURRENT_1040_MANUAL_NET_LONG_TERM_SHORT_TERM_CONFLICT'));
+  assert.equal(conflict.totalIncome, null);
 });
 
 test('Schedule D uses explicit completeness for zero but never merges competing sources', () => {

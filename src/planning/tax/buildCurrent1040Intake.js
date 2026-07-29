@@ -86,7 +86,7 @@ function mergeCanonicalIncome(explicitIncome, mappedIncome, gaps){
 }
 
 function canonicalEnteredIncomeTotal(income, scheduleD){
-  if(!isRecord(income)) return null;
+  if(!isRecord(income) || !isRecord(scheduleD)) return null;
   if(income.socialSecurity?.mode === 'calculate-taxable-benefits'){
     return null;
   }
@@ -113,24 +113,25 @@ function canonicalEnteredIncomeTotal(income, scheduleD){
   ];
   if(amounts.some(value => value === null)) return null;
 
-  let total = amounts.reduce((sum, value) => sum + value, 0);
-  if(isRecord(scheduleD)){
-    const scheduleDAmount = scheduleD.mode === 'simple-net-long-term'
-      ? scheduleD.netLongTermGainOrLoss
-      : scheduleD.mode === 'supplied-form1040-line7'
-        ? scheduleD.amount
-        : 0;
-    if(typeof scheduleDAmount !== 'number'
-        || !Number.isFinite(scheduleDAmount)){
-      return null;
-    }
-    if(scheduleD.mode === 'simple-net-long-term' && scheduleDAmount < 0){
-      // The federal rule owns the filing-status loss cap. The planning adapter
-      // cannot claim a line-9 total until that rule has resolved Form 1040 line 7.
-      return null;
-    }
-    total += scheduleDAmount;
+  const scheduleDAmount = scheduleD.mode === 'manual-net-long-term'
+      || scheduleD.mode === 'simple-net-long-term'
+    ? scheduleD.netLongTermGainOrLoss
+    : scheduleD.mode === 'supplied-form1040-line7'
+      ? scheduleD.amount
+      : null;
+  if(typeof scheduleDAmount !== 'number'
+      || !Number.isFinite(scheduleDAmount)){
+    return null;
   }
+  if((scheduleD.mode === 'manual-net-long-term'
+      || scheduleD.mode === 'simple-net-long-term')
+      && scheduleDAmount < 0){
+    // The federal rule owns the filing-status loss cap. The planning adapter
+    // cannot claim a line-9 total until that rule has resolved Form 1040 line 7.
+    return null;
+  }
+  const total = amounts.reduce((sum, value) => sum + value, 0)
+    + scheduleDAmount;
   return total;
 }
 
@@ -221,7 +222,7 @@ function relevantActiveSources(plan, filingStatus, modeledTaxpayer, gaps){
       gaps.push(makeGap(
         'CURRENT_1040_NEGATIVE_INCOME_UNSUPPORTED',
         `${path}.amount`,
-        'Only the confirmed simple long-term gain or loss path accepts a signed amount'
+        'Only a long-term capital gain or loss source accepts a signed amount'
       ));
       continue;
     }
@@ -352,15 +353,33 @@ function buildScheduleD(source, rows, gaps){
   }
   if(!isRecord(source)) return clone(source);
 
-  if(source.mode === 'simple-net-long-term'){
+  if(source.mode === 'manual-net-long-term'
+      || source.mode === 'simple-net-long-term'){
+    const manualMode = source.mode === 'manual-net-long-term';
+    const unexpectedManualKeys = manualMode
+      ? Object.keys(source).filter(
+        key => key !== 'mode' && key !== 'netLongTermGainOrLoss'
+      )
+      : [];
+    if(unexpectedManualKeys.length > 0){
+      gaps.push(makeGap(
+        'CURRENT_1040_SCHEDULE_D_SOURCE_CONFLICT',
+        'incomeTax.current1040.scheduleD',
+        `manual-net-long-term contains unsupported fields: ${unexpectedManualKeys.join(', ')}`
+      ));
+    }
     const shortTermRows = capitalRows.filter(({ normalized }) =>
       normalized.typeId === 'short_term_capital_gain'
     );
     if(shortTermRows.some(({ normalized }) => normalized.amount !== 0)){
       gaps.push(makeGap(
-        'CURRENT_1040_SIMPLE_SCHEDULE_D_SHORT_TERM_NOT_ZERO',
+        manualMode
+          ? 'CURRENT_1040_MANUAL_NET_LONG_TERM_SHORT_TERM_CONFLICT'
+          : 'CURRENT_1040_SIMPLE_SCHEDULE_D_SHORT_TERM_NOT_ZERO',
         'income.other',
-        'The simple Schedule D path requires confirmed zero short-term gain or loss'
+        manualMode
+          ? 'manual-net-long-term cannot be combined with a nonzero short-term gain or loss'
+          : 'The simple Schedule D path requires confirmed zero short-term gain or loss'
       ));
     }
     const longTermRows = capitalRows.filter(({ normalized }) =>
@@ -371,26 +390,36 @@ function buildScheduleD(source, rows, gaps){
       gaps.push(makeGap(
         'CURRENT_1040_SCHEDULE_D_SOURCE_CONFLICT',
         'incomeTax.current1040.scheduleD',
-        'Choose either owned Household long-term rows or a supplied Schedule D amount'
+        manualMode
+          ? 'Choose either owned Household long-term rows or a direct signed long-term amount'
+          : 'Choose either owned Household long-term rows or a supplied Schedule D amount'
       ));
     }
     if(longTermRows.length === 0 && !suppliedAmountPresent){
       gaps.push(makeGap(
         'CURRENT_1040_SCHEDULE_D_AMOUNT_REQUIRED',
         'incomeTax.current1040.scheduleD.netLongTermGainOrLoss',
-        'The simple Schedule D path needs an explicit signed long-term amount'
+        manualMode
+          ? 'manual-net-long-term needs an explicit signed long-term amount'
+          : 'The simple Schedule D path needs an explicit signed long-term amount'
       ));
     }
+    const derivedAmountPresent = !suppliedAmountPresent
+      && longTermRows.length > 0;
     const amount = suppliedAmountPresent
       ? source.netLongTermGainOrLoss
-      : longTermRows.reduce(
+      : derivedAmountPresent
+        ? longTermRows.reduce(
           (sum, { normalized }) => sum + normalized.amount,
           0
-        );
+        )
+        : undefined;
     return {
-      mode: source.mode,
-      netLongTermGainOrLoss: amount,
-      ...(hasOwn(source, 'confirmations')
+      ...(manualMode ? clone(source) : { mode: source.mode }),
+      ...(suppliedAmountPresent || derivedAmountPresent
+        ? { netLongTermGainOrLoss: amount }
+        : {}),
+      ...(!manualMode && hasOwn(source, 'confirmations')
         ? { confirmations: clone(source.confirmations) }
         : {}),
     };
@@ -526,19 +555,6 @@ export function buildCurrent1040Intake(plan){
     copyOwn(source, intake, key);
   }
   let scheduleD = buildScheduleD(source.scheduleD, rows, gaps);
-  const hasMappedCapitalRows = rows.some(({ normalized }) =>
-    normalized.typeId === 'short_term_capital_gain'
-    || normalized.typeId === 'long_term_capital_gain'
-  );
-  if(scheduleD === undefined
-      && source.incomeSourcesComplete === true
-      && !hasMappedCapitalRows
-      && !hasIncomeGap(gaps)){
-    scheduleD = {
-      mode: 'supplied-form1040-line7',
-      amount: 0,
-    };
-  }
   if(scheduleD !== undefined) intake.scheduleD = scheduleD;
   const totalIncome = hasIncomeGap(gaps)
     ? null

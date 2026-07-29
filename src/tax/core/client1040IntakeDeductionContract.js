@@ -3,6 +3,7 @@ import {
   CLIENT_1040_DEDUCTION_SOURCES,
   CLIENT_1040_MAGI_MODES,
   CLIENT_1040_SCHEDULE_1A_MODES,
+  CLIENT_1040_STANDARD_DEDUCTION_SCOPES,
   ITEMIZED_AMOUNT_FIELDS,
 } from './client1040IntakeContractConstants.js';
 import {
@@ -146,6 +147,49 @@ function validateStandardEligibility(errors, deductions){
   }
 }
 
+function validateBaseAndAgeStandardScope(errors, intake){
+  const deductions = intake.deductions;
+  if(hasOwn(deductions, 'standardEligibility')){
+    issue(errors, 'STANDARD_DEDUCTION_SCOPE_CONFLICT',
+      'base-and-age cannot include strict standard-deduction eligibility facts',
+      'deductions.standardEligibility');
+  }
+  if(hasOwn(deductions, 'itemized')){
+    issue(errors, 'DEDUCTION_SOURCE_CONFLICT',
+      'base-and-age cannot include calculated itemized-deduction facts',
+      'deductions.itemized');
+  }
+  if(hasOwn(intake.returnScope || {}, 'spouseItemizes')){
+    issue(errors, 'STANDARD_DEDUCTION_SCOPE_CONFLICT',
+      'base-and-age does not accept spouse-itemizes facts',
+      'returnScope.spouseItemizes');
+  }
+  if(!['single', 'marriedFilingJointly', 'headOfHousehold']
+    .includes(intake.filingStatus)){
+    issue(errors, 'BASE_AND_AGE_STANDARD_DEDUCTION_FILING_STATUS_UNSUPPORTED',
+      'base-and-age supports single, married filing jointly, and head of household',
+      'filingStatus');
+  }
+
+  for(const owner of activeTaxpayerOwners(intake)){
+    const path = `taxpayers.${owner}`;
+    const taxpayer = intake.taxpayers?.[owner];
+    if(!taxpayer || typeof taxpayer !== 'object' || Array.isArray(taxpayer)){
+      continue;
+    }
+    if(taxpayer.birthDate === undefined){
+      issue(errors, 'MISSING_TAXPAYER_BIRTH_DATE',
+        `${path}.birthDate is required for base-and-age`,
+        `${path}.birthDate`);
+    }
+    if(hasOwn(taxpayer, 'blind')){
+      issue(errors, 'STANDARD_DEDUCTION_SCOPE_CONFLICT',
+        `${path}.blind is outside the base-and-age scope`,
+        `${path}.blind`);
+    }
+  }
+}
+
 export function validateDeductions(errors, intake){
   const deductions = intake.deductions;
   if(!requirePlainObject(errors, deductions, 'deductions')) return;
@@ -155,6 +199,7 @@ export function validateDeductions(errors, intake){
     'line12e',
     'itemized',
     'standardEligibility',
+    'standardScope',
     'qbi',
     'schedule1A',
   ], 'deductions', 'UNKNOWN_CANONICAL_FIELD');
@@ -166,6 +211,14 @@ export function validateDeductions(errors, intake){
     issue(errors, 'MISSING_DEDUCTION_SOURCE',
       'deductions.source must be calculated or supplied-line12e',
       'deductions.source');
+  }
+  const standardScopePresent = hasOwn(deductions, 'standardScope');
+  const standardScopeIsValid = CLIENT_1040_STANDARD_DEDUCTION_SCOPES
+    .includes(deductions.standardScope);
+  if(standardScopePresent && !standardScopeIsValid){
+    issue(errors, 'INVALID_STANDARD_DEDUCTION_SCOPE',
+      'deductions.standardScope must be base-and-age when supplied',
+      'deductions.standardScope');
   }
 
   if(hasOwn(deductions, 'useStandard') || hasOwn(deductions, 'itemizedAmount')){
@@ -191,6 +244,11 @@ export function validateDeductions(errors, intake){
         'Supplied line 12e cannot be mixed with calculated standard-deduction eligibility facts',
         'deductions.standardEligibility');
     }
+    if(standardScopePresent){
+      issue(errors, 'DEDUCTION_SOURCE_CONFLICT',
+        'Supplied line 12e cannot be mixed with a calculated standard-deduction scope',
+        'deductions.standardScope');
+    }
   } else if(deductions.source === 'calculated'){
     if(hasOwn(deductions, 'line12e') || intake.supplied?.line12e !== undefined){
       issue(errors, 'DEDUCTION_SOURCE_CONFLICT',
@@ -198,22 +256,33 @@ export function validateDeductions(errors, intake){
         'deductions');
     }
     if(deductions.method === 'standard'){
-      validateStandardEligibility(errors, deductions);
-      for(const owner of activeTaxpayerOwners(intake)){
-        validateTaxpayerRecord(errors, intake, owner, { requireAgeBlind: true });
-      }
-      if(intake.filingStatus === 'marriedFilingSeparately'){
-        if(typeof intake.returnScope?.spouseItemizes !== 'boolean'){
-          issue(errors, 'MFS_SPOUSE_ITEMIZES_REQUIRED',
-            'MFS calculated standard deduction requires spouseItemizes true or false',
-            'returnScope.spouseItemizes');
-        } else if(intake.returnScope.spouseItemizes){
-          issue(errors, 'MFS_STANDARD_DEDUCTION_NOT_ALLOWED',
-            'Calculated standard deduction is unavailable when the MFS spouse itemizes',
-            'returnScope.spouseItemizes');
+      if(standardScopePresent){
+        if(standardScopeIsValid){
+          validateBaseAndAgeStandardScope(errors, intake);
+        }
+      } else {
+        validateStandardEligibility(errors, deductions);
+        for(const owner of activeTaxpayerOwners(intake)){
+          validateTaxpayerRecord(errors, intake, owner, { requireAgeBlind: true });
+        }
+        if(intake.filingStatus === 'marriedFilingSeparately'){
+          if(typeof intake.returnScope?.spouseItemizes !== 'boolean'){
+            issue(errors, 'MFS_SPOUSE_ITEMIZES_REQUIRED',
+              'MFS calculated standard deduction requires spouseItemizes true or false',
+              'returnScope.spouseItemizes');
+          } else if(intake.returnScope.spouseItemizes){
+            issue(errors, 'MFS_STANDARD_DEDUCTION_NOT_ALLOWED',
+              'Calculated standard deduction is unavailable when the MFS spouse itemizes',
+              'returnScope.spouseItemizes');
+          }
         }
       }
     } else if(deductions.method === 'itemized'){
+      if(standardScopePresent){
+        issue(errors, 'DEDUCTION_SOURCE_CONFLICT',
+          'Calculated itemized deductions cannot include a standard-deduction scope',
+          'deductions.standardScope');
+      }
       if(hasOwn(deductions, 'standardEligibility')){
         issue(errors, 'DEDUCTION_SOURCE_CONFLICT',
           'Calculated itemized deductions cannot include standard-deduction eligibility facts',

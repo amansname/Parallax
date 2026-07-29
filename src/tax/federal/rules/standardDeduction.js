@@ -23,7 +23,7 @@ import {
 
 export const meta = {
   ruleId: 'FED_STANDARD_DEDUCTION',
-  ruleVersion: '2.0.0',
+  ruleVersion: '2.1.0',
   supportedTaxYears: [2025, 2026],
   supportedLawVersions: ['2025_FINAL', '2026_FINAL'],
   jurisdiction: 'federal',
@@ -45,16 +45,81 @@ export const meta = {
     'ageBlindCheckCount',
   ],
   limitations: [
-    'Canonical calculation requires explicit confirmation that dependent and dual-status rules do not apply',
+    'Strict canonical calculation requires explicit confirmation that dependent and dual-status rules do not apply',
+    'The base-and-age scope calculates only the base amount and DOB-proven age additions',
     'Legacy callers that omit taxpayer facts receive the base amount only',
     'Does not award special age/blind amounts for a nonfiling MFS spouse',
   ],
   triggerTags: ['standard_deduction', 'agi_threshold'],
 };
 
+const BASE_AND_AGE_SCOPE = 'base-and-age';
+const BASE_AND_AGE_FILING_STATUSES = [
+  'single',
+  'marriedFilingJointly',
+  'headOfHousehold',
+];
+
+function validateBaseAndAgeScope(input){
+  assertOneOf(
+    input.filingStatus,
+    BASE_AND_AGE_FILING_STATUSES,
+    'filingStatus',
+    'base-and-age standardDeduction input'
+  );
+  for(const field of ['standardEligibility', 'spouseItemizes']){
+    if(Object.hasOwn(input, field)){
+      throw new TaxInputError(
+        `base-and-age standardDeduction input cannot include ${field}`,
+        { field }
+      );
+    }
+  }
+  if(!input.taxpayers || typeof input.taxpayers !== 'object'
+      || Array.isArray(input.taxpayers)){
+    throw new TaxInputError(
+      'base-and-age standardDeduction input requires taxpayers'
+    );
+  }
+  const owners = activeTaxpayerOwnersForReturn(input.filingStatus);
+  for(const owner of owners){
+    const taxpayer = input.taxpayers[owner];
+    if(taxpayer && typeof taxpayer === 'object' && !Array.isArray(taxpayer)
+        && Object.hasOwn(taxpayer, 'blind')){
+      throw new TaxInputError(
+        `base-and-age standardDeduction input cannot include taxpayers.${owner}.blind`,
+        { owner }
+      );
+    }
+  }
+  for(const owner of owners){
+    const taxpayer = input.taxpayers[owner];
+    if(!taxpayer || typeof taxpayer !== 'object' || Array.isArray(taxpayer)){
+      throw new TaxInputError(
+        `base-and-age standardDeduction input is missing taxpayers.${owner}`
+      );
+    }
+    if(!isValidTaxDate(taxpayer.birthDate)){
+      throw new TaxInputError(
+        `base-and-age standardDeduction input taxpayers.${owner}.birthDate must be a valid YYYY-MM-DD date`
+      );
+    }
+  }
+  return input;
+}
+
 export function validate(input){
   validateAgainstSchema(input, STANDARD_DEDUCTION_INPUT_SCHEMA, 'standardDeduction input');
   assertOneOf(input.filingStatus, FILING_STATUSES, 'filingStatus', 'standardDeduction input');
+  if(input.standardScope !== undefined){
+    if(input.standardScope !== BASE_AND_AGE_SCOPE){
+      throw new TaxInputError(
+        `standardDeduction input standardScope must be ${BASE_AND_AGE_SCOPE}`,
+        { standardScope: input.standardScope }
+      );
+    }
+    return validateBaseAndAgeScope(input);
+  }
   if(input.taxpayers === undefined) return input;
   if(!input.standardEligibility || typeof input.standardEligibility !== 'object'
       || Array.isArray(input.standardEligibility)){
@@ -153,6 +218,7 @@ export function calculate(input, context){
 
   const { amount, ageBlind, dataSourceId } = resolveAmount(context, input.filingStatus);
   const taxpayersSupplied = input.taxpayers !== undefined;
+  const baseAndAgeScope = input.standardScope === BASE_AND_AGE_SCOPE;
   const owners = taxpayersSupplied
     ? activeTaxpayerOwnersForReturn(input.filingStatus, input.modeledTaxpayer)
     : [];
@@ -165,18 +231,22 @@ export function calculate(input, context){
   for(const owner of owners){
     const taxpayer = input.taxpayers[owner];
     const age65OrOlder = isAge65ByTaxYearEnd(taxpayer.birthDate, context.taxYear);
-    const blind = taxpayer.blind;
-    const checkCount = Number(age65OrOlder) + Number(blind);
+    const blind = baseAndAgeScope ? undefined : taxpayer.blind;
+    const checkCount = Number(age65OrOlder) + (
+      baseAndAgeScope ? 0 : Number(blind)
+    );
     ageBlindCheckCount += checkCount;
-    personChecks.push({
+    const personCheck = {
       owner,
       birthDate: taxpayer.birthDate,
       age65OrOlder,
-      blind,
       checkCount,
-    });
+    };
+    if(!baseAndAgeScope) personCheck.blind = blind;
+    personChecks.push(personCheck);
   }
-  const spouseItemizesDisallowance = input.filingStatus === 'marriedFilingSeparately'
+  const spouseItemizesDisallowance = !baseAndAgeScope
+    && input.filingStatus === 'marriedFilingSeparately'
     && input.spouseItemizes === true;
   const additionalStandardDeduction = spouseItemizesDisallowance
     ? 0
@@ -193,6 +263,12 @@ export function calculate(input, context){
     perAgeBlindCheck: perCheck,
     spouseItemizesDisallowance,
   };
+  const baseAndAgeTaxpayers = baseAndAgeScope
+    ? Object.fromEntries(owners.map(owner => [
+      owner,
+      { birthDate: input.taxpayers[owner].birthDate },
+    ]))
+    : null;
 
   const audit = {
     ruleId: meta.ruleId,
@@ -202,17 +278,26 @@ export function calculate(input, context){
     calculatedAt: context.calculatedAt,
     runId: context.runId,
     scenarioId: context.scenarioId,
-    inputsUsed: {
-      filingStatus: input.filingStatus,
-      modeledTaxpayer: input.modeledTaxpayer ?? null,
-      spouseItemizes: input.spouseItemizes ?? null,
-      taxpayers: input.taxpayers ?? null,
-      standardEligibility: input.standardEligibility ?? null,
-    },
+    inputsUsed: baseAndAgeScope
+      ? {
+        filingStatus: input.filingStatus,
+        standardScope: input.standardScope,
+        taxpayers: baseAndAgeTaxpayers,
+      }
+      : {
+        filingStatus: input.filingStatus,
+        modeledTaxpayer: input.modeledTaxpayer ?? null,
+        spouseItemizes: input.spouseItemizes ?? null,
+        taxpayers: input.taxpayers ?? null,
+        standardEligibility: input.standardEligibility ?? null,
+      },
     dataSourcesUsed: [dataSourceId],
     calculationSteps: [
       { step: 'base_standard_deduction', filingStatus: input.filingStatus, amount },
-      ...personChecks.map(entry => ({ step: 'age_blind_checks', ...entry })),
+      ...personChecks.map(entry => ({
+        step: baseAndAgeScope ? 'age_checks' : 'age_blind_checks',
+        ...entry,
+      })),
       {
         step: 'standard_deduction_total',
         perCheck,

@@ -319,7 +319,17 @@ export function client1040IntakeToComposerInput(intake){
 
   if(intake.scheduleD){
 
-    if(intake.scheduleD.mode === 'simple-net-long-term'){
+    if(intake.scheduleD.mode === 'manual-net-long-term'){
+
+      input.scheduleD = {
+
+        mode: intake.scheduleD.mode,
+
+        netLongTermGainOrLoss: intake.scheduleD.netLongTermGainOrLoss,
+
+      };
+
+    } else if(intake.scheduleD.mode === 'simple-net-long-term'){
 
       const amount = intake.scheduleD.netLongTermGainOrLoss;
 

@@ -25,7 +25,7 @@ export {
   validateClient1040Contract,
 } from './core/client1040IntakeContract.js';
 
-export const ANNUAL_1040_MODULE_VERSION = '1.5.0';
+export const ANNUAL_1040_MODULE_VERSION = '1.6.0';
 
 export function buildDefaultTaxContext(overrides = {}){
   return buildTaxContext(overrides);

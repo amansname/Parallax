@@ -217,3 +217,62 @@ test('every net loss keeps carryforward worksheet readiness, even below the annu
     minimumAmount: 0,
   });
 });
+
+test('manual net long-term input preserves signed treatment without synthetic Schedule D facts', () => {
+  for(const [amount, line7, preferential] of [
+    [-5000, -3000, 0],
+    [0, 0, 0],
+    [5000, 5000, 5000],
+  ]){
+    const { result, audit } = scheduleDClassification.calculateManualNetLongTerm({
+      filingStatus: 'single',
+      netLongTermGainOrLoss: amount,
+    }, ctx());
+    assert.strictEqual(result.form1040Line7, line7);
+    assert.strictEqual(result.preferentialScheduleDGain, preferential);
+    assert.strictEqual(result.scheduleDLine16, amount);
+    assert.deepStrictEqual(audit.inputsUsed, {
+      inputMode: 'MANUAL_NET_LONG_TERM',
+      filingStatus: 'single',
+      netLongTermGainOrLoss: amount,
+    });
+    assert.deepStrictEqual(audit.dataSourcesUsed, ['IRS_2025_SCHEDULE_D_v1.0']);
+    assert.strictEqual(Object.hasOwn(audit.inputsUsed, 'line7'), false);
+    assert.strictEqual(Object.hasOwn(audit.inputsUsed, 'confirmations'), false);
+  }
+});
+
+test('manual net long-term loss uses the filing-status cap and honest carryforward readiness', () => {
+  const { result } = scheduleDClassification.calculateManualNetLongTerm({
+    filingStatus: 'marriedFilingSeparately',
+    netLongTermGainOrLoss: -4000,
+  }, ctx(2026));
+  assert.strictEqual(result.form1040Line7, -1500);
+  assert.strictEqual(result.capitalLossLimitApplied, 1500);
+  assert.deepStrictEqual(result.capitalLossCarryforward, {
+    status: 'WORKSHEET_REQUIRED',
+    exactAmount: null,
+    minimumAmount: 2500,
+    reasonCode: 'CAPITAL_LOSS_CARRYFORWARD_WORKSHEET_REQUIRED',
+  });
+});
+
+test('manual net long-term input rejects missing, non-finite, and competing facts', () => {
+  for(const invalid of [undefined, null, '5000', Number.NaN, Infinity]){
+    assert.throws(
+      () => scheduleDClassification.calculateManualNetLongTerm({
+        filingStatus: 'single',
+        netLongTermGainOrLoss: invalid,
+      }, ctx()),
+      TaxInputError
+    );
+  }
+  assert.throws(
+    () => scheduleDClassification.calculateManualNetLongTerm({
+      filingStatus: 'single',
+      netLongTermGainOrLoss: 5000,
+      line15: 5000,
+    }, ctx()),
+    /unsupported fields/
+  );
+});

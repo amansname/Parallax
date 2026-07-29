@@ -481,6 +481,15 @@ test('legacy unversioned intake remains valid and preserves explicit zero', () =
   assert.strictEqual(input.passThrough.line23, 0);
 });
 
+test('legacy full-income composition without a deductions object keeps the default standard deduction', () => {
+  const composition = composeAnnualFederalTax({
+    filingStatus: 'single',
+    supplied: { line1z: 50000 },
+  }, context());
+  assert.strictEqual(composition.result.form1040.line12e.status, 'CALCULATED');
+  assert.strictEqual(composition.result.form1040.line12e.value, 16100);
+});
+
 test('legacy compatibility keeps null-as-absent while still rejecting non-finite values', () => {
   const nullWages = {
     filingStatus: 'single',
@@ -696,6 +705,169 @@ test('canonical calculated standard deduction blocks dependent and dual-status c
       error => error.validation.errors.some(entry => entry.code === code)
     );
   }
+});
+
+test('base-and-age calculates only DOB-proven standard-deduction amounts', () => {
+  const single = canonical({
+    taxpayers: {
+      client: { birthDate: '1960-06-15' },
+    },
+    deductions: {
+      method: 'standard',
+      source: 'calculated',
+      standardScope: 'base-and-age',
+      qbi: 0,
+      schedule1A: { mode: 'supplied-line13b', amount: 0 },
+    },
+  });
+  assert.deepStrictEqual(codes(single), []);
+  const singleInput = client1040IntakeToComposerInput(single);
+  assert.strictEqual(singleInput.deductions.standardScope, 'base-and-age');
+  assert.ok(!Object.hasOwn(singleInput.supplied, 'line12e'));
+  const singlePipeline = runClient1040Intake(single, context());
+  assert.strictEqual(singlePipeline.result.form1040.line12e.status, 'CALCULATED');
+  assert.strictEqual(singlePipeline.result.form1040.line12e.value, 18150);
+
+  const joint = canonical({
+    filingStatus: 'marriedFilingJointly',
+    returnScope: { modeledTaxpayer: 'jointReturn' },
+    taxpayers: {
+      client: { birthDate: '1950-01-01' },
+      spouse: { birthDate: '1955-12-31' },
+    },
+    deductions: {
+      method: 'standard',
+      source: 'calculated',
+      standardScope: 'base-and-age',
+      qbi: 0,
+      schedule1A: { mode: 'supplied-line13b', amount: 0 },
+    },
+  });
+  assert.deepStrictEqual(codes(joint), []);
+  assert.strictEqual(
+    runClient1040Intake(joint, context()).result.form1040.line12e.value,
+    35500
+  );
+});
+
+test('base-and-age rejects incompatible statuses, sources, and strict facts', () => {
+  const base = canonical({
+    taxpayers: {
+      client: { birthDate: '1960-06-15' },
+    },
+    deductions: {
+      method: 'standard',
+      source: 'calculated',
+      standardScope: 'base-and-age',
+      qbi: 0,
+      schedule1A: { mode: 'supplied-line13b', amount: 0 },
+    },
+  });
+
+  const cases = [
+    {
+      intake: {
+        ...base,
+        deductions: {
+          ...base.deductions,
+          source: 'supplied-line12e',
+          line12e: 0,
+        },
+      },
+      code: 'DEDUCTION_SOURCE_CONFLICT',
+    },
+    {
+      intake: {
+        ...base,
+        deductions: {
+          ...base.deductions,
+          method: 'itemized',
+        },
+      },
+      code: 'DEDUCTION_SOURCE_CONFLICT',
+    },
+    {
+      intake: {
+        ...base,
+        deductions: {
+          ...base.deductions,
+          standardEligibility: {
+            anyActiveTaxpayerCanBeClaimedAsDependent: false,
+            anyActiveTaxpayerIsDualStatusAlien: false,
+          },
+        },
+      },
+      code: 'STANDARD_DEDUCTION_SCOPE_CONFLICT',
+    },
+    {
+      intake: {
+        ...base,
+        taxpayers: {
+          client: { ...base.taxpayers.client, blind: false },
+        },
+      },
+      code: 'STANDARD_DEDUCTION_SCOPE_CONFLICT',
+    },
+    {
+      intake: {
+        ...base,
+        returnScope: { modeledTaxpayer: 'client', spouseItemizes: false },
+      },
+      code: 'STANDARD_DEDUCTION_SCOPE_CONFLICT',
+    },
+    {
+      intake: {
+        ...base,
+        deductions: { ...base.deductions, standardScope: null },
+      },
+      code: 'INVALID_STANDARD_DEDUCTION_SCOPE',
+    },
+    {
+      intake: {
+        ...base,
+        taxpayers: { client: {} },
+      },
+      code: 'MISSING_TAXPAYER_BIRTH_DATE',
+    },
+    {
+      intake: {
+        ...base,
+        filingStatus: 'marriedFilingSeparately',
+        returnScope: { modeledTaxpayer: 'client' },
+      },
+      code: 'BASE_AND_AGE_STANDARD_DEDUCTION_FILING_STATUS_UNSUPPORTED',
+    },
+    {
+      intake: {
+        ...base,
+        filingStatus: 'qualifyingSurvivingSpouse',
+      },
+      code: 'BASE_AND_AGE_STANDARD_DEDUCTION_FILING_STATUS_UNSUPPORTED',
+    },
+  ];
+
+  for(const { intake, code } of cases){
+    assert.ok(contractCodes(intake).includes(code), code);
+    assert.throws(
+      () => runClient1040Intake(intake, context(), { strict: false }),
+      error => error.validation.errors.some(entry => entry.code === code),
+      code
+    );
+  }
+
+  const strict = canonical({
+    taxpayers: { client: { birthDate: '1960-06-15' } },
+    deductions: {
+      method: 'standard',
+      source: 'calculated',
+      standardEligibility: {},
+      qbi: 0,
+      schedule1A: { mode: 'supplied-line13b', amount: 0 },
+    },
+  });
+  assert.ok(codes(strict).includes('MISSING_TAXPAYER_BLIND_STATUS'));
+  assert.ok(codes(strict).includes('DEPENDENT_STANDARD_DEDUCTION_DEFERRED'));
+  assert.ok(codes(strict).includes('DUAL_STATUS_STANDARD_DEDUCTION_DEFERRED'));
 });
 
 test('MFS calculated Social Security requires lived-with-spouse but supplied line 6b does not', () => {
@@ -1041,6 +1213,77 @@ test('high-AGI calculated itemized preserves missing QBI and Schedule 1-A as def
     assert.ok(pipeline.report.limitations
       .some(limitation => limitation.code === entry.limitation));
   }
+});
+
+test('manual net long-term mode preserves signed values without confirmation facts', () => {
+  for(const amount of [-5000, 0, 5000]){
+    const intake = canonical({
+      scheduleD: {
+        mode: 'manual-net-long-term',
+        netLongTermGainOrLoss: amount,
+      },
+    });
+    assert.deepStrictEqual(codes(intake), []);
+
+    const mapped = client1040IntakeToComposerInput(intake);
+    assert.deepStrictEqual(mapped.scheduleD, {
+      mode: 'manual-net-long-term',
+      netLongTermGainOrLoss: amount,
+    });
+    assert.strictEqual(Object.hasOwn(mapped.supplied, 'line7a'), false);
+
+    const pipeline = runClient1040Intake(intake, context());
+    assert.deepStrictEqual(pipeline.report.contract.limitations, []);
+    if(amount < 0){
+      assert.strictEqual(pipeline.result.form1040.line7a.value, -3000);
+      assert.strictEqual(
+        pipeline.annual1040Result.federalSummary.preferentialIncome,
+        0
+      );
+      assert.strictEqual(
+        pipeline.annual1040Result.readiness.capitalLossCarryforward.status,
+        'WORKSHEET_REQUIRED'
+      );
+      assert.strictEqual(
+        pipeline.annual1040Result.readiness.capitalLossCarryforward.exactAmount,
+        null
+      );
+    } else {
+      assert.strictEqual(pipeline.result.form1040.line7a.value, amount);
+      assert.strictEqual(
+        pipeline.annual1040Result.federalSummary.preferentialIncome,
+        amount
+      );
+    }
+  }
+
+  for(const invalid of [undefined, null, '5000', Number.NaN, Infinity]){
+    const intake = canonical({
+      scheduleD: {
+        mode: 'manual-net-long-term',
+        netLongTermGainOrLoss: invalid,
+      },
+    });
+    assert.ok(codes(intake).includes('INVALID_SIGNED_AMOUNT'));
+  }
+
+  const extraFacts = canonical({
+    scheduleD: {
+      mode: 'manual-net-long-term',
+      netLongTermGainOrLoss: 5000,
+      confirmations: {},
+    },
+  });
+  assert.ok(codes(extraFacts).includes('SCHEDULE_D_SOURCE_CONFLICT'));
+
+  const competing = canonical({
+    income: completeCanonicalIncome({ capitalGain: 5000 }),
+    scheduleD: {
+      mode: 'manual-net-long-term',
+      netLongTermGainOrLoss: 5000,
+    },
+  });
+  assert.ok(codes(competing).includes('FORM1040_LINE7_SOURCE_CONFLICT'));
 });
 
 test('simple Schedule D requires every zero/not-applicable confirmation for either sign', () => {

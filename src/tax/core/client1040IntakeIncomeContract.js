@@ -239,7 +239,7 @@ export function validateScheduleD(errors, intake){
   if(!requirePlainObject(errors, scheduleD, 'scheduleD')) return;
   if(!CLIENT_1040_SCHEDULE_D_MODES.includes(scheduleD.mode)){
     issue(errors, 'INVALID_SCHEDULE_D_MODE',
-      'Canonical Schedule D supports only simple-net-long-term or supplied-form1040-line7',
+      'Canonical Schedule D supports manual-net-long-term, simple-net-long-term, or supplied-form1040-line7',
       'scheduleD.mode');
     return;
   }
@@ -249,6 +249,16 @@ export function validateScheduleD(errors, intake){
     issue(errors, 'FORM1040_LINE7_SOURCE_CONFLICT',
       'Canonical Schedule D cannot be mixed with another Form 1040 line 7 source',
       'scheduleD');
+  }
+
+  if(scheduleD.mode === 'manual-net-long-term'){
+    rejectUnexpectedKeys(errors, scheduleD, [
+      'mode',
+      'netLongTermGainOrLoss',
+    ], 'scheduleD', 'SCHEDULE_D_SOURCE_CONFLICT');
+    requireFinite(errors, scheduleD.netLongTermGainOrLoss,
+      'scheduleD.netLongTermGainOrLoss');
+    return;
   }
 
   if(scheduleD.mode === 'simple-net-long-term'){
