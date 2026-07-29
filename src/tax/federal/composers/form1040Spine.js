@@ -120,6 +120,13 @@ function buildLine3b(input){
 
 function buildLine10(input, context, audits){
   const supplied = readSupplied(input, 'line10');
+  const suppliedTraditionalIraDeduction =
+    input.adjustmentComponents?.traditionalIraDeduction;
+  if(supplied !== undefined && suppliedTraditionalIraDeduction !== undefined){
+    throw new Error(
+      'Form 1040 line 10 cannot mix a supplied total with a supplied traditional IRA component'
+    );
+  }
   let total = supplied ?? 0;
 
   if(input.traditionalIra){
@@ -135,6 +142,9 @@ function buildLine10(input, context, audits){
     });
   }
 
+  if(suppliedTraditionalIraDeduction !== undefined){
+    return suppliedLine('line10', suppliedTraditionalIraDeduction);
+  }
   if(supplied !== undefined) return suppliedLine('line10', supplied);
   return deferredLine('line10');
 }
@@ -322,7 +332,7 @@ function buildIncomeAndDeductionLines(input, context, audits){
     line24: deferredLine('line24'),
   });
 
-  for(const detailId of ['line4a', 'line5a', 'line6a']){
+  for(const detailId of ['line2a', 'line4a', 'line5a', 'line6a']){
     const detailValue = readSupplied(input, detailId);
     if(detailValue !== undefined){
       form1040[detailId] = suppliedLine(detailId, detailValue);

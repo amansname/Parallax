@@ -1,6 +1,10 @@
 /* Validate client 1040 intake before compose. */
 
 import { readIntakeField } from '../core/1040BasicLineMap.js';
+import {
+  CLIENT_1040_COMPATIBILITY_MODES,
+  validateClient1040Contract,
+} from '../core/client1040IntakeContract.js';
 
 const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
 
@@ -13,21 +17,57 @@ function pushWarning(warnings, code, message){
 }
 
 function assertNonNegative(errors, value, label){
+  // Legacy unversioned intake historically treated null as absent. Canonical
+  // validation rejects null before this compatibility validator runs.
   if(value === undefined || value === null) return;
-  if(typeof value !== 'number' || Number.isNaN(value)){
+  if(typeof value !== 'number' || !Number.isFinite(value)){
     pushError(errors, 'INVALID_NUMBER', `${label} must be a number`);
     return;
   }
   if(value < 0) pushError(errors, 'NEGATIVE_AMOUNT', `${label} cannot be negative`);
 }
 
-export function validateClient1040Intake(intake){
+function addPendingCanonicalCapabilities(errors, intake, contract){
+  if(contract.compatibilityMode !== CLIENT_1040_COMPATIBILITY_MODES.CANONICAL) return;
+  const deductions = intake.deductions;
+  if(deductions?.source === 'calculated' && deductions.method === 'standard'){
+    pushError(errors, 'STANDARD_DEDUCTION_AGE_BLIND_RULE_PENDING',
+      'Canonical calculated standard deduction is blocked until age/blind additions are implemented');
+  }
+  if(deductions?.source === 'calculated' && deductions.method === 'itemized'){
+    pushError(errors, 'CALCULATED_ITEMIZED_DEDUCTION_RULES_PENDING',
+      'Canonical calculated itemized deductions are blocked until the versioned rules are implemented');
+  }
+  if(deductions?.schedule1A?.mode === 'calculate-enhanced-senior'){
+    pushError(errors, 'ENHANCED_SENIOR_DEDUCTION_RULE_PENDING',
+      'Canonical enhanced senior deduction is blocked until the Schedule 1-A rule is implemented');
+  }
+  if(intake.taxYear === 2026 && Array.isArray(intake.scheduleSE)
+      && intake.scheduleSE.length > 0){
+    pushError(errors, 'SCHEDULE_SE_2026_RULE_PENDING',
+      'Canonical 2026 Schedule SE is blocked until the 2026 rule data is implemented');
+  }
+}
+
+function addCanonicalLimitations(warnings, contract){
+  if(contract.compatibilityMode !== CLIENT_1040_COMPATIBILITY_MODES.CANONICAL) return;
+  for(const limitation of contract.limitations){
+    pushWarning(warnings, limitation.code, limitation.message);
+  }
+}
+
+export function validateClient1040Intake(intake, context){
   const errors = [];
   const warnings = [];
+  const contractValidation = validateClient1040Contract(intake, context);
+  errors.push(...contractValidation.errors);
+  if(intake && typeof intake === 'object' && !Array.isArray(intake)){
+    addPendingCanonicalCapabilities(errors, intake, contractValidation.contract);
+  }
 
   if(!intake || typeof intake !== 'object' || Array.isArray(intake)){
     pushError(errors, 'INVALID_INTAKE', 'intake must be a plain object');
-    return { errors, warnings };
+    return { errors, warnings, contract: contractValidation.contract };
   }
 
   if(!intake.filingStatus){
@@ -54,15 +94,16 @@ export function validateClient1040Intake(intake){
     pushError(errors, 'DEDUCTION_CONFLICT', 'deductions.useStandard and deductions.itemizedAmount are contradictory');
   }
 
-  if(intake.taxYear !== undefined && typeof intake.taxYear !== 'number'){
-    pushError(errors, 'INVALID_TAX_YEAR', 'taxYear must be a number');
+  if(intake.taxYear !== undefined
+      && (typeof intake.taxYear !== 'number' || !Number.isFinite(intake.taxYear))){
+    pushError(errors, 'INVALID_TAX_YEAR', 'taxYear must be a finite number');
   }
 
   if(intake.passThrough){
     for(const lineId of ['line11a', 'line15', 'line17', 'line19', 'line20', 'line23']){
       const value = intake.passThrough[lineId];
       if(value === undefined) continue;
-      if(typeof value !== 'number' || Number.isNaN(value)){
+      if(typeof value !== 'number' || !Number.isFinite(value)){
         pushError(errors, 'INVALID_PASS_THROUGH', `passThrough.${lineId} must be a number`);
       }
     }
@@ -116,7 +157,10 @@ export function validateClient1040Intake(intake){
     }
   }
 
-  return { errors, warnings };
+  if(errors.length === 0){
+    addCanonicalLimitations(warnings, contractValidation.contract);
+  }
+  return { errors, warnings, contract: contractValidation.contract };
 }
 
 export function applyValidationWarnings(warnings, intake, result){

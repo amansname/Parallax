@@ -112,6 +112,7 @@ export const ANNUAL_FEDERAL_TAX_INPUT_SCHEMA = {
     taxableOrdinaryIncome:  'number',
     ordinaryTaxableIncome:  'number',
     supplied:               'object',
+    adjustmentComponents:   'object',
     deductions:             'object',
     socialSecurity:         'object',
     traditionalIra:         'object',
