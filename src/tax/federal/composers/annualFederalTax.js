@@ -13,7 +13,6 @@ import {
 import { buildForm1040IncomeSpine, resolvePreferentialComponents } from './form1040Spine.js';
 import { capitalGainsStacking } from '../rules/capitalGainsStacking.js';
 import { ordinaryIncomeTax } from '../rules/ordinaryIncomeTax.js';
-import { selfEmploymentTax } from '../rules/selfEmploymentTax.js';
 
 const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
 
@@ -24,18 +23,9 @@ function resolvePassThroughTaxLine(input, lineId){
   return deferredLine(lineId);
 }
 
-function resolveSchedule2Line23(input, context, audits){
-  if(!Array.isArray(input.scheduleSE) || input.scheduleSE.length === 0){
+function resolveSchedule2Line23(input, scheduleSETotals){
+  if(!scheduleSETotals){
     return resolvePassThroughTaxLine(input, 'line23');
-  }
-
-  let selfEmploymentTaxTotal = 0;
-  let firstAuditIndex = null;
-  for(const scheduleSE of input.scheduleSE){
-    const calculated = selfEmploymentTax.calculate(scheduleSE, context);
-    audits.push(calculated.audit);
-    if(firstAuditIndex === null) firstAuditIndex = audits.length - 1;
-    selfEmploymentTaxTotal += calculated.result.selfEmploymentTax;
   }
 
   const schedule2 = input.schedule2;
@@ -48,18 +38,46 @@ function resolveSchedule2Line23(input, context, audits){
   }
 
   const line23Value = round2(
-    selfEmploymentTaxTotal
+    scheduleSETotals.selfEmploymentTaxTotal
     + schedule2.netInvestmentIncomeTax
     + schedule2.additionalMedicareTax
     + schedule2.otherPartIITaxes
   );
   return calculatedLine('line23', line23Value, {
     ruleId: 'FED_SELF_EMPLOYMENT_TAX+SCHEDULE_2_SUPPLIED_TAXES',
-    auditIndex: firstAuditIndex,
+    auditIndex: scheduleSETotals.auditIndexes[0],
   });
 }
 
-function buildTaxLines(input, context, form1040, ordinaryTaxableIncome, preferentialIncome, audits, scheduleDClassificationResult){
+function buildTaxLines(input, context, form1040, ordinaryTaxableIncome, preferentialIncome, audits, scheduleDClassificationResult, scheduleSETotals){
+  if(form1040.line15.status === LINE_STATUS.DEFERRED
+      || ordinaryTaxableIncome === null){
+    const line17 = resolvePassThroughTaxLine(input, 'line17');
+    const line19 = resolvePassThroughTaxLine(input, 'line19');
+    const line20 = resolvePassThroughTaxLine(input, 'line20');
+    const line21 = (
+      line19.status === LINE_STATUS.DEFERRED
+      && line20.status === LINE_STATUS.DEFERRED
+    )
+      ? deferredLine('line21')
+      : calculatedLine(
+        'line21',
+        round2(lineAmount(line19) + lineAmount(line20))
+      );
+    const line23 = resolveSchedule2Line23(input, scheduleSETotals);
+    return {
+      ...form1040,
+      line16: deferredLine('line16'),
+      line17,
+      line18: deferredLine('line18'),
+      line19,
+      line20,
+      line21,
+      line22: deferredLine('line22'),
+      line23,
+      line24: deferredLine('line24'),
+    };
+  }
   const ordinaryInput = {
     filingStatus: input.filingStatus,
     taxableOrdinaryIncome: ordinaryTaxableIncome,
@@ -98,7 +116,7 @@ function buildTaxLines(input, context, form1040, ordinaryTaxableIncome, preferen
     ? deferredLine('line21')
     : calculatedLine('line21', round2(lineAmount(line19) + lineAmount(line20)));
   const line22 = calculatedLine('line22', Math.max(0, round2(lineAmount(line18) - lineAmount(line21))));
-  const line23 = resolveSchedule2Line23(input, context, audits);
+  const line23 = resolveSchedule2Line23(input, scheduleSETotals);
   const line24 = calculatedLine('line24', round2(lineAmount(line22) + lineAmount(line23)));
 
   return {
@@ -116,7 +134,14 @@ function buildTaxLines(input, context, form1040, ordinaryTaxableIncome, preferen
 }
 
 export function composeAnnualFederalTax(input, context){
-  const { form1040: incomeSpine, ordinaryTaxableIncome, preferentialIncome, audits, scheduleDClassification } =
+  const {
+    form1040: incomeSpine,
+    ordinaryTaxableIncome,
+    preferentialIncome,
+    audits,
+    scheduleDClassification,
+    scheduleSETotals,
+  } =
     buildForm1040IncomeSpine(input, context);
 
   const form1040 = buildTaxLines(
@@ -126,17 +151,36 @@ export function composeAnnualFederalTax(input, context){
     ordinaryTaxableIncome,
     preferentialIncome,
     audits,
-    scheduleDClassification
+    scheduleDClassification,
+    scheduleSETotals
   );
 
   const totalFederalTax = form1040.line24.value;
   const taxTotalScope = resolveTaxTotalScope(form1040);
+  const unresolvedTaxableIncomeLines = [
+    'line3a',
+    'line9',
+    'line10',
+    'line12e',
+    'line13a',
+    'line13b',
+  ].filter(lineId => form1040[lineId]?.status === LINE_STATUS.DEFERRED);
 
   return {
     result: {
       form1040,
       totalFederalTax,
       taxTotalScope,
+      preferentialIncome,
+      readiness: {
+        unresolvedTaxableIncomeLines,
+        capitalLossCarryforward:
+          scheduleDClassification?.capitalLossCarryforward ?? {
+            status: 'NOT_EVALUATED',
+            exactAmount: null,
+            minimumAmount: null,
+          },
+      },
     },
     audits,
   };

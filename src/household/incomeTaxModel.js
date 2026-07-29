@@ -90,12 +90,16 @@ export function normalizedIncomeSource(plan, source = {}){
   const owner = source.owner === 'spouse' || source.owner === 'joint' ? source.owner : 'client';
   const currentAge = currentAgeForOwner(plan, owner);
   const retirementAge = retirementAgeForOwner(plan, owner);
+  const enteredAmount = Number(source.amount);
+  const amount = type.id === 'long_term_capital_gain'
+    ? (Number.isFinite(enteredAmount) ? enteredAmount : 0)
+    : Math.max(0, enteredAmount || 0);
   return {
     ...source,
     typeId: type.id,
     label: source.label || type.label,
     owner,
-    amount: Math.max(0, Number(source.amount) || 0),
+    amount,
     startAge: source.startAge ?? currentAge,
     endAge: source.endAge ?? (type.timing === 'working'
       ? retirementAge - 1

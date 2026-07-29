@@ -27,7 +27,9 @@ test('authoritative benchmark: redacted 2025 MFJ line24 within tolerance', () =>
   );
   assert.ok(audits.some((audit) => (
     audit.ruleId === 'FED_SELF_EMPLOYMENT_TAX'
-    && audit.calculationSteps.at(-1).tax === 1028
+    && audit.calculationSteps.find(
+      step => step.scheduleSELine === 12
+    )?.tax === fixture.sourceEvidence.scheduleSE.line12
   )));
   assert.strictEqual(annual1040Result.lines.line24.value, 10330.4);
   assert.strictEqual(annual1040Result.reconciliation.theirLine24, 10331);

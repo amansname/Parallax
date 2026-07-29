@@ -20,7 +20,7 @@ function assertVersionedIntakeIsMappable(intake){
   const validation = validateClient1040Intake(intake);
   if(validation.contract.compatibilityMode
       === CLIENT_1040_COMPATIBILITY_MODES.LEGACY_UNVERSIONED){
-    return;
+    return validation.contract.compatibilityMode;
   }
   if(validation.errors.length > 0){
     const error = new Error(
@@ -31,6 +31,7 @@ function assertVersionedIntakeIsMappable(intake){
     error.validation = validation;
     throw error;
   }
+  return validation.contract.compatibilityMode;
 }
 
 
@@ -49,11 +50,12 @@ export function client1040IntakeToComposerInput(intake){
 
   }
 
-  assertVersionedIntakeIsMappable(intake);
+  const intakeCompatibilityMode = assertVersionedIntakeIsMappable(intake);
 
-
-
-  const input = { filingStatus: intake.filingStatus };
+  const input = {
+    filingStatus: intake.filingStatus,
+    intakeCompatibilityMode,
+  };
 
 
 
@@ -333,6 +335,8 @@ export function client1040IntakeToComposerInput(intake){
 
         line19: 0,
 
+        form4952Line4g: 0,
+
       };
 
     } else if(intake.scheduleD.mode === 'schedule-d-summary'){
@@ -398,6 +402,15 @@ export function reconcileTaxTotal(result, theirLine24, tolerance = 1){
   if(theirLine24 === undefined || theirLine24 === null) return null;
 
   const computed = result.totalFederalTax;
+  if(typeof computed !== 'number' || !Number.isFinite(computed)){
+    return {
+      theirLine24,
+      computedLine24: null,
+      delta: null,
+      withinTolerance: false,
+      taxTotalScope: result.taxTotalScope,
+    };
+  }
 
   const delta = Math.round((computed - theirLine24 + Number.EPSILON) * 100) / 100;
 

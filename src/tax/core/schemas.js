@@ -78,7 +78,11 @@ export const TAXABLE_SOCIAL_SECURITY_INPUT_SCHEMA = {
 
 export const STANDARD_DEDUCTION_INPUT_SCHEMA = {
   fields: {
-    filingStatus: 'string',
+    filingStatus:        'string',
+    modeledTaxpayer:     'string',
+    spouseItemizes:      'boolean',
+    taxpayers:           'object',
+    standardEligibility: 'object',
   },
   required: ['filingStatus'],
 };
@@ -91,17 +95,23 @@ export const SCHEDULE_D_CLASSIFICATION_INPUT_SCHEMA = {
     line16: 'number',
     line18: 'number',
     line19: 'number',
+    form4952Line4g: 'number',
   },
   required: ['filingStatus', 'line7', 'line15', 'line16'],
 };
 
 export const SELF_EMPLOYMENT_TAX_INPUT_SCHEMA = {
   fields: {
-    taxpayer:                          'string',
-    netEarningsFromSelfEmployment:     'number',
-    socialSecurityWagesAndTips:        'number',
+    taxpayer:                                           'string',
+    netEarningsFromSelfEmployment:                      'number',
+    socialSecurityWagesAndTips:                         'number',
+    socialSecurityWagesAndTipsIsScheduleSELine8d:       'boolean',
   },
-  required: ['netEarningsFromSelfEmployment', 'socialSecurityWagesAndTips'],
+  required: [
+    'netEarningsFromSelfEmployment',
+    'socialSecurityWagesAndTips',
+    'socialSecurityWagesAndTipsIsScheduleSELine8d',
+  ],
 };
 
 export const FORM1040_LINE_STATUSES = ['CALCULATED', 'SUPPLIED', 'DEFERRED', 'NOT_APPLICABLE'];

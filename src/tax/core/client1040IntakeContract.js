@@ -76,9 +76,49 @@ export function describeClient1040IntakeContract(intake){
         field => scheduleD.confirmations?.[field] === true
       )
     : null;
-  const limitations = scheduleD?.mode === 'simple-net-long-term'
-    ? Object.freeze([CLIENT_1040_LIMITATIONS.SIMPLE_SCHEDULE_D_ONLY])
-    : Object.freeze([]);
+  const limitations = [];
+  if(compatibilityMode === CLIENT_1040_COMPATIBILITY_MODES.CANONICAL
+      && scheduleD?.mode === 'simple-net-long-term'){
+    limitations.push(CLIENT_1040_LIMITATIONS.SIMPLE_SCHEDULE_D_ONLY);
+  }
+  if(compatibilityMode === CLIENT_1040_COMPATIBILITY_MODES.CANONICAL
+      && Array.isArray(intake?.scheduleSE)
+      && intake.scheduleSE.length > 0){
+    limitations.push(
+      CLIENT_1040_LIMITATIONS.SCHEDULE_SE_RESOLVED_LINE_6_ONLY
+    );
+  }
+  if(compatibilityMode === CLIENT_1040_COMPATIBILITY_MODES.CANONICAL
+      && intake?.income?.socialSecurity?.mode
+        === 'calculate-taxable-benefits'){
+    limitations.push(
+      CLIENT_1040_LIMITATIONS.SOCIAL_SECURITY_WORKSHEET_ADJUSTMENT_SUBSET
+    );
+  }
+  if(compatibilityMode === CLIENT_1040_COMPATIBILITY_MODES.CANONICAL
+      && intake?.deductions?.source === 'calculated'
+      && intake?.deductions?.method === 'itemized'){
+    limitations.push(CLIENT_1040_LIMITATIONS.ITEMIZED_COMPONENTS_ALREADY_LIMITED);
+  }
+  if(compatibilityMode === CLIENT_1040_COMPATIBILITY_MODES.CANONICAL
+      && intake?.deductions?.schedule1A === undefined){
+    limitations.push(CLIENT_1040_LIMITATIONS.MISSING_SCHEDULE_1A_DEFERRED);
+  }
+  if(compatibilityMode === CLIENT_1040_COMPATIBILITY_MODES.CANONICAL
+      && intake?.adjustments === undefined
+      && (!Array.isArray(intake?.scheduleSE) || intake.scheduleSE.length === 0)){
+    limitations.push(CLIENT_1040_LIMITATIONS.MISSING_ADJUSTMENTS_DEFERRED);
+  }
+  if(compatibilityMode === CLIENT_1040_COMPATIBILITY_MODES.CANONICAL
+      && !hasOwn(intake?.deductions, 'qbi')){
+    limitations.push(CLIENT_1040_LIMITATIONS.MISSING_QBI_DEFERRED);
+  }
+  if(compatibilityMode === CLIENT_1040_COMPATIBILITY_MODES.CANONICAL
+      && intake?.filingStatus === 'qualifyingSurvivingSpouse'){
+    limitations.push(
+      CLIENT_1040_LIMITATIONS.QUALIFYING_SURVIVING_SPOUSE_DEFERRED
+    );
+  }
   const expectedLawVersion = CLIENT_1040_SUPPORTED_TAX_YEARS
     .includes(intake?.taxYear)
     ? resolveLawVersionForTaxYear(intake.taxYear)
@@ -109,7 +149,7 @@ export function describeClient1040IntakeContract(intake){
       ? intake.lawVersion
       : null,
     selections,
-    limitations,
+    limitations: Object.freeze(limitations),
   });
 }
 

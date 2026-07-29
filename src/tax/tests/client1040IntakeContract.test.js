@@ -15,6 +15,7 @@ import {
 import { client1040IntakeToComposerInput } from '../adapters/client1040Intake.js';
 import { validateClient1040Intake } from '../adapters/client1040IntakeValidate.js';
 import { runClient1040Intake } from '../annual1040.js';
+import { composeAnnualFederalTax } from '../federal/composers/annualFederalTax.js';
 
 const context = (taxYear = 2026) => ({
   calculatedAt: '2026-07-28T12:00:00.000Z',
@@ -23,6 +24,26 @@ const context = (taxYear = 2026) => ({
   taxYear,
   lawVersion: `${taxYear}_FINAL`,
 });
+
+function completeCanonicalIncome(overrides = {}){
+  return {
+    wages: 0,
+    taxableInterest: 0,
+    taxExemptInterest: 0,
+    ordinaryDividends: 0,
+    qualifiedDividends: 0,
+    iraDistributions: 0,
+    taxableIra: 0,
+    rothConversion: 0,
+    pensionAmount: 0,
+    taxablePensions: 0,
+    socialSecurityBenefits: 0,
+    taxableSS: 0,
+    socialSecurity: { mode: 'supplied-form1040-lines' },
+    otherIncome: 0,
+    ...overrides,
+  };
+}
 
 function canonical(overrides = {}){
   return {
@@ -33,11 +54,20 @@ function canonical(overrides = {}){
     taxpayers: {
       client: {},
     },
-    income: { wages: 75000 },
+    income: completeCanonicalIncome({ wages: 75000 }),
+    scheduleD: {
+      mode: 'supplied-form1040-line7',
+      amount: 0,
+    },
+    adjustments: {
+      mode: 'supplied-line10',
+      amount: 0,
+    },
     deductions: {
       method: 'standard',
       source: 'supplied-line12e',
       line12e: 15750,
+      qbi: 0,
       schedule1A: { mode: 'supplied-line13b', amount: 0 },
     },
     ...overrides,
@@ -92,6 +122,7 @@ test('pipeline receipt preserves modeled return and source-mode provenance', () 
         noCapitalLossCarryovers: true,
         line18NotApplicable: true,
         line19NotApplicable: true,
+        form4952Line4gIsZeroOrNotApplicable: true,
       },
     },
   });
@@ -180,6 +211,7 @@ test('every finalized wizard income field is preserved by canonical mapping', ()
         noCapitalLossCarryovers: true,
         line18NotApplicable: true,
         line19NotApplicable: true,
+        form4952Line4gIsZeroOrNotApplicable: true,
       },
     },
   });
@@ -363,6 +395,7 @@ test('canonical source precedence rejects legacy line 1, 10, 12e, 13b, and 23 ov
       taxpayerOwner: 'client',
       netEarningsFromSelfEmployment: 10000,
       socialSecurityWagesAndTips: 0,
+      socialSecurityWagesAndTipsIsScheduleSELine8d: true,
     }],
     schedule2: {
       netInvestmentIncomeTax: 0,
@@ -455,6 +488,7 @@ test('canonical errors always gate composition while legacy strict:false remains
         noCapitalLossCarryovers: true,
         line18NotApplicable: true,
         line19NotApplicable: true,
+        form4952Line4gIsZeroOrNotApplicable: true,
       },
     },
   });
@@ -502,10 +536,19 @@ test('MFS requires one modeled taxpayer and spouse-itemizes evidence for calcula
     deductions: {
       method: 'standard',
       source: 'calculated',
+      standardEligibility: {
+        anyActiveTaxpayerCanBeClaimedAsDependent: false,
+        anyActiveTaxpayerIsDualStatusAlien: false,
+      },
+      qbi: 0,
       schedule1A: { mode: 'supplied-line13b', amount: 0 },
     },
   });
-  assert.deepStrictEqual(codes(base), ['STANDARD_DEDUCTION_AGE_BLIND_RULE_PENDING']);
+  assert.deepStrictEqual(codes(base), []);
+  const calculated = runClient1040Intake(base, context());
+  assert.strictEqual(calculated.result.form1040.line12e.status, 'CALCULATED');
+  assert.strictEqual(calculated.result.form1040.line12e.value, 17750);
+  assert.strictEqual(calculated.result.form1040.line15.value, 57250);
 
   assert.ok(codes({
     ...base,
@@ -549,6 +592,56 @@ test('calculated standard deduction never assumes missing age or blindness facts
     },
   });
   assert.deepStrictEqual(codes(supplied), []);
+});
+
+test('canonical calculated standard deduction blocks dependent and dual-status cases', () => {
+  const base = canonical({
+    taxpayers: {
+      client: {
+        birthDate: '1960-06-15',
+        blind: false,
+      },
+    },
+    deductions: {
+      method: 'standard',
+      source: 'calculated',
+      standardEligibility: {
+        anyActiveTaxpayerCanBeClaimedAsDependent: false,
+        anyActiveTaxpayerIsDualStatusAlien: false,
+      },
+      qbi: 0,
+      schedule1A: { mode: 'supplied-line13b', amount: 0 },
+    },
+  });
+  const cases = [
+    {
+      field: 'anyActiveTaxpayerCanBeClaimedAsDependent',
+      code: 'DEPENDENT_STANDARD_DEDUCTION_DEFERRED',
+    },
+    {
+      field: 'anyActiveTaxpayerIsDualStatusAlien',
+      code: 'DUAL_STATUS_STANDARD_DEDUCTION_DEFERRED',
+    },
+  ];
+
+  for(const { field, code } of cases){
+    const intake = {
+      ...base,
+      deductions: {
+        ...base.deductions,
+        standardEligibility: {
+          ...base.deductions.standardEligibility,
+          [field]: true,
+        },
+      },
+    };
+    assert.ok(contractCodes(intake).includes(code));
+    assert.ok(codes(intake).includes(code));
+    assert.throws(
+      () => runClient1040Intake(intake, context(), { strict: false }),
+      error => error.validation.errors.some(entry => entry.code === code)
+    );
+  }
 });
 
 test('MFS calculated Social Security requires lived-with-spouse but supplied line 6b does not', () => {
@@ -607,6 +700,15 @@ test('non-MFS calculated Social Security needs no living-status fact and rejects
   const pipeline = runClient1040Intake(calculated, context());
   assert.strictEqual(pipeline.result.form1040.line6b.status, 'CALCULATED');
 
+  const signedLoss = structuredClone(calculated);
+  signedLoss.income.socialSecurity.otherIncome = -5000;
+  assert.deepStrictEqual(codes(signedLoss), []);
+  assert.strictEqual(
+    runClient1040Intake(signedLoss, context())
+      .result.form1040.line6b.value,
+    0
+  );
+
   const mixed = canonical({
     income: {
       socialSecurityBenefits: 20000,
@@ -656,6 +758,7 @@ test('Schedule 1-A modes enforce supplied precedence and senior-only confirmatio
       method: 'standard',
       source: 'supplied-line12e',
       line12e: 15750,
+      qbi: 0,
       schedule1A: {
         mode: 'calculate-enhanced-senior',
         magi: {
@@ -674,7 +777,14 @@ test('Schedule 1-A modes enforce supplied precedence and senior-only confirmatio
       },
     },
   });
-  assert.deepStrictEqual(codes(senior), ['ENHANCED_SENIOR_DEDUCTION_RULE_PENDING']);
+  assert.deepStrictEqual(codes(senior), []);
+  const seniorPipeline = runClient1040Intake(senior, context());
+  assert.strictEqual(
+    seniorPipeline.result.form1040.line13b.status,
+    'CALCULATED'
+  );
+  assert.strictEqual(seniorPipeline.result.form1040.line13b.value, 6000);
+  assert.strictEqual(seniorPipeline.result.form1040.line15.value, 53250);
 
   const missingSsn = structuredClone(senior);
   delete missingSsn.taxpayers.client.validSsnForEnhancedSeniorDeduction;
@@ -730,7 +840,12 @@ test('Schedule 1-A modes enforce supplied precedence and senior-only confirmatio
   };
   assert.deepStrictEqual(
     codes(oneSeniorMfj),
-    ['ENHANCED_SENIOR_DEDUCTION_RULE_PENDING']
+    []
+  );
+  assert.strictEqual(
+    runClient1040Intake(oneSeniorMfj, context())
+      .result.form1040.line13b.value,
+    6000
   );
 });
 
@@ -740,6 +855,7 @@ test('calculated itemized SALT requires an explicit MAGI source and exclusion ev
     deductions: {
       method: 'itemized',
       source: 'calculated',
+      qbi: 0,
       itemized: {
         medicalExpensesPaid: 10000,
         salt: {
@@ -757,7 +873,16 @@ test('calculated itemized SALT requires an explicit MAGI source and exclusion ev
       schedule1A: { mode: 'supplied-line13b', amount: 0 },
     },
   });
-  assert.deepStrictEqual(codes(itemized), ['CALCULATED_ITEMIZED_DEDUCTION_RULES_PENDING']);
+  assert.deepStrictEqual(codes(itemized), []);
+  const itemizedPipeline = runClient1040Intake(itemized, context());
+  assert.strictEqual(
+    itemizedPipeline.result.form1040.line12e.status,
+    'CALCULATED'
+  );
+  assert.strictEqual(itemizedPipeline.result.form1040.line12e.value, 59775);
+  assert.strictEqual(itemizedPipeline.result.form1040.line15.value, 15225);
+  assert.ok(itemizedPipeline.report.limitations
+    .some(entry => entry.code === 'ITEMIZED_COMPONENTS_ALREADY_LIMITED'));
 
   const missingConfirmation = structuredClone(itemized);
   delete missingConfirmation.deductions.itemized.salt.magi
@@ -776,7 +901,92 @@ test('calculated itemized SALT requires an explicit MAGI source and exclusion ev
     mode: 'supplied-magi',
     amount: 600000,
   };
-  assert.deepStrictEqual(codes(suppliedMagi), ['CALCULATED_ITEMIZED_DEDUCTION_RULES_PENDING']);
+  assert.deepStrictEqual(codes(suppliedMagi), []);
+
+  const itemized2025 = {
+    ...structuredClone(itemized),
+    taxYear: 2025,
+  };
+  assert.deepStrictEqual(codes(itemized2025, context(2025)), []);
+  const pipeline2025 = runClient1040Intake(itemized2025, context(2025));
+  assert.strictEqual(pipeline2025.result.form1040.line12e.value, 59375);
+  assert.ok(pipeline2025.report.limitations
+    .some(entry => entry.code === 'ITEMIZED_COMPONENTS_ALREADY_LIMITED'));
+});
+
+test('high-AGI calculated itemized preserves missing QBI and Schedule 1-A as deferred', () => {
+  const complete = canonical({
+    income: completeCanonicalIncome({ wages: 700000 }),
+    passThrough: {
+      line17: 0,
+      line19: 0,
+      line20: 0,
+      line23: 0,
+    },
+    deductions: {
+      method: 'itemized',
+      source: 'calculated',
+      qbi: 0,
+      itemized: {
+        medicalExpensesPaid: 0,
+        salt: {
+          eligibleTaxesPaid: 1000,
+          magi: {
+            mode: 'line11b-no-exclusions',
+            noForeignOrTerritorialExclusionsConfirmed: true,
+            completeReturnIncomeConfirmed: true,
+          },
+        },
+        mortgageInterestDeductible: 1000,
+        charitableContributionsDeductible: 0,
+        otherItemizedDeductions: 0,
+      },
+      schedule1A: { mode: 'supplied-line13b', amount: 0 },
+    },
+  });
+  const resolved = runClient1040Intake(complete, context());
+  assert.strictEqual(resolved.result.form1040.line12e.status, 'CALCULATED');
+  assert.strictEqual(resolved.result.taxTotalScope, 'FULL_1040');
+
+  const cases = [
+    {
+      remove: intake => { delete intake.deductions.qbi; },
+      sourceLine: 'line13a',
+      limitation: 'MISSING_QBI_DEFERRED',
+    },
+    {
+      remove: intake => { delete intake.deductions.schedule1A; },
+      sourceLine: 'line13b',
+      limitation: 'MISSING_SCHEDULE_1A_DEFERRED',
+    },
+  ];
+  for(const entry of cases){
+    const intake = structuredClone(complete);
+    entry.remove(intake);
+    const pipeline = runClient1040Intake(intake, context());
+    for(const lineId of [
+      'line12e',
+      entry.sourceLine,
+      'line14',
+      'line15',
+      'line16',
+      'line24',
+    ]){
+      assert.strictEqual(
+        pipeline.result.form1040[lineId].status,
+        'DEFERRED',
+        `${entry.sourceLine}:${lineId}`
+      );
+    }
+    assert.strictEqual(pipeline.result.totalFederalTax, null);
+    assert.strictEqual(pipeline.result.taxTotalScope, 'NOT_CALCULABLE');
+    assert.deepStrictEqual(
+      pipeline.annual1040Result.readiness.unresolvedTaxableIncomeLines,
+      ['line12e', entry.sourceLine]
+    );
+    assert.ok(pipeline.report.limitations
+      .some(limitation => limitation.code === entry.limitation));
+  }
 });
 
 test('simple Schedule D requires every zero/not-applicable confirmation for either sign', () => {
@@ -785,6 +995,7 @@ test('simple Schedule D requires every zero/not-applicable confirmation for eith
     noCapitalLossCarryovers: true,
     line18NotApplicable: true,
     line19NotApplicable: true,
+    form4952Line4gIsZeroOrNotApplicable: true,
   };
   for(const amount of [-5000, 5000]){
     const intake = canonical({
@@ -801,7 +1012,42 @@ test('simple Schedule D requires every zero/not-applicable confirmation for eith
       line16: amount,
       line18: 0,
       line19: 0,
+      form4952Line4g: 0,
     });
+    const pipeline = runClient1040Intake(intake, context());
+    if(amount < 0){
+      assert.strictEqual(pipeline.result.form1040.line7a.value, -3000);
+      assert.strictEqual(
+        pipeline.annual1040Result.readiness
+          .capitalLossCarryforward.status,
+        'WORKSHEET_REQUIRED'
+      );
+      assert.strictEqual(
+        pipeline.annual1040Result.readiness
+          .capitalLossCarryforward.exactAmount,
+        null
+      );
+      assert.strictEqual(
+        pipeline.annual1040Result.readiness
+          .capitalLossCarryforward.minimumAmount,
+        2000
+      );
+    } else {
+      assert.strictEqual(
+        pipeline.annual1040Result.federalSummary.preferentialIncome,
+        5000
+      );
+      assert.strictEqual(
+        pipeline.annual1040Result.readiness
+          .capitalLossCarryforward.status,
+        'NONE'
+      );
+      assert.strictEqual(
+        pipeline.annual1040Result.readiness
+          .capitalLossCarryforward.exactAmount,
+        0
+      );
+    }
   }
 
   const incomplete = canonical({
@@ -812,6 +1058,26 @@ test('simple Schedule D requires every zero/not-applicable confirmation for eith
     },
   });
   assert.ok(codes(incomplete).includes('MISSING_SIMPLE_SCHEDULE_D_CONFIRMATION'));
+
+  const missingForm4952Confirmation = canonical({
+    scheduleD: {
+      mode: 'simple-net-long-term',
+      netLongTermGainOrLoss: 5000,
+      confirmations: {
+        ...confirmations,
+        form4952Line4gIsZeroOrNotApplicable: false,
+      },
+    },
+  });
+  const validation = validateClient1040Intake(
+    missingForm4952Confirmation,
+    context()
+  );
+  assert.ok(validation.errors.some(error =>
+    error.code === 'MISSING_SIMPLE_SCHEDULE_D_CONFIRMATION'
+      && error.path
+        === 'scheduleD.confirmations.form4952Line4gIsZeroOrNotApplicable'
+  ));
 });
 
 test('canonical defers full Schedule D while legacy summary mapping remains compatible', () => {
@@ -879,6 +1145,7 @@ test('canonical defers full Schedule D while legacy summary mapping remains comp
         noCapitalLossCarryovers: true,
         line18NotApplicable: true,
         line19NotApplicable: true,
+        form4952Line4gIsZeroOrNotApplicable: true,
       },
     },
   });
@@ -894,6 +1161,7 @@ test('canonical defers full Schedule D while legacy summary mapping remains comp
         noCapitalLossCarryovers: true,
         line18NotApplicable: true,
         line19NotApplicable: true,
+        form4952Line4gIsZeroOrNotApplicable: true,
       },
     },
   });
@@ -928,6 +1196,270 @@ test('pass-through absence stays missing while explicit zero completes lines 17,
   assert.strictEqual(missing.result.taxTotalScope, 'INCOME_TAX_ONLY');
 });
 
+test('canonical pre-tax dependencies preserve missing versus explicit zero through line 24', () => {
+  const completeIntake = canonical({
+    passThrough: {
+      line17: 0,
+      line19: 0,
+      line20: 0,
+      line23: 0,
+    },
+  });
+  const complete = runClient1040Intake(completeIntake, context());
+  for(const lineId of ['line10', 'line12e', 'line13a', 'line13b']){
+    assert.notStrictEqual(complete.result.form1040[lineId].status, 'DEFERRED');
+  }
+  assert.strictEqual(complete.result.taxTotalScope, 'FULL_1040');
+  assert.strictEqual(complete.result.form1040.line16.status, 'CALCULATED');
+
+  const missingAdjustment = structuredClone(completeIntake);
+  delete missingAdjustment.adjustments;
+  const adjustmentResult = runClient1040Intake(
+    missingAdjustment,
+    context()
+  );
+  for(const lineId of ['line10', 'line11a', 'line11b', 'line15', 'line16', 'line24']){
+    assert.strictEqual(
+      adjustmentResult.result.form1040[lineId].status,
+      'DEFERRED',
+      lineId
+    );
+  }
+  assert.strictEqual(adjustmentResult.result.totalFederalTax, null);
+  assert.strictEqual(adjustmentResult.result.taxTotalScope, 'NOT_CALCULABLE');
+  assert.deepStrictEqual(
+    adjustmentResult.annual1040Result.readiness.unresolvedTaxableIncomeLines,
+    ['line10']
+  );
+
+  const missingQbi = structuredClone(completeIntake);
+  delete missingQbi.deductions.qbi;
+  const qbiResult = runClient1040Intake(missingQbi, context());
+  for(const lineId of ['line13a', 'line14', 'line15', 'line16', 'line24']){
+    assert.strictEqual(qbiResult.result.form1040[lineId].status, 'DEFERRED');
+  }
+  assert.strictEqual(qbiResult.result.taxTotalScope, 'NOT_CALCULABLE');
+  assert.ok(qbiResult.report.limitations
+    .some(entry => entry.code === 'MISSING_QBI_DEFERRED'));
+
+  const missingSchedule1A = structuredClone(completeIntake);
+  delete missingSchedule1A.deductions.schedule1A;
+  const schedule1AResult = runClient1040Intake(
+    missingSchedule1A,
+    context()
+  );
+  for(const lineId of ['line13b', 'line14', 'line15', 'line16', 'line24']){
+    assert.strictEqual(
+      schedule1AResult.result.form1040[lineId].status,
+      'DEFERRED'
+    );
+  }
+  assert.strictEqual(
+    schedule1AResult.result.taxTotalScope,
+    'NOT_CALCULABLE'
+  );
+
+  const missingLine12eInput = client1040IntakeToComposerInput(completeIntake);
+  delete missingLine12eInput.supplied.line12e;
+  delete missingLine12eInput.deductions.line12e;
+  const missingLine12e = composeAnnualFederalTax(
+    missingLine12eInput,
+    context()
+  ).result;
+  for(const lineId of ['line12e', 'line14', 'line15', 'line16', 'line24']){
+    assert.strictEqual(missingLine12e.form1040[lineId].status, 'DEFERRED');
+  }
+  assert.strictEqual(missingLine12e.taxTotalScope, 'NOT_CALCULABLE');
+
+  const explicitZeroLine12e = runClient1040Intake(canonical({
+    deductions: {
+      method: 'standard',
+      source: 'supplied-line12e',
+      line12e: 0,
+      qbi: 0,
+      schedule1A: { mode: 'supplied-line13b', amount: 0 },
+    },
+  }), context());
+  assert.strictEqual(
+    explicitZeroLine12e.result.form1040.line12e.status,
+    'SUPPLIED'
+  );
+  assert.strictEqual(explicitZeroLine12e.result.form1040.line12e.value, 0);
+  assert.strictEqual(
+    explicitZeroLine12e.result.form1040.line16.status,
+    'CALCULATED'
+  );
+
+  const legacy = runClient1040Intake({
+    filingStatus: 'single',
+    income: { wages: 75000 },
+    deductions: { useStandard: true },
+  }, context());
+  assert.strictEqual(legacy.result.form1040.line15.status, 'CALCULATED');
+  assert.notStrictEqual(legacy.result.taxTotalScope, 'NOT_CALCULABLE');
+  assert.deepStrictEqual(legacy.report.contract.limitations, []);
+});
+
+test('every omitted canonical line-9 component defers the authoritative tax result', () => {
+  const cases = [
+    {
+      label: 'wages',
+      sourceLine: 'line1z',
+      remove: intake => { delete intake.income.wages; },
+    },
+    {
+      label: 'taxable interest',
+      sourceLine: 'line2b',
+      remove: intake => { delete intake.income.taxableInterest; },
+    },
+    {
+      label: 'ordinary dividends',
+      sourceLine: 'line3b',
+      remove: intake => { delete intake.income.ordinaryDividends; },
+    },
+    {
+      label: 'IRA and Roth line 4b components',
+      sourceLine: 'line4b',
+      remove: intake => {
+        delete intake.income.taxableIra;
+        delete intake.income.rothConversion;
+      },
+    },
+    {
+      label: 'taxable pensions',
+      sourceLine: 'line5b',
+      remove: intake => { delete intake.income.taxablePensions; },
+    },
+    {
+      label: 'Social Security source',
+      sourceLine: 'line6b',
+      remove: intake => {
+        delete intake.income.socialSecurityBenefits;
+        delete intake.income.taxableSS;
+        delete intake.income.socialSecurity;
+      },
+    },
+    {
+      label: 'Form 1040 line 7 source',
+      sourceLine: 'line7a',
+      remove: intake => { delete intake.scheduleD; },
+    },
+    {
+      label: 'other income',
+      sourceLine: 'line8',
+      remove: intake => { delete intake.income.otherIncome; },
+    },
+  ];
+
+  for(const entry of cases){
+    const intake = canonical({
+      passThrough: {
+        line17: 0,
+        line19: 0,
+        line20: 0,
+        line23: 0,
+      },
+    });
+    entry.remove(intake);
+    assert.deepStrictEqual(codes(intake), [], entry.label);
+
+    const pipeline = runClient1040Intake(intake, context());
+    assert.strictEqual(
+      pipeline.result.form1040[entry.sourceLine].status,
+      'DEFERRED',
+      entry.label
+    );
+    for(const lineId of ['line9', 'line11a', 'line11b', 'line15', 'line16', 'line24']){
+      assert.strictEqual(
+        pipeline.result.form1040[lineId].status,
+        'DEFERRED',
+        `${entry.label}:${lineId}`
+      );
+    }
+    assert.strictEqual(pipeline.result.totalFederalTax, null, entry.label);
+    assert.strictEqual(
+      pipeline.annual1040Result.lines.line9.status,
+      'DEFERRED',
+      entry.label
+    );
+    assert.strictEqual(
+      pipeline.annual1040Result.lines.line9.value,
+      null,
+      entry.label
+    );
+    assert.strictEqual(
+      pipeline.result.taxTotalScope,
+      'NOT_CALCULABLE',
+      entry.label
+    );
+    assert.ok(
+      pipeline.annual1040Result.readiness.unresolvedTaxableIncomeLines
+        .includes('line9'),
+      entry.label
+    );
+  }
+
+  const explicitZeros = canonical({
+    income: {
+      wages: 0,
+      taxableInterest: 0,
+      taxExemptInterest: 0,
+      ordinaryDividends: 0,
+      qualifiedDividends: 0,
+      iraDistributions: 0,
+      taxableIra: 0,
+      rothConversion: 0,
+      pensionAmount: 0,
+      taxablePensions: 0,
+      socialSecurityBenefits: 0,
+      taxableSS: 0,
+      socialSecurity: { mode: 'supplied-form1040-lines' },
+      otherIncome: 0,
+    },
+    passThrough: {
+      line17: 0,
+      line19: 0,
+      line20: 0,
+      line23: 0,
+    },
+  });
+  const complete = runClient1040Intake(explicitZeros, context());
+  assert.strictEqual(complete.result.form1040.line9.value, 0);
+  assert.strictEqual(complete.annual1040Result.lines.line9.value, 0);
+  assert.strictEqual(complete.result.taxTotalScope, 'FULL_1040');
+});
+
+test('missing canonical qualified-dividend classification defers tax but preserves line 9', () => {
+  const intake = canonical({
+    income: completeCanonicalIncome({
+      wages: 75000,
+      ordinaryDividends: 1000,
+    }),
+    passThrough: {
+      line17: 0,
+      line19: 0,
+      line20: 0,
+      line23: 0,
+    },
+  });
+  delete intake.income.qualifiedDividends;
+  assert.deepStrictEqual(codes(intake), []);
+
+  const pipeline = runClient1040Intake(intake, context());
+  assert.strictEqual(pipeline.result.form1040.line3a.status, 'DEFERRED');
+  assert.strictEqual(pipeline.result.form1040.line9.status, 'CALCULATED');
+  assert.strictEqual(pipeline.result.form1040.line9.value, 76000);
+  assert.strictEqual(pipeline.result.form1040.line16.status, 'DEFERRED');
+  assert.strictEqual(pipeline.result.form1040.line24.status, 'DEFERRED');
+  assert.strictEqual(pipeline.result.preferentialIncome, null);
+  assert.strictEqual(pipeline.result.totalFederalTax, null);
+  assert.strictEqual(pipeline.result.taxTotalScope, 'NOT_CALCULABLE');
+  assert.ok(
+    pipeline.annual1040Result.readiness.unresolvedTaxableIncomeLines
+      .includes('line3a')
+  );
+});
+
 test('Schedule SE is per taxpayer, rejects duplicates, and maps owner into the rule input', () => {
   const mfj = canonical({
     taxYear: 2025,
@@ -942,11 +1474,13 @@ test('Schedule SE is per taxpayer, rejects duplicates, and maps owner into the r
         taxpayerOwner: 'client',
         netEarningsFromSelfEmployment: 50000,
         socialSecurityWagesAndTips: 0,
+        socialSecurityWagesAndTipsIsScheduleSELine8d: true,
       },
       {
         taxpayerOwner: 'spouse',
         netEarningsFromSelfEmployment: 30000,
         socialSecurityWagesAndTips: 10000,
+        socialSecurityWagesAndTipsIsScheduleSELine8d: true,
       },
     ],
     schedule2: {
@@ -956,6 +1490,8 @@ test('Schedule SE is per taxpayer, rejects duplicates, and maps owner into the r
     },
   });
   assert.deepStrictEqual(codes(mfj), []);
+  assert.ok(describeClient1040IntakeContract(mfj).limitations
+    .includes(CLIENT_1040_LIMITATIONS.SCHEDULE_SE_RESOLVED_LINE_6_ONLY));
   const mapped = client1040IntakeToComposerInput(mfj).scheduleSE;
   assert.deepStrictEqual(mapped.map(entry => entry.taxpayer), ['client', 'spouse']);
 
@@ -991,6 +1527,112 @@ test('Schedule SE is per taxpayer, rejects duplicates, and maps owner into the r
   delete missingAmount.scheduleSE[0].socialSecurityWagesAndTips;
   assert.ok(contractCodes(missingAmount, context(2025))
     .includes('INVALID_NONNEGATIVE_AMOUNT'));
+
+  const unresolvedLine8d = structuredClone(mfj);
+  delete unresolvedLine8d.scheduleSE[0]
+    .socialSecurityWagesAndTipsIsScheduleSELine8d;
+  assert.ok(contractCodes(unresolvedLine8d, context(2025))
+    .includes('UNRESOLVED_SCHEDULE_SE_LINE_8D'));
+  const falseLine8d = structuredClone(mfj);
+  falseLine8d.scheduleSE[0]
+    .socialSecurityWagesAndTipsIsScheduleSELine8d = false;
+  assert.ok(contractCodes(falseLine8d, context(2025))
+    .includes('UNRESOLVED_SCHEDULE_SE_LINE_8D'));
+});
+
+test('2026 Social Security uses its legal adjustment subset and adds half-SE tax once', () => {
+  const intake = canonical({
+    income: {
+      wages: 0,
+      taxableInterest: 0,
+      taxExemptInterest: 0,
+      ordinaryDividends: 0,
+      qualifiedDividends: 0,
+      iraDistributions: 0,
+      taxableIra: 0,
+      rothConversion: 0,
+      pensionAmount: 0,
+      taxablePensions: 0,
+      socialSecurityBenefits: 30000,
+      otherIncome: 30000,
+      socialSecurity: {
+        mode: 'calculate-taxable-benefits',
+        otherIncome: 30000,
+        excludedIncomeAddBacks: 0,
+        adjustments: 0,
+      },
+    },
+    deductions: {
+      method: 'standard',
+      source: 'supplied-line12e',
+      line12e: 16100,
+      qbi: 0,
+      schedule1A: { mode: 'supplied-line13b', amount: 0 },
+    },
+    scheduleSE: [{
+      taxpayerOwner: 'client',
+      netEarningsFromSelfEmployment: 10000,
+      socialSecurityWagesAndTips: 0,
+      socialSecurityWagesAndTipsIsScheduleSELine8d: true,
+    }],
+    schedule2: {
+      netInvestmentIncomeTax: 0,
+      additionalMedicareTax: 0,
+      otherPartIITaxes: 0,
+    },
+  });
+  delete intake.adjustments;
+
+  assert.deepStrictEqual(codes(intake), []);
+  const pipeline = runClient1040Intake(intake, context());
+  assert.strictEqual(pipeline.result.form1040.line10.status, 'CALCULATED');
+  assert.strictEqual(pipeline.result.form1040.line10.value, 765);
+  assert.strictEqual(pipeline.result.form1040.line6b.status, 'CALCULATED');
+  assert.strictEqual(pipeline.result.form1040.line6b.value, 13199.75);
+  assert.strictEqual(pipeline.result.form1040.line23.value, 1530);
+  assert.ok(pipeline.report.limitations.some(limitation =>
+    limitation.code === 'SOCIAL_SECURITY_WORKSHEET_ADJUSTMENT_SUBSET'
+  ));
+  assert.ok(pipeline.report.limitations.some(limitation =>
+    limitation.code === 'SCHEDULE_SE_RESOLVED_LINE_6_ONLY'
+  ));
+  assert.strictEqual(
+    pipeline.audits.filter(
+      audit => audit.ruleId === 'FED_SELF_EMPLOYMENT_TAX'
+    ).length,
+    1
+  );
+  assert.strictEqual(
+    pipeline.audits.find(
+      audit => audit.ruleId === 'FED_TAXABLE_SOCIAL_SECURITY'
+    ).inputsUsed.adjustments,
+    765
+  );
+
+  const suppliedLine10 = structuredClone(intake);
+  suppliedLine10.adjustments = {
+    mode: 'supplied-line10',
+    amount: 1765,
+  };
+  assert.deepStrictEqual(codes(suppliedLine10), []);
+  const suppliedPipeline = runClient1040Intake(suppliedLine10, context());
+  assert.strictEqual(suppliedPipeline.result.form1040.line10.status, 'SUPPLIED');
+  assert.strictEqual(suppliedPipeline.result.form1040.line10.value, 1765);
+  assert.strictEqual(suppliedPipeline.result.form1040.line23.value, 1530);
+  assert.strictEqual(
+    suppliedPipeline.audits.find(
+      audit => audit.ruleId === 'FED_TAXABLE_SOCIAL_SECURITY'
+    ).inputsUsed.adjustments,
+    765,
+    'the extra line-10 amount is excluded from the Social Security worksheet'
+  );
+
+  const impossibleLine10 = structuredClone(suppliedLine10);
+  impossibleLine10.adjustments.amount = 764;
+  assert.throws(
+    () => runClient1040Intake(impossibleLine10, context()),
+    /less than the Social Security worksheet-eligible adjustments/
+  );
 });
 
 test('account treatment is derived from canonical type and cannot be overridden', () => {

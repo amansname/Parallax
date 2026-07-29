@@ -1,36 +1,53 @@
 /* ============================================================================
    RULE: Federal Standard Deduction (FED_STANDARD_DEDUCTION)
 
-   Returns the base standard deduction for a filing status. Does not apply
-   line 12a–12d adjustments (dependent, spouse itemizes, dual-status, age/blind).
+   Returns the base standard deduction plus supported age/blind additions.
+   Dependent, dual-status, and special nonfiling-spouse cases remain blocked.
    ============================================================================ */
 
 import {
   FILING_STATUSES,
   STANDARD_DEDUCTION,
+  STANDARD_DEDUCTION_AGE_BLIND,
   STANDARD_DEDUCTION_SOURCE,
 } from '../../core/constants.js';
 import { CONTEXT_SCHEMA, STANDARD_DEDUCTION_INPUT_SCHEMA } from '../../core/schemas.js';
 import { validateAgainstSchema, assertOneOf } from '../../core/validators.js';
 import { getDataSource } from '../../core/dataSourceRegistry.js';
 import { TaxDataError, TaxInputError } from '../../core/errors.js';
+import {
+  activeTaxpayerOwnersForReturn,
+  isAge65ByTaxYearEnd,
+  isValidTaxDate,
+} from '../../core/taxpayerAge.js';
 
 export const meta = {
   ruleId: 'FED_STANDARD_DEDUCTION',
-  ruleVersion: '1.0.0',
-  taxYear: 2026,
-  lawVersion: '2026_FINAL',
+  ruleVersion: '2.0.0',
+  supportedTaxYears: [2025, 2026],
+  supportedLawVersions: ['2025_FINAL', '2026_FINAL'],
   jurisdiction: 'federal',
   category: 'standard_deduction',
-  authority: ['IRC section 63(c)', 'IRS Form 1040 (2025) standard deduction table'],
-  dataSourcesRequired: ['IRS_2026_STANDARD_DEDUCTION_v1.0'],
+  authority: [
+    'IRC section 63(c)',
+    'IRS 2025 Publication 501',
+    'IRS Publication 505 (2026), Worksheet 2-4',
+  ],
+  dataSourcesRequired: [
+    'IRS_2025_FORM_1040_STANDARD_DEDUCTION_v2.0',
+    'IRS_2026_PUBLICATION_505_STANDARD_DEDUCTION_v1.0',
+  ],
   inputsRequired: ['filingStatus'],
-  outputs: ['standardDeduction'],
+  outputs: [
+    'baseStandardDeduction',
+    'additionalStandardDeduction',
+    'standardDeduction',
+    'ageBlindCheckCount',
+  ],
   limitations: [
-    'Does not apply line 12a dependent checkbox reductions',
-    'Does not apply line 12b spouse itemizes on separate return',
-    'Does not apply line 12c dual-status alien rules',
-    'Does not apply line 12d additional amounts for age or blindness',
+    'Canonical calculation requires explicit confirmation that dependent and dual-status rules do not apply',
+    'Legacy callers that omit taxpayer facts receive the base amount only',
+    'Does not award special age/blind amounts for a nonfiling MFS spouse',
   ],
   triggerTags: ['standard_deduction', 'agi_threshold'],
 };
@@ -38,6 +55,49 @@ export const meta = {
 export function validate(input){
   validateAgainstSchema(input, STANDARD_DEDUCTION_INPUT_SCHEMA, 'standardDeduction input');
   assertOneOf(input.filingStatus, FILING_STATUSES, 'filingStatus', 'standardDeduction input');
+  if(input.taxpayers === undefined) return input;
+  if(!input.standardEligibility || typeof input.standardEligibility !== 'object'
+      || Array.isArray(input.standardEligibility)){
+    throw new TaxInputError(
+      'standardDeduction input requires standardEligibility with taxpayer facts'
+    );
+  }
+  if(input.standardEligibility.anyActiveTaxpayerCanBeClaimedAsDependent !== false){
+    throw new TaxInputError(
+      'dependent standard-deduction calculation is not supported by this rule'
+    );
+  }
+  if(input.standardEligibility.anyActiveTaxpayerIsDualStatusAlien !== false){
+    throw new TaxInputError(
+      'dual-status standard-deduction calculation is not supported by this rule'
+    );
+  }
+  if(input.filingStatus === 'marriedFilingSeparately'
+      && typeof input.spouseItemizes !== 'boolean'){
+    throw new TaxInputError(
+      'standardDeduction input spouseItemizes must be an explicit boolean for married filing separately'
+    );
+  }
+  const owners = activeTaxpayerOwnersForReturn(
+    input.filingStatus,
+    input.modeledTaxpayer
+  );
+  for(const owner of owners){
+    const taxpayer = input.taxpayers[owner];
+    if(!taxpayer || typeof taxpayer !== 'object' || Array.isArray(taxpayer)){
+      throw new TaxInputError(`standardDeduction input is missing taxpayers.${owner}`);
+    }
+    if(!isValidTaxDate(taxpayer.birthDate)){
+      throw new TaxInputError(
+        `standardDeduction input taxpayers.${owner}.birthDate must be a valid YYYY-MM-DD date`
+      );
+    }
+    if(typeof taxpayer.blind !== 'boolean'){
+      throw new TaxInputError(
+        `standardDeduction input taxpayers.${owner}.blind must be a boolean`
+      );
+    }
+  }
   return input;
 }
 
@@ -76,16 +136,63 @@ function resolveAmount(context, filingStatus){
     });
   }
 
-  return { amount, dataSourceId };
+  const ageBlind = STANDARD_DEDUCTION_AGE_BLIND[context.lawVersion];
+  if(!ageBlind){
+    throw new TaxDataError(
+      `No age/blind standard deduction table for lawVersion: ${context.lawVersion}`,
+      { lawVersion: context.lawVersion }
+    );
+  }
+
+  return { amount, ageBlind, dataSourceId };
 }
 
 export function calculate(input, context){
   validate(input);
   validateAgainstSchema(context, CONTEXT_SCHEMA, 'context');
 
-  const { amount, dataSourceId } = resolveAmount(context, input.filingStatus);
+  const { amount, ageBlind, dataSourceId } = resolveAmount(context, input.filingStatus);
+  const taxpayersSupplied = input.taxpayers !== undefined;
+  const owners = taxpayersSupplied
+    ? activeTaxpayerOwnersForReturn(input.filingStatus, input.modeledTaxpayer)
+    : [];
+  const perCheck = input.filingStatus === 'single'
+      || input.filingStatus === 'headOfHousehold'
+    ? ageBlind.unmarriedPerCheck
+    : ageBlind.marriedPerCheck;
+  let ageBlindCheckCount = 0;
+  const personChecks = [];
+  for(const owner of owners){
+    const taxpayer = input.taxpayers[owner];
+    const age65OrOlder = isAge65ByTaxYearEnd(taxpayer.birthDate, context.taxYear);
+    const blind = taxpayer.blind;
+    const checkCount = Number(age65OrOlder) + Number(blind);
+    ageBlindCheckCount += checkCount;
+    personChecks.push({
+      owner,
+      birthDate: taxpayer.birthDate,
+      age65OrOlder,
+      blind,
+      checkCount,
+    });
+  }
+  const spouseItemizesDisallowance = input.filingStatus === 'marriedFilingSeparately'
+    && input.spouseItemizes === true;
+  const additionalStandardDeduction = spouseItemizesDisallowance
+    ? 0
+    : ageBlindCheckCount * perCheck;
+  const standardDeductionAmount = spouseItemizesDisallowance
+    ? 0
+    : amount + additionalStandardDeduction;
 
-  const result = { standardDeduction: amount };
+  const result = {
+    baseStandardDeduction: spouseItemizesDisallowance ? 0 : amount,
+    additionalStandardDeduction,
+    standardDeduction: standardDeductionAmount,
+    ageBlindCheckCount,
+    perAgeBlindCheck: perCheck,
+    spouseItemizesDisallowance,
+  };
 
   const audit = {
     ruleId: meta.ruleId,
@@ -95,9 +202,26 @@ export function calculate(input, context){
     calculatedAt: context.calculatedAt,
     runId: context.runId,
     scenarioId: context.scenarioId,
-    inputsUsed: { filingStatus: input.filingStatus },
+    inputsUsed: {
+      filingStatus: input.filingStatus,
+      modeledTaxpayer: input.modeledTaxpayer ?? null,
+      spouseItemizes: input.spouseItemizes ?? null,
+      taxpayers: input.taxpayers ?? null,
+      standardEligibility: input.standardEligibility ?? null,
+    },
     dataSourcesUsed: [dataSourceId],
-    calculationSteps: [{ filingStatus: input.filingStatus, standardDeduction: amount }],
+    calculationSteps: [
+      { step: 'base_standard_deduction', filingStatus: input.filingStatus, amount },
+      ...personChecks.map(entry => ({ step: 'age_blind_checks', ...entry })),
+      {
+        step: 'standard_deduction_total',
+        perCheck,
+        ageBlindCheckCount,
+        additionalStandardDeduction,
+        spouseItemizesDisallowance,
+        standardDeduction: standardDeductionAmount,
+      },
+    ],
     authority: meta.authority,
     limitations: meta.limitations,
   };

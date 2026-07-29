@@ -100,7 +100,7 @@ test('pass-through QBI deduction appears on line 13a without disappearing', () =
   assert.strictEqual(result.form1040.line13a.value, 5000);
   assert.strictEqual(result.form1040.line13a.ruleId, 'INTAKE_PASS_THROUGH');
   assert.ok(report.passThrough.some((row) => row.lineId === 'line13a'));
-  assert.strictEqual(result.form1040.line15.value, 79250);
+  assert.strictEqual(result.form1040.line15.value, 78900);
 });
 
 test('invalid and contradictory intake inputs are flagged', () => {

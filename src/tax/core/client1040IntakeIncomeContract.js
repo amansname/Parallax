@@ -152,28 +152,52 @@ export function validateCanonicalIncome(errors, intake){
       'income.taxExemptInterest');
   }
   for(const field of [
-    'otherIncome',
     'excludedIncomeAddBacks',
     'adjustments',
   ]){
     if(!hasOwn(socialSecurity, field)){
       issue(errors, 'MISSING_SOCIAL_SECURITY_WORKSHEET_FACT',
-        `income.socialSecurity.${field} is required for calculated Social Security`,
+        field === 'adjustments'
+          ? 'income.socialSecurity.adjustments is required and must be the Publication 915/505 worksheet-eligible adjustment subtotal, excluding any half-SE-tax deduction calculated by this engine'
+          : `income.socialSecurity.${field} is required for calculated Social Security`,
         `income.socialSecurity.${field}`);
     } else {
       requireNonNegative(errors, socialSecurity[field], `income.socialSecurity.${field}`);
     }
   }
+  if(!hasOwn(socialSecurity, 'otherIncome')){
+    issue(errors, 'MISSING_SOCIAL_SECURITY_WORKSHEET_FACT',
+      'income.socialSecurity.otherIncome is required for calculated Social Security',
+      'income.socialSecurity.otherIncome');
+  } else {
+    requireFinite(
+      errors,
+      socialSecurity.otherIncome,
+      'income.socialSecurity.otherIncome'
+    );
+  }
   if(intake.filingStatus === 'marriedFilingSeparately'
       && typeof socialSecurity.livedWithSpouse !== 'boolean'){
     issue(errors, 'MISSING_SOCIAL_SECURITY_LIVING_STATUS',
-      'income.socialSecurity.livedWithSpouse must be explicitly true or false',
+      'income.socialSecurity.livedWithSpouse must state whether the modeled taxpayer lived with their spouse at any time during the tax year; false means they lived apart for the entire year',
       'income.socialSecurity.livedWithSpouse');
   } else if(socialSecurity.livedWithSpouse !== undefined
       && typeof socialSecurity.livedWithSpouse !== 'boolean'){
     issue(errors, 'INVALID_SOCIAL_SECURITY_LIVING_STATUS',
       'income.socialSecurity.livedWithSpouse must be a boolean when supplied',
       'income.socialSecurity.livedWithSpouse');
+  }
+  if(intake.adjustments?.mode === 'supplied-traditional-ira-deduction'
+      && socialSecurity.adjustments
+        !== intake.adjustments.traditionalIraDeduction){
+    issue(errors, 'SOCIAL_SECURITY_ADJUSTMENT_SOURCE_CONFLICT',
+      'With the traditional-IRA component mode, the Social Security worksheet-eligible adjustment subtotal must equal the supplied traditional IRA deduction; use supplied-line10 when other adjustment components exist',
+      'income.socialSecurity.adjustments',
+      {
+        worksheetEligibleAdjustments: socialSecurity.adjustments,
+        traditionalIraDeduction:
+          intake.adjustments.traditionalIraDeduction,
+      });
   }
 }
 

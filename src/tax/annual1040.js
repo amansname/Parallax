@@ -25,7 +25,7 @@ export {
   validateClient1040Contract,
 } from './core/client1040IntakeContract.js';
 
-export const ANNUAL_1040_MODULE_VERSION = '1.3.0';
+export const ANNUAL_1040_MODULE_VERSION = '1.5.0';
 
 export function buildDefaultTaxContext(overrides = {}){
   return buildTaxContext(overrides);
@@ -72,9 +72,9 @@ function extractRates(audits){
 /** Stable result contract for engine integration (one year, federal 1040 spine). */
 export function buildAnnual1040Result(intake, composeResult, audits, validation, context, report){
   const form1040 = composeResult.form1040;
-  const preferential = resolvePreferentialComponents(
-    client1040IntakeToComposerInput(intake)
-  );
+  const preferential = composeResult.preferentialIncome !== undefined
+    ? { total: composeResult.preferentialIncome }
+    : resolvePreferentialComponents(client1040IntakeToComposerInput(intake));
 
   const { marginalRate, effectiveRate } = extractRates(audits);
   const line15 = form1040.line15?.value ?? null;
@@ -86,6 +86,7 @@ export function buildAnnual1040Result(intake, composeResult, audits, validation,
     taxYear: intake.taxYear ?? context.taxYear ?? null,
     filingStatus: intake.filingStatus,
     lines: {
+      line9: lineSnapshot(form1040, 'line9'),
       line11: lineSnapshot(form1040, 'line11a'),
       line15: lineSnapshot(form1040, 'line15'),
       line16: lineSnapshot(form1040, 'line16'),
@@ -107,6 +108,16 @@ export function buildAnnual1040Result(intake, composeResult, audits, validation,
     unsupportedIntentional: report.unsupportedIntentional,
     architectureLater: report.architectureLater,
     limitations: report.limitations,
+    readiness: {
+      unresolvedTaxableIncomeLines:
+        composeResult.readiness?.unresolvedTaxableIncomeLines ?? [],
+      capitalLossCarryforward:
+        composeResult.readiness?.capitalLossCarryforward ?? {
+          status: 'NOT_EVALUATED',
+          exactAmount: null,
+          minimumAmount: null,
+        },
+    },
     warnings: report.validation.warnings,
     errors: report.validation.errors,
     audit: audits.map((entry) => ({

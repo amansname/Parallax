@@ -103,6 +103,7 @@ export function validateScheduleSE(errors, intake){
       'taxpayerOwner',
       'netEarningsFromSelfEmployment',
       'socialSecurityWagesAndTips',
+      'socialSecurityWagesAndTipsIsScheduleSELine8d',
     ], path, 'UNKNOWN_CANONICAL_FIELD');
     const owner = entry.taxpayerOwner;
     if(owner !== 'client' && owner !== 'spouse'){
@@ -134,6 +135,11 @@ export function validateScheduleSE(errors, intake){
       `${path}.netEarningsFromSelfEmployment`);
     requireNonNegative(errors, entry.socialSecurityWagesAndTips,
       `${path}.socialSecurityWagesAndTips`);
+    if(entry.socialSecurityWagesAndTipsIsScheduleSELine8d !== true){
+      issue(errors, 'UNRESOLVED_SCHEDULE_SE_LINE_8D',
+        `${path}.socialSecurityWagesAndTips must be the resolved Schedule SE line 8d aggregate, including W-2 Social Security wages and tips plus applicable unreported tips, Form 8919 wages, and Tier 1 railroad compensation`,
+        `${path}.socialSecurityWagesAndTipsIsScheduleSELine8d`);
+    }
   }
 
   if(intake.passThrough?.line23 !== undefined || intake.supplied?.line23 !== undefined){

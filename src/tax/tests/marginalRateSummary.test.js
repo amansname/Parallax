@@ -33,10 +33,10 @@ test('marginal rate summary: wages only uses final ordinary bracket on taxable w
   }, context);
 
   const ordinary = ordinaryAudit(run);
-  assert.strictEqual(ordinary.inputsUsed.taxableOrdinaryIncome, 88500);
+  assert.strictEqual(ordinary.inputsUsed.taxableOrdinaryIncome, 87800);
   assert.strictEqual(
     run.annual1040Result.federalSummary.marginalRate,
-    expectedOrdinaryMarginal('marriedFilingJointly', 88500, context)
+    expectedOrdinaryMarginal('marriedFilingJointly', 87800, context)
   );
   assert.strictEqual(run.annual1040Result.federalSummary.marginalRate, 0.12);
 });
@@ -60,7 +60,7 @@ test('marginal rate summary: QD/LTCG present uses carved-out ordinary taxable in
   const carvedOrdinaryIncome = run.result.form1040.line15.value - preferential;
   assert.strictEqual(preferential, 3500);
   assert.strictEqual(ordinary.inputsUsed.taxableOrdinaryIncome, carvedOrdinaryIncome);
-  assert.strictEqual(ordinary.inputsUsed.taxableOrdinaryIncome, 65750);
+  assert.strictEqual(ordinary.inputsUsed.taxableOrdinaryIncome, 65400);
   assert.ok(ordinary.calculationSteps.length > 0);
   assert.strictEqual(
     run.annual1040Result.federalSummary.marginalRate,

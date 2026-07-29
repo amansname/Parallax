@@ -76,9 +76,6 @@ function validateSchedule1A(errors, intake){
   const suppliedLine13b = intake.supplied?.line13b;
   const legacyLine13b = intake.deductions?.additional;
   if(schedule1A === undefined){
-    issue(errors, 'MISSING_SCHEDULE_1A_MODE',
-      'deductions.schedule1A must explicitly supply line 13b or select engine senior-only mode',
-      'deductions.schedule1A');
     if(suppliedLine13b !== undefined || legacyLine13b !== undefined){
       issue(errors, 'LEGACY_SCHEDULE_1A_FIELD_IN_CANONICAL',
         'Canonical line 13b must use deductions.schedule1A supplied-total mode',
@@ -130,6 +127,25 @@ function validateSchedule1A(errors, intake){
   }
 }
 
+function validateStandardEligibility(errors, deductions){
+  const eligibility = deductions.standardEligibility;
+  if(!requirePlainObject(errors, eligibility, 'deductions.standardEligibility')) return;
+  rejectUnexpectedKeys(errors, eligibility, [
+    'anyActiveTaxpayerCanBeClaimedAsDependent',
+    'anyActiveTaxpayerIsDualStatusAlien',
+  ], 'deductions.standardEligibility', 'STANDARD_DEDUCTION_ELIGIBILITY_CONFLICT');
+  if(eligibility.anyActiveTaxpayerCanBeClaimedAsDependent !== false){
+    issue(errors, 'DEPENDENT_STANDARD_DEDUCTION_DEFERRED',
+      'Calculated standard deduction requires explicit confirmation that no active taxpayer can be claimed as a dependent',
+      'deductions.standardEligibility.anyActiveTaxpayerCanBeClaimedAsDependent');
+  }
+  if(eligibility.anyActiveTaxpayerIsDualStatusAlien !== false){
+    issue(errors, 'DUAL_STATUS_STANDARD_DEDUCTION_DEFERRED',
+      'Calculated standard deduction requires explicit confirmation that no active taxpayer is a dual-status alien',
+      'deductions.standardEligibility.anyActiveTaxpayerIsDualStatusAlien');
+  }
+}
+
 export function validateDeductions(errors, intake){
   const deductions = intake.deductions;
   if(!requirePlainObject(errors, deductions, 'deductions')) return;
@@ -138,6 +154,7 @@ export function validateDeductions(errors, intake){
     'source',
     'line12e',
     'itemized',
+    'standardEligibility',
     'qbi',
     'schedule1A',
   ], 'deductions', 'UNKNOWN_CANONICAL_FIELD');
@@ -169,6 +186,11 @@ export function validateDeductions(errors, intake){
         'Supplied line 12e cannot be mixed with calculated itemized details',
         'deductions');
     }
+    if(hasOwn(deductions, 'standardEligibility')){
+      issue(errors, 'DEDUCTION_SOURCE_CONFLICT',
+        'Supplied line 12e cannot be mixed with calculated standard-deduction eligibility facts',
+        'deductions.standardEligibility');
+    }
   } else if(deductions.source === 'calculated'){
     if(hasOwn(deductions, 'line12e') || intake.supplied?.line12e !== undefined){
       issue(errors, 'DEDUCTION_SOURCE_CONFLICT',
@@ -176,6 +198,7 @@ export function validateDeductions(errors, intake){
         'deductions');
     }
     if(deductions.method === 'standard'){
+      validateStandardEligibility(errors, deductions);
       for(const owner of activeTaxpayerOwners(intake)){
         validateTaxpayerRecord(errors, intake, owner, { requireAgeBlind: true });
       }
@@ -191,6 +214,11 @@ export function validateDeductions(errors, intake){
         }
       }
     } else if(deductions.method === 'itemized'){
+      if(hasOwn(deductions, 'standardEligibility')){
+        issue(errors, 'DEDUCTION_SOURCE_CONFLICT',
+          'Calculated itemized deductions cannot include standard-deduction eligibility facts',
+          'deductions.standardEligibility');
+      }
       validateItemizedDetails(errors, deductions.itemized);
     }
   }

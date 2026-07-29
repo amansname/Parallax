@@ -3,17 +3,22 @@ import assert from 'node:assert';
 import { scheduleDClassification, meta, WORKSHEET_TYPES } from './scheduleDClassification.js';
 import { TaxInputError } from '../../core/errors.js';
 
-const ctx = () => ({
+const ctx = (taxYear = 2025) => ({
   calculatedAt: '2026-07-10T12:00:00.000Z',
   runId: 'sched_d_test',
   scenarioId: 'sched_d_scenario',
-  taxYear: 2025,
-  lawVersion: '2025_FINAL',
+  taxYear,
+  lawVersion: `${taxYear}_FINAL`,
 });
 
 test('meta contract', () => {
   assert.strictEqual(meta.ruleId, 'FED_SCHEDULE_D_CLASSIFICATION');
   assert.ok(meta.triggerTags.includes('capital_gains'));
+  assert.deepStrictEqual(meta.supportedTaxYears, [2025, 2026]);
+  assert.ok(meta.dataSourcesRequired.includes('IRS_2025_SCHEDULE_D_v1.0'));
+  assert.ok(meta.dataSourcesRequired.includes(
+    'IRC_SIMPLE_SCHEDULE_D_2026_v1.0'
+  ));
 });
 
 test('annual-08 loss case: line 7 capped at $3,000 and no preferential Schedule D gain', () => {
@@ -30,6 +35,12 @@ test('annual-08 loss case: line 7 capped at $3,000 and no preferential Schedule 
   assert.strictEqual(result.preferentialScheduleDGain, 0);
   assert.strictEqual(result.netLongTermCapitalGains, 0);
   assert.strictEqual(result.worksheetType, WORKSHEET_TYPES.QUALIFIED_DIVIDENDS_AND_CAPITAL_GAIN);
+  assert.deepStrictEqual(result.capitalLossCarryforward, {
+    status: 'WORKSHEET_REQUIRED',
+    exactAmount: null,
+    minimumAmount: 4656,
+    reasonCode: 'CAPITAL_LOSS_CARRYFORWARD_WORKSHEET_REQUIRED',
+  });
 });
 
 test('short-term gain only: line 7 increases income but receives no preferential rate', () => {
@@ -137,4 +148,72 @@ test('audit is serializable', () => {
     line19: 0,
   }, ctx());
   assert.doesNotThrow(() => JSON.stringify(audit));
+  assert.deepStrictEqual(audit.dataSourcesUsed, ['IRS_2025_SCHEDULE_D_v1.0']);
+});
+
+test('2026 simple path carries a year-matched statutory source receipt', () => {
+  const { audit } = scheduleDClassification.calculate({
+    filingStatus: 'single',
+    line7: 0,
+    line15: 5000,
+    line16: 5000,
+    line18: 0,
+    line19: 0,
+  }, ctx(2026));
+  assert.deepStrictEqual(
+    audit.dataSourcesUsed,
+    ['IRC_SIMPLE_SCHEDULE_D_2026_v1.0']
+  );
+  assert.deepStrictEqual(
+    audit.authority,
+    ['IRC sections 1211(b), 1212(b), and 1222']
+  );
+});
+
+test('Form 4952 line 4g requires the Schedule D Tax Worksheet', () => {
+  assert.throws(
+    () => scheduleDClassification.calculate({
+      filingStatus: 'single',
+      line7: 0,
+      line15: 5000,
+      line16: 5000,
+      line18: 0,
+      line19: 0,
+      form4952Line4g: 1,
+    }, ctx()),
+    /Schedule D Tax Worksheet/
+  );
+});
+
+test('every net loss keeps carryforward worksheet readiness, even below the annual cap', () => {
+  const belowCap = scheduleDClassification.calculate({
+    filingStatus: 'single',
+    line7: 0,
+    line15: -1000,
+    line16: -1000,
+    line18: 0,
+    line19: 0,
+    form4952Line4g: 0,
+  }, ctx()).result;
+  assert.deepStrictEqual(belowCap.capitalLossCarryforward, {
+    status: 'WORKSHEET_REQUIRED',
+    exactAmount: null,
+    minimumAmount: 0,
+    reasonCode: 'CAPITAL_LOSS_CARRYFORWARD_WORKSHEET_REQUIRED',
+  });
+
+  const gain = scheduleDClassification.calculate({
+    filingStatus: 'single',
+    line7: 0,
+    line15: 1000,
+    line16: 1000,
+    line18: 0,
+    line19: 0,
+    form4952Line4g: 0,
+  }, ctx()).result;
+  assert.deepStrictEqual(gain.capitalLossCarryforward, {
+    status: 'NONE',
+    exactAmount: 0,
+    minimumAmount: 0,
+  });
 });

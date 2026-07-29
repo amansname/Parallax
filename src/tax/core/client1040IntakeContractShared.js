@@ -1,4 +1,7 @@
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+import {
+  isAge65ByTaxYearEnd,
+  isValidTaxDate,
+} from './taxpayerAge.js';
 
 export function hasOwn(value, key){
   return Object.prototype.hasOwnProperty.call(value, key);
@@ -14,23 +17,6 @@ function isFiniteNumber(value){
 
 function isNonNegativeNumber(value){
   return isFiniteNumber(value) && value >= 0;
-}
-
-function isIsoDate(value){
-  if(typeof value !== 'string' || !DATE_RE.test(value)) return false;
-  const [year, month, day] = value.split('-').map(Number);
-  const date = new Date(Date.UTC(year, month - 1, day));
-  return date.getUTCFullYear() === year
-    && date.getUTCMonth() === month - 1
-    && date.getUTCDate() === day;
-}
-
-function isAge65ByTaxYearEnd(birthDate, taxYear){
-  if(!isIsoDate(birthDate) || !Number.isInteger(taxYear)) return false;
-  const [year, month, day] = birthDate.split('-').map(Number);
-  const deemedAttainment = new Date(Date.UTC(year + 65, month - 1, day));
-  deemedAttainment.setUTCDate(deemedAttainment.getUTCDate() - 1);
-  return deemedAttainment <= new Date(Date.UTC(taxYear, 11, 31));
 }
 
 export function issue(errors, code, message, path, details){
@@ -118,13 +104,13 @@ export function validateTaxpayerRecord(errors, intake, owner, {
     'validSsnForEnhancedSeniorDeduction',
   ], path, 'UNKNOWN_CANONICAL_FIELD');
 
-  const birthDateIsValid = isIsoDate(taxpayer.birthDate);
+  const birthDateIsValid = isValidTaxDate(taxpayer.birthDate);
   if(requireAgeBlind || requireSeniorSsnConfirmation){
     if(!birthDateIsValid){
       issue(errors, 'MISSING_TAXPAYER_BIRTH_DATE',
         `${path}.birthDate must be a valid YYYY-MM-DD date`, `${path}.birthDate`);
     }
-  } else if(taxpayer.birthDate !== undefined && !isIsoDate(taxpayer.birthDate)){
+  } else if(taxpayer.birthDate !== undefined && !isValidTaxDate(taxpayer.birthDate)){
     issue(errors, 'INVALID_TAXPAYER_BIRTH_DATE',
       `${path}.birthDate must be a valid YYYY-MM-DD date`, `${path}.birthDate`);
   }

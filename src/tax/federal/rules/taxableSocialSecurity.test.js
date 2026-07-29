@@ -2,12 +2,12 @@ import { test } from 'node:test';
 import assert from 'node:assert';
 import { taxableSocialSecurity } from './taxableSocialSecurity.js';
 
-const ctx = () => ({
+const ctx = (taxYear = 2026) => ({
   calculatedAt: '2026-06-21T12:00:00.000Z',
   runId: 'ss_test',
   scenarioId: 'ss_scenario',
-  taxYear: 2026,
-  lawVersion: '2026_FINAL',
+  taxYear,
+  lawVersion: `${taxYear}_FINAL`,
 });
 
 test('benefits below the base amount are not taxable', () => {
@@ -88,6 +88,20 @@ test('adjustments can eliminate worksheet income', () => {
   assert.strictEqual(result.taxableBenefits, 0);
 });
 
+test('signed worksheet other income accepts losses', () => {
+  const { result } = taxableSocialSecurity.calculate({
+    filingStatus: 'single',
+    socialSecurityBenefits: 30000,
+    otherIncome: -5000,
+    taxExemptInterest: 0,
+    excludedIncomeAddBacks: 0,
+    adjustments: 0,
+    livedWithSpouse: false,
+  }, ctx());
+  assert.strictEqual(result.combinedIncomeBeforeAdjustments, 10000);
+  assert.strictEqual(result.taxableBenefits, 0);
+});
+
 test('audit is serializable and carries the data source', () => {
   const { audit } = taxableSocialSecurity.calculate({
     filingStatus: 'single',
@@ -99,7 +113,28 @@ test('audit is serializable and carries the data source', () => {
     livedWithSpouse: false,
   }, ctx());
   assert.doesNotThrow(() => JSON.stringify(audit));
-  assert.ok(audit.dataSourcesUsed.includes('IRC_86_SOCIAL_SECURITY_TAXATION_v1.0'));
+  assert.ok(audit.dataSourcesUsed.includes(
+    'IRS_2026_PUBLICATION_505_SOCIAL_SECURITY_v1.0'
+  ));
+});
+
+test('2025 calculation uses the Publication 915 source', () => {
+  const { result, audit } = taxableSocialSecurity.calculate({
+    filingStatus: 'single',
+    socialSecurityBenefits: 20000,
+    otherIncome: 20000,
+    taxExemptInterest: 0,
+    excludedIncomeAddBacks: 0,
+    adjustments: 0,
+    livedWithSpouse: false,
+  }, ctx(2025));
+  assert.strictEqual(result.taxableBenefits, 2500);
+  assert.strictEqual(audit.taxYear, 2025);
+  assert.strictEqual(audit.lawVersion, '2025_FINAL');
+  assert.deepStrictEqual(
+    audit.dataSourcesUsed,
+    ['IRS_2025_PUBLICATION_915_SOCIAL_SECURITY_v1.0']
+  );
 });
 
 test('bad Social Security inputs throw', () => {

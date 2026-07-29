@@ -8,6 +8,7 @@ import {
   enteredAdjustmentTotal,
   incomeSourceGroups,
   isAdjustmentActiveNow,
+  normalizedIncomeSource,
 } from './incomeTaxModel.js';
 
 function plan(overrides = {}){
@@ -79,6 +80,25 @@ test('current-year federal source types default to one year with honest tax char
   assert.equal(conversion.taxablePct, 1);
   assert.equal(shortGain.taxablePct, 1);
   assert.equal(longGain.taxablePct, 0);
+});
+
+test('long-term capital gain rows preserve signed losses without opening other income types', () => {
+  const subject = plan();
+  assert.equal(normalizedIncomeSource(subject, {
+    typeId: 'long_term_capital_gain',
+    owner: 'client',
+    amount: -5000,
+  }).amount, -5000);
+  assert.equal(normalizedIncomeSource(subject, {
+    typeId: 'wages',
+    owner: 'client',
+    amount: -5000,
+  }).amount, 0);
+  assert.equal(normalizedIncomeSource(subject, {
+    typeId: 'long_term_capital_gain',
+    owner: 'client',
+    amount: 0,
+  }).amount, 0);
 });
 
 test('Premium Tax Credit is part of the persisted Income & Tax defaults', () => {

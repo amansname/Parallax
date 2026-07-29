@@ -1,6 +1,6 @@
 export const CLIENT_1040_INTAKE_CONTRACT_ID = 'parallax.client-1040-intake';
 export const CLIENT_1040_INTAKE_SCHEMA_VERSION = 1;
-export const CLIENT_1040_INTAKE_CONTRACT_VERSION = '1.0.0';
+export const CLIENT_1040_INTAKE_CONTRACT_VERSION = '1.3.0';
 export const CLIENT_1040_SUPPORTED_TAX_YEARS = Object.freeze([2025, 2026]);
 
 export const CLIENT_1040_COMPATIBILITY_MODES = Object.freeze({
@@ -42,7 +42,35 @@ export const CLIENT_1040_ADJUSTMENT_MODES = Object.freeze([
 export const CLIENT_1040_LIMITATIONS = Object.freeze({
   SIMPLE_SCHEDULE_D_ONLY: Object.freeze({
     code: 'SIMPLE_SCHEDULE_D_ONLY',
-    message: 'The simple Schedule D path requires confirmed zero short-term net, no carryovers, and no lines 18 or 19; all other Schedule D returns are deferred.',
+    message: 'The simple Schedule D path requires confirmed zero short-term net, no carryovers, no lines 18 or 19, and no Form 4952 line 4g amount; all other Schedule D returns are deferred.',
+  }),
+  SCHEDULE_SE_RESOLVED_LINE_6_ONLY: Object.freeze({
+    code: 'SCHEDULE_SE_RESOLVED_LINE_6_ONLY',
+    message: 'Schedule SE net earnings must be the already-resolved line 6 amount after upstream line 4c, $400-threshold, church-income, and optional-method rules; this contract does not accept raw business profit.',
+  }),
+  SOCIAL_SECURITY_WORKSHEET_ADJUSTMENT_SUBSET: Object.freeze({
+    code: 'SOCIAL_SECURITY_WORKSHEET_ADJUSTMENT_SUBSET',
+    message: 'Calculated Social Security adjustments must be the Publication 915/505 worksheet-eligible Schedule 1 subtotal, not Form 1040 line 10; the engine adds its calculated half-SE-tax deduction exactly once.',
+  }),
+  ITEMIZED_COMPONENTS_ALREADY_LIMITED: Object.freeze({
+    code: 'ITEMIZED_COMPONENTS_ALREADY_LIMITED',
+    message: 'Mortgage-interest, charitable, and other itemized amounts must already reflect their category-specific limits; the engine applies only the medical, SALT, and overall itemized limits in this contract.',
+  }),
+  MISSING_SCHEDULE_1A_DEFERRED: Object.freeze({
+    code: 'MISSING_SCHEDULE_1A_DEFERRED',
+    message: 'Absent Schedule 1-A provenance leaves Form 1040 line 13b deferred; absence is not treated as confirmed zero.',
+  }),
+  MISSING_ADJUSTMENTS_DEFERRED: Object.freeze({
+    code: 'MISSING_ADJUSTMENTS_DEFERRED',
+    message: 'Absent Schedule 1 adjustment provenance leaves Form 1040 line 10 deferred; absence is not treated as confirmed zero.',
+  }),
+  MISSING_QBI_DEFERRED: Object.freeze({
+    code: 'MISSING_QBI_DEFERRED',
+    message: 'Absent QBI deduction provenance leaves Form 1040 line 13a deferred; absence is not treated as confirmed zero.',
+  }),
+  QUALIFYING_SURVIVING_SPOUSE_DEFERRED: Object.freeze({
+    code: 'QUALIFYING_SURVIVING_SPOUSE_DEFERRED',
+    message: 'Qualifying surviving spouse is not yet supported consistently across the federal engine and remains fail-closed.',
   }),
 });
 
@@ -67,6 +95,7 @@ export const SIMPLE_SCHEDULE_D_CONFIRMATIONS = Object.freeze([
   'noCapitalLossCarryovers',
   'line18NotApplicable',
   'line19NotApplicable',
+  'form4952Line4gIsZeroOrNotApplicable',
 ]);
 
 export const ITEMIZED_AMOUNT_FIELDS = Object.freeze([

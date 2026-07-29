@@ -27,28 +27,6 @@ function assertNonNegative(errors, value, label){
   if(value < 0) pushError(errors, 'NEGATIVE_AMOUNT', `${label} cannot be negative`);
 }
 
-function addPendingCanonicalCapabilities(errors, intake, contract){
-  if(contract.compatibilityMode !== CLIENT_1040_COMPATIBILITY_MODES.CANONICAL) return;
-  const deductions = intake.deductions;
-  if(deductions?.source === 'calculated' && deductions.method === 'standard'){
-    pushError(errors, 'STANDARD_DEDUCTION_AGE_BLIND_RULE_PENDING',
-      'Canonical calculated standard deduction is blocked until age/blind additions are implemented');
-  }
-  if(deductions?.source === 'calculated' && deductions.method === 'itemized'){
-    pushError(errors, 'CALCULATED_ITEMIZED_DEDUCTION_RULES_PENDING',
-      'Canonical calculated itemized deductions are blocked until the versioned rules are implemented');
-  }
-  if(deductions?.schedule1A?.mode === 'calculate-enhanced-senior'){
-    pushError(errors, 'ENHANCED_SENIOR_DEDUCTION_RULE_PENDING',
-      'Canonical enhanced senior deduction is blocked until the Schedule 1-A rule is implemented');
-  }
-  if(intake.taxYear === 2026 && Array.isArray(intake.scheduleSE)
-      && intake.scheduleSE.length > 0){
-    pushError(errors, 'SCHEDULE_SE_2026_RULE_PENDING',
-      'Canonical 2026 Schedule SE is blocked until the 2026 rule data is implemented');
-  }
-}
-
 function addCanonicalLimitations(warnings, contract){
   if(contract.compatibilityMode !== CLIENT_1040_COMPATIBILITY_MODES.CANONICAL) return;
   for(const limitation of contract.limitations){
@@ -61,9 +39,6 @@ export function validateClient1040Intake(intake, context){
   const warnings = [];
   const contractValidation = validateClient1040Contract(intake, context);
   errors.push(...contractValidation.errors);
-  if(intake && typeof intake === 'object' && !Array.isArray(intake)){
-    addPendingCanonicalCapabilities(errors, intake, contractValidation.contract);
-  }
 
   if(!intake || typeof intake !== 'object' || Array.isArray(intake)){
     pushError(errors, 'INVALID_INTAKE', 'intake must be a plain object');

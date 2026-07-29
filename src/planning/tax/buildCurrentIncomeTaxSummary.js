@@ -7,6 +7,10 @@ import {
   isSourceActiveNow,
   normalizedIncomeSource,
 } from '../../household/incomeTaxModel.js';
+import {
+  buildCurrent1040Intake,
+  hasCurrent1040PlanningEnvelope,
+} from './buildCurrent1040Intake.js';
 
 const add = (target, key, amount) => { target[key] = (target[key] || 0) + amount; };
 
@@ -103,18 +107,24 @@ function run(intake, suffix){
   return runClient1040Intake(intake, context);
 }
 
-function ordinaryBracketRoom(filingStatus, taxableOrdinaryIncome){
-  const bracket = ORDINARY_BRACKETS['2026_FINAL']?.[filingStatus]
+function ordinaryBracketRoom(filingStatus, taxableOrdinaryIncome, lawVersion = '2026_FINAL'){
+  const bracket = ORDINARY_BRACKETS[lawVersion]?.[filingStatus]
     ?.find(row => taxableOrdinaryIncome <= row.upTo);
   if(!bracket || !Number.isFinite(bracket.upTo)) return null;
   return Math.max(0, bracket.upTo - taxableOrdinaryIncome);
 }
 
-function capitalGainsPosition(filingStatus, taxableIncome, marginalRate, preferentialIncome){
+function capitalGainsPosition(
+  filingStatus,
+  taxableIncome,
+  marginalRate,
+  preferentialIncome,
+  lawVersion = '2026_FINAL'
+){
   if(!(preferentialIncome > 0) || marginalRate == null){
     return { room: null, note: 'No qualified dividends or long-term gains' };
   }
-  const thresholds = CAPITAL_GAINS_THRESHOLDS['2026_FINAL']?.[filingStatus];
+  const thresholds = CAPITAL_GAINS_THRESHOLDS[lawVersion]?.[filingStatus];
   if(!thresholds) return { room: null, note: '' };
   if(marginalRate === 0){
     const room = Math.max(0, thresholds.zeroRateMax - taxableIncome);
@@ -135,7 +145,7 @@ function firstRmdYear(plan){
   return Number.isFinite(age) ? new Date().getFullYear() + (73 - age) : null;
 }
 
-export function buildCurrentIncomeTaxSummary(plan){
+function buildLegacyCurrentIncomeTaxSummary(plan){
   const filingStatus = plan.meta?.filingStatus;
   const income = currentIncome(plan);
   const adjustments = enteredAdjustmentTotal(plan);
@@ -215,4 +225,167 @@ export function buildCurrentIncomeTaxSummary(plan){
       deductionUsed: null,
     };
   }
+}
+
+function canonicalGapSummary(plan, built){
+  const first = built.gaps[0];
+  return {
+    status: 'needs_facts',
+    sourceMode: 'canonical-v1',
+    message: first?.message || 'Current-return tax facts are incomplete',
+    reasonCodes: built.gaps.map(gap => gap.code),
+    gaps: built.gaps,
+    totalIncome: null,
+    deductionUsed: null,
+    rmdAge: 73,
+    firstRmdYear: firstRmdYear(plan),
+  };
+}
+
+function canonicalValidationSummary(plan, built, error){
+  const validationErrors = error?.validation?.errors || [];
+  return {
+    status: 'needs_facts',
+    sourceMode: 'canonical-v1',
+    message: validationErrors[0]?.message
+      || error?.message
+      || 'Current-return tax facts are incomplete',
+    reasonCodes: validationErrors.map(entry => entry.code),
+    validationErrors,
+    totalIncome: null,
+    deductionUsed: null,
+    rmdAge: 73,
+    firstRmdYear: firstRmdYear(plan),
+  };
+}
+
+function canonicalDeferredSummary(plan, intake, context, annual, form1040){
+  const unresolvedTaxableIncomeLines =
+    annual.readiness?.unresolvedTaxableIncomeLines ?? [];
+  return {
+    status: 'needs_facts',
+    sourceMode: 'canonical-v1',
+    message: unresolvedTaxableIncomeLines.length > 0
+      ? `Current-return tax cannot be calculated until ${unresolvedTaxableIncomeLines.join(', ')} is resolved`
+      : 'Current-return tax facts are incomplete',
+    reasonCodes: [
+      'CURRENT_1040_TAX_RESULT_NOT_CALCULABLE',
+      ...unresolvedTaxableIncomeLines.map(
+        lineId => `CURRENT_1040_${lineId.toUpperCase()}_DEFERRED`
+      ),
+    ],
+    unresolvedTaxableIncomeLines,
+    taxYear: intake.taxYear,
+    lawVersion: context.lawVersion,
+    taxTotalScope: annual.federalSummary.taxTotalScope,
+    totalIncome: form1040.line9?.value ?? null,
+    deductionUsed: null,
+    rmdAge: 73,
+    firstRmdYear: firstRmdYear(plan),
+    warnings: annual.warnings || [],
+  };
+}
+
+function buildCanonicalCurrentIncomeTaxSummary(plan){
+  const built = buildCurrent1040Intake(plan);
+  if(built.gaps.length > 0) return canonicalGapSummary(plan, built);
+
+  const intake = built.intake;
+  const context = buildDefaultTaxContext({
+    taxYear: intake.taxYear,
+    calculatedAt: new Date().toISOString(),
+    runId: `wizard_current_canonical_${intake.taxYear}`,
+    scenarioId: 'household_wizard',
+  });
+  try{
+    const selected = runClient1040Intake(intake, context);
+    const annual = selected.annual1040Result;
+    const form1040 = selected.result.form1040;
+    if(annual.federalSummary.taxTotalScope === 'NOT_CALCULABLE'){
+      return canonicalDeferredSummary(
+        plan,
+        intake,
+        context,
+        annual,
+        form1040
+      );
+    }
+    const capAudit = selected.audits?.find(
+      entry => entry.ruleId === 'FED_CAPITAL_GAINS_STACKING'
+    );
+    const ordinaryAudit = selected.audits?.find(
+      entry => entry.ruleId === 'FED_ORDINARY_INCOME_TAX'
+    );
+    const taxableOrdinaryIncome =
+      Number(ordinaryAudit?.inputsUsed?.taxableOrdinaryIncome) || 0;
+    const capitalGainsRate =
+      capAudit?.calculationSteps?.at(-1)?.rate ?? null;
+    const capitalGains = capitalGainsPosition(
+      intake.filingStatus,
+      annual.federalSummary.taxableIncome,
+      capitalGainsRate,
+      annual.federalSummary.preferentialIncome,
+      context.lawVersion
+    );
+    const deductionUsed = form1040.line12e?.value ?? null;
+    const deductionMethod = intake.deductions.method === 'itemized'
+      ? 'Itemized'
+      : 'Standard';
+    const hasLine20 = Object.prototype.hasOwnProperty.call(
+      intake.passThrough || {},
+      'line20'
+    );
+    return {
+      status: 'ready',
+      sourceMode: 'canonical-v1',
+      taxYear: intake.taxYear,
+      lawVersion: context.lawVersion,
+      totalIncome: form1040.line9?.value ?? null,
+      adjustments: form1040.line10?.value ?? null,
+      premiumTaxCredit: hasLine20 ? intake.passThrough.line20 : null,
+      deductionUsed,
+      deductionMethod,
+      deductionSource: intake.deductions.source,
+      standardDeduction:
+        intake.deductions.method === 'standard' ? deductionUsed : null,
+      itemizedDeduction:
+        intake.deductions.method === 'itemized' ? deductionUsed : null,
+      adjustedGrossIncome: annual.federalSummary.adjustedGrossIncome,
+      taxableIncome: annual.federalSummary.taxableIncome,
+      federalTaxLiability: annual.federalSummary.federalTaxLiability,
+      marginalRate: annual.federalSummary.marginalRate,
+      ordinaryBracketRoom: ordinaryBracketRoom(
+        intake.filingStatus,
+        taxableOrdinaryIncome,
+        context.lawVersion
+      ),
+      effectiveRate: annual.federalSummary.effectiveRate,
+      capitalGainsRate,
+      capitalGainsRoom: capitalGains.room,
+      capitalGainsNote: capitalGains.note,
+      taxTotalScope: annual.federalSummary.taxTotalScope,
+      rmdAge: 73,
+      firstRmdYear: firstRmdYear(plan),
+      warnings: annual.warnings || [],
+    };
+  }catch(error){
+    if(error?.validation){
+      return canonicalValidationSummary(plan, built, error);
+    }
+    return {
+      status: 'unavailable',
+      sourceMode: 'canonical-v1',
+      message: error?.message || 'Tax summary unavailable',
+      totalIncome: null,
+      deductionUsed: null,
+      rmdAge: 73,
+      firstRmdYear: firstRmdYear(plan),
+    };
+  }
+}
+
+export function buildCurrentIncomeTaxSummary(plan){
+  return hasCurrent1040PlanningEnvelope(plan)
+    ? buildCanonicalCurrentIncomeTaxSummary(plan)
+    : buildLegacyCurrentIncomeTaxSummary(plan);
 }
