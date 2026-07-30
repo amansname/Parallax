@@ -6,7 +6,12 @@ import {
   READ_ONLY_MESSAGE,
   mergeNonAccountDefaults,
   migrateHouseholdsDb,
+  validateCurrentSchemaHousehold,
 } from './migrateAccounts.js';
+import {
+  migrateHouseholdRecordDatabase,
+  validateHouseholdRecordSchema,
+} from './householdRecordSchema.js';
 
 export const HHDB_KEY = 'parallax.households.v1';
 export const ACTIVE_KEY = 'parallax.activeHouseholdId';
@@ -93,15 +98,29 @@ export function prepareHouseholdStore(readResult, dependencies){
         error: migration.error,
       };
     }
+    let recordMigration;
+    try{
+      recordMigration = migrateHouseholdRecordDatabase(migration.db);
+    }catch(error){
+      return {
+        ok: false,
+        mode: 'blocked',
+        code: ACCOUNT_MIGRATION_BLOCKED,
+        message: BLOCKED_MESSAGE,
+        hydrate: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
     return {
       ok: true,
       mode: 'normal',
-      db: migration.db,
+      db: recordMigration.db,
       activeHouseholdId: demo.meta.householdId,
       changed: true,
       pointerChanged: true,
       hydrate: true,
       issuesByHousehold: { [demo.meta.householdId]: [] },
+      repairsByHousehold: recordMigration.repairsByHousehold,
     };
   }
 
@@ -119,7 +138,21 @@ export function prepareHouseholdStore(readResult, dependencies){
     };
   }
 
-  const mergedDb = Object.fromEntries(Object.entries(migration.db).map(([recordId, record]) => {
+  let recordMigration;
+  try{
+    recordMigration = migrateHouseholdRecordDatabase(migration.db);
+  }catch(error){
+    return {
+      ok: false,
+      mode: 'blocked',
+      code: ACCOUNT_MIGRATION_BLOCKED,
+      message: BLOCKED_MESSAGE,
+      hydrate: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+
+  const mergedDb = Object.fromEntries(Object.entries(recordMigration.db).map(([recordId, record]) => {
     const defaults = recordId === 'demo'
       ? createDemoHousehold(pristinePlan, currentYear())
       : createBlankHousehold(pristinePlan, recordId, currentYear());
@@ -145,11 +178,18 @@ export function prepareHouseholdStore(readResult, dependencies){
     mode: 'normal',
     db: mergedDb,
     activeHouseholdId,
-    changed: migration.changed || schemaFilled,
+    changed: migration.changed || schemaFilled || recordMigration.changed,
     pointerChanged,
     hydrate: true,
     issuesByHousehold: migration.issuesByHousehold || {},
+    repairsByHousehold: recordMigration.repairsByHousehold,
   };
+}
+
+export function prepareHouseholdRecordForSave(plan, householdId){
+  validateCurrentSchemaHousehold(plan, householdId);
+  validateHouseholdRecordSchema(plan, householdId);
+  return structuredClone(plan);
 }
 
 export function commitPreparedHouseholdStore(storage, preparedResult, keys = { dbKey: HHDB_KEY, activeKey: ACTIVE_KEY }){

@@ -1,6 +1,7 @@
 import { ACCOUNT_SCHEMA_VERSION } from '../src/household/accountTypes.js';
 import { createBlankTaxProfiles } from '../src/household/factEnvelope.js';
 import { createIncomeTaxInputs } from '../src/household/incomeTaxModel.js';
+import { HOUSEHOLD_RECORD_SCHEMA_VERSION } from '../src/household/householdRecordSchema.js';
 
 const clonePristinePlan = pristinePlan => JSON.parse(JSON.stringify(pristinePlan));
 
@@ -32,6 +33,7 @@ export function createBlankHousehold(pristinePlan, householdId, currentYear){
   p.portfolio.accounts.roth        = { balance: 0 };
   p.portfolio.extraAccounts = [];
   p.meta.accountSchemaVersion = ACCOUNT_SCHEMA_VERSION;
+  p.meta.householdRecordSchemaVersion = HOUSEHOLD_RECORD_SCHEMA_VERSION;
   p.taxProfiles = createBlankTaxProfiles();
   p.properties  = [];
   p.liabilities = [];

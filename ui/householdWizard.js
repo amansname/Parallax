@@ -1,366 +1,156 @@
+import { accountDisplayTreatment, getAccountTypeById } from '../src/household/accountTypes.js';
+import { renderHouseholdWizardFamily } from './householdWizardFamily.js';
+import { renderHouseholdWizardNetWorth } from './householdWizardNetWorth.js';
+import { renderHouseholdWizardTax } from './householdWizardTax.js';
+import { renderHouseholdWizardSummary } from './householdWizardSummary.js';
 import { escHtml } from './dom.js';
-import { accountDisplayTreatment } from '../src/household/accountTypes.js';
-import { renderHouseholdTaxFacts } from './householdTaxFacts.js';
-import { renderHouseholdIncomeTax } from './householdIncomeTax.js';
-import { renderHouseholdSpendingGoals } from './householdSpendingGoals.js';
 
-const FS_LABELS = {
-  marriedFilingJointly: 'Married filing jointly',
-  single: 'Single',
-  headOfHousehold: 'Head of household',
-  marriedFilingSeparately: 'Married filing separately',
-};
+export const HOUSEHOLD_WIZARD_STEPS = Object.freeze([
+  Object.freeze({ id: 'family', number: 1, label: 'Family' }),
+  Object.freeze({ id: 'net-worth', number: 2, label: 'Net Worth' }),
+  Object.freeze({ id: 'tax', number: 3, label: 'Tax' }),
+  Object.freeze({ id: 'summary', number: 4, label: 'Summary' }),
+]);
 
-const STATE_NAMES = {
-  AL:'Alabama', AK:'Alaska', AZ:'Arizona', AR:'Arkansas', CA:'California', CO:'Colorado',
-  CT:'Connecticut', DE:'Delaware', FL:'Florida', GA:'Georgia', HI:'Hawaii', ID:'Idaho',
-  IL:'Illinois', IN:'Indiana', IA:'Iowa', KS:'Kansas', KY:'Kentucky', LA:'Louisiana',
-  ME:'Maine', MD:'Maryland', MA:'Massachusetts', MI:'Michigan', MN:'Minnesota',
-  MS:'Mississippi', MO:'Missouri', MT:'Montana', NE:'Nebraska', NV:'Nevada',
-  NH:'New Hampshire', NJ:'New Jersey', NM:'New Mexico', NY:'New York', NC:'North Carolina',
-  ND:'North Dakota', OH:'Ohio', OK:'Oklahoma', OR:'Oregon', PA:'Pennsylvania',
-  RI:'Rhode Island', SC:'South Carolina', SD:'South Dakota', TN:'Tennessee', TX:'Texas',
-  UT:'Utah', VT:'Vermont', VA:'Virginia', WA:'Washington', WV:'West Virginia',
-  WI:'Wisconsin', WY:'Wyoming', DC:'District of Columbia',
-};
-
-export function hhMoney(v){
-  const n = Math.round(Number(v) || 0);
-  return (n < 0 ? '–$' : '$') + Math.abs(n).toLocaleString('en-US');
+function money(value){
+  const amount = Math.round(Number(value) || 0);
+  const sign = amount < 0 ? '−' : '';
+  return `${sign}$${Math.abs(amount).toLocaleString('en-US')}`;
 }
 
-export function hhCompact(v){
-  const x = Math.abs(Number(v) || 0);
-  if(x >= 1e6) return '$' + (x / 1e6).toFixed(x % 1e6 === 0 ? 0 : (x / 1e6 >= 10 ? 1 : 2)).replace(/\.?0+$/, '') + 'M';
-  if(x >= 1e3) return '$' + Math.round(x / 1e3) + 'K';
-  return '$' + Math.round(x);
+function fieldValue(value){
+  if(value === undefined || value === null || value === '') return '';
+  return escHtml(String(value));
 }
 
-export function accountTreatment(typeOrTypeId){
-  return accountDisplayTreatment(typeOrTypeId);
+function optionList(options, selected){
+  return options.map(option => {
+    const [value, label] = Array.isArray(option)
+      ? option
+      : [option.value ?? option.typeId, option.label];
+    return `<option value="${escHtml(String(value))}" ${value === selected ? 'selected' : ''}>${escHtml(String(label))}</option>`;
+  }).join('');
 }
 
-export function renderGaugeSvg(accounts, total){
-  const ringR = 100, ringC = 2 * Math.PI * ringR, arcLen = ringC * 0.75;
-  const denom = total || 1;
-  const sorted = accounts.slice().sort((a, b) => (b.balance || 0) - (a.balance || 0));
-  let acc = 0;
-  const circles = [
-    `<circle cx="120" cy="120" r="${ringR}" fill="none" stroke="rgba(255,255,255,.05)" stroke-width="6" stroke-linecap="butt" stroke-dasharray="${arcLen} ${ringC - arcLen}"></circle>`,
-  ];
-  sorted.forEach((a, i) => {
-    const frac = (a.balance || 0) / denom;
-    const segGap = sorted.length > 1 ? 7 : 0;
-    const len = Math.max(0.5, frac * arcLen - segGap);
-    const off = -(acc * arcLen);
-    const color = accountTreatment(a.label || a.type).color;
-    circles.push(`<circle cx="120" cy="120" r="${ringR}" fill="none" stroke="${color}" stroke-width="6" stroke-linecap="butt" stroke-dasharray="${len} ${ringC - len}" stroke-dashoffset="${off}"></circle>`);
-    acc += frac;
-  });
-  return `<svg class="hh-bp-gauge__svg" viewBox="0 0 240 240" aria-hidden="true">${circles.join('')}</svg>`;
+function ageFor(plan, owner){
+  const person = owner === 'spouse'
+    ? plan.household?.spouse
+    : plan.household?.primary;
+  return Number.isFinite(person?.currentAge) ? person.currentAge : null;
 }
 
-function filingStateLine(plan){
-  const fs = FS_LABELS[plan.meta?.filingStatus] || (plan.household?.spouse ? 'Married filing jointly' : 'Single');
-  const st = STATE_NAMES[plan.meta?.state] || plan.meta?.state || '—';
-  return `${fs} · ${st}`;
-}
-
-function personColumn(role, plan, deps){
-  const isC = role === 'client';
-  if(!isC && !plan.household?.spouse){
-    return `<div class="hh-col hh-col--placeholder">
-      <button class="hh-dash-btn" type="button" data-hh-action="add-spouse">+ Add co-client</button>
-    </div>`;
+function accountBasis(plan, account){
+  const entry = getAccountTypeById(account.typeId);
+  if(!entry){
+    return { editable: false, value: null, label: 'Basis unavailable', placeholder: '—' };
   }
-  const p = plan.household[isC ? 'primary' : 'spouse'] || {};
-  const base = isC ? 'household.primary' : 'household.spouse';
-  const nameP = isC ? 'meta.primaryName' : 'meta.spouseName';
-  const born = p.birthYear || (p.currentAge != null ? new Date().getFullYear() - p.currentAge : '');
-  const init = deps.initial(getPath(plan, nameP), isC ? 'C' : 'CC');
-  const derivedIn = (val) =>
-    `<input type="text" class="hh-derived-in" readonly tabindex="-1" aria-readonly="true" value="${val ?? '—'}">`;
-  const rows = [
-    ['Name', deps.field(nameP, 'text', { ph: isC ? 'Client name' : 'Co-client name' })],
-    ['Born', `<input type="number" data-path="${base}.birthYear" data-type="birthYear" value="${born}" step="1" class="hh-born-in">`],
-    ['Age', derivedIn(p.currentAge)],
-    ['Retires at', deps.field(base + '.retirementAge', 'age')],
-    ['Plan to age', deps.field(base + '.planEndAge', 'age')],
-  ];
-  const rowHtml = rows.map(([k, v], i) =>
-    `<div class="hh-kv${i < rows.length - 1 ? ' hh-kv--rule' : ''}"><span class="hh-kv__k">${k}</span><span class="hh-kv__v">${v}</span></div>`
-  ).join('');
-  const headAct = isC ? '' : `<button class="hh-link-btn" type="button" data-hh-action="remove-spouse">Remove</button>`;
-  return `<div class="hh-col">
-    <div class="hh-col__head">
-      <span class="hh-col__id"><span class="hh-av hh-av--${isC ? 'c' : 's'}">${init}</span><span class="hh-col__role">${isC ? 'CLIENT' : 'CO-CLIENT'}</span></span>
-      ${headAct}
-    </div>
-    <div class="hh-kv-stack">${rowHtml}</div>
-  </div>`;
-}
-
-function getPath(o, p){ return p.split('.').reduce((a, k) => a && a[k], o); }
-
-function acctRow(a, deps){
-  return `<div class="hh-ledger-row">
-    <span class="hh-ledger-row__name">${escHtml(a.label)}</span>
-    <span class="hh-ledger-row__end">
-      <span class="hh-ledger-row__amt">${deps.field(a.balPath, 'money')}</span>
-      <button class="row-x" title="Remove account" data-rmpath="portfolio.extraAccounts.${a.idx}">×</button>
-    </span>
-  </div>`;
-}
-
-function acctAddForm(owner, deps, state){
-  if(state.hhAcctFormOwner !== owner) return '';
-  const eligible = deps.accountTypes
-    .map((type, index) => ({ ...type, index }))
-    .filter(type => !type.owners || type.owners.includes(owner));
-  const grouped = new Map();
-  eligible.forEach(type => {
-    const group = type.group || 'Other';
-    if(!grouped.has(group)) grouped.set(group, []);
-    grouped.get(group).push(type);
-  });
-  const typeOpts = [...grouped.entries()].map(([group, rows]) =>
-    `<optgroup label="${escHtml(group)}">${rows.map(type => `<option value="${type.index}">${escHtml(type.label)}</option>`).join('')}</optgroup>`
-  ).join('');
-  return `<div class="hh-inline-form" id="hh-acct-form">
-    <div class="hh-inline-form__field"><span class="hh-inline-form__k">Account type</span>
-      <select class="hh-sel hh-form-type" aria-label="Account type">${typeOpts}</select></div>
-    <div class="hh-inline-form__field"><span class="hh-inline-form__k">Amount</span>
-      <span class="hh-inline-form__money"><span class="pre">$</span><input class="hh-form-val" type="text" inputmode="numeric" data-type="money" placeholder="0" aria-label="Account value"></span></div>
-    <div class="hh-inline-form__acts">
-      <button class="hh-btn hh-btn--primary" type="button" data-hh-action="save-account">Add</button>
-      <button class="hh-btn hh-btn--ghost" type="button" data-hh-action="cancel-account">Cancel</button>
-    </div>
-  </div>`;
-}
-
-function acctOwnerColumn(owner, plan, deps, state){
-  const isC = owner === 'client';
-  const isJoint = owner === 'joint';
-  const accts = deps.allAccounts().filter(x => {
-    if(isJoint) return x.owner === 'joint' || x.owner === 'trust';
-    if(isC) return x.owner === 'client';
-    return x.owner === 'spouse';
-  });
-  const inv = accts.reduce((s, x) => s + (x.balance || 0), 0);
-  if(owner === 'spouse' && !plan.household?.spouse){
-    return `<div class="hh-col hh-col--placeholder">
-      <button class="hh-dash-btn" type="button" data-hh-action="add-spouse">+ Add co-client</button>
-    </div>`;
+  if(entry.taxCharacter === 'capital_asset'){
+    return {
+      editable: true,
+      value: account.basis?.amount,
+      label: 'Reported cost basis',
+      placeholder: 'Cost basis',
+    };
   }
-  const init = isJoint ? 'H' : isC ? deps.initial(plan.meta?.primaryName, 'C')
-    : deps.initial(plan.meta?.spouseName, 'CC');
-  const title = isJoint ? 'HOUSEHOLD & JOINT' : isC ? 'CLIENT' : 'CO-CLIENT';
-  const rows = accts.map(a => acctRow(a, deps)).join('');
-  return `<div class="hh-col${isJoint ? ' hh-col--joint' : ''}">
-    <div class="hh-col__head hh-col__head--total">
-      <span class="hh-col__id"><span class="hh-av hh-av--${isJoint ? 'joint' : isC ? 'c' : 's'}">${init}</span><span class="hh-col__role">${title}</span></span>
-      <span class="hh-col__sum">${hhMoney(inv)}</span>
-    </div>
-    ${rows || `<p class="hh-account-empty">No ${isJoint ? 'joint or household' : 'personal'} accounts entered.</p>`}
-    ${acctAddForm(owner, deps, state)}
-    ${state.hhAcctFormOwner !== owner ? `<button class="hh-dash-btn" type="button" data-hh-action="open-account-form" data-owner="${owner}">+ Add account</button>` : ''}
-  </div>`;
-}
-
-function workingIncomeSum(plan){
-  return (plan.income?.other || []).reduce((s, x) => s + (x.amount || 0), 0);
-}
-
-function fixedSpendingTotal(plan){
-  const extra = plan.expenses?.extra || [];
-  const housingInExtra = extra.some(x => (x.label || '').trim().toLowerCase() === 'housing');
-  return (plan.expenses?.living || 0)
-    + (plan.expenses?.healthcare || 0)
-    + extra.reduce((s, x) => s + (x.amount || 0), 0)
-    + (housingInExtra ? 0 : (plan.expenses?.housing || 0));
-}
-
-function deferredIncomeSum(plan){
-  const ss = plan.income?.socialSecurity || {};
-  let total = 0;
-  if(ss.primary?.pia) total += ss.primary.pia;
-  if(plan.household?.spouse && ss.spouse?.pia) total += ss.spouse.pia;
-  return total;
-}
-
-function blueprintFlowRows(plan, spendTotal){
-  const income = workingIncomeSum(plan);
-  const ss = deferredIncomeSum(plan);
-  const savings = plan.savings?.annual || 0;
-  return `<div class="hh-bp-flow">
-    <div class="hh-bp-flow__row">
-      <span class="hh-bp-flow__label">Income</span>
-      <b class="hh-bp-flow__val">${hhMoney(income)}</b>
-    </div>
-    ${savings > 0 ? `<div class="hh-bp-flow__row">
-      <span class="hh-bp-flow__label">Annual savings</span>
-      <b class="hh-bp-flow__val hh-bp-flow__val--sage">${hhMoney(savings)}</b>
-    </div>` : ''}
-    <div class="hh-bp-flow__row">
-      <span class="hh-bp-flow__label">Spending</span>
-      <b class="hh-bp-flow__val">${hhMoney(spendTotal)}</b>
-    </div>
-    <div class="hh-bp-flow__row">
-      <span class="hh-bp-flow__label">Social Security</span>
-      <b class="hh-bp-flow__val hh-bp-flow__val--sage">${hhMoney(ss)}</b>
-    </div>
-  </div>`;
-}
-
-export function createHouseholdWizard(deps){
-  const state = deps.uiState;
-
-  function stepPeople(){
-    const plan = deps.plan;
-    const FS_OPTS = [
-      ['marriedFilingJointly', 'Married filing jointly'],
-      ['single', 'Single'],
-      ['headOfHousehold', 'Head of household'],
-      ['marriedFilingSeparately', 'Married filing separately'],
-    ];
-    const defaultFs = plan.household?.spouse ? 'marriedFilingJointly' : 'single';
-    const fsVal = plan.meta?.filingStatus || defaultFs;
-    const kids = plan.household?.children || [];
-    const childAdd = state.hhAddingKey === 'child'
-      ? `<div class="hh-inline-form hh-inline-form--slim">
-          <input class="hh-inline-input" data-hh-draft="label" placeholder="Child's name" value="${escHtml(state.hhDraftLabel || '')}">
-          <input class="hh-inline-input hh-born-in" data-hh-draft="year" type="number" placeholder="Born" value="${escHtml(state.hhDraftAmount || '')}">
-          <button class="hh-btn hh-btn--primary" type="button" data-hh-action="commit-add">Add</button>
-          <button class="hh-btn hh-btn--ghost" type="button" data-hh-action="cancel-add">Cancel</button>
-        </div>`
-      : `<button class="hh-text-add" type="button" data-hh-action="open-add" data-add-key="child">+ Add</button>`;
-    const childRows = kids.map((k, i) => {
-      const base = `household.children.${i}`;
-      const age = deps.ageFromYear(k.birthYear);
-      return `<div class="hh-kv hh-kv--rule">
-        <span class="hh-kv__k">${escHtml(k.name || 'Child')}</span>
-        <span class="hh-kv__v">${k.birthYear || '—'}${age != null ? ` · age ${age}` : ''}
-          <button class="row-x" data-rmpath="${base}" title="Remove child">×</button></span>
-      </div>`;
-    }).join('');
-    return `<div class="hh-step-pane">
-      <h2 class="hh-step-title">Household</h2>
-      <div class="hh-cols hh-cols--split">
-        ${personColumn('client', plan, deps)}
-        <div class="hh-cols__div" aria-hidden="true"></div>
-        ${personColumn('spouse', plan, deps)}
-      </div>
-      <div class="hh-meta-row">
-        <div class="hh-meta"><span class="hh-meta__k">Filing</span>
-          <div class="hh-meta__v">${deps.select('meta.filingStatus', fsVal, FS_OPTS, 'text')}</div></div>
-        <div class="hh-meta"><span class="hh-meta__k">State</span>
-          <div class="hh-meta__v">${deps.select('meta.state', plan.meta?.state || 'VA', deps.states, 'text')}</div></div>
-        <div class="hh-meta"><span class="hh-meta__k">Children</span>
-          <div class="hh-meta__v">${childRows}${childAdd}</div></div>
-      </div>
-    </div>`;
+  if(entry.taxCharacter === 'traditional_ira'){
+    return {
+      editable: account.owner === 'client' || account.owner === 'spouse',
+      value: plan.taxProfiles?.[account.owner]?.traditionalIra
+        ?.priorYearCarryforwardBasis?.value,
+      label: 'Owner-level after-tax IRA basis',
+      placeholder: 'After-tax basis',
+    };
   }
-
-  function stepBalance(){
-    const plan = deps.plan;
-    const all = deps.allAccounts();
-    const visible = plan.household?.spouse ? all : all.filter(a => a.owner === 'client' || a.owner === 'joint' || a.owner === 'trust');
-    const total = visible.reduce((s, a) => s + (a.balance || 0), 0);
-    const count = visible.length;
-    return `<div class="hh-step-pane">
-      <h2 class="hh-step-title">Net Worth</h2>
-      <div class="hh-cols hh-cols--split">
-        ${acctOwnerColumn('client', plan, deps, state)}
-        <div class="hh-cols__div" aria-hidden="true"></div>
-        ${acctOwnerColumn('spouse', plan, deps, state)}
-      </div>
-      <div class="hh-joint-block">
-        ${acctOwnerColumn('joint', plan, deps, state)}
-      </div>
-      <div class="hh-grand-total">
-        <div><div class="hh-grand-total__k">Total investable</div><div class="hh-grand-total__sub">${count} account${count === 1 ? '' : 's'}</div></div>
-        <div class="hh-grand-total__v">${hhMoney(total)}</div>
-      </div>
-      ${renderHouseholdTaxFacts(plan, deps)}
-    </div>`;
+  if(entry.taxCharacter === 'roth_ira'){
+    return {
+      editable: account.owner === 'client' || account.owner === 'spouse',
+      value: plan.taxProfiles?.[account.owner]?.rothIra?.contributionBasis?.value,
+      label: 'Owner-level Roth contribution basis',
+      placeholder: 'Contribution basis',
+    };
   }
-
-  function stepBlueprint(){
-    const plan = deps.plan;
-    const all = deps.allAccounts();
-    const visible = plan.household?.spouse ? all : all.filter(a => a.owner === 'client' || a.owner === 'joint' || a.owner === 'trust');
-    const total = visible.reduce((s, a) => s + (a.balance || 0), 0);
-    const spendTotal = fixedSpendingTotal(plan);
-    const pn = plan.meta?.primaryName || 'Client';
-    const sn = plan.meta?.spouseName || 'Co-Client';
-    const householdName = plan.household?.spouse ? `${pn} & ${sn}` : pn;
-    const retireAges = plan.household?.spouse
-      ? `${plan.household.primary?.retirementAge} & ${plan.household.spouse?.retirementAge}`
-      : String(plan.household?.primary?.retirementAge ?? '—');
-    const denom = total || 1;
-    const alloc = visible.slice().sort((a, b) => (b.balance || 0) - (a.balance || 0)).map(a => {
-      const tr = accountTreatment(a.label);
-      const pct = Math.round((a.balance || 0) / denom * 100);
-      return `<div class="hh-bp-alloc">
-        <span class="hh-bp-alloc__name"><span class="hh-bp-alloc__dot" style="background:${tr.color}"></span>${escHtml(a.label)}</span>
-        <span class="hh-bp-alloc__nums"><span class="hh-bp-alloc__pct">${pct}%</span><span class="hh-bp-alloc__amt">${hhMoney(a.balance)}</span></span>
-      </div>`;
-    }).join('');
-    const cInit = deps.initial(pn, 'C');
-    const sInit = deps.initial(sn, 'CC');
-    return `<div class="hh-step-pane hh-step-pane--bp">
-      <div class="hh-bp-sheet">
-        <span class="hh-bp-corner hh-bp-corner--tl" aria-hidden="true"></span>
-        <span class="hh-bp-corner hh-bp-corner--tr" aria-hidden="true"></span>
-        <span class="hh-bp-corner hh-bp-corner--bl" aria-hidden="true"></span>
-        <span class="hh-bp-corner hh-bp-corner--br" aria-hidden="true"></span>
-        <div class="hh-bp-read">
-          <div class="hh-bp-eyebrow">BLUEPRINT</div>
-          <div class="hh-bp-house">
-            <span class="hh-bp-avs"><span class="hh-av hh-av--c hh-av--lg">${cInit}</span>${plan.household?.spouse ? `<span class="hh-av hh-av--s hh-av--lg hh-av--overlap">${sInit}</span>` : ''}</span>
-            <span class="hh-bp-house__name">${escHtml(householdName)}</span>
-          </div>
-          <div class="hh-bp-filing">${escHtml(filingStateLine(plan))}</div>
-          <div class="hh-bp-facts">
-            <div><span class="hh-bp-facts__k">RETIRE</span><span class="hh-bp-facts__v">${retireAges}</span></div>
-            <div><span class="hh-bp-facts__k">HORIZON</span><span class="hh-bp-facts__v">${plan.household?.primary?.planEndAge ?? '—'}</span></div>
-          </div>
-          ${blueprintFlowRows(plan, spendTotal)}
-        </div>
-        <div class="hh-bp-inst">
-          <div class="hh-bp-gauge">
-            ${renderGaugeSvg(visible, total)}
-            <div class="hh-bp-gauge__center">
-              <div class="hh-bp-gauge__k">NET WORTH</div>
-              <div class="hh-bp-gauge__v">${hhCompact(total)}</div>
-              <div class="hh-bp-gauge__sub">${visible.length} account${visible.length === 1 ? '' : 's'}</div>
-            </div>
-          </div>
-          <div class="hh-bp-alloc-list" aria-label="Account allocation">${alloc}</div>
-        </div>
-      </div>
-    </div>`;
+  if(entry.taxCharacter === 'employer_pretax'){
+    return {
+      editable: true,
+      value: account.employerPlanFacts?.afterTaxContributionBasis?.value,
+      label: 'After-tax contribution basis',
+      placeholder: 'After-tax basis',
+    };
   }
-
-  function footer(step){
-    const back = step > 1
-      ? `<button class="hh-btn hh-btn--outline" type="button" data-hh-action="step-back">← Back</button>`
-      : `<span></span>`;
-    const right = step < 5
-      ? `<button class="hh-btn hh-btn--primary" type="button" data-hh-action="step-next">${step === 4 ? 'Review →' : 'Continue →'}</button>`
-      : `<span class="hh-wiz-foot-note">Step 5 of 5</span>`;
-    return `<div class="hh-wiz-footer">${back}${right}</div>`;
+  if(entry.taxCharacter === 'designated_roth'){
+    return {
+      editable: true,
+      value: account.designatedRothFacts?.contributionBasis?.value,
+      label: 'Designated Roth contribution basis',
+      placeholder: 'Contribution basis',
+    };
   }
-
   return {
-    steps: {
-      1: stepPeople,
-      2: stepBalance,
-      3: () => renderHouseholdIncomeTax(deps.plan, deps, state),
-      4: () => renderHouseholdSpendingGoals(deps.plan, deps, state),
-      5: stepBlueprint,
-    },
-    footer,
-    stepLabels: ['People & Timeline', 'Balance Sheet', 'Income & Tax', 'Spending & Goals', 'Blueprint'],
+    editable: false,
+    value: null,
+    label: 'Basis is not entered for this account type',
+    placeholder: '—',
   };
+}
+
+export function createHouseholdWizard(dependencies){
+  const renderers = {
+    family: renderHouseholdWizardFamily,
+    'net-worth': renderHouseholdWizardNetWorth,
+    tax: renderHouseholdWizardTax,
+    summary: renderHouseholdWizardSummary,
+  };
+
+  function context(){
+    const plan = dependencies.plan;
+    const taxState = dependencies.taxState();
+    return {
+      plan,
+      uiState: dependencies.uiState,
+      esc: escHtml,
+      fieldValue,
+      optionList,
+      money,
+      states: dependencies.states,
+      accountTypes: dependencies.accountTypes,
+      accountTreatment: accountDisplayTreatment,
+      accountBasis: account => accountBasis(plan, account),
+      ageFor: owner => ageFor(plan, owner),
+      taxBucketSnapshot: dependencies.taxBucketSnapshot(),
+      taxSummary: dependencies.incomeTaxSummary(),
+      current: taxState.current,
+      deductionMode: taxState.deductionMode,
+      planningIncome: taxState.planningIncome,
+      completionConfirmed: taxState.completionConfirmed,
+      taxView: dependencies.uiState.taxView,
+      optionalItems: dependencies.uiState.optionalTaxItems,
+      optionalMenuOpen: dependencies.uiState.optionalMenuOpen,
+    };
+  }
+
+  function render(stepId){
+    const renderer = renderers[stepId] || renderers.family;
+    return renderer(context());
+  }
+
+  function footer(stepId){
+    const index = HOUSEHOLD_WIZARD_STEPS.findIndex(step => step.id === stepId);
+    const isFirst = index <= 0;
+    const isLast = index === HOUSEHOLD_WIZARD_STEPS.length - 1;
+    const completionConfirmed = dependencies.taxState().completionConfirmed === true;
+    const planningBlocked = isLast && !completionConfirmed;
+    return `
+      <button type="button" class="hh-footer-back" data-hh-action="step-back"
+        ${isFirst ? 'disabled' : ''}>Back</button>
+      <div class="hh-footer-progress">Step ${index + 1} of ${HOUSEHOLD_WIZARD_STEPS.length}</div>
+      <button type="button" class="hh-footer-next" data-hh-action="step-next"
+        ${planningBlocked
+          ? 'aria-disabled="true" data-tax-completion-required="true"'
+          : ''}>
+        ${isLast ? 'Enter planning' : 'Continue'}
+      </button>
+    `;
+  }
+
+  return { render, footer };
 }

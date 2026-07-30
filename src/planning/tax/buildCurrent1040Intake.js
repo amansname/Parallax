@@ -3,6 +3,8 @@ import {
   CLIENT_1040_SUPPORTED_TAX_YEARS,
 } from '../../tax/annual1040.js';
 import {
+  CURRENT_1040_INCOME_SOURCE_GROUP_IDS,
+  current1040IncomeSourceGroup,
   isSourceActiveNow,
   normalizedIncomeSource,
 } from '../../household/incomeTaxModel.js';
@@ -19,6 +21,8 @@ const isRecord = value =>
   && !Array.isArray(value);
 
 const clone = value => structuredClone(value);
+const PLANNING_OVERRIDE_GROUPS =
+  new Set(CURRENT_1040_INCOME_SOURCE_GROUP_IDS);
 
 const CONFIRMED_ZERO_INCOME_FIELDS = Object.freeze([
   'wages',
@@ -52,6 +56,14 @@ function materializeConfirmedZeroIncome(
 ){
   if(!isRecord(income)) return income;
   for(const field of CONFIRMED_ZERO_INCOME_FIELDS){
+    if(field === 'taxableIra'
+        && Number(income.iraDistributions) > 0){
+      continue;
+    }
+    if(field === 'taxablePensions'
+        && Number(income.pensionAmount) > 0){
+      continue;
+    }
     if(!hasOwn(income, field)) income[field] = 0;
   }
   const hasAnySocialSecurityFact = explicitSocialSecuritySource
@@ -63,6 +75,52 @@ function materializeConfirmedZeroIncome(
     income.socialSecurity = { mode: 'supplied-form1040-lines' };
   }
   return income;
+}
+
+function addTaxableCompanionGaps(income, gaps){
+  if(!isRecord(income)) return;
+  if(Number(income.iraDistributions) > 0 && !hasOwn(income, 'taxableIra')){
+    gaps.push(makeGap(
+      'CURRENT_1040_TAXABLE_IRA_REQUIRED',
+      'incomeTax.current1040.income.taxableIra',
+      'A positive IRA distribution requires an explicit taxable IRA amount, including zero'
+    ));
+  }
+  if(Number(income.pensionAmount) > 0 && !hasOwn(income, 'taxablePensions')){
+    gaps.push(makeGap(
+      'CURRENT_1040_TAXABLE_PENSION_REQUIRED',
+      'incomeTax.current1040.income.taxablePensions',
+      'A positive pension amount requires an explicit taxable pension amount, including zero'
+    ));
+  }
+}
+
+function planningIncomeOverrides(source, gaps){
+  if(!hasOwn(source, 'planningIncomeOverrides')) return new Set();
+  const raw = source.planningIncomeOverrides;
+  if(!Array.isArray(raw)){
+    gaps.push(makeGap(
+      'CURRENT_1040_INCOME_OVERRIDE_GROUPS_INVALID',
+      'incomeTax.current1040.planningIncomeOverrides',
+      'planningIncomeOverrides must be an array of supported income source groups'
+    ));
+    return new Set();
+  }
+  const selected = new Set();
+  for(const [index, groupId] of raw.entries()){
+    if(typeof groupId !== 'string'
+        || !PLANNING_OVERRIDE_GROUPS.has(groupId)
+        || selected.has(groupId)){
+      gaps.push(makeGap(
+        'CURRENT_1040_INCOME_OVERRIDE_GROUP_INVALID',
+        `incomeTax.current1040.planningIncomeOverrides.${index}`,
+        'Every planning income override must identify one unique supported source group'
+      ));
+      continue;
+    }
+    selected.add(groupId);
+  }
+  return selected;
 }
 
 function mergeCanonicalIncome(explicitIncome, mappedIncome, gaps){
@@ -502,12 +560,17 @@ export function buildCurrent1040Intake(plan){
   }
   const explicitSocialSecuritySource =
     hasExplicitSocialSecuritySource(explicitIncome);
-  const rows = relevantActiveSources(
+  const allRows = relevantActiveSources(
     plan,
     filingStatus,
     modeledTaxpayer,
     gaps
   );
+  const overrideGroups = planningIncomeOverrides(source, gaps);
+  const rows = allRows.filter(({ normalized }) => {
+    const group = current1040IncomeSourceGroup(normalized.typeId);
+    return !group || !overrideGroups.has(group.id);
+  });
   const mappedIncome = mapIncomeRows(
     rows,
     gaps,
@@ -530,6 +593,7 @@ export function buildCurrent1040Intake(plan){
       explicitSocialSecuritySource,
       activePlanningSocialSecurity: hasActivePlanningSocialSecurity,
     });
+    addTaxableCompanionGaps(income, gaps);
   }
 
   const intake = {

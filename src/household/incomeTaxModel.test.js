@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   createAdjustment,
   createCredit,
+  createDeduction,
   createIncomeSource,
   createIncomeTaxInputs,
   enteredAdjustmentTotal,
@@ -64,6 +65,14 @@ test('new 401(k) adjustments persist their working-only default', () => {
   assert.equal(createAdjustment('hsa', 'joint').whileWorkingOnly, false);
 });
 
+test('every persisted wizard row factory assigns a stable identity', () => {
+  const subject = plan();
+  assert.match(createIncomeSource(subject).id, /^income_/);
+  assert.match(createAdjustment().id, /^adjustment_/);
+  assert.match(createDeduction().id, /^deduction_/);
+  assert.match(createCredit().id, /^credit_/);
+});
+
 test('current-year federal source types default to one year with honest tax character', () => {
   const subject = plan();
   const exempt = createIncomeSource(subject, 'tax_exempt_interest', 'joint');
@@ -103,7 +112,10 @@ test('long-term capital gain rows preserve signed losses without opening other i
 
 test('Premium Tax Credit is part of the persisted Income & Tax defaults', () => {
   assert.deepEqual(createIncomeTaxInputs().credits, []);
-  assert.deepEqual(createCredit(), {
+  const credit = createCredit();
+  assert.match(credit.id, /^credit_/);
+  assert.deepEqual({ ...credit, id: undefined }, {
+    id: undefined,
     typeId: 'premium_tax_credit',
     label: 'Premium Tax Credit',
     amount: 0,

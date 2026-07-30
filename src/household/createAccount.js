@@ -104,8 +104,10 @@ export function createAccount(typeId, options = {}){
   if(!isValidValuationDate(valuationDate)){
     throw new Error('Invalid valuationDate');
   }
+  const displayName = options.displayName == null ? '' : String(options.displayName).trim();
   return {
     id: newAccountId(),
+    displayName,
     typeId: entry.id,
     type: entry.label,
     owner,

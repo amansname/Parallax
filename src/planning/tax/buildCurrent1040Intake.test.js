@@ -510,3 +510,108 @@ test('a planning Social Security row cannot become generic other income', () => 
     .includes('CURRENT_1040_SOCIAL_SECURITY_RETURN_FACTS_REQUIRED'));
   assert.equal(result.intake.income.otherIncome, undefined);
 });
+
+test('positive direct gross IRA and pension amounts never gain fabricated taxable companions', () => {
+  const ira = plan();
+  ira.income.other = [];
+  ira.incomeTax.current1040.income = { iraDistributions: 20000 };
+  const iraResult = buildCurrent1040Intake(ira);
+  assert.ok(codes(iraResult).includes('CURRENT_1040_TAXABLE_IRA_REQUIRED'));
+  assert.equal(Object.hasOwn(iraResult.intake.income, 'taxableIra'), false);
+  assert.equal(iraResult.totalIncome, null);
+
+  ira.incomeTax.current1040.income.taxableIra = 0;
+  const explicitZero = buildCurrent1040Intake(ira);
+  assert.equal(
+    codes(explicitZero).includes('CURRENT_1040_TAXABLE_IRA_REQUIRED'),
+    false,
+  );
+  assert.equal(explicitZero.intake.income.taxableIra, 0);
+
+  const pension = plan();
+  pension.income.other = [];
+  pension.incomeTax.current1040.income = { pensionAmount: 15000 };
+  const pensionResult = buildCurrent1040Intake(pension);
+  assert.ok(codes(pensionResult)
+    .includes('CURRENT_1040_TAXABLE_PENSION_REQUIRED'));
+  assert.equal(
+    Object.hasOwn(pensionResult.intake.income, 'taxablePensions'),
+    false,
+  );
+  assert.equal(pensionResult.totalIncome, null);
+});
+
+test('planning income overrides suppress only the selected source group and stay outside canonical intake', () => {
+  const subject = plan();
+  subject.income.other.push({
+    typeId: 'interest',
+    owner: 'client',
+    amount: 1000,
+    taxablePct: 0.75,
+    startAge: 50,
+    endAge: 50,
+  });
+  subject.incomeTax.current1040.income = { wages: 81000 };
+  subject.incomeTax.current1040.planningIncomeOverrides = ['wages'];
+
+  const result = buildCurrent1040Intake(subject);
+
+  assert.deepEqual(result.gaps, []);
+  assert.equal(result.intake.income.wages, 81000);
+  assert.equal(result.intake.income.taxableInterest, 750);
+  assert.equal(result.intake.income.taxExemptInterest, 250);
+  assert.equal(Object.hasOwn(result.intake, 'planningIncomeOverrides'), false);
+});
+
+test('planning income overrides fail closed when malformed and keep short-term blockers active', () => {
+  const malformed = plan();
+  malformed.incomeTax.current1040.planningIncomeOverrides = ['wages', 'wages'];
+  assert.ok(codes(buildCurrent1040Intake(malformed))
+    .includes('CURRENT_1040_INCOME_OVERRIDE_GROUP_INVALID'));
+
+  const capital = plan();
+  capital.income.other.push(
+    {
+      typeId: 'long_term_capital_gain',
+      owner: 'client',
+      amount: 5000,
+      startAge: 50,
+      endAge: 50,
+    },
+    {
+      typeId: 'short_term_capital_gain',
+      owner: 'client',
+      amount: 1000,
+      startAge: 50,
+      endAge: 50,
+    },
+  );
+  capital.incomeTax.current1040.planningIncomeOverrides = [
+    'long-term-gain-loss',
+  ];
+  capital.incomeTax.current1040.scheduleD = {
+    mode: 'manual-net-long-term',
+    netLongTermGainOrLoss: 7000,
+  };
+  assert.ok(codes(buildCurrent1040Intake(capital))
+    .includes('CURRENT_1040_MANUAL_NET_LONG_TERM_SHORT_TERM_CONFLICT'));
+});
+
+test('row-derived IRA gross and taxable amounts remain a complete paired source', () => {
+  const subject = plan();
+  subject.income.other = [{
+    typeId: 'ira_distribution',
+    owner: 'client',
+    amount: 20000,
+    taxablePct: 0.4,
+    startAge: 50,
+    endAge: 50,
+  }];
+  const result = buildCurrent1040Intake(subject);
+  assert.equal(
+    codes(result).includes('CURRENT_1040_TAXABLE_IRA_REQUIRED'),
+    false,
+  );
+  assert.equal(result.intake.income.iraDistributions, 20000);
+  assert.equal(result.intake.income.taxableIra, 8000);
+});

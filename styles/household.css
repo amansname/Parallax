@@ -1,1081 +1,1414 @@
-/* =============================================================================
-   household.css — 5-step Blueprint wizard (People → Balance Sheet → Income & Tax → Spending & Goals → Blueprint)
-   Scoped to .page[data-page="household"] only. Spectral + Hanken Grotesk.
-   ============================================================================= */
+/* Production household intake.
+   Scoped to the Household page; the global header remains the app-owned chrome. */
 
 .page[data-page="household"] {
-  --gold: var(--accent);
-  --gold-bright: var(--accent-bright);
-  --gold-ink: var(--btn-ink);
-  --gold-dim: var(--line-accent);
-
-  --text-hi: var(--ink-bright);
-  --text-1: var(--ink);
-  --text-2: var(--ink-body);
-  --text-3: var(--ink-mute);
-  --text-4: var(--ink-faint);
-  --text-5: var(--ink-ghost);
-
-  --sage: var(--status-positive);
-  --sage-dim: var(--status-positive-bright);
-  --slate: #7688a0;
-  --down: var(--negative);
-
-  --line-06: rgba(231,222,201,0.055);
-  --line-07: rgba(231,222,201,0.07);
-  --line-08: rgba(231,222,201,0.08);
-  --line-10: rgba(231,222,201,0.10);
-  --line-12: rgba(231,222,201,0.12);
-  --line-16: rgba(231,222,201,0.16);
-
-  --card-bg:
-    radial-gradient(110% 85% at 0% 0%, rgba(231,222,201,0.018), transparent 48%),
-    rgba(14,16,19,0.94);
-  --sheet-bg: transparent;
-  --max-w: 1320px;
-
+  --hh-bg: #090a0c;
+  --hh-panel: #0d0f12;
+  --hh-panel-soft: #111318;
+  --hh-ink: #e6dece;
+  --hh-body: #b9b3a8;
+  --hh-muted: #858c96;
+  --hh-faint: #606770;
+  --hh-gold: #cfad65;
+  --hh-gold-bright: #dfc681;
+  --hh-gold-dark: #927643;
+  --hh-sage: #91a784;
+  --hh-slate: #7f8e9f;
+  --hh-line: rgba(230, 222, 206, 0.10);
+  --hh-line-soft: rgba(230, 222, 206, 0.065);
+  --hh-input: rgba(255, 255, 255, 0.018);
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  background: var(--hh-bg);
+  color: var(--hh-body);
   font-family: var(--font-sans);
-  -webkit-font-smoothing: antialiased;
-  color: var(--text-1);
-  background: var(--app-page-bg);
-  background-attachment: fixed;
-  min-height: 100vh;
-  overflow-y: auto;
 }
 
 .page[data-page="household"] *,
 .page[data-page="household"] *::before,
-.page[data-page="household"] *::after { box-sizing: border-box; }
+.page[data-page="household"] *::after {
+  box-sizing: border-box;
+}
+
+.page[data-page="household"] :focus-visible {
+  outline: 1px solid rgba(207, 173, 101, 0.82);
+  outline-offset: 2px;
+}
+
+.page[data-page="household"] button,
+.page[data-page="household"] input,
+.page[data-page="household"] select {
+  font: inherit;
+}
+
+.page[data-page="household"] button {
+  color: inherit;
+}
 
 .page[data-page="household"] .hh-stage {
+  display: grid;
+  grid-template-columns: 246px minmax(0, 1fr);
   width: 100%;
-  max-width: var(--max-w);
-  margin: 0 auto;
-  padding: 28px 0 52px;
-  display: flex;
-  flex-direction: column;
-  min-height: calc(100vh - 52px);
-}
-
-.page[data-page="household"] .hh-wizard {
-  border: 1px solid var(--line-10);
-  border-radius: 16px;
-  background: var(--card-bg);
-  box-shadow: 0 24px 54px -48px rgba(0,0,0,0.78), inset 0 1px 0 rgba(231,222,201,0.035);
-  backdrop-filter: blur(18px) saturate(105%);
-  -webkit-backdrop-filter: blur(18px) saturate(105%);
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  flex: 1;
+  height: 100%;
   min-height: 0;
+  overflow: hidden;
 }
 
-/* ---- Header + menu (above card) ----------------------------------------- */
-.page[data-page="household"] .hh-wiz-top {
+/* Sidebar */
+
+.page[data-page="household"] .hh-sidebar {
+  position: relative;
+  z-index: 4;
+  min-width: 0;
+  padding: 28px 22px;
+  border-right: 1px solid var(--hh-line);
+  background: rgba(6, 7, 9, 0.76);
+}
+
+.page[data-page="household"] .hh-sidebar-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
-  padding: 0 4px 24px;
-  flex: none;
-}
-.page[data-page="household"] .hh-wiz-id { display: flex; align-items: center; gap: 13px; min-width: 0; }
-.page[data-page="household"] .hh-avatars { display: flex; align-items: center; }
-.page[data-page="household"] .hh-avatar {
-  width: 30px; height: 30px; border-radius: 50%;
-  display: inline-flex; align-items: center; justify-content: center;
-  font-family: var(--font-serif); font-size: 16px; flex: none;
-}
-.page[data-page="household"] .hh-av {
-  width: 24px; height: 24px; border-radius: 50%;
-  display: inline-flex; align-items: center; justify-content: center;
-  font-family: var(--font-serif); font-size: 13px; flex: none;
-}
-.page[data-page="household"] .hh-avatar--c,
-.page[data-page="household"] .hh-av--c {
-  background: radial-gradient(circle at 40% 32%, #cdb079, #8a6d34);
-  color: #2a220f;
-}
-.page[data-page="household"] .hh-avatar--s,
-.page[data-page="household"] .hh-av--s {
-  background: radial-gradient(circle at 40% 32%, #6d6f76, #3a3c42);
-  color: var(--text-1);
-  margin-left: -9px;
-}
-.page[data-page="household"] .hh-av--lg { width: 30px; height: 30px; font-size: 14px; }
-.page[data-page="household"] .hh-av--overlap { margin-left: -9px; }
-.page[data-page="household"] .hh-wiz-id__name {
-  font-family: var(--font-serif); font-size: 24px; font-weight: 300; color: var(--text-hi); line-height: 1.15;
+  gap: 12px;
 }
 
-.page[data-page="household"] .hh-menu { position: relative; flex: none; }
-.page[data-page="household"] .hh-menu__btn {
-  width: 36px; height: 36px; border-radius: 8px;
-  border: 1px solid var(--line-10); background: rgba(231,222,201,0.02);
-  color: var(--text-2); font-size: 20px; cursor: pointer;
-}
-.page[data-page="household"] .hh-menu__pop {
-  position: absolute; top: 44px; right: 0; z-index: 30;
-  width: 218px; padding: 6px; display: flex; flex-direction: column; gap: 2px;
-  border-radius: 10px; border: 1px solid var(--line-10);
-  background: rgba(18,20,23,0.98); box-shadow: 0 18px 44px -30px rgba(0,0,0,0.72);
-}
-.page[data-page="household"] .hh-menu__pop[hidden] { display: none; }
-.page[data-page="household"] .hh-rail-act,
-.page[data-page="household"] .hh-rail__switch-sel {
-  font-family: var(--font-sans); font-size: 16px;
-}
-.page[data-page="household"] .hh-rail__switch-sel {
-  width: 100%; min-height: 38px; padding: 7px 30px 7px 10px; border-radius: 7px;
-  border: 1px solid var(--line-10); background: rgba(231,222,201,0.025); color: var(--text-2);
-}
-.page[data-page="household"] .hh-rail-act {
-  width: 100%; min-height: 38px; padding: 7px 10px; border-radius: 7px;
-  border: 0; background: transparent; color: var(--text-2); text-align: left;
-  cursor: pointer;
-}
-.page[data-page="household"] .hh-rail-act:hover { background: rgba(231,222,201,0.045); color: var(--text-hi); }
-
-/* ---- Stepper -------------------------------------------------------------- */
-.page[data-page="household"] .hh-stepper {
-  display: grid;
-  grid-template-columns: auto 1fr auto 1fr auto 1fr auto 1fr auto;
-  align-items: center;
-  max-width: 980px;
-  margin: 0 auto;
-  padding: 26px 52px 6px;
-}
-.page[data-page="household"] .hh-step {
-  display: inline-flex; align-items: center; gap: 9px;
-  background: transparent; border: 0; padding: 0; cursor: pointer;
-}
-.page[data-page="household"] .hh-step:focus-visible {
-  outline: 1px solid var(--gold);
-  outline-offset: 4px;
-  border-radius: 6px;
-}
-.page[data-page="household"] .hh-step__num {
-  width: 26px; height: 26px; border-radius: 50%;
-  display: inline-flex; align-items: center; justify-content: center;
-  font-family: var(--font-serif); font-size: 16px;
-  border: 1px solid var(--line-16); color: var(--text-4);
-}
-.page[data-page="household"] .hh-step__label {
-  font-size: 11px; letter-spacing: 0.14em; color: var(--text-4); white-space: nowrap;
-}
-.page[data-page="household"] .hh-step.is-current .hh-step__num {
-  background: var(--gold);
-  border-color: transparent; color: var(--gold-ink); font-weight: 500;
-}
-.page[data-page="household"] .hh-step.is-current .hh-step__label { color: var(--text-hi); }
-.page[data-page="household"] .hh-step.is-done .hh-step__num {
-  background: rgba(198,166,98,0.10); border-color: var(--gold-dim); color: var(--gold);
-  font-size: 13px; font-family: var(--font-sans);
-}
-.page[data-page="household"] .hh-step.is-done .hh-step__label { color: var(--text-1); }
-.page[data-page="household"] .hh-step__conn {
-  height: 1px; min-width: 16px; margin: 0 14px; background: var(--line-08);
-}
-.page[data-page="household"] .hh-step__conn.is-done { background: rgba(195,165,106,0.4); }
-
-/* ---- Workspace + footer --------------------------------------------------- */
-.page[data-page="household"] .hh-wiz-workspace {
-  padding: 10px 52px 24px;
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(195,165,106,.24) transparent;
-  scrollbar-gutter: stable;
-}
-.page[data-page="household"] .hh-wiz-workspace::-webkit-scrollbar { width: 7px; }
-.page[data-page="household"] .hh-wiz-workspace::-webkit-scrollbar-track { background: transparent; }
-.page[data-page="household"] .hh-wiz-workspace::-webkit-scrollbar-thumb {
-  border: 2px solid transparent;
-  border-radius: 999px;
-  background: rgba(195,165,106,.24);
-  background-clip: padding-box;
-}
-.page[data-page="household"] .hh-wiz-workspace::-webkit-scrollbar-thumb:hover {
-  background: rgba(195,165,106,.38);
-  background-clip: padding-box;
-}
-.page[data-page="household"] .hh-wiz-footer {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 16px 52px; border-top: 1px solid var(--line-07);
-  flex: none;
-}
-.page[data-page="household"] .hh-wiz-footer .hh-btn {
-  font-size: 13px; letter-spacing: 0.14em; padding: 13px 32px;
-}
-.page[data-page="household"] .hh-wiz-footer .hh-btn--outline { padding: 12px 24px; }
-.page[data-page="household"] .hh-wiz-foot-note { font-size: 12px; color: var(--text-4); letter-spacing: 0.06em; }
-
-.page[data-page="household"] .hh-step-title {
-  font-family: var(--font-serif); font-size: 38px; font-weight: 300;
-  color: var(--text-hi); line-height: 1.05; margin: 22px 0 32px;
+.page[data-page="household"] .hh-sidebar-kicker,
+.page[data-page="household"] .hh-step-kicker,
+.page[data-page="household"] .hh-card-kicker,
+.page[data-page="household"] .hh-section-title {
+  color: var(--hh-muted);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  line-height: 1.3;
+  text-transform: uppercase;
 }
 
-/* ---- Two-column layouts --------------------------------------------------- */
-.page[data-page="household"] .hh-cols { display: flex; align-items: stretch; }
-.page[data-page="household"] .hh-cols--split .hh-col { flex: 1; min-width: 0; }
-.page[data-page="household"] .hh-cols--split .hh-col:first-child { padding-right: 52px; }
-.page[data-page="household"] .hh-cols--split .hh-col:last-child { padding-left: 52px; }
-.page[data-page="household"] .hh-cols__div { width: 1px; background: var(--line-08); flex: none; }
-.page[data-page="household"] .hh-cols--gap { gap: 56px; flex-wrap: wrap; }
-.page[data-page="household"] .hh-cols--gap .hh-col { flex: 1; min-width: 280px; }
-
-.page[data-page="household"] .hh-col--placeholder {
-  display: flex; align-items: center; justify-content: center; min-height: 200px;
-}
-
-.page[data-page="household"] .hh-col__head {
-  display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: 28px; gap: 12px;
-}
-.page[data-page="household"] .hh-col__head--total {
-  padding-bottom: 14px; margin-bottom: 0; border-bottom: 1px solid var(--line-10);
-}
-.page[data-page="household"] .hh-col__head--cf { padding-bottom: 12px; }
-.page[data-page="household"] .hh-col__id { display: inline-flex; align-items: center; gap: 11px; min-width: 0; }
-.page[data-page="household"] .hh-col__role {
-  font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--gold);
-}
-.page[data-page="household"] .hh-col__sum {
-  font-family: var(--font-serif); font-size: 20px; color: var(--gold);
-}
-.page[data-page="household"] .hh-col__sum--cf { font-size: 19px; }
-.page[data-page="household"] .hh-empty {
-  font-family: var(--font-sans); font-size: 13px; letter-spacing: 0.02em;
-  text-transform: none; color: var(--text-4); font-style: normal;
-}
-.page[data-page="household"] .hh-link-btn {
-  font-size: 10px; color: var(--text-3); background: none; border: 0;
-  text-decoration: underline; cursor: pointer; padding: 0;
-}
-.page[data-page="household"] .hh-link-btn:hover { color: var(--down); }
-
-/* ---- Key-value rows (step 1) ---------------------------------------------- */
-.page[data-page="household"] .hh-kv-stack {
-  margin-bottom: 4px;
-  --hh-kv-val-w: 14ch;
-}
-.page[data-page="household"] .hh-kv {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) var(--hh-kv-val-w);
-  align-items: baseline;
-  gap: 16px;
-  padding: 15px 2px;
-}
-.page[data-page="household"] .hh-kv--rule { border-bottom: 1px solid var(--line-06); }
-.page[data-page="household"] .hh-kv__k {
-  font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-4);
+.page[data-page="household"] .hh-sidebar-name {
+  max-width: 165px;
+  margin-top: 7px;
+  overflow: hidden;
+  color: var(--hh-ink);
+  font: 400 20px/1.15 var(--font-serif);
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
-.page[data-page="household"] .hh-kv__v {
-  font-family: var(--font-serif); font-size: 17px; color: var(--text-hi); line-height: 1;
-  width: 100%;
-  text-align: right;
-  justify-self: end;
-  font-variant-numeric: tabular-nums;
-}
-.page[data-page="household"] .hh-kv__v input,
-.page[data-page="household"] .hh-kv__v .hh-derived-in {
-  width: 100%;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-.page[data-page="household"] .hh-kv__v .hh-derived-in {
-  background: transparent;
-  border: 0;
-  border-bottom: 1px solid transparent;
-  padding: 0 1px 4px;
-  outline: none;
-  font-size: 16px;
-  color: #9a968d;
-  cursor: default;
-  pointer-events: none;
-}
-.page[data-page="household"] .hh-kv__v input[type="number"] {
-  -moz-appearance: textfield;
-}
-.page[data-page="household"] .hh-kv__v input[type="number"]::-webkit-outer-spin-button,
-.page[data-page="household"] .hh-kv__v input[type="number"]::-webkit-inner-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
-}
 
-/* ---- Meta row ------------------------------------------------------------- */
-.page[data-page="household"] .hh-meta-row {
-  display: flex; gap: 56px; flex-wrap: wrap; align-items: flex-end;
-  margin-top: 30px; padding-top: 26px; border-top: 1px solid var(--line-06);
-}
-.page[data-page="household"] .hh-meta { flex: 1; min-width: 200px; }
-.page[data-page="household"] .hh-meta__k {
-  display: block; font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
-  color: var(--text-4); margin-bottom: 10px;
-}
-.page[data-page="household"] .hh-meta__v {
-  border-bottom: 1px solid var(--line-16); padding-bottom: 8px;
-}
-
-/* ---- Ledger rows ---------------------------------------------------------- */
-.page[data-page="household"] .hh-ledger-row {
-  display: flex; align-items: center; justify-content: space-between; gap: 16px;
-  padding: 14px 2px; border-bottom: 1px solid var(--line-06);
-}
-.page[data-page="household"] .hh-account-empty {
-  min-height: 46px; margin: 0; padding: 15px 2px; border-bottom: 1px solid var(--line-06);
-  color: var(--text-4); font-size: 16px;
-}
-.page[data-page="household"] .hh-ledger-row__name {
-  flex: 1; min-width: 0; font-size: 15px; color: var(--text-1); white-space: nowrap;
-  overflow: hidden; text-overflow: ellipsis;
-}
-.page[data-page="household"] .hh-ledger-row__name--in {
-  font-family: var(--font-sans); background: transparent; border: 0;
-  border-bottom: 1px solid var(--line-16); padding: 4px 2px; color: var(--text-hi);
-  outline: none; width: 100%;
-}
-.page[data-page="household"] .hh-ledger-row__source {
-  display: flex; flex: 1; min-width: 0; flex-direction: column; align-items: flex-start; gap: 5px;
-}
-.page[data-page="household"] .hh-ledger-row__note {
-  color: var(--text-4); font-size: 12px; line-height: 1;
-}
-.page[data-page="household"] .hh-ledger-row__end {
-  display: inline-flex; align-items: center; gap: 16px; flex: none;
-}
-.page[data-page="household"] .hh-ledger-row__ages {
-  display: inline-flex; align-items: flex-end; gap: 9px;
-}
-.page[data-page="household"] .hh-ledger-row__ages label {
-  display: inline-flex; flex-direction: column; align-items: flex-start; gap: 4px;
-}
-.page[data-page="household"] .hh-ledger-row__ages label > span {
-  color: var(--text-4); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
-}
-.page[data-page="household"] .hh-ledger-row__ages input[data-type="age"] {
-  width: 4ch; text-align: center;
-}
-.page[data-page="household"] .hh-ledger-row__amt {
-  font-family: var(--font-serif); font-size: 20px; color: var(--text-hi);
-  display: inline-flex; align-items: baseline;
-}
-.page[data-page="household"] .hh-future-row {
-  display: flex; align-items: center; justify-content: space-between; gap: 14px;
-  padding: 11px 2px; border-bottom: 1px solid rgba(255,255,255,0.05);
-}
-.page[data-page="household"] .hh-future-row__name { flex: 1; min-width: 0; font-size: 14px; color: var(--text-2); }
-.page[data-page="household"] .hh-future-row__note { color: var(--text-4); font-size: 14px; }
-.page[data-page="household"] .hh-future-row__end {
-  display: inline-flex; align-items: center; gap: 20px; flex: none;
-}
-.page[data-page="household"] .hh-future-row__claim {
-  display: inline-flex; align-items: center; gap: 7px;
-  color: var(--text-4); font-size: 14px;
-}
-.page[data-page="household"] .hh-future-row__claim input {
-  width: 58px; padding: 4px 6px; text-align: center;
-}
-.page[data-page="household"] .hh-ledger-row__amt--cf { font-size: 18px; }
-.page[data-page="household"] .hh-future-row__amt {
-  flex: none; font-family: var(--font-serif); font-size: 17px; color: #9a968d;
-}
-.page[data-page="household"] .hh-subhead {
-  font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
-  color: var(--text-4); margin: 26px 0 4px;
-}
-
-/* ---- Grand total ---------------------------------------------------------- */
-.page[data-page="household"] .hh-grand-total {
-  display: flex; align-items: flex-end; justify-content: space-between;
-  margin-top: 38px; padding-top: 22px; border-top: 1px solid var(--line-12);
-}
-.page[data-page="household"] .hh-grand-total__k {
-  font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-4);
-}
-.page[data-page="household"] .hh-grand-total__sub { font-size: 12px; color: var(--text-3); margin-top: 6px; }
-.page[data-page="household"] .hh-grand-total__v {
-  font-family: var(--font-serif); font-size: 38px; line-height: 1; color: var(--gold);
-}
-
-/* ---- Buttons -------------------------------------------------------------- */
-.page[data-page="household"] .hh-btn {
-  font-family: var(--font-sans); font-size: 16px; letter-spacing: 0.08em;
-  font-weight: 500; border-radius: 8px; padding: 12px 28px; cursor: pointer;
-  border: 1px solid transparent;
-}
-.page[data-page="household"] .hh-btn--primary {
-  background: linear-gradient(180deg, #cdb079, #9c7d44); color: var(--gold-ink); border: 0;
-}
-.page[data-page="household"] .hh-wiz-footer .hh-btn--primary {
-  background: rgba(198,166,98,0.025);
-  color: var(--gold-bright);
-  border: 1px solid rgba(198,166,98,0.42);
-  box-shadow: inset 0 1px 0 rgba(231,222,201,0.025);
-}
-.page[data-page="household"] .hh-wiz-footer .hh-btn--primary:hover {
-  background: rgba(198,166,98,0.075);
-  border-color: rgba(198,166,98,0.58);
-}
-.page[data-page="household"] .hh-wizard[data-wizard-step="3"] .hh-wiz-footer .hh-btn--primary {
-  background: linear-gradient(180deg, #cdb079, #9c7d44);
-  color: var(--gold-ink);
-  border: 0;
-  box-shadow: none;
-}
-.page[data-page="household"] .hh-wizard[data-wizard-step="3"] .hh-wiz-footer .hh-btn--primary:hover {
-  background: linear-gradient(180deg, #d5b980, #aa894b);
-}
-.page[data-page="household"] .hh-btn--outline {
-  background: transparent; border-color: var(--line-16); color: var(--text-1);
-}
-.page[data-page="household"] .hh-btn--ghost {
-  background: transparent; border: 0; color: var(--text-3); padding: 12px 12px;
-}
-.page[data-page="household"] .hh-dash-btn {
-  display: inline-flex; align-items: center; gap: 7px; margin-top: 14px;
-  font-size: 13px; letter-spacing: 0.04em; color: var(--gold);
-  background: transparent; cursor: pointer;
-  border: 1px dashed rgba(195,165,106,0.4); border-radius: 8px; padding: 9px 16px;
-}
-.page[data-page="household"] .hh-text-add {
-  display: inline-flex; align-items: center; gap: 7px; margin-top: 14px;
-  font-size: 13px; letter-spacing: 0.02em; color: var(--gold);
-  background: transparent; cursor: pointer; border: 0; padding: 0;
-}
-.page[data-page="household"] .hh-text-add:hover { color: var(--gold-bright); }
-
-/* ---- Inline forms (accounts, children, income) --------------------------- */
-.page[data-page="household"] .hh-inline-form {
-  display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap;
-  border-left: 2px solid rgba(195,165,106,0.45); padding: 14px 0 14px 20px; margin: 6px 0;
-}
-.page[data-page="household"] .hh-inline-form--slim {
-  gap: 10px;
-  padding: 12px 0 12px 16px;
-  margin: 10px 0 0;
-  align-items: flex-end;
-}
-.page[data-page="household"] .hh-inline-form .hh-btn {
-  font-size: 13px;
-  letter-spacing: 0.04em;
-  padding: 9px 18px;
-  border-radius: 7px;
+.page[data-page="household"] .hh-menu {
+  position: relative;
   flex: none;
 }
-.page[data-page="household"] .hh-inline-form .hh-btn--ghost {
-  padding: 9px 8px;
-  color: var(--text-3);
-}
-.page[data-page="household"] .hh-inline-form__acts {
-  display: flex; align-items: center; gap: 6px; flex: none;
-}
-.page[data-page="household"] .hh-inline-form__k {
-  display: block; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
-  color: var(--text-4); margin-bottom: 8px;
-}
-.page[data-page="household"] .hh-inline-form__field { flex: 0 1 220px; min-width: 160px; }
-.page[data-page="household"] .hh-inline-form__field:first-of-type { flex: 0 1 300px; min-width: 200px; }
-.page[data-page="household"] .hh-inline-form__field:nth-of-type(2) { flex: 0 1 180px; min-width: 130px; }
-.page[data-page="household"] .hh-inline-form .hh-sel,
-.page[data-page="household"] .hh-inline-form .hh-form-val {
-  font-size: 15px;
-}
-.page[data-page="household"] .hh-inline-form__money {
-  display: flex; align-items: center; gap: 4px;
-  background: rgba(231,222,201,0.02); border: 1px solid var(--line-16); border-radius: 8px; padding: 0 12px;
-}
-.page[data-page="household"] .hh-inline-form .hh-form-val {
-  padding: 10px 6px;
-}
-.page[data-page="household"] .hh-inline-form--slim .hh-inline-form__money {
-  flex: 0 0 120px;
-  background: transparent;
-  border: 0;
-  border-bottom: 1px solid var(--line-16);
-  border-radius: 0;
-  padding: 0 2px;
-}
-.page[data-page="household"] .hh-inline-input {
-  font-family: var(--font-sans); font-size: 15px; color: var(--text-hi);
-  background: transparent; border: 0; border-bottom: 1px solid var(--line-16);
-  padding: 6px 2px; outline: none; min-width: 0; flex: 1;
-}
-.page[data-page="household"] .hh-inline-form--slim .hh-inline-input {
-  flex: 1 1 140px;
-  min-width: 120px;
-}
-.page[data-page="household"] .hh-inline-form--slim input.hh-born-in {
-  flex: 0 0 7ch;
-  width: 7ch;
-  min-width: 7ch;
-  text-align: right;
-}
-.page[data-page="household"] .hh-form-val { border: none; background: transparent; color: var(--text-hi); font-size: 16px; padding: 10px 6px; min-width: 0; flex: 1; outline: none; }
 
-/* ---- Blueprint sheet ------------------------------------------------------ */
-.page[data-page="household"] .hh-bp-sheet {
-  position: relative; background: var(--sheet-bg);
-  border: 0; border-radius: 0;
-  padding: 34px 8px 22px; display: flex; gap: 76px; align-items: stretch; overflow: hidden;
+.page[data-page="household"] .hh-menu__btn {
+  display: grid;
+  width: 31px;
+  height: 31px;
+  padding: 0;
+  place-items: center;
+  border: 1px solid var(--hh-line);
+  border-radius: 0;
+  background: transparent;
+  color: var(--hh-muted);
+  cursor: pointer;
 }
-.page[data-page="household"] .hh-bp-corner {
+
+.page[data-page="household"] .hh-menu__btn:hover {
+  border-color: rgba(207, 173, 101, 0.35);
+  color: var(--hh-gold);
+}
+
+.page[data-page="household"] .hh-menu__pop {
+  position: absolute;
+  top: 38px;
+  left: 0;
+  z-index: 30;
+  display: grid;
+  width: 200px;
+  gap: 2px;
+  padding: 6px;
+  border: 1px solid var(--hh-line);
+  background: #111318;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.42);
+}
+
+.page[data-page="household"] .hh-menu__pop[hidden] {
   display: none;
 }
-.page[data-page="household"] .hh-bp-corner--tl { top: 14px; left: 14px; border-top: 1px solid var(--gold-dim); border-left: 1px solid var(--gold-dim); }
-.page[data-page="household"] .hh-bp-corner--tr { top: 14px; right: 14px; border-top: 1px solid var(--gold-dim); border-right: 1px solid var(--gold-dim); }
-.page[data-page="household"] .hh-bp-corner--bl { bottom: 14px; left: 14px; border-bottom: 1px solid var(--gold-dim); border-left: 1px solid var(--gold-dim); }
-.page[data-page="household"] .hh-bp-corner--br { bottom: 14px; right: 14px; border-bottom: 1px solid var(--gold-dim); border-right: 1px solid var(--gold-dim); }
 
-.page[data-page="household"] .hh-bp-read {
-  flex: 1; min-width: 0; display: flex; flex-direction: column;
-}
-.page[data-page="household"] .hh-bp-eyebrow {
-  font-size: 10px; letter-spacing: 0.35em; text-transform: uppercase; color: var(--gold); margin-bottom: 18px;
-}
-.page[data-page="household"] .hh-bp-house {
-  display: flex; align-items: center; gap: 13px; min-width: 0;
-}
-.page[data-page="household"] .hh-bp-avs { display: inline-flex; align-items: center; flex: none; }
-.page[data-page="household"] .hh-bp-house__name {
-  font-family: var(--font-serif); font-size: 34px; font-weight: 300; color: var(--text-hi); white-space: nowrap;
-}
-.page[data-page="household"] .hh-bp-filing {
-  font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-2); margin-top: 12px;
-}
-.page[data-page="household"] .hh-bp-facts { display: flex; gap: 34px; margin-top: 24px; }
-.page[data-page="household"] .hh-bp-facts__k {
-  display: block; font-size: 9px; letter-spacing: 0.14em; color: var(--text-5); margin-bottom: 8px;
-}
-.page[data-page="household"] .hh-bp-facts__v {
-  font-family: var(--font-serif); font-size: 20px; color: var(--text-1); line-height: 1;
-}
-.page[data-page="household"] .hh-bp-flow {
-  margin-top: auto; padding-top: 52px; width: 100%; max-width: 330px;
-  display: flex; flex-direction: column; gap: 16px;
-}
-.page[data-page="household"] .hh-bp-flow__row {
-  display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
-}
-.page[data-page="household"] .hh-bp-flow__label {
-  font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--text-2);
-}
-.page[data-page="household"] .hh-bp-flow__val {
-  font-family: var(--font-serif); font-size: 21px; font-weight: 400; color: var(--text-1);
-  flex: none; text-align: right;
-}
-.page[data-page="household"] .hh-bp-flow__val--sage { color: var(--sage); }
-
-.page[data-page="household"] .hh-bp-inst {
-  flex: none; width: 420px; max-width: 100%;
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-}
-.page[data-page="household"] .hh-bp-gauge {
-  position: relative; width: 260px; height: 260px; flex: none;
-}
-.page[data-page="household"] .hh-bp-gauge__svg {
-  display: block; width: 100%; height: 100%;
-  transform: rotate(135deg); transform-origin: center;
-}
-.page[data-page="household"] .hh-bp-gauge__center {
-  position: absolute; inset: 0; display: flex; flex-direction: column;
-  align-items: center; justify-content: center; text-align: center;
-}
-.page[data-page="household"] .hh-bp-gauge__k {
-  font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--text-2); margin-bottom: 10px;
-}
-.page[data-page="household"] .hh-bp-gauge__v {
-  font-family: var(--font-serif); font-size: 48px; color: var(--text-hi); line-height: 0.86;
-}
-.page[data-page="household"] .hh-bp-gauge__sub {
-  font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-5); margin-top: 10px;
-}
-.page[data-page="household"] .hh-bp-alloc-list {
-  width: 100%; display: flex; flex-direction: column; gap: 13px;
-  margin-top: 30px; padding: 0 4px;
-}
-.page[data-page="household"] .hh-bp-alloc {
-  display: flex; align-items: center; justify-content: space-between; gap: 14px;
-}
-.page[data-page="household"] .hh-bp-alloc__name {
-  display: inline-flex; align-items: center; gap: 10px; flex: 1; min-width: 0;
-  font-size: 12px; color: var(--text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.page[data-page="household"] .hh-bp-alloc__dot { width: 7px; height: 7px; border-radius: 2px; flex: none; }
-.page[data-page="household"] .hh-bp-alloc__nums {
-  display: inline-flex; align-items: baseline; gap: 10px; flex: none; width: 150px; justify-content: flex-end;
-}
-.page[data-page="household"] .hh-bp-alloc__pct { font-size: 10.5px; color: var(--text-2); }
-.page[data-page="household"] .hh-bp-alloc__amt { font-family: var(--font-serif); font-size: 17px; color: var(--text-hi); }
-
-/* ---- Inputs --------------------------------------------------------------- */
-.page[data-page="household"] input,
-.page[data-page="household"] select {
-  font-family: inherit; color: inherit; font-size: 16px;
-}
-.page[data-page="household"] input[data-path] {
-  background: transparent; border: 0; border-bottom: 1px solid var(--line-16);
-  padding: 0 1px 4px; outline: none; min-width: 0;
-}
-.page[data-page="household"] input[data-path]:focus { border-bottom-color: var(--gold); }
-.page[data-page="household"] input[data-type="text"] { width: 14ch; }
-.page[data-page="household"] .hh-kv__v input[data-type="text"] { width: 100%; text-align: right; }
-.page[data-page="household"] input[data-type="money"] { width: 10ch; text-align: right; }
-.page[data-page="household"] input[data-type="age"],
-.page[data-page="household"] input[data-type="num"] { width: 4.5ch; text-align: right; }
-.page[data-page="household"] .hh-kv__v input[data-type="age"],
-.page[data-page="household"] .hh-kv__v input[data-type="num"] { width: 100%; }
-.page[data-page="household"] input.hh-born-in {
-  width: 7ch; min-width: 7ch; text-align: left;
-  -moz-appearance: textfield;
-}
-.page[data-page="household"] .hh-kv__v input.hh-born-in {
+.page[data-page="household"] .hh-rail__switch-sel,
+.page[data-page="household"] .hh-rail-act {
   width: 100%;
+  min-height: 36px;
+  padding: 8px 9px;
+  border: 0;
+  background: transparent;
+  color: var(--hh-body);
+  text-align: left;
+}
+
+.page[data-page="household"] .hh-rail__switch-sel {
+  border: 1px solid var(--hh-line);
+  background: #0b0d10;
+}
+
+.page[data-page="household"] .hh-rail-act {
+  cursor: pointer;
+}
+
+.page[data-page="household"] .hh-rail-act:hover {
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--hh-ink);
+}
+
+.page[data-page="household"] .hh-progress {
+  margin-top: 24px;
+}
+
+.page[data-page="household"] .hh-progress > div:first-child {
+  display: flex;
+  justify-content: space-between;
+  color: var(--hh-muted);
+  font-size: 10px;
+}
+
+.page[data-page="household"] .hh-progress-track {
+  height: 2px;
+  margin-top: 10px;
+  overflow: hidden;
+  background: var(--hh-line-soft);
+}
+
+.page[data-page="household"] .hh-progress-track span {
+  display: block;
+  width: 25%;
+  height: 100%;
+  background: var(--hh-gold);
+  transition: width 180ms ease;
+}
+
+.page[data-page="household"] .hh-stepper {
+  display: grid;
+  gap: 5px;
+  margin-top: 24px;
+}
+
+.page[data-page="household"] .hh-step {
+  position: relative;
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  width: 100%;
+  min-height: 67px;
+  padding: 13px 12px;
+  border: 0;
+  border-left: 2px solid transparent;
+  background: transparent;
+  color: var(--hh-muted);
+  text-align: left;
+  cursor: pointer;
+}
+
+.page[data-page="household"] .hh-step:hover {
+  color: var(--hh-body);
+}
+
+.page[data-page="household"] .hh-step.is-current {
+  border-left-color: var(--hh-gold);
+  background: rgba(230, 222, 206, 0.055);
+  color: var(--hh-ink);
+}
+
+.page[data-page="household"] .hh-step__num {
+  color: var(--hh-muted);
+  font-size: 10px;
+  line-height: 20px;
+}
+
+.page[data-page="household"] .hh-step.is-current .hh-step__num {
+  color: var(--hh-gold);
+}
+
+.page[data-page="household"] .hh-step strong {
+  display: block;
+  color: inherit;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.page[data-page="household"] .hh-step small {
+  display: block;
+  margin-top: 5px;
+  color: var(--hh-muted);
+  font-size: 10px;
+  font-weight: 400;
+  line-height: 1.35;
+}
+
+/* Workspace */
+
+.page[data-page="household"] .hh-wizard {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.page[data-page="household"] .hh-wiz-workspace {
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: auto;
+  scrollbar-color: rgba(207, 173, 101, 0.26) transparent;
+  scrollbar-width: thin;
+}
+
+.page[data-page="household"] .hh-content {
+  width: 100%;
+  min-height: 100%;
+}
+
+.page[data-page="household"] .hh-screen {
+  width: min(100%, 1220px);
+  margin: 0 auto;
+  padding: 32px 38px 64px;
+}
+
+.page[data-page="household"] .hh-family-screen {
+  width: min(100%, 1040px);
+}
+
+.page[data-page="household"] .hh-screen-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 28px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--hh-line);
+}
+
+.page[data-page="household"] .hh-screen-head h1 {
+  margin: 5px 0 0;
+  color: var(--hh-ink);
+  font: 400 35px/1 var(--font-serif);
+}
+
+.page[data-page="household"] .hh-screen-count {
+  padding-bottom: 2px;
+  color: var(--hh-muted);
+  font-size: 11px;
+}
+
+.page[data-page="household"] .hh-wizard > footer {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  min-height: 58px;
+  padding: 10px 32px;
+  border-top: 1px solid var(--hh-line);
+  background: rgba(5, 6, 8, 0.82);
+}
+
+.page[data-page="household"] .hh-footer-back,
+.page[data-page="household"] .hh-footer-next,
+.page[data-page="household"] .hh-button {
+  min-height: 36px;
+  padding: 0 17px;
+  border: 1px solid var(--hh-line);
+  border-radius: 0;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.page[data-page="household"] .hh-footer-back {
+  justify-self: start;
+  color: var(--hh-body);
+}
+
+.page[data-page="household"] .hh-footer-back:disabled {
+  opacity: 0.32;
+  cursor: default;
+}
+
+.page[data-page="household"] .hh-footer-next,
+.page[data-page="household"] .hh-button--gold {
+  justify-self: end;
+  min-width: 92px;
+  border-color: var(--hh-gold);
+  background: var(--hh-gold);
+  color: #17130b;
+}
+
+.page[data-page="household"] .hh-footer-next:hover,
+.page[data-page="household"] .hh-button--gold:hover {
+  border-color: var(--hh-gold-bright);
+  background: var(--hh-gold-bright);
+}
+
+.page[data-page="household"] .hh-footer-progress {
+  color: var(--hh-muted);
+  font-size: 10px;
+}
+
+/* Shared form controls */
+
+.page[data-page="household"] .hh-field {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: 7px;
+}
+
+.page[data-page="household"] .hh-field > span,
+.page[data-page="household"] .hh-tax-static > span {
+  color: var(--hh-muted);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.25;
+}
+
+.page[data-page="household"] .hh-field > small {
+  color: var(--hh-faint);
+  font-size: 9px;
+  line-height: 1.35;
+}
+
+.page[data-page="household"] .hh-field input,
+.page[data-page="household"] .hh-field select,
+.page[data-page="household"] .hh-cell input,
+.page[data-page="household"] .hh-cell select,
+.page[data-page="household"] .hh-tax-amount {
+  width: 100%;
+  min-width: 0;
+  height: 35px;
+  padding: 7px 10px;
+  border: 1px solid var(--hh-line);
+  border-radius: 0;
+  background: var(--hh-input);
+  color: var(--hh-ink);
+  outline: 0;
+}
+
+.page[data-page="household"] .hh-field input:focus,
+.page[data-page="household"] .hh-field select:focus,
+.page[data-page="household"] .hh-cell input:focus,
+.page[data-page="household"] .hh-cell select:focus,
+.page[data-page="household"] .hh-tax-amount:focus {
+  border-color: rgba(207, 173, 101, 0.65);
+  box-shadow: 0 0 0 1px rgba(207, 173, 101, 0.08);
+}
+
+.page[data-page="household"] input::placeholder {
+  color: #596069;
+}
+
+.page[data-page="household"] select {
+  color-scheme: dark;
+}
+
+.page[data-page="household"] .hh-sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  border: 0 !important;
+  white-space: nowrap !important;
+}
+
+/* Family */
+
+.page[data-page="household"] .hh-family-people {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 22px;
+}
+
+.page[data-page="household"] .hh-family-people.is-single {
+  grid-template-columns: minmax(0, 480px);
+}
+
+.page[data-page="household"] .hh-person-card {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--hh-line);
+  background: rgba(255, 255, 255, 0.008);
+}
+
+.page[data-page="household"] .hh-card-head {
+  display: flex;
+  min-height: 27px;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--hh-line-soft);
+}
+
+.page[data-page="household"] .hh-card-kicker {
+  color: var(--hh-body);
+}
+
+.page[data-page="household"] .hh-card-action {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--hh-muted);
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.page[data-page="household"] .hh-card-action:hover,
+.page[data-page="household"] .hh-card-action:focus-visible {
+  color: #d89a88;
+}
+
+.page[data-page="household"] .hh-person-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) 72px minmax(0, 1fr);
+  gap: 14px 10px;
+  margin-top: 13px;
+}
+
+.page[data-page="household"] .hh-field--wide {
+  grid-column: 1 / -1;
+}
+
+.page[data-page="household"] .hh-field--date {
+  grid-column: span 2;
+}
+
+.page[data-page="household"] .hh-field--age output {
+  display: flex;
+  align-items: center;
+  height: 35px;
+  padding: 0 10px;
+  border: 1px solid var(--hh-line-soft);
+  color: var(--hh-body);
+  font-size: 13px;
+}
+
+.page[data-page="household"] .hh-form-section {
+  margin-top: 24px;
+}
+
+.page[data-page="household"] .hh-section-title {
+  padding-bottom: 11px;
+  border-bottom: 1px solid var(--hh-line);
+  color: var(--hh-body);
+}
+
+.page[data-page="household"] .hh-family-filing {
+  display: grid;
+  grid-template-columns: 1.15fr 1fr 0.55fr;
+  gap: 14px;
+  margin-top: 14px;
+}
+
+/* Net worth */
+
+.page[data-page="household"] .hh-account-table {
+  min-width: 0;
+  margin-top: 14px;
+}
+
+.page[data-page="household"] .hh-account-head,
+.page[data-page="household"] .hh-account-row {
+  display: grid;
+  grid-template-columns:
+    minmax(140px, 1.1fr)
+    minmax(128px, 0.92fr)
+    minmax(105px, 0.72fr)
+    minmax(112px, 0.78fr)
+    minmax(112px, 0.72fr)
+    minmax(112px, 0.72fr)
+    52px;
+  align-items: center;
+  gap: 9px;
+}
+
+.page[data-page="household"] .hh-account-head {
+  padding: 0 0 9px;
+  color: var(--hh-muted);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.page[data-page="household"] .hh-account-head .is-right {
   text-align: right;
 }
-.page[data-page="household"] input.hh-born-in::-webkit-outer-spin-button,
-.page[data-page="household"] input.hh-born-in::-webkit-inner-spin-button {
-  -webkit-appearance: none; margin: 0;
-}
-.page[data-page="household"] .pre { font-size: 16px; color: var(--text-4); margin-right: 2px; }
 
-.page[data-page="household"] select.hh-sel,
-.page[data-page="household"] .hh-sel {
-  font-size: 16px; color: var(--text-hi);
-  background: rgba(231,222,201,0.02); border: 1px solid var(--line-16); border-radius: 8px;
-  padding: 10px 34px 10px 12px; cursor: pointer; outline: none;
-  appearance: none; max-width: 100%;
+.page[data-page="household"] .hh-account-row {
+  min-height: 51px;
+  padding: 8px 0;
+  border-top: 1px solid var(--hh-line-soft);
 }
-.page[data-page="household"] .hh-meta__v select { width: 100%; border: 0; border-radius: 0; background: transparent; padding-left: 0; }
 
-.page[data-page="household"] .row-x {
-  width: 18px; height: 18px; flex: none; border: 0; border-radius: 6px;
-  background: transparent; color: var(--text-4); font-size: 16px; cursor: pointer; padding: 0;
+.page[data-page="household"] .hh-cell {
+  min-width: 0;
 }
-.page[data-page="household"] .row-x:hover { color: var(--down); }
 
-/* ---- Income & Tax / Spending & Goals ------------------------------------ */
-.page[data-page="household"] .hh-it__title { margin: 10px 0 6px; font-size: 32px; line-height: 1; }
-.page[data-page="household"] .hh-it__intro { margin: 0 0 18px; color: var(--text-3); font-size: 13px; }
-.page[data-page="household"] .hh-it-section-head {
-  min-height: 29px; display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
-  padding-bottom: 7px; border-bottom: 1px solid var(--line-10);
+.page[data-page="household"] .hh-cell--amount input,
+.page[data-page="household"] .hh-cell--basis input {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
-.page[data-page="household"] .hh-it-section-head > span,
-.page[data-page="household"] .hh-it-tax-head > span { color: var(--gold); font-size: 10px; letter-spacing: .19em; }
-.page[data-page="household"] .hh-it-section-head > strong { color: var(--gold); font: 400 19px/1 var(--font-serif); }
-.page[data-page="household"] .hh-it-section-head > strong small { color: var(--text-4); font: 400 11px/1 var(--font-sans); letter-spacing: .03em; }
-.page[data-page="household"] .hh-it-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 56px; align-items: start; }
-.page[data-page="household"] .hh-it-grid--lower { margin-top: 20px; }
-.page[data-page="household"] .hh-it-subhead {
-  min-height: 25px; margin-top: 8px; display: flex; align-items: baseline; justify-content: space-between;
-  gap: 12px; color: var(--text-4); font-size: 10px; letter-spacing: .15em;
-}
-.page[data-page="household"] .hh-it-subhead small { color: var(--text-4); font-size: 11px; letter-spacing: 0; }
-.page[data-page="household"] .hh-it-row {
-  min-height: 43px; padding: 5px 2px; display: flex; align-items: center; justify-content: space-between;
-  gap: 14px; border-bottom: 1px solid var(--line-06);
-}
-.page[data-page="household"] .hh-it-row:hover { background: rgba(255,255,255,.02); }
-.page[data-page="household"] .hh-it-row--inactive { opacity: .58; }
-.page[data-page="household"] .hh-it-row--planning { background: rgba(195,165,106,.018); }
-.page[data-page="household"] .hh-it-row__copy { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 3px; }
-.page[data-page="household"] .hh-it-row__title,
-.page[data-page="household"] .hh-it-row__title input {
-  width: 100%; color: var(--text-1); font: 400 14.5px/1.2 var(--font-sans);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.page[data-page="household"] .hh-it-row__title input[data-path] { padding-bottom: 1px; border-bottom-color: transparent; text-align: left; }
-.page[data-page="household"] .hh-it-row__title input[data-path]:focus { border-bottom-color: var(--gold-dim); }
-.page[data-page="household"] .hh-it-row__meta {
-  min-width: 0; display: flex; align-items: center; gap: 4px; color: var(--text-4); font-size: 11px; white-space: nowrap;
-}
-.page[data-page="household"] .hh-it-row__meta em { color: var(--sage); font-style: normal; }
-.page[data-page="household"] .hh-it-row__meta .pre { margin: 0; color: var(--text-4); font-size: 11px; }
-.page[data-page="household"] .hh-it-row__meta input[data-path] {
-  width: 5.5ch; padding: 0; color: var(--text-3); font-size: 11px; text-align: center;
-}
-.page[data-page="household"] .hh-it-row__meta input[data-type="ageOrLife"] { width: 6.2ch; }
-.page[data-page="household"] .hh-it-row__end { flex: none; display: inline-flex; align-items: center; gap: 8px; }
-.page[data-page="household"] .hh-it-row__amount {
-  width: 10ch; display: inline-flex; align-items: baseline; justify-content: flex-end;
-  color: var(--text-hi); font: 400 18px/1 var(--font-serif); text-align: right; white-space: nowrap;
-}
-.page[data-page="household"] .hh-it-row__amount .pre { flex: none; margin-right: 2px; font-size: 14px; }
-.page[data-page="household"] .hh-it-row__amount input[data-type="money"] {
-  width: 8ch; min-width: 0; color: var(--text-hi); font: 400 18px/1 var(--font-serif); text-align: right;
-}
-.page[data-page="household"] .hh-it-inline-select {
-  width: auto; max-width: 13ch; padding: 0; border: 0; background: transparent;
-  color: var(--text-4); font-size: 11px; appearance: auto;
-}
-.page[data-page="household"] .hh-it-empty {
-  min-height: 43px; margin: 0; padding: 13px 2px; border-bottom: 1px solid var(--line-06);
-  color: var(--text-4); font-size: 12px;
-}
-.page[data-page="household"] .hh-it-add-line { margin-top: 9px; display: flex; align-items: center; gap: 15px; }
-.page[data-page="household"] .hh-it-add-line > span {
-  color: var(--text-5); font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.page[data-page="household"] .hh-it-add {
-  margin-top: 9px; padding: 6px 12px; border: 1px dashed var(--gold-dim); border-radius: 7px;
-  background: transparent; color: var(--gold); font: 400 12px/1 var(--font-sans); cursor: pointer; white-space: nowrap;
-}
-.page[data-page="household"] .hh-it-add:hover { border-color: var(--gold); color: var(--gold-bright); }
-.page[data-page="household"] .hh-it-add-form {
-  width: 100%; min-height: 42px; margin-top: 10px; padding: 10px; display: flex; align-items: flex-end; flex-wrap: wrap; gap: 10px;
-  border: 1px solid var(--line-10); border-radius: 8px; background: rgba(231,222,201,.012);
-}
-.page[data-page="household"] .hh-it-add-form > label {
-  min-width: 105px; flex: 1 1 125px; display: flex; flex-direction: column; gap: 5px;
-  color: var(--text-4); font-size: 9px; letter-spacing: .11em; text-transform: uppercase;
-}
-.page[data-page="household"] .hh-it-add-form > label[hidden] { display: none; }
-.page[data-page="household"] .hh-it-add-form select,
-.page[data-page="household"] .hh-it-add-form input {
-  width: 100%; min-width: 0; border: 0; border-bottom: 1px solid var(--line-16); background: transparent;
-  color: var(--text-1); font-size: 13px; padding: 5px 2px; text-transform: none; letter-spacing: 0;
-}
-.page[data-page="household"] .hh-it-add-form select { color-scheme: dark; }
-.page[data-page="household"] .hh-it-add-form input::placeholder { color: var(--text-5); opacity: 1; }
-.page[data-page="household"] .hh-it-add-form__money,
-.page[data-page="household"] .hh-it-add-form__pct { display: flex; align-items: center; color: var(--text-4); }
-.page[data-page="household"] .hh-it-add-form__money input { width: 100%; text-align: right; }
-.page[data-page="household"] .hh-it-add-form__pct input { text-align: right; }
-.page[data-page="household"] .hh-it-add-form__check {
-  align-self: center; flex: 0 1 auto; flex-direction: row; align-items: center;
-}
-.page[data-page="household"] .hh-it-add-form__check input { width: 15px; height: 15px; border: 1px solid var(--line-16); }
-.page[data-page="household"] .hh-it-add-form__actions { flex: none; display: inline-flex; align-items: center; gap: 4px; }
-.page[data-page="household"] .hh-it-add-form .hh-btn { padding: 7px 11px; font-size: 11px; }
-.page[data-page="household"] .hh-it-auto-row {
-  min-height: 43px; padding: 7px 2px; display: flex; align-items: center; justify-content: space-between;
-  gap: 12px; border-bottom: 1px solid var(--line-06); color: var(--text-3); font-size: 13px;
-}
-.page[data-page="household"] .hh-it-auto-row b {
-  margin-left: 7px; padding: 2px 5px; border: 1px solid rgba(143,165,126,.32); border-radius: 3px;
-  color: var(--sage); font-size: 8px; letter-spacing: .12em;
-}
-.page[data-page="household"] .hh-it-auto-row strong { color: var(--text-3); font: 400 18px/1 var(--font-serif); }
-.page[data-page="household"] .hh-it-deduction-footer {
-  display: flex; align-items: flex-end; justify-content: space-between; gap: 12px;
-}
-.page[data-page="household"] .hh-it-deduction-footer > span {
-  padding-bottom: 7px; color: var(--text-4); font-size: 9.5px; text-align: right;
-}
-.page[data-page="household"] .hh-it-mini-head {
-  margin-top: 13px; padding-top: 10px; display: flex; align-items: baseline; justify-content: space-between;
-  border-top: 1px solid var(--line-10); color: var(--gold); font-size: 9px; letter-spacing: .16em;
-}
-.page[data-page="household"] .hh-it-mini-head strong {
-  color: var(--gold); font: 400 15px/1 var(--font-serif); letter-spacing: 0;
-}
-.page[data-page="household"] .hh-it-foundation {
-  margin-top: 20px; padding: 12px 0; display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 24px;
-  border-top: 1px solid var(--line-10); border-bottom: 1px solid var(--line-10);
-}
-.page[data-page="household"] .hh-it-stat { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
-.page[data-page="household"] .hh-it-stat > span { color: var(--text-5); font-size: 8.5px; letter-spacing: .16em; }
-.page[data-page="household"] .hh-it-stat > strong {
-  overflow: hidden; color: var(--gold); font: 400 20px/1 var(--font-serif); text-overflow: ellipsis; white-space: nowrap;
-}
-.page[data-page="household"] .hh-it-stat--ledger > strong { color: var(--text-2); }
-.page[data-page="household"] .hh-it-stat--primary > strong { color: var(--gold); }
-.page[data-page="household"] .hh-it-stat > small { color: var(--text-4); font-size: 9.5px; }
-.page[data-page="household"] .hh-it-tax-head { margin-top: 15px; display: flex; justify-content: space-between; gap: 20px; }
-.page[data-page="household"] .hh-it-tax-head small { color: var(--text-4); font-size: 10px; }
-.page[data-page="household"] .hh-it-tax-grid { margin-top: 10px; display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 11px 48px; }
-.page[data-page="household"] .hh-it-tax-grid .hh-it-stat > strong { color: var(--text-1); font-size: 19px; }
-.page[data-page="household"] .hh-it-tax-grid .hh-it-stat--pending > strong { color: #c99a6a; }
-.page[data-page="household"] .hh-it .row-x:hover,
-.page[data-page="household"] .hh-sg .row-x:hover { color: var(--text-1); }
-.page[data-page="household"] .hh-sg-row,
-.page[data-page="household"] .hh-sg-goal {
-  min-height: 52px; padding: 9px 2px; display: flex; align-items: center; justify-content: space-between;
-  gap: 14px; border-bottom: 1px solid var(--line-06); color: var(--text-1); font-size: 14px;
-}
-.page[data-page="household"] .hh-sg-row__end { flex: none; display: inline-flex; align-items: center; gap: 8px; }
-.page[data-page="household"] .hh-sg-row__end input[data-type="money"] { color: var(--text-hi); font: 400 18px/1 var(--font-serif); }
-.page[data-page="household"] .hh-sg-goal__copy { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-.page[data-page="household"] .hh-sg-goal__copy > span,
-.page[data-page="household"] .hh-sg-goal__copy > label { color: var(--text-4); font-size: 10.5px; }
-.page[data-page="household"] .hh-sg-goal__copy > span input { width: 5.5ch; padding: 0; font-size: 10.5px; text-align: center; }
-.page[data-page="household"] .hh-sg-goal__copy > label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
-.page[data-page="household"] .hh-sg-name {
-  width: 100%; border-bottom-color: transparent; color: var(--text-1); font-size: 14px; text-align: left;
-}
-.page[data-page="household"] input.hh-sg-name:focus { border-bottom-color: var(--gold-dim); }
-.page[data-page="household"] .hh-sg-doctrine { margin: 15px 0 0; color: var(--text-4); font-size: 10.5px; line-height: 1.45; }
-.page[data-page="household"] .hh-sg-foundation {
-  margin-top: 30px; padding: 17px 0; display: grid; grid-template-columns: auto 1fr; gap: 7px 28px;
-  border-top: 1px solid var(--line-10);
-}
-.page[data-page="household"] .hh-sg-foundation > span { grid-row: 1/3; color: var(--gold); font-size: 9px; letter-spacing: .16em; }
-.page[data-page="household"] .hh-sg-foundation > strong { color: var(--text-1); font: 400 17px/1.2 var(--font-serif); }
-.page[data-page="household"] .hh-sg-foundation > small { color: var(--text-4); font-size: 10.5px; }
 
-/* ---- Tax details (Step 2, Household-owned inputs) ----------------------- */
-.page[data-page="household"] .hh-tax-details {
-  margin-top: 22px;
-  border: 1px solid var(--line-08);
-  border-radius: 14px;
-  background: rgba(231,222,201,0.012);
+.page[data-page="household"] .hh-cell--treatment {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
   overflow: hidden;
+  color: var(--hh-body);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.page[data-page="household"] .hh-tax-details > summary {
-  min-height: 64px;
-  padding: 15px 18px;
+
+.page[data-page="household"] .hh-treatment-dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  background: var(--treatment-color, var(--hh-slate));
+}
+
+.page[data-page="household"] .hh-cell.is-disabled input {
+  color: var(--hh-faint);
+  opacity: 0.65;
+}
+
+.page[data-page="household"] .hh-row-remove,
+.page[data-page="household"] .hh-tax-optional-head button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--hh-muted);
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.page[data-page="household"] .hh-row-remove:hover,
+.page[data-page="household"] .hh-tax-optional-head button:hover {
+  color: #d89a88;
+}
+
+.page[data-page="household"] .hh-empty-row {
+  padding: 28px 0;
+  border-top: 1px solid var(--hh-line-soft);
+  color: var(--hh-muted);
+  font-size: 12px;
+}
+
+.page[data-page="household"] .hh-add-row {
+  margin-top: 13px;
+  padding: 8px 10px;
+  border: 1px dashed rgba(207, 173, 101, 0.36);
+  border-radius: 0;
+  background: transparent;
+  color: var(--hh-gold);
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.page[data-page="household"] .hh-add-row:hover {
+  border-color: var(--hh-gold);
+  color: var(--hh-gold-bright);
+}
+
+.page[data-page="household"] .hh-account-add-form {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 0.75fr 0.78fr auto;
+  align-items: end;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 14px;
+  border: 1px solid rgba(207, 173, 101, 0.30);
+}
+
+.page[data-page="household"] .hh-account-add-actions {
+  display: flex;
+  gap: 7px;
+}
+
+.page[data-page="household"] .hh-button--quiet {
+  color: var(--hh-body);
+}
+
+.page[data-page="household"] .hh-bucket-totals {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 24px;
+  border-top: 1px solid var(--hh-line);
+  border-bottom: 1px solid var(--hh-line-soft);
+}
+
+.page[data-page="household"] .hh-bucket-total {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+  padding: 14px 0;
+}
+
+.page[data-page="household"] .hh-bucket-total + .hh-bucket-total {
+  padding-left: 20px;
+  border-left: 1px solid var(--hh-line-soft);
+}
+
+.page[data-page="household"] .hh-bucket-total > span {
+  color: var(--hh-body);
+  font-size: 10px;
+}
+
+.page[data-page="household"] .hh-bucket-total strong {
+  overflow: hidden;
+  color: var(--hh-ink);
+  font: 400 19px/1 var(--font-serif);
+  text-overflow: ellipsis;
+}
+
+.page[data-page="household"] .hh-bucket-total small {
+  color: var(--hh-muted);
+  font-size: 8px;
+}
+
+/* Tax */
+
+.page[data-page="household"] .hh-tax-title-row {
+  align-items: center;
+}
+
+.page[data-page="household"] .hh-tax-view-control {
+  display: grid;
+  justify-items: end;
+  gap: 6px;
+}
+
+.page[data-page="household"] .hh-tax-view-control > span {
+  color: var(--hh-muted);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.page[data-page="household"] .hh-segmented {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(82px, 1fr));
+}
+
+.page[data-page="household"] .hh-segmented--small {
+  grid-template-columns: repeat(2, minmax(58px, 1fr));
+}
+
+.page[data-page="household"] .hh-segmented button {
+  min-height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--hh-line);
+  background: transparent;
+  color: var(--hh-muted);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.page[data-page="household"] .hh-segmented button + button {
+  border-left: 0;
+}
+
+.page[data-page="household"] .hh-segmented button[aria-pressed="true"] {
+  border-color: var(--hh-gold);
+  background: var(--hh-gold);
+  color: #17130b;
+}
+
+.page[data-page="household"] .hh-tax-profile {
+  display: grid;
+  grid-template-columns: 1fr 1fr 0.72fr 1.15fr;
+  margin-top: 20px;
+  border: 1px solid var(--hh-line);
+}
+
+.page[data-page="household"] .hh-tax-profile > * {
+  min-width: 0;
+  padding: 13px 16px;
+}
+
+.page[data-page="household"] .hh-tax-profile > * + * {
+  border-left: 1px solid var(--hh-line-soft);
+}
+
+.page[data-page="household"] .hh-tax-static {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+}
+
+.page[data-page="household"] .hh-tax-static strong {
+  overflow: hidden;
+  color: var(--hh-ink);
+  font-size: 12px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.page[data-page="household"] .hh-tax-section,
+.page[data-page="household"] .hh-tax-subsection,
+.page[data-page="household"] .hh-tax-optional {
+  margin-top: 23px;
+}
+
+.page[data-page="household"] .hh-tax-section-head {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  padding-bottom: 9px;
+  border-bottom: 1px solid var(--hh-line);
+}
+
+.page[data-page="household"] .hh-tax-section-number {
+  color: var(--hh-muted);
+  font: 400 17px/1 var(--font-serif);
+}
+
+.page[data-page="household"] .hh-tax-section-head h2,
+.page[data-page="household"] .hh-tax-subsection-head h3,
+.page[data-page="household"] .hh-tax-optional-head h3,
+.page[data-page="household"] .hh-summary-section-head h2 {
+  margin: 0;
+  color: var(--hh-ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.page[data-page="household"] .hh-tax-table-head,
+.page[data-page="household"] .hh-tax-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 168px;
+  align-items: center;
+  gap: 28px;
+}
+
+.page[data-page="household"] .hh-tax-table-head {
+  min-height: 30px;
+  color: var(--hh-muted);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.page[data-page="household"] .hh-tax-table-head span:last-child {
+  text-align: right;
+}
+
+.page[data-page="household"] .hh-tax-row {
+  min-height: 49px;
+  border-top: 1px solid var(--hh-line-soft);
+}
+
+.page[data-page="household"] .hh-tax-row-label,
+.page[data-page="household"] .hh-tax-row label {
+  display: grid;
+  gap: 4px;
+}
+
+.page[data-page="household"] .hh-tax-row label {
+  color: var(--hh-body);
+  font-size: 12px;
+}
+
+.page[data-page="household"] .hh-tax-row label small,
+.page[data-page="household"] .hh-tax-source-note {
+  color: var(--hh-muted);
+  font-size: 9px;
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+.page[data-page="household"] .hh-tax-source {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--hh-sage);
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.page[data-page="household"] .hh-tax-source--override {
+  color: var(--hh-muted);
+}
+
+.page[data-page="household"] .hh-tax-source button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--hh-ink);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.page[data-page="household"] .hh-tax-row .hh-tax-amount {
+  width: 168px;
+  justify-self: end;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.page[data-page="household"] .hh-tax-row .hh-tax-amount:disabled {
+  border-color: transparent;
+  background: rgba(255, 255, 255, 0.018);
+  color: var(--hh-body);
+  opacity: 0.78;
+  cursor: default;
+}
+
+.page[data-page="household"] .hh-tax-subsection {
+  padding: 14px;
+  border: 1px solid var(--hh-line);
+}
+
+.page[data-page="household"] .hh-tax-subsection-head {
+  margin-bottom: 12px;
+}
+
+.page[data-page="household"] .hh-field--compact-select {
+  max-width: 360px;
+}
+
+.page[data-page="household"] .hh-tax-mini-grid,
+.page[data-page="household"] .hh-itemized-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.page[data-page="household"] .hh-itemized-grid {
+  margin-top: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.page[data-page="household"] .hh-itemized-grid .hh-tax-amount,
+.page[data-page="household"] .hh-tax-mini-grid .hh-tax-amount {
+  max-width: 168px;
+  text-align: right;
+  justify-self: end;
+}
+
+.page[data-page="household"] .hh-tax-optional {
+  padding: 13px 14px 14px;
+  border-top: 1px solid var(--hh-line);
+  border-bottom: 1px solid var(--hh-line-soft);
+}
+
+.page[data-page="household"] .hh-tax-optional-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 20px;
-  color: var(--text-1);
-  cursor: pointer;
-  user-select: none;
+  margin-bottom: 12px;
 }
-.page[data-page="household"] .hh-tax-details > summary:hover {
-  background: rgba(231,222,201,0.018);
+
+.page[data-page="household"] .hh-tax-optional > .hh-field,
+.page[data-page="household"] .hh-supplied-deduction > .hh-field {
+  max-width: 420px;
+  margin-top: 13px;
 }
-.page[data-page="household"] .hh-tax-details > summary:focus-visible {
-  outline: 1px solid var(--gold);
-  outline-offset: -3px;
+
+.page[data-page="household"] .hh-tax-add-wrap {
+  position: relative;
+  width: max-content;
 }
-.page[data-page="household"] .hh-tax-details > summary > span:first-child {
-  display: inline-flex;
-  flex-direction: column;
-  gap: 3px;
-}
-.page[data-page="household"] .hh-tax-details > summary strong {
-  color: var(--text-hi);
-  font-size: 16px;
-  font-weight: 600;
-}
-.page[data-page="household"] .hh-tax-details > summary small {
-  color: var(--text-3);
-  font-size: 12px;
-  font-weight: 400;
-}
-.page[data-page="household"] .hh-tax-details__state {
-  flex: none;
-  color: var(--gold);
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: .12em;
-  text-transform: uppercase;
-}
-.page[data-page="household"] .hh-tax-details[open] .hh-tax-details__state::after { content: " open"; }
-.page[data-page="household"] .hh-tax-details__body {
-  border-top: 1px solid var(--line-07);
-  padding: 18px;
-}
-.page[data-page="household"] .hh-tax-grid {
+
+.page[data-page="household"] .hh-tax-add-menu {
+  position: absolute;
+  bottom: 42px;
+  left: 0;
+  z-index: 20;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
+  width: 290px;
+  max-height: 270px;
+  overflow: auto;
+  padding: 5px;
+  border: 1px solid var(--hh-line);
+  background: #111318;
+  box-shadow: 0 22px 55px rgba(0, 0, 0, 0.45);
 }
-.page[data-page="household"] .hh-tax-fieldset {
-  min-width: 0;
-  margin: 0;
-  padding: 17px;
-  border: 1px solid var(--line-08);
-  border-radius: 12px;
-  background: rgba(231,222,201,0.008);
-}
-.page[data-page="household"] .hh-tax-fieldset legend {
-  width: 100%;
-  padding: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: end;
-  gap: 3px 12px;
-}
-.page[data-page="household"] .hh-tax-fieldset__eyebrow {
-  grid-column: 1 / -1;
-  color: var(--text-4);
-  font-size: 9.5px;
-  font-weight: 600;
-  letter-spacing: .12em;
-  text-transform: uppercase;
-}
-.page[data-page="household"] .hh-tax-fieldset__title {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--text-hi);
-  font-family: var(--font-serif);
-  font-size: 17px;
-  font-weight: 400;
-  line-height: 1.2;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.page[data-page="household"] .hh-tax-badge {
-  align-self: center;
-  border: 1px solid var(--line-10);
-  border-radius: 999px;
-  padding: 4px 8px;
-  color: var(--text-3);
-  font-size: 9.5px;
-  font-weight: 600;
-  letter-spacing: .03em;
-  white-space: nowrap;
-}
-.page[data-page="household"] .hh-tax-badge--current {
-  border-color: rgba(195,165,106,.32);
-  color: var(--gold-bright);
-  background: rgba(195,165,106,.07);
-}
-.page[data-page="household"] .hh-tax-badge--waiting { color: var(--text-2); }
-.page[data-page="household"] .hh-tax-badge--later {
-  border-color: rgba(195,165,106,.18);
-  color: var(--gold);
-}
-.page[data-page="household"] .hh-tax-fieldset__help {
-  margin: 9px 0 15px;
-  color: var(--text-3);
-  font-size: 11.5px;
-  line-height: 1.45;
-}
-.page[data-page="household"] .hh-tax-fields {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 13px 14px;
-}
-.page[data-page="household"] .hh-tax-field {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.page[data-page="household"] .hh-tax-field > label {
-  color: var(--text-2);
-  font-size: 11.5px;
-  font-weight: 500;
-  line-height: 1.3;
-}
-.page[data-page="household"] .hh-tax-input {
-  width: 100%;
-  min-height: 38px;
-  border: 1px solid var(--line-12);
-  border-radius: 8px;
-  background: rgba(231,222,201,.018);
-  color: var(--text-hi);
-  font: 500 16px/1.2 var(--font-sans);
-  padding: 9px 10px;
-  outline: none;
-}
-.page[data-page="household"] select.hh-tax-input {
-  cursor: pointer;
-  padding-right: 28px;
-}
-.page[data-page="household"] .hh-tax-input:focus {
-  border-color: var(--gold-dim);
-  box-shadow: 0 0 0 2px rgba(195,165,106,.08);
-}
-.page[data-page="household"] .hh-tax-money {
-  display: flex;
-  align-items: center;
-  border: 1px solid var(--line-12);
-  border-radius: 8px;
-  background: rgba(231,222,201,.018);
-  color: var(--text-4);
-  padding-left: 10px;
-}
-.page[data-page="household"] .hh-tax-money:focus-within {
-  border-color: var(--gold-dim);
-  box-shadow: 0 0 0 2px rgba(195,165,106,.08);
-}
-.page[data-page="household"] .hh-tax-money .hh-tax-input {
-  min-width: 0;
+
+.page[data-page="household"] .hh-tax-add-menu button,
+.page[data-page="household"] .hh-tax-add-menu span {
+  min-height: 34px;
+  padding: 8px 9px;
   border: 0;
   background: transparent;
-  box-shadow: none;
-  padding-left: 5px;
+  color: var(--hh-body);
+  font-size: 10px;
+  text-align: left;
 }
-.page[data-page="household"] .hh-tax-field__help {
-  color: var(--text-4);
-  font-size: 10.5px;
-  line-height: 1.35;
+
+.page[data-page="household"] .hh-tax-add-menu button {
+  cursor: pointer;
 }
-.page[data-page="household"] .hh-tax-limitations {
-  margin-top: 14px;
-  display: grid;
-  gap: 8px;
+
+.page[data-page="household"] .hh-tax-add-menu button:hover {
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--hh-ink);
 }
-.page[data-page="household"] .hh-tax-limit {
-  padding: 11px 13px;
-  display: grid;
-  grid-template-columns: minmax(150px, .7fr) minmax(0, 1.3fr);
-  align-items: center;
-  gap: 14px;
-  border: 1px solid var(--line-07);
-  border-radius: 9px;
-  background: rgba(255,255,255,.008);
-}
-.page[data-page="household"] .hh-tax-limit > div {
-  min-width: 0;
+
+.page[data-page="household"] .hh-tax-confirmation {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: flex-start;
+  gap: 10px;
+  max-width: 680px;
+  margin-top: 20px;
+  padding: 13px 14px;
+  border: 1px solid var(--hh-line);
+  background: rgba(255, 255, 255, 0.018);
+  color: var(--hh-body);
+  font-size: 10px;
+  line-height: 1.5;
+  cursor: pointer;
 }
-.page[data-page="household"] .hh-tax-limit__eyebrow {
-  color: var(--text-4);
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: .12em;
+
+.page[data-page="household"] .hh-tax-confirmation input {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  margin: 1px 0 0;
+  accent-color: var(--hh-sage);
+}
+
+.page[data-page="household"] .hh-tax-confirmation:has(input[aria-invalid="true"]) {
+  border-color: #b58a57;
+}
+
+.page[data-page="household"] .hh-tax-readiness {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 18px;
+  color: var(--hh-muted);
+  font-size: 10px;
+}
+
+.page[data-page="household"] .hh-tax-readiness code {
+  margin-left: 4px;
+  color: var(--hh-faint);
+  font: 500 8px/1 var(--font-sans);
+}
+
+.page[data-page="household"] .hh-status-dot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: #b58a57;
+}
+
+.page[data-page="household"] .hh-tax-readiness[data-tax-readiness="ready"] .hh-status-dot {
+  background: var(--hh-sage);
+}
+
+/* Summary */
+
+.page[data-page="household"] .hh-summary-metrics {
+  display: grid;
+  grid-template-columns: 1.5fr 0.8fr 0.8fr;
+  margin-top: 20px;
+  border-top: 1px solid var(--hh-line);
+  border-bottom: 1px solid var(--hh-line);
+}
+
+.page[data-page="household"] .hh-summary-metric {
+  display: grid;
+  align-content: center;
+  min-height: 132px;
+  gap: 8px;
+  padding: 18px 24px;
+}
+
+.page[data-page="household"] .hh-summary-metric:first-child {
+  padding-left: 0;
+}
+
+.page[data-page="household"] .hh-summary-metric + .hh-summary-metric {
+  border-left: 1px solid var(--hh-line-soft);
+}
+
+.page[data-page="household"] .hh-summary-metric > span {
+  color: var(--hh-muted);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.13em;
   text-transform: uppercase;
 }
-.page[data-page="household"] .hh-tax-limit strong {
+
+.page[data-page="household"] .hh-summary-metric strong {
   overflow: hidden;
-  color: var(--text-1);
-  font-size: 12px;
-  font-weight: 500;
+  color: var(--hh-ink);
+  font: 400 27px/1 var(--font-serif);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.page[data-page="household"] .hh-tax-limit p {
-  margin: 0;
-  color: var(--text-3);
-  font-size: 11px;
-  line-height: 1.4;
+
+.page[data-page="household"] .hh-summary-metric--hero strong {
+  font-size: 43px;
 }
 
-@media (max-width: 1080px) {
-  .page[data-page="household"] .hh-cols--split { flex-direction: column; }
-  .page[data-page="household"] .hh-cols__div { width: 100%; height: 1px; margin: 24px 0; }
-  .page[data-page="household"] .hh-cols--split .hh-col:first-child,
-  .page[data-page="household"] .hh-cols--split .hh-col:last-child { padding: 0; }
-  .page[data-page="household"] .hh-bp-sheet { flex-direction: column; }
-  .page[data-page="household"] .hh-bp-inst { flex-direction: column; width: 100%; }
-  .page[data-page="household"] .hh-bp-alloc-list { width: 100%; max-width: none; margin-top: 24px; }
-  .page[data-page="household"] .hh-wiz-top,
-  .page[data-page="household"] .hh-stepper,
-  .page[data-page="household"] .hh-wiz-workspace,
-  .page[data-page="household"] .hh-wiz-footer { padding-left: 24px; padding-right: 24px; }
-  .page[data-page="household"] .hh-tax-grid { grid-template-columns: 1fr; }
-  .page[data-page="household"] .hh-it-grid { gap: 32px; }
-  .page[data-page="household"] .hh-it-tax-grid { gap: 18px 28px; }
+.page[data-page="household"] .hh-summary-metric small {
+  color: var(--hh-muted);
+  font-size: 9px;
+  line-height: 1.35;
 }
 
-@media (max-width: 660px) {
-  .page[data-page="household"] .hh-it-grid { grid-template-columns: 1fr; gap: 22px; }
-  .page[data-page="household"] .hh-it-grid--lower { margin-top: 26px; }
-  .page[data-page="household"] .hh-it-foundation,
-  .page[data-page="household"] .hh-it-tax-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .page[data-page="household"] .hh-it-add-form { flex-wrap: wrap; }
-  .page[data-page="household"] .hh-it-add-form > label { flex-basis: calc(50% - 8px); }
-  .page[data-page="household"] .hh-sg-foundation { grid-template-columns: 1fr; }
-  .page[data-page="household"] .hh-sg-foundation > span { grid-row: auto; }
-  .page[data-page="household"] .hh-tax-details > summary,
-  .page[data-page="household"] .hh-tax-details__body { padding-left: 14px; padding-right: 14px; }
-  .page[data-page="household"] .hh-tax-fieldset legend { grid-template-columns: 1fr; }
-  .page[data-page="household"] .hh-tax-badge { justify-self: start; margin-top: 4px; }
-  .page[data-page="household"] .hh-tax-fields { grid-template-columns: 1fr; }
-  .page[data-page="household"] .hh-tax-limit { grid-template-columns: 1fr; gap: 6px; }
+.page[data-page="household"] .hh-summary-composition {
+  margin-top: 24px;
 }
 
-/* Hide sticky-note floater on Household wizard — it clashes with footer CTAs */
+.page[data-page="household"] .hh-summary-section-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--hh-line);
+}
+
+.page[data-page="household"] .hh-summary-section-head span {
+  color: var(--hh-muted);
+  font-size: 9px;
+}
+
+.page[data-page="household"] .hh-composition-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(330px, 0.8fr);
+  align-items: start;
+  gap: 32px;
+  margin-top: 18px;
+}
+
+.page[data-page="household"] .hh-composition-bar {
+  display: flex;
+  height: 17px;
+  overflow: hidden;
+  background: var(--hh-line-soft);
+}
+
+.page[data-page="household"] .hh-composition-bar span {
+  display: block;
+  height: 100%;
+  min-width: 0;
+}
+
+.page[data-page="household"] .hh-composition-bar .is-taxable,
+.page[data-page="household"] .hh-legend-swatch.is-taxable {
+  background: var(--hh-gold);
+}
+
+.page[data-page="household"] .hh-composition-bar .is-traditional,
+.page[data-page="household"] .hh-legend-swatch.is-traditional {
+  background: #97865b;
+}
+
+.page[data-page="household"] .hh-composition-bar .is-roth,
+.page[data-page="household"] .hh-legend-swatch.is-roth {
+  background: var(--hh-slate);
+}
+
+.page[data-page="household"] .hh-composition-legend {
+  margin-top: -7px;
+}
+
+.page[data-page="household"] .hh-composition-legend > div {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) 42px 100px;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  border-bottom: 1px solid var(--hh-line-soft);
+}
+
+.page[data-page="household"] .hh-legend-swatch {
+  width: 7px;
+  height: 7px;
+}
+
+.page[data-page="household"] .hh-composition-legend strong {
+  color: var(--hh-body);
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.page[data-page="household"] .hh-composition-legend small {
+  color: var(--hh-muted);
+  font-size: 9px;
+  text-align: right;
+}
+
+.page[data-page="household"] .hh-composition-legend b {
+  color: var(--hh-ink);
+  font: 400 13px/1 var(--font-serif);
+  text-align: right;
+}
+
+/* Narrow desktop and tablet */
+
+@media (max-width: 1180px) {
+  .page[data-page="household"] .hh-stage {
+    grid-template-columns: 210px minmax(0, 1fr);
+  }
+
+  .page[data-page="household"] .hh-sidebar {
+    padding-inline: 16px;
+  }
+
+  .page[data-page="household"] .hh-screen {
+    padding-inline: 26px;
+  }
+
+  .page[data-page="household"] .hh-account-head,
+  .page[data-page="household"] .hh-account-row {
+    grid-template-columns:
+      minmax(130px, 1fr)
+      minmax(120px, 0.92fr)
+      minmax(90px, 0.65fr)
+      minmax(105px, 0.72fr)
+      minmax(102px, 0.68fr)
+      minmax(102px, 0.68fr)
+      46px;
+    gap: 7px;
+  }
+
+  .page[data-page="household"] .hh-account-add-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .page[data-page="household"] .hh-account-add-actions {
+    grid-column: 1 / -1;
+  }
+
+  .page[data-page="household"] .hh-tax-profile {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .page[data-page="household"] .hh-tax-profile > :nth-child(3) {
+    border-left: 0;
+    border-top: 1px solid var(--hh-line-soft);
+  }
+
+  .page[data-page="household"] .hh-tax-profile > :nth-child(4) {
+    border-top: 1px solid var(--hh-line-soft);
+  }
+}
+
+@media (max-width: 920px) {
+  .page[data-page="household"] {
+    overflow: auto;
+  }
+
+  .page[data-page="household"] .hh-stage {
+    display: block;
+    height: auto;
+    min-height: 100%;
+    overflow: visible;
+  }
+
+  .page[data-page="household"] .hh-sidebar {
+    padding: 18px 20px 12px;
+    border-right: 0;
+    border-bottom: 1px solid var(--hh-line);
+  }
+
+  .page[data-page="household"] .hh-progress {
+    margin-top: 14px;
+  }
+
+  .page[data-page="household"] .hh-stepper {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 4px;
+    margin-top: 12px;
+  }
+
+  .page[data-page="household"] .hh-step {
+    min-height: 52px;
+    grid-template-columns: auto minmax(0, 1fr);
+    padding: 9px;
+    border-bottom: 2px solid transparent;
+    border-left: 0;
+  }
+
+  .page[data-page="household"] .hh-step.is-current {
+    border-bottom-color: var(--hh-gold);
+  }
+
+  .page[data-page="household"] .hh-step small {
+    display: none;
+  }
+
+  .page[data-page="household"] .hh-wizard {
+    min-height: 680px;
+  }
+
+  .page[data-page="household"] .hh-wiz-workspace {
+    overflow: visible;
+  }
+
+  .page[data-page="household"] .hh-account-table {
+    overflow-x: auto;
+  }
+
+  .page[data-page="household"] .hh-account-head,
+  .page[data-page="household"] .hh-account-row {
+    min-width: 870px;
+  }
+}
+
+@media (max-width: 700px) {
+  .page[data-page="household"] .hh-screen {
+    padding: 25px 17px 44px;
+  }
+
+  .page[data-page="household"] .hh-screen-head {
+    align-items: flex-start;
+  }
+
+  .page[data-page="household"] .hh-screen-head h1 {
+    font-size: 31px;
+  }
+
+  .page[data-page="household"] .hh-family-people,
+  .page[data-page="household"] .hh-family-filing,
+  .page[data-page="household"] .hh-bucket-totals,
+  .page[data-page="household"] .hh-itemized-grid,
+  .page[data-page="household"] .hh-tax-mini-grid,
+  .page[data-page="household"] .hh-summary-metrics,
+  .page[data-page="household"] .hh-composition-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .page[data-page="household"] .hh-bucket-total + .hh-bucket-total,
+  .page[data-page="household"] .hh-summary-metric + .hh-summary-metric {
+    padding-left: 0;
+    border-top: 1px solid var(--hh-line-soft);
+    border-left: 0;
+  }
+
+  .page[data-page="household"] .hh-summary-metric:first-child,
+  .page[data-page="household"] .hh-summary-metric {
+    min-height: 100px;
+    padding: 16px 0;
+  }
+
+  .page[data-page="household"] .hh-summary-metric--hero strong {
+    font-size: 36px;
+  }
+
+  .page[data-page="household"] .hh-composition-layout {
+    gap: 18px;
+  }
+
+  .page[data-page="household"] .hh-tax-table-head,
+  .page[data-page="household"] .hh-tax-row {
+    grid-template-columns: minmax(0, 1fr) 132px;
+    gap: 14px;
+  }
+
+  .page[data-page="household"] .hh-tax-row .hh-tax-amount {
+    width: 132px;
+  }
+
+  .page[data-page="household"] .hh-wizard > footer {
+    padding-inline: 17px;
+  }
+}
+
+@media (max-width: 500px) {
+  .page[data-page="household"] .hh-sidebar {
+    padding-inline: 14px;
+  }
+
+  .page[data-page="household"] .hh-stepper {
+    gap: 0;
+  }
+
+  .page[data-page="household"] .hh-step {
+    display: block;
+    min-height: 43px;
+    padding: 8px 5px;
+    text-align: center;
+  }
+
+  .page[data-page="household"] .hh-step__num {
+    display: none;
+  }
+
+  .page[data-page="household"] .hh-step strong {
+    font-size: 10px;
+  }
+
+  .page[data-page="household"] .hh-person-fields {
+    grid-template-columns: minmax(0, 1fr) 66px;
+  }
+
+  .page[data-page="household"] .hh-field--date {
+    grid-column: 1;
+  }
+
+  .page[data-page="household"] .hh-person-fields > .hh-field:not(.hh-field--wide, .hh-field--date, .hh-field--age) {
+    grid-column: 1 / -1;
+  }
+
+  .page[data-page="household"] .hh-tax-title-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .page[data-page="household"] .hh-tax-view-control {
+    justify-items: start;
+  }
+
+  .page[data-page="household"] .hh-tax-profile {
+    grid-template-columns: 1fr;
+  }
+
+  .page[data-page="household"] .hh-tax-profile > * + *,
+  .page[data-page="household"] .hh-tax-profile > :nth-child(3) {
+    border-top: 1px solid var(--hh-line-soft);
+    border-left: 0;
+  }
+
+  .page[data-page="household"] .hh-summary-section-head {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .page[data-page="household"] .hh-composition-legend > div {
+    grid-template-columns: 10px minmax(0, 1fr) 35px 82px;
+  }
+
+  .page[data-page="household"] .hh-footer-progress {
+    display: none;
+  }
+
+  .page[data-page="household"] .hh-wizard > footer {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* Household footer already owns its action path. */
 body:has(.page[data-page="household"].on) .sn-btn,
-body:has(.page[data-page="household"].on) .sn-clear { display: none; }
+body:has(.page[data-page="household"].on) .sn-clear {
+  display: none;
+}

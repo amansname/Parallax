@@ -1,9 +1,15 @@
-import { buildHouseholdTaxFactContract } from '../planning/tax/buildHouseholdTaxFactContract.js';
-import { createHouseholdWizard } from '../../ui/householdWizard.js';
-import { escHtml } from '../../ui/dom.js';
-import { hhAllAccounts, hhAgeFromYear, hhInitial, hhSelect } from '../../ui/household.js';
-import { getWizardAccountTypes } from './accountTypes.js';
 import { buildCurrentIncomeTaxSummary } from '../planning/tax/buildCurrentIncomeTaxSummary.js';
+import { buildCurrentTaxBucketSnapshot } from '../planning/taxBuckets/buildCurrentTaxBucketSnapshot.js';
+import {
+  createHouseholdWizard,
+  HOUSEHOLD_WIZARD_STEPS,
+} from '../../ui/householdWizard.js';
+import { escHtml } from '../../ui/dom.js';
+import { getWizardAccountTypes } from './accountTypes.js';
+import {
+  buildWizardTaxPlan,
+  readWizardTaxState,
+} from './wizardIntake.js';
 
 const $ = selector => document.querySelector(selector);
 
@@ -18,9 +24,10 @@ const STATES = [
   ['DC','District of Columbia'],
 ];
 
+const STEP_IDS = HOUSEHOLD_WIZARD_STEPS.map(step => step.id);
+
 export function createHouseholdWizardController({
   getPlan,
-  renderField,
   getHouseholdsDb,
   getActiveHouseholdId,
   isStorageBlocked,
@@ -30,127 +37,168 @@ export function createHouseholdWizardController({
   onNewHousehold,
   onLoadDemoHousehold,
 }){
-  let step = 1;
-  let accountFormOwner = null;
-  let addingKey = null;
-  let draftLabel = '';
-  let draftAmount = '';
-  let taxDetailsOpen = false;
+  let stepId = 'family';
+  let renderRevision = 0;
   let wizard;
 
-  const uiState = {
-    get hhAcctFormOwner(){ return accountFormOwner; },
-    set hhAcctFormOwner(value){ accountFormOwner = value; },
-    get hhAddingKey(){ return addingKey; },
-    set hhAddingKey(value){ addingKey = value; },
-    get hhDraftLabel(){ return draftLabel; },
-    set hhDraftLabel(value){ draftLabel = value; },
-    get hhDraftAmount(){ return draftAmount; },
-    set hhDraftAmount(value){ draftAmount = value; },
-    get hhTaxDetailsOpen(){ return taxDetailsOpen; },
-    set hhTaxDetailsOpen(value){ taxDetailsOpen = value; },
-    get hhStep(){ return step; },
-    set hhStep(value){ step = value; },
+  const state = {
+    accountFormOpen: false,
+    accountDraft: {
+      displayName: '',
+      typeId: '',
+      owner: 'client',
+      balance: '',
+    },
+    taxView: 'simplified',
+    optionalTaxItems: new Set(),
+    optionalMenuOpen: false,
   };
 
-  function defaultStep(){
-    const plan = getPlan();
-    const hasAccounts = (plan.portfolio.extraAccounts || []).length > 0;
-    const hasIncome = !!((plan.income.socialSecurity.primary && plan.income.socialSecurity.primary.pia) ||
-                         (plan.income.socialSecurity.spouse && plan.income.socialSecurity.spouse.pia));
-    return (hasAccounts || hasIncome) ? 5 : 1;
-  }
+  const uiState = {
+    get stepId(){ return stepId; },
+    get renderRevision(){ return renderRevision; },
+    get accountFormOpen(){ return state.accountFormOpen; },
+    set accountFormOpen(value){ state.accountFormOpen = value === true; },
+    get accountDraft(){ return state.accountDraft; },
+    set accountDraft(value){ state.accountDraft = value; },
+    get taxView(){ return state.taxView; },
+    set taxView(value){ state.taxView = value === 'detailed' ? 'detailed' : 'simplified'; },
+    get optionalTaxItems(){ return state.optionalTaxItems; },
+    get optionalMenuOpen(){ return state.optionalMenuOpen; },
+    set optionalMenuOpen(value){ state.optionalMenuOpen = value === true; },
+  };
 
   function ensureWizard(){
     if(wizard) return wizard;
     wizard = createHouseholdWizard({
       get plan(){ return getPlan(); },
       uiState,
-      field: (path, type, extra) => renderField(path, type, extra),
-      select: (path, value, opts, kind) => hhSelect(path, value, opts, kind),
-      initial: hhInitial,
-      ageFromYear: hhAgeFromYear,
-      allAccounts: () => hhAllAccounts(getPlan()),
-      taxFactContract: () => buildHouseholdTaxFactContract(getPlan()),
-      incomeTaxSummary: () => buildCurrentIncomeTaxSummary(getPlan()),
-      accountTypes: HOUSEHOLD_WIZARD_ACCOUNT_TYPES,
       states: STATES,
+      accountTypes: HOUSEHOLD_WIZARD_ACCOUNT_TYPES,
+      taxState: () => readWizardTaxState(getPlan()),
+      taxBucketSnapshot: () => buildCurrentTaxBucketSnapshot(getPlan()),
+      incomeTaxSummary: () =>
+        buildCurrentIncomeTaxSummary(buildWizardTaxPlan(getPlan())),
     });
     return wizard;
   }
 
+  function resetTransient(){
+    state.accountFormOpen = false;
+    state.accountDraft = {
+      displayName: '',
+      typeId: '',
+      owner: 'client',
+      balance: '',
+    };
+    state.optionalMenuOpen = false;
+  }
+
   function resetForPlan(){
-    step = defaultStep();
-    accountFormOwner = null;
-    addingKey = null;
-    draftLabel = '';
-    draftAmount = '';
-    taxDetailsOpen = false;
+    stepId = 'family';
+    state.taxView = 'simplified';
+    state.optionalTaxItems.clear();
+    resetTransient();
   }
 
   function updateHouseholdControls(){
-    const sel = $('#hh-switch');
-    if(!sel) return;
-    const householdsDb = getHouseholdsDb();
-    const activeHouseholdId = getActiveHouseholdId();
-    sel.innerHTML = Object.keys(householdsDb).map(id => {
-      const household = householdsDb[id] || {};
-      const meta = household.meta || {};
+    const selector = $('#hh-switch');
+    if(!selector) return;
+    const db = getHouseholdsDb();
+    const activeId = getActiveHouseholdId();
+    selector.innerHTML = Object.keys(db).map(id => {
+      const meta = db[id]?.meta || {};
       const name = meta.name || meta.primaryName || 'Household';
-      return `<option value="${escHtml(id)}" ${id===activeHouseholdId?'selected':''}>${escHtml(name)}</option>`;
+      return `<option value="${escHtml(id)}" ${id === activeId ? 'selected' : ''}>${escHtml(name)}</option>`;
     }).join('');
-    sel.value = activeHouseholdId;
+    selector.value = activeId;
+  }
+
+  function updateSidebar(plan){
+    const householdName = $('#hh-rail-name');
+    if(householdName){
+      householdName.textContent = plan.meta?.name
+        || (plan.meta?.primaryName ? `${plan.meta.primaryName} household` : 'New household');
+    }
+    const progress = $('#hh-progress-copy');
+    const index = STEP_IDS.indexOf(stepId);
+    if(progress) progress.textContent = `Step ${index + 1} of ${STEP_IDS.length}`;
+    const progressPercent = $('#hh-progress-percent');
+    if(progressPercent){
+      progressPercent.textContent = `${Math.round(((index + 1) / STEP_IDS.length) * 100)}%`;
+    }
+    const bar = $('#hh-progress-bar');
+    if(bar) bar.style.width = `${((index + 1) / STEP_IDS.length) * 100}%`;
+    const accountSummary = $('#hh-nav-summary-net-worth');
+    if(accountSummary){
+      const count = plan.portfolio?.extraAccounts?.length || 0;
+      accountSummary.textContent = `${count} ${count === 1 ? 'account' : 'accounts'}`;
+    }
   }
 
   function sync(){
     const view = $('#hh-view');
-    if(!view) return;
+    const root = document.querySelector('[data-hh-wizard-root]');
+    if(!view || !root) return;
     if(isStorageBlocked()){
       renderBlockedRecoverySurfaces();
       return;
     }
+    root.dataset.wizardReady = 'false';
+    root.setAttribute('aria-busy', 'true');
     const plan = getPlan();
-    const name = $('#hh-rail-name');
-    if(name){
-      const primaryName = plan.meta.primaryName || 'Client';
-      const spouseName = plan.meta.spouseName || 'Co-Client';
-      name.textContent = plan.household.spouse ? `${primaryName} & ${spouseName}` : primaryName;
-    }
-    if($('#hh-avatar-c')) $('#hh-avatar-c').textContent = hhInitial(plan.meta.primaryName, 'C');
-    if($('#hh-avatar-s')) $('#hh-avatar-s').textContent =
-      (!plan.meta.spouseName || plan.meta.spouseName === 'Co-Client') ? 'CC' : hhInitial(plan.meta.spouseName, 'CC');
     const householdWizard = ensureWizard();
-    const renderStep = householdWizard.steps[step] || householdWizard.steps[1];
-    view.innerHTML = `<div class="hh-wstep${step === 5 ? ' hh-wstep--bp' : ''}">${renderStep()}</div>`;
+    view.innerHTML = householdWizard.render(stepId);
     const footer = $('#hh-wiz-footer');
-    if(footer) footer.innerHTML = householdWizard.footer(step);
-    const wizardRoot = document.querySelector('.hh-wizard');
-    if(wizardRoot){
-      wizardRoot.dataset.wizardRev = '7';
-      wizardRoot.dataset.wizardStep = String(step);
+    if(footer) footer.innerHTML = householdWizard.footer(stepId);
+
+    for(const step of HOUSEHOLD_WIZARD_STEPS){
+      const button = document.querySelector(`[data-hh-wizard-nav="${step.id}"]`);
+      if(!button) continue;
+      const active = step.id === stepId;
+      const done = STEP_IDS.indexOf(step.id) < STEP_IDS.indexOf(stepId);
+      button.classList.toggle('is-current', active);
+      button.classList.toggle('is-done', done);
+      button.setAttribute('aria-selected', active ? 'true' : 'false');
+      button.setAttribute('aria-current', active ? 'step' : 'false');
     }
-    for(let i = 1; i <= 5; i++){
-      const element = $('#hh-step-' + i);
-      if(!element) continue;
-      const number = element.querySelector('.hh-step__num');
-      element.classList.toggle('is-current', i === step);
-      element.classList.toggle('is-done', i < step);
-      if(number) number.textContent = i < step ? '✓' : String(i);
-      element.setAttribute('aria-selected', i === step ? 'true' : 'false');
-    }
-    document.querySelectorAll('.hh-stepper .hh-step__conn').forEach((connector, index) =>
-      connector.classList.toggle('is-done', index < step - 1));
+    updateSidebar(plan);
+    renderRevision += 1;
+    root.dataset.wizardStep = stepId;
+    root.dataset.renderRevision = String(renderRevision);
+    root.dataset.householdId = getActiveHouseholdId() || '';
+    root.dataset.wizardReady = 'true';
+    root.setAttribute('aria-busy', 'false');
     syncRecoveryControls();
   }
 
+  function setStep(nextStepId){
+    if(!STEP_IDS.includes(nextStepId)) return false;
+    stepId = nextStepId;
+    resetTransient();
+    sync();
+    return true;
+  }
+
+  function navigate(direction){
+    const index = STEP_IDS.indexOf(stepId);
+    if(direction === 'back') return setStep(STEP_IDS[Math.max(0, index - 1)]);
+    if(direction !== 'next') return false;
+    if(index >= STEP_IDS.length - 1){
+      const scenarios = document.querySelector('.htab[data-page="scenarios"]');
+      if(scenarios) scenarios.click();
+      return true;
+    }
+    return setStep(STEP_IDS[index + 1]);
+  }
+
+  function canAdvanceTax(){
+    return readWizardTaxState(getPlan()).completionConfirmed;
+  }
+
   function bindRail(){
-    document.querySelectorAll('.hh-stepper .hh-step').forEach(button =>
-      button.addEventListener('click', () => {
-        step = +button.dataset.step || 1;
-        addingKey = null;
-        accountFormOwner = null;
-        sync();
-      }));
+    document.querySelectorAll('[data-hh-wizard-nav]').forEach(button =>
+      button.addEventListener('click', () => setStep(button.dataset.hhWizardNav)));
     const menuButton = $('#hh-menu-btn');
     const menu = $('#hh-menu-pop');
     if(menuButton && menu){
@@ -168,18 +216,20 @@ export function createHouseholdWizardController({
       });
     }
     const switcher = $('#hh-switch');
-    const newButton = $('#hh-new');
-    const loadDemoButton = $('#hh-load-demo');
     if(switcher) switcher.addEventListener('change', event => onSwitchHousehold(event.target.value));
+    const newButton = $('#hh-new');
     if(newButton) newButton.addEventListener('click', () => onNewHousehold());
-    if(loadDemoButton) loadDemoButton.addEventListener('click', () => onLoadDemoHousehold());
-    step = defaultStep();
+    const demoButton = $('#hh-load-demo');
+    if(demoButton) demoButton.addEventListener('click', () => onLoadDemoHousehold());
     updateHouseholdControls();
   }
 
   return {
     uiState,
+    canAdvanceTax,
+    navigate,
     resetForPlan,
+    setStep,
     sync,
     updateHouseholdControls,
     bindRail,
