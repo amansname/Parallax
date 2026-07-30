@@ -53,9 +53,9 @@ test('supplied line3a on full spine runs capital gains stacking (1040 line-for-l
 
   assert.strictEqual(result.form1040.line3a.value, 500);
   assert.strictEqual(result.form1040.line3b.value, 500);
-  assert.strictEqual(result.form1040.line15.value, 34750);
-  assert.strictEqual(result.form1040.line16.value, 3862);
-  assert.strictEqual(result.totalFederalTax, 3862);
+  assert.strictEqual(result.form1040.line15.value, 34400);
+  assert.strictEqual(result.form1040.line16.value, 3820);
+  assert.strictEqual(result.totalFederalTax, 3820);
   assert.deepStrictEqual(audits.map(a => a.ruleId), [
     'FED_STANDARD_DEDUCTION',
     'FED_ORDINARY_INCOME_TAX',
@@ -72,9 +72,9 @@ test('supplied line7a on full spine runs capital gains stacking (1040 line-for-l
   const { result, audits } = composeAnnualFederalTax(input, ctx());
 
   assert.strictEqual(result.form1040.line7a.value, 1000);
-  assert.strictEqual(result.form1040.line15.value, 35250);
-  assert.strictEqual(result.form1040.line16.value, 3862);
-  assert.strictEqual(result.totalFederalTax, 3862);
+  assert.strictEqual(result.form1040.line15.value, 34900);
+  assert.strictEqual(result.form1040.line16.value, 3820);
+  assert.strictEqual(result.totalFederalTax, 3820);
   assert.deepStrictEqual(audits.map(a => a.ruleId), [
     'FED_STANDARD_DEDUCTION',
     'FED_ORDINARY_INCOME_TAX',
@@ -133,8 +133,8 @@ test('SS and IRA wire through spine and change line15 and total tax', () => {
   assert.strictEqual(result.form1040.line16.value, 564.50);
   assert.strictEqual(result.totalFederalTax, 564.50);
   assert.deepStrictEqual(audits.map(a => a.ruleId), [
-    'FED_TAXABLE_SOCIAL_SECURITY',
     'FED_TRADITIONAL_IRA_DEDUCTIBILITY',
+    'FED_TAXABLE_SOCIAL_SECURITY',
     'FED_ORDINARY_INCOME_TAX',
   ]);
 });

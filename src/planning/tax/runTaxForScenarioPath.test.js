@@ -34,8 +34,8 @@ test('runTaxForScenarioPath returns annual1040Result keyed by row year', () => {
   }, { contextOverrides: { scenarioId: 'path_test' } });
 
   assert.strictEqual(results.length, 2);
-  assert.strictEqual(byYear[1].lines.line24.value, 4244);
-  assert.strictEqual(byYear[2].lines.line24.value, 4244);
+  assert.strictEqual(byYear[1].lines.line24.value, 4160);
+  assert.strictEqual(byYear[2].lines.line24.value, 4160);
   assert.strictEqual(results[0].year, 1);
   assert.strictEqual(results[1].year, 2);
   assert.strictEqual(results[0].annual1040Result.metadata.lawVersion, '2026_FINAL');

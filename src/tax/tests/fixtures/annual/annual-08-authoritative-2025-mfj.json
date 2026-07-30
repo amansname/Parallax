@@ -16,7 +16,8 @@
     {
       "taxpayer": "spouse",
       "netEarningsFromSelfEmployment": 6717,
-      "socialSecurityWagesAndTips": 6717
+      "socialSecurityWagesAndTips": 6717,
+      "socialSecurityWagesAndTipsIsScheduleSELine8d": true
     }
   ],
   "schedule2": {

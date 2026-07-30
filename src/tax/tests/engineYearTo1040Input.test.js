@@ -81,6 +81,7 @@ test('engineYearTo1040Input builds Social Security worksheet facts from mapped t
       taxablePensions: 18000,
     },
     adjustments: { total: 3000 },
+    socialSecurityWorksheet: { adjustments: 3000 },
   });
 
   assert.deepStrictEqual(intake.socialSecurity, {
@@ -91,6 +92,32 @@ test('engineYearTo1040Input builds Social Security worksheet facts from mapped t
     adjustments: 3000,
     livedWithSpouse: false,
   });
+});
+
+test('engine-year Social Security never substitutes the full line-10 total for worksheet adjustments', () => {
+  assert.throws(
+    () => engineYearTo1040Input({
+      filingStatus: 'single',
+      income: {
+        wages: 50000,
+        socialSecurityBenefits: 20000,
+      },
+      adjustments: { total: 3000 },
+    }),
+    /socialSecurityWorksheet\.adjustments/
+  );
+
+  const intake = engineYearTo1040Input({
+    filingStatus: 'single',
+    income: {
+      wages: 50000,
+      socialSecurityBenefits: 20000,
+    },
+    adjustments: { total: 3000 },
+    socialSecurityWorksheet: { adjustments: 1000 },
+  });
+  assert.strictEqual(intake.socialSecurity.adjustments, 1000);
+  assert.strictEqual(intake.adjustments.total, 3000);
 });
 
 test('engineYearTo1040Input requires the MFS lived-with-spouse worksheet fact', () => {
@@ -241,7 +268,7 @@ test('runEngineYearTax matches direct intake for wages-only MFJ standard deducti
     viaAdapter.annual1040Result.lines.line24.value,
     direct.annual1040Result.lines.line24.value
   );
-  assert.strictEqual(viaAdapter.annual1040Result.lines.line24.value, 10124);
+  assert.strictEqual(viaAdapter.annual1040Result.lines.line24.value, 10040);
 });
 
 test('runEngineYearTax pipeline matches annual-04 retiree fixture via row mapping', () => {
@@ -265,8 +292,8 @@ test('runEngineYearTax pipeline matches annual-04 retiree fixture via row mappin
 
   const { annual1040Result } = runEngineYearTax(facts, context);
   assert.strictEqual(annual1040Result.lines.line11.value, 71000);
-  assert.strictEqual(annual1040Result.lines.line15.value, 39500);
-  assert.strictEqual(annual1040Result.lines.line24.value, 4244);
+  assert.strictEqual(annual1040Result.lines.line15.value, 38800);
+  assert.strictEqual(annual1040Result.lines.line24.value, 4160);
 });
 
 test('planner row Social Security reaches calculated Form 1040 line 6b', () => {

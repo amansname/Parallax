@@ -40,6 +40,10 @@ export const TRIGGER_TAGS = [
   'social_security_taxation',
   'provisional_income',
   'standard_deduction',
+  'enhanced_senior_deduction',
+  'itemized_deduction',
+  'medical_expense_deduction',
+  'salt_deduction',
   'self_employment_tax',
 ];
 
@@ -49,10 +53,16 @@ export const SELF_EMPLOYMENT_TAX = {
     socialSecurityRate: 0.124,
     medicareRate: 0.029,
   },
+  '2026_FINAL': {
+    socialSecurityWageBase: 184500,
+    socialSecurityRate: 0.124,
+    medicareRate: 0.029,
+  },
 };
 
 export const SELF_EMPLOYMENT_TAX_SOURCE = {
   '2025_FINAL': 'IRS_2025_SCHEDULE_SE_v1.0',
+  '2026_FINAL': 'IRS_2026_PUBLICATION_505_SCHEDULE_SE_v1.0',
 };
 
 // Ordinary-income brackets. Each entry: { rate, upTo } where `upTo` is the
@@ -167,6 +177,11 @@ export const CAPITAL_GAINS_THRESHOLDS_SOURCE = {
   '2026_FINAL': 'IRS_2026_CAPITAL_GAINS_RATES_v1.0',
 };
 
+export const SCHEDULE_D_CLASSIFICATION_SOURCE = {
+  '2025_FINAL': 'IRS_2025_SCHEDULE_D_v1.0',
+  '2026_FINAL': 'IRC_SIMPLE_SCHEDULE_D_2026_v1.0',
+};
+
 export const TRADITIONAL_IRA_LIMITS = {
   '2025_FINAL': {
     baseContributionLimit: 7000,
@@ -227,8 +242,8 @@ export const SOCIAL_SECURITY_TAXATION_THRESHOLDS = {
 };
 
 export const SOCIAL_SECURITY_TAXATION_SOURCE = {
-  '2025_FINAL': 'IRC_86_SOCIAL_SECURITY_TAXATION_v1.0',
-  '2026_FINAL': 'IRC_86_SOCIAL_SECURITY_TAXATION_v1.0',
+  '2025_FINAL': 'IRS_2025_PUBLICATION_915_SOCIAL_SECURITY_v1.0',
+  '2026_FINAL': 'IRS_2026_PUBLICATION_505_SOCIAL_SECURITY_v1.0',
 };
 
 export const STANDARD_DEDUCTION = {
@@ -239,14 +254,120 @@ export const STANDARD_DEDUCTION = {
     marriedFilingSeparately: 15750,
   },
   '2026_FINAL': {
-    single: 15750,
-    marriedFilingJointly: 31500,
-    headOfHousehold: 23625,
-    marriedFilingSeparately: 15750,
+    single: 16100,
+    marriedFilingJointly: 32200,
+    headOfHousehold: 24150,
+    marriedFilingSeparately: 16100,
   },
 };
 
 export const STANDARD_DEDUCTION_SOURCE = {
-  '2025_FINAL': 'IRS_2025_STANDARD_DEDUCTION_v1.0',
-  '2026_FINAL': 'IRS_2026_STANDARD_DEDUCTION_v1.0',
+  '2025_FINAL': 'IRS_2025_FORM_1040_STANDARD_DEDUCTION_v2.0',
+  '2026_FINAL': 'IRS_2026_PUBLICATION_505_STANDARD_DEDUCTION_v1.0',
+};
+
+export const STANDARD_DEDUCTION_AGE_BLIND = {
+  '2025_FINAL': {
+    unmarriedPerCheck: 2000,
+    marriedPerCheck: 1600,
+  },
+  '2026_FINAL': {
+    unmarriedPerCheck: 2050,
+    marriedPerCheck: 1650,
+  },
+};
+
+export const ENHANCED_SENIOR_DEDUCTION = {
+  '2025_FINAL': {
+    amountPerEligiblePerson: 6000,
+    phaseoutRate: 0.06,
+    phaseoutStart: {
+      single: 75000,
+      headOfHousehold: 75000,
+      marriedFilingJointly: 150000,
+    },
+  },
+  '2026_FINAL': {
+    amountPerEligiblePerson: 6000,
+    phaseoutRate: 0.06,
+    phaseoutStart: {
+      single: 75000,
+      headOfHousehold: 75000,
+      marriedFilingJointly: 150000,
+    },
+  },
+};
+
+export const ENHANCED_SENIOR_DEDUCTION_SOURCES = {
+  '2025_FINAL': [
+    'IRS_2025_SCHEDULE_1A_SENIOR_v1.0',
+    'PUBLIC_LAW_119_21_SECTION_70103_2025_v1.0',
+  ],
+  '2026_FINAL': [
+    'IRS_2026_PUBLICATION_505_SENIOR_v1.0',
+    'PUBLIC_LAW_119_21_SECTION_70103_2026_v1.0',
+  ],
+};
+
+export const MEDICAL_EXPENSE_DEDUCTION = {
+  '2025_FINAL': { adjustedGrossIncomeFloorRate: 0.075 },
+  '2026_FINAL': { adjustedGrossIncomeFloorRate: 0.075 },
+};
+
+export const MEDICAL_EXPENSE_DEDUCTION_SOURCE = {
+  '2025_FINAL': 'IRS_2025_SCHEDULE_A_MEDICAL_v1.0',
+  '2026_FINAL': 'IRS_2026_SCHEDULE_A_MEDICAL_v1.0',
+};
+
+export const SALT_DEDUCTION = {
+  '2025_FINAL': {
+    fullCap: 40000,
+    fullFloor: 10000,
+    phaseoutRate: 0.30,
+    phaseoutStart: {
+      default: 500000,
+      marriedFilingSeparately: 250000,
+    },
+  },
+  '2026_FINAL': {
+    fullCap: 40400,
+    fullFloor: 10000,
+    phaseoutRate: 0.30,
+    phaseoutStart: {
+      default: 505000,
+      marriedFilingSeparately: 252500,
+    },
+  },
+};
+
+export const SALT_DEDUCTION_SOURCES = {
+  '2025_FINAL': [
+    'IRS_2025_SCHEDULE_A_SALT_v1.0',
+    'PUBLIC_LAW_119_21_SECTION_70120_2025_v1.0',
+  ],
+  '2026_FINAL': [
+    'IRS_2026_PUBLICATION_505_SALT_v1.0',
+    'PUBLIC_LAW_119_21_SECTION_70120_2026_v1.0',
+  ],
+};
+
+export const ITEMIZED_DEDUCTION_LIMIT = {
+  '2025_FINAL': null,
+  '2026_FINAL': {
+    // IRC section 68 uses the exact fraction; Publication 505 rounds it to
+    // 5.4% only for its estimated-tax worksheet.
+    reductionNumerator: 2,
+    reductionDenominator: 37,
+    threshold: {
+      single: 640600,
+      headOfHousehold: 640600,
+      marriedFilingJointly: 768700,
+      marriedFilingSeparately: 384350,
+    },
+  },
+};
+
+export const ITEMIZED_DEDUCTION_SOURCE = {
+  '2025_FINAL': 'IRS_2025_SCHEDULE_A_ITEMIZED_v1.0',
+  '2026_FINAL': 'IRC_68_2026_ITEMIZED_LIMIT_v1.0',
 };

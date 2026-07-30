@@ -12,13 +12,20 @@ import { TaxDataError, TaxInputError } from '../../core/errors.js';
 
 export const meta = {
   ruleId: 'FED_CAPITAL_GAINS_STACKING',
-  ruleVersion: '1.0.0',
-  taxYear: 2026,
-  lawVersion: '2026_FINAL',
+  ruleVersion: '1.0.1',
+  supportedTaxYears: [2025, 2026],
+  supportedLawVersions: ['2025_FINAL', '2026_FINAL'],
   jurisdiction: 'federal',
   category: 'capital_gains_tax',
-  authority: ['IRC section 1(h)', 'IRS Rev. Proc. 2025-32'],
-  dataSourcesRequired: ['IRS_2026_CAPITAL_GAINS_RATES_v1.0'],
+  authority: [
+    'IRC section 1(h)',
+    'IRS Revenue Procedure 2024-40',
+    'IRS Revenue Procedure 2025-32',
+  ],
+  dataSourcesRequired: [
+    'IRS_2025_CAPITAL_GAINS_RATES_v1.0',
+    'IRS_2026_CAPITAL_GAINS_RATES_v1.0',
+  ],
   inputsRequired: ['filingStatus', 'ordinaryTaxableIncome', 'netLongTermCapitalGains', 'qualifiedDividends'],
   outputs: ['preferentialIncomeTax', 'marginalPreferentialRate', 'effectivePreferentialRate', 'rateBreakdown'],
   limitations: [
@@ -63,7 +70,7 @@ function resolveThresholds(context, filingStatus){
       dataSourceLawVersion: dataSource.lawVersion,
     });
   }
-  return { thresholds, dataSourceId };
+  return { thresholds, dataSourceId, dataSource };
 }
 
 function addRateBand(bands, calculationSteps, rate, income){
@@ -85,7 +92,11 @@ export function calculate(input, context){
     netLongTermCapitalGains,
     qualifiedDividends,
   } = input;
-  const { thresholds, dataSourceId } = resolveThresholds(context, filingStatus);
+  const {
+    thresholds,
+    dataSourceId,
+    dataSource,
+  } = resolveThresholds(context, filingStatus);
 
   const preferentialIncome = round2(netLongTermCapitalGains + qualifiedDividends);
   const rateBreakdown = [];
@@ -138,7 +149,7 @@ export function calculate(input, context){
     inputsUsed: { filingStatus, ordinaryTaxableIncome, netLongTermCapitalGains, qualifiedDividends },
     dataSourcesUsed: [dataSourceId],
     calculationSteps,
-    authority: meta.authority,
+    authority: [dataSource.authority],
     limitations: meta.limitations,
   };
 

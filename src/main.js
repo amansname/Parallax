@@ -9,8 +9,11 @@ import { CHART_LAYOUT } from '../ui/chartLayout.js';
 import { createDemoHousehold, createBlankHousehold } from '../ui/householdFactories.js';
 import { resolveTypeFromLabel } from './household/accountTypes.js';
 import { createAccount } from './household/createAccount.js';
+import { createIncomeSource } from './household/incomeTaxModel.js';
 import { bindHouseholdEditor } from './household/commit.js';
-import { createHouseholdWizardController, HOUSEHOLD_WIZARD_ACCOUNT_TYPES } from './household/wizard.js';
+import { createHouseholdWizardController } from './household/wizard.js';
+import { createHouseholdWizardCommitBoundary } from './household/wizardEdits.js';
+import { invalidateWizardTaxCompletion } from './household/wizardIntake.js';
 import {
   ACTIVE_KEY,
   HHDB_KEY,
@@ -18,6 +21,7 @@ import {
   commitPreparedHouseholdStore,
   getBlockedMessage,
   getReadOnlyMessage,
+  prepareHouseholdRecordForSave,
   prepareHouseholdStore,
   readHouseholdStore,
 } from './household/persistence.js';
@@ -136,6 +140,8 @@ function syncRecoveryControls(){
   if(!locked) return;
   const selectors = [
     '#save-btn','#hh-new','#scn-solve','#hh-view input','#hh-view select','#hh-view textarea','#hh-view .row-x','#hh-view [data-add]',
+    '#hh-view [data-hh-action="add-account"]','#hh-view [data-hh-action="save-account"]','#hh-view [data-hh-action="remove-account"]',
+    '#hh-view [data-hh-action="override-income-group"]','#hh-view [data-hh-action="revert-income-group"]','#hh-view [data-hh-action="remove-tax-item"]',
     '#hh-view [data-hh-action="add-spouse"]','#hh-view [data-hh-action="remove-spouse"]','#hh-view [data-hh-action="save-account"]',
     '#hh-view [data-hh-action="open-account-form"]','#hh-view [data-hh-action="open-add"]','#hh-view [data-hh-action="commit-add"]','#hh-view [data-hh-action="add-home"]','#hh-view [data-hh-action="add-mortgage"]',
     '#hh-view [data-hh-action="add-pension-age"]','#np-content input','#np-content select','#np-content textarea','#np-content button',
@@ -155,15 +161,34 @@ function persistHouseholdsDb(){
   try{ localStorage.setItem(HHDB_KEY, JSON.stringify(householdsDb)); return true; }catch(e){ return false; }
 }
 function persistActiveId(){
-  if(!guardPlanMutation()) return;
-  try{ localStorage.setItem(ACTIVE_KEY, activeHouseholdId); }catch(e){}
+  if(!guardPlanMutation()) return false;
+  try{
+    localStorage.setItem(ACTIVE_KEY, activeHouseholdId);
+    return true;
+  }catch(e){
+    return false;
+  }
 }
 function saveActiveHousehold(){
   if(!guardPlanMutation()) return false;
   if(activeHouseholdId && plan && plan.meta){
-    householdsDb[activeHouseholdId] = JSON.parse(JSON.stringify(plan));
-    return persistHouseholdsDb();
+    try{
+      householdsDb[activeHouseholdId] = prepareHouseholdRecordForSave(
+        plan,
+        activeHouseholdId,
+      );
+    }catch(error){
+      console.error('Household save validation failed:', error);
+      return false;
+    }
+    return persistHouseholdsDb() && persistActiveId();
   }
+  return false;
+}
+function canChangeActiveHousehold(){
+  if(!planSaveDirty) return true;
+  syncHeaderStatus('Save the current household before switching');
+  syncSaveBtn();
   return false;
 }
 function ensureDemoRecord(){
@@ -1057,7 +1082,6 @@ taxBuckets.bind($('#tax-buckets-view'));
 // Ownership is a UI label; data keys stay 'spouse' etc. Visible label is Co-Client.
 const householdWizardController = createHouseholdWizardController({
   getPlan: () => plan,
-  renderField: (path, type, extra) => renderField(Object.assign({ path, type }, extra || {})),
   getHouseholdsDb: () => householdsDb,
   getActiveHouseholdId: () => activeHouseholdId,
   isStorageBlocked: isHouseholdStorageBlocked,
@@ -1068,8 +1092,19 @@ const householdWizardController = createHouseholdWizardController({
   onLoadDemoHousehold: loadDemoHousehold,
 });
 const hhUiState = householdWizardController.uiState;
-/* Wizard step state: 1 People & Timeline · 2 Balance Sheet · 3 Cash Flow ·
-   4 Blueprint. A filled household lands on Blueprint; a blank one starts at 1. */
+const householdWizardCommitBoundary = createHouseholdWizardCommitBoundary({
+  getPlan: () => plan,
+  replacePlan: next => hydratePlan(next),
+  afterCommit(){
+    reseedScenarios();
+    uiState.sharedPaths = null;
+    uiState.plansDirty = true;
+    renderInputs();
+    syncHousehold();
+    syncHeaderStatus('Plan edited · save when ready');
+  },
+});
+/* Wizard state: Family · Net Worth · Tax · Summary. */
 
 
 /* ── Household lifecycle helpers ───────────────────────────────────────────
@@ -1105,30 +1140,33 @@ function loadDemoHousehold(){
   }
   switchHousehold('demo');
 }
-// Create a brand-new blank household, persist it, and make it active with its
-// own fresh scenario set.
+// Create a brand-new blank household in memory. Manual Save is the durable
+// boundary for the new record.
 function newHousehold(){
   if(!guardPlanMutation()) return;
-  saveActiveHousehold();                 // snapshot the outgoing household first
+  if(!canChangeActiveHousehold()) return;
   saveScenarios();                       // …and persist its scoped scenarios
   const blank = createBlankHousehold(PRISTINE_PLAN, newHouseholdId(), new Date().getFullYear());
   householdsDb[blank.meta.householdId] = blank;
   activeHouseholdId = blank.meta.householdId;
-  persistHouseholdsDb(); persistActiveId();
   hydratePlan(blank);
   uiState.scenarios = demoScenarios();
   uiState.baseSnapshot = defaultLevers();
-  saveScenarios();
   hhLoadRecord('New household created');
+  planSaveDirty = true;
+  syncSaveBtn();
+  syncHeaderStatus('New household created · save when ready');
 }
-// Switch to another saved household by id (persists the outgoing one first, and
-// loads the incoming household's own scoped scenarios).
+// Switch to another saved household only when the current record is saved.
 function switchHousehold(id){
   if(isHouseholdStorageBlocked()){ guardPlanMutation(); return; }
   if(!householdsDb[id] || id === activeHouseholdId) return;
+  if(!canChangeActiveHousehold()){
+    householdWizardController.updateHouseholdControls();
+    return;
+  }
   const readOnly = isHouseholdStorageReadOnly();
   if(!readOnly){
-    saveActiveHousehold();
     saveScenarios();                     // persist the outgoing household's scenarios
   }
   activeHouseholdId = id;
@@ -1294,7 +1332,7 @@ function renderField(f, klass){
    row's defaults. (Goals share one array; recurring vs one-time is decided by
    the window: a one-time goal is a single-year window, startAge===endAge.) */
 const ROW_KINDS = {
-  income:    { arr:'income.other',   mk:()=>({ label:'', amount:0, startAge:plan.household.primary.currentAge, endAge:plan.household.primary.retirementAge, realGrowth:0, taxablePct:1 }) },
+  income:    { arr:'income.other',   mk:()=>({ ...createIncomeSource(plan, 'wages', 'client'), label:'' }) },
   expense:   { arr:'expenses.extra', mk:()=>({ label:'', amount:0, startAge:65, endAge:80 }) },
   liability: { arr:'liabilities',    mk:()=>({ label:'', amount:0, startAge:65, endAge:75, colaPct:0 }) },
   goalRec:   { arr:'goals',          mk:()=>({ name:'',  amount:0, startAge:plan.household.primary.retirementAge, endAge:plan.household.primary.planEndAge }) },
@@ -1341,11 +1379,8 @@ function flowSection(arr, nameKey, ph, kind, addLabel){
   return h;
 }
 
-/* The old Balance-Sheet statement / Map editor (renderHouseholdStatement) was
-   retired, and the two-chapter console (Net Worth equilibrium / Cash Flow)
-   after it. Household is now the 5-step setup wizard (renderWizHousehold /
-   renderWizAccounts / renderWizIncome / renderWizRetirement / renderWizBlueprint),
-   rendered by syncHousehold() and backed by the #hh-view delegated handlers. */
+/* The old Balance-Sheet statement / Map editor and five-step setup wizard were
+   retired. The Household page now renders the four-step production intake. */
 
 /* ── Hybrid layout (Inflows / Outflows / Goals) ───────────────────
    200px gutter (title + description + running total) + two facing columns
@@ -1583,6 +1618,9 @@ $('#np-content').addEventListener('click', e => {
     // Array rows splice (no holes); object keys delete.
     if(Array.isArray(t)) t.splice(+last, 1);
     else if(t!=null) delete t[last];
+    if(path === 'income.other' || path.startsWith('income.other.')){
+      invalidateWizardTaxCompletion(plan);
+    }
     reseedScenarios(); 
   uiState.sharedPaths = null; uiState.plansDirty = true;
     renderInputs();
@@ -1599,6 +1637,7 @@ $('#np-content').addEventListener('click', e => {
       const arr = getPath(plan, k.arr);
       if(Array.isArray(arr)) arr.push(k.mk());
       else setPath(plan, k.arr, [k.mk()]);
+      if(kind === 'income') invalidateWizardTaxCompletion(plan);
       commitPlanEdit();
     }
     return;
@@ -1656,6 +1695,10 @@ $('#np-content').addEventListener('change', e => {
     const raw = e.target.value;
     if(type==='text' || type==='strategy'){            // free-text row labels or select values
       setPath(plan, path, raw);
+      if(path.startsWith('income.other.')
+          || path.startsWith('income.socialSecurity.')){
+        invalidateWizardTaxCompletion(plan);
+      }
   reseedScenarios(); uiState.sharedPaths=null; uiState.plansDirty=true; renderInputs();
       syncHeaderStatus('Plan edited · open Scenarios');
       return;
@@ -1679,6 +1722,10 @@ $('#np-content').addEventListener('change', e => {
     }
     if(type==='num') v = Math.max(1, Math.round(v));
     setPath(plan, path, v);
+    if(path.startsWith('income.other.')
+        || path.startsWith('income.socialSecurity.')){
+      invalidateWizardTaxCompletion(plan);
+    }
     // A one-time goal edits a single "at age": mirror it into endAge so the
     // engine's window is exactly that year.
     if(e.target.dataset.sync) setPath(plan, e.target.dataset.sync, v);
@@ -1704,21 +1751,17 @@ $('#np-content').addEventListener('change', e => {
 
 /* Household field commits and wizard actions are bound in src/household/commit.js. */
 bindHouseholdEditor({
-  root: $('#hh-view'),
-  wizardRoot: document.querySelector('.page[data-page="household"] .hh-wizard'),
-  getPlan: () => plan,
+  root: document.querySelector('[data-hh-wizard-root]'),
+  wizardRoot: document.querySelector('[data-hh-wizard-root]'),
   transientState: hhUiState,
-  accountTypes: HOUSEHOLD_WIZARD_ACCOUNT_TYPES,
-  rowKinds: ROW_KINDS,
   guardPlanMutation,
-  reseedScenarios,
-  appState: uiState,
+  commitWizardEdit: command => householdWizardCommitBoundary.commit(command),
+  preflightWizardEdit: command => householdWizardCommitBoundary.preflight(command),
   syncHousehold,
+  navigateWizard: direction => householdWizardController.navigate(direction),
+  canAdvanceTax: () => householdWizardController.canAdvanceTax(),
   syncHeaderStatus,
   liveCommas,
-  getPath,
-  setPath,
-  ageFromYear: hhAgeFromYear,
 });
 
 // Pension slider range is PER-HOUSEHOLD: it spans only the ages the advisor has

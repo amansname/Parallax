@@ -12,13 +12,16 @@ import { TaxDataError, TaxInputError } from '../../core/errors.js';
 
 export const meta = {
   ruleId: 'FED_TAXABLE_SOCIAL_SECURITY',
-  ruleVersion: '1.0.0',
-  taxYear: 2026,
-  lawVersion: '2026_FINAL',
+  ruleVersion: '1.2.0',
+  supportedTaxYears: [2025, 2026],
+  supportedLawVersions: ['2025_FINAL', '2026_FINAL'],
   jurisdiction: 'federal',
   category: 'social_security_taxation',
-  authority: ['IRC section 86', 'IRS Publication 915'],
-  dataSourcesRequired: ['IRC_86_SOCIAL_SECURITY_TAXATION_v1.0'],
+  authority: ['IRC section 86', 'IRS Publication 915', 'IRS Publication 505 (2026)'],
+  dataSourcesRequired: [
+    'IRS_2025_PUBLICATION_915_SOCIAL_SECURITY_v1.0',
+    'IRS_2026_PUBLICATION_505_SOCIAL_SECURITY_v1.0',
+  ],
   inputsRequired: [
     'filingStatus', 'socialSecurityBenefits', 'otherIncome', 'taxExemptInterest',
     'excludedIncomeAddBacks', 'adjustments', 'livedWithSpouse',
@@ -27,6 +30,8 @@ export const meta = {
   limitations: [
     'Does not calculate ordinary income tax',
     'Does not solve circular interactions with Traditional IRA deductions',
+    'adjustments must contain only the Publication 915/505 worksheet-eligible Schedule 1 subtotal; the composer adds any engine-calculated half-SE-tax deduction exactly once',
+    'For MFS, livedWithSpouse means lived with the spouse at any time during the tax year; false means lived apart for the entire year',
   ],
   triggerTags: ['social_security_taxation', 'provisional_income', 'agi_threshold'],
 };
@@ -38,7 +43,9 @@ export function validate(input){
   validateAgainstSchema(input, TAXABLE_SOCIAL_SECURITY_INPUT_SCHEMA, 'taxableSocialSecurity input');
   assertOneOf(input.filingStatus, FILING_STATUSES, 'filingStatus', 'taxableSocialSecurity input');
   assertNonNegativeNumber(input.socialSecurityBenefits, 'socialSecurityBenefits', 'taxableSocialSecurity input');
-  assertNonNegativeNumber(input.otherIncome, 'otherIncome', 'taxableSocialSecurity input');
+  // Pub. 915's worksheet aggregate can be negative because it includes signed
+  // Schedule D, business, rental, and other income/loss items. The shared
+  // schema still requires a finite number.
   assertNonNegativeNumber(input.taxExemptInterest, 'taxExemptInterest', 'taxableSocialSecurity input');
   assertNonNegativeNumber(input.excludedIncomeAddBacks, 'excludedIncomeAddBacks', 'taxableSocialSecurity input');
   assertNonNegativeNumber(input.adjustments, 'adjustments', 'taxableSocialSecurity input');

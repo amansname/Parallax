@@ -94,6 +94,18 @@ function buildSocialSecurityWorksheetInput(engineYearFacts, income){
       { field: 'socialSecurityWorksheet.livedWithSpouse' }
     );
   }
+  const suppliedLine10 = engineYearFacts.adjustments?.total
+    ?? engineYearFacts.adjustments?.line10;
+  if(supplemental.adjustments === undefined
+      && suppliedLine10 !== undefined){
+    throw new TaxInputError(
+      'socialSecurityWorksheet.adjustments must supply the Publication 915/505 worksheet-eligible subtotal; Form 1040 line 10 cannot be reused because it may contain excluded adjustments',
+      {
+        field: 'socialSecurityWorksheet.adjustments',
+        suppliedLine10,
+      }
+    );
+  }
 
   // Planner rows do not currently expose tax-exempt interest or excluded-income
   // add-backs. Keep those limitations explicit as zero unless facts are supplied.
@@ -102,10 +114,7 @@ function buildSocialSecurityWorksheetInput(engineYearFacts, income){
     otherIncome: sumSocialSecurityWorksheetOtherIncome(income),
     taxExemptInterest: supplemental.taxExemptInterest ?? 0,
     excludedIncomeAddBacks: supplemental.excludedIncomeAddBacks ?? 0,
-    adjustments: supplemental.adjustments
-      ?? engineYearFacts.adjustments?.total
-      ?? engineYearFacts.adjustments?.line10
-      ?? 0,
+    adjustments: supplemental.adjustments ?? 0,
     livedWithSpouse: supplemental.livedWithSpouse ?? false,
   };
 }

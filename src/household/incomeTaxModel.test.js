@@ -3,11 +3,13 @@ import assert from 'node:assert/strict';
 import {
   createAdjustment,
   createCredit,
+  createDeduction,
   createIncomeSource,
   createIncomeTaxInputs,
   enteredAdjustmentTotal,
   incomeSourceGroups,
   isAdjustmentActiveNow,
+  normalizedIncomeSource,
 } from './incomeTaxModel.js';
 
 function plan(overrides = {}){
@@ -63,6 +65,14 @@ test('new 401(k) adjustments persist their working-only default', () => {
   assert.equal(createAdjustment('hsa', 'joint').whileWorkingOnly, false);
 });
 
+test('every persisted wizard row factory assigns a stable identity', () => {
+  const subject = plan();
+  assert.match(createIncomeSource(subject).id, /^income_/);
+  assert.match(createAdjustment().id, /^adjustment_/);
+  assert.match(createDeduction().id, /^deduction_/);
+  assert.match(createCredit().id, /^credit_/);
+});
+
 test('current-year federal source types default to one year with honest tax character', () => {
   const subject = plan();
   const exempt = createIncomeSource(subject, 'tax_exempt_interest', 'joint');
@@ -81,9 +91,31 @@ test('current-year federal source types default to one year with honest tax char
   assert.equal(longGain.taxablePct, 0);
 });
 
+test('long-term capital gain rows preserve signed losses without opening other income types', () => {
+  const subject = plan();
+  assert.equal(normalizedIncomeSource(subject, {
+    typeId: 'long_term_capital_gain',
+    owner: 'client',
+    amount: -5000,
+  }).amount, -5000);
+  assert.equal(normalizedIncomeSource(subject, {
+    typeId: 'wages',
+    owner: 'client',
+    amount: -5000,
+  }).amount, 0);
+  assert.equal(normalizedIncomeSource(subject, {
+    typeId: 'long_term_capital_gain',
+    owner: 'client',
+    amount: 0,
+  }).amount, 0);
+});
+
 test('Premium Tax Credit is part of the persisted Income & Tax defaults', () => {
   assert.deepEqual(createIncomeTaxInputs().credits, []);
-  assert.deepEqual(createCredit(), {
+  const credit = createCredit();
+  assert.match(credit.id, /^credit_/);
+  assert.deepEqual({ ...credit, id: undefined }, {
+    id: undefined,
     typeId: 'premium_tax_credit',
     label: 'Premium Tax Credit',
     amount: 0,

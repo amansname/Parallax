@@ -15,6 +15,7 @@ export const SPINE_LINE_IDS = [
 ];
 
 export const SPINE_LINE_LABELS = {
+  line2a: 'Tax-exempt interest',
   line1z: 'Total wages and other earned income (lines 1a–1h)',
   line9: 'Total income',
   line10: 'Adjustments to income (Schedule 1, line 26)',
@@ -36,7 +37,7 @@ export const SPINE_LINE_LABELS = {
   line24: 'Total tax',
 };
 
-export const INCOME_DETAIL_LINE_IDS = ['line3a', 'line3b', 'line4a', 'line5a', 'line6a', 'line6b', 'line7a'];
+export const INCOME_DETAIL_LINE_IDS = ['line2a', 'line3a', 'line3b', 'line4a', 'line5a', 'line6a', 'line6b', 'line7a'];
 
 const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
 
@@ -79,11 +80,17 @@ export function lineAmount(line){
 export const TAX_TOTAL_SCOPE = {
   FULL_1040: 'FULL_1040',
   INCOME_TAX_ONLY: 'INCOME_TAX_ONLY',
+  NOT_CALCULABLE: 'NOT_CALCULABLE',
 };
 
 const PARTIAL_TOTAL_DEFERRED_LINES = ['line17', 'line19', 'line20', 'line23'];
 
 export function resolveTaxTotalScope(form1040){
+  if(form1040.line15?.status === LINE_STATUS.DEFERRED
+      || form1040.line16?.status === LINE_STATUS.DEFERRED
+      || form1040.line24?.status === LINE_STATUS.DEFERRED){
+    return TAX_TOTAL_SCOPE.NOT_CALCULABLE;
+  }
   const hasDeferredTaxLines = PARTIAL_TOTAL_DEFERRED_LINES.some(
     (lineId) => form1040[lineId]?.status === LINE_STATUS.DEFERRED
   );

@@ -18,12 +18,12 @@
   },
   "expected": {
     "line11a": 85000,
-    "line15": 69250,
-    "line16": 9947,
-    "line18": 10347,
+    "line15": 68900,
+    "line16": 9870,
+    "line18": 10270,
     "line21": 1750,
-    "line22": 8597,
-    "line24": 9347,
+    "line22": 8520,
+    "line24": 9270,
     "taxTotalScope": "FULL_1040"
   },
   "expectPassThrough": ["line17", "line19", "line20", "line23", "payments"],

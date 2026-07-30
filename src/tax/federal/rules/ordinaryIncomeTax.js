@@ -26,13 +26,20 @@ import { TaxDataError, TaxInputError } from '../../core/errors.js';
 
 export const meta = {
   ruleId: 'FED_ORDINARY_INCOME_TAX',
-  ruleVersion: '1.0.0',
-  taxYear: 2026,
-  lawVersion: '2026_FINAL',
+  ruleVersion: '1.0.1',
+  supportedTaxYears: [2025, 2026],
+  supportedLawVersions: ['2025_FINAL', '2026_FINAL'],
   jurisdiction: 'federal',
   category: 'ordinary_income_tax',
-  authority: ['IRC §1', 'IRS 2026 Tax Rate Schedules (Rev. Proc. 2025-32)'],
-  dataSourcesRequired: ['IRS_2026_TAX_TABLES_v1.0'],
+  authority: [
+    'IRC §1',
+    'IRS Revenue Procedure 2024-40',
+    'IRS Revenue Procedure 2025-32',
+  ],
+  dataSourcesRequired: [
+    'IRS_2025_TAX_TABLES_v1.0',
+    'IRS_2026_TAX_TABLES_v1.0',
+  ],
   inputsRequired: ['filingStatus', 'taxableOrdinaryIncome'],
   outputs: ['ordinaryTax', 'marginalRate', 'effectiveRate', 'bracketBreakdown'],
   limitations: [
@@ -139,7 +146,7 @@ export function calculate(input, context){
     inputsUsed: { filingStatus, taxableOrdinaryIncome },
     dataSourcesUsed: [dataSourceId],
     calculationSteps,
-    authority: meta.authority,
+    authority: [dataSource.authority],
     limitations: meta.limitations,
   };
 

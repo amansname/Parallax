@@ -2,11 +2,13 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { ACCOUNT_SCHEMA_VERSION } from './accountTypes.js';
 import { createBlankTaxProfiles } from './factEnvelope.js';
+import { HOUSEHOLD_RECORD_SCHEMA_VERSION } from './householdRecordSchema.js';
 import {
   ACTIVE_KEY,
   HHDB_KEY,
   commitPreparedHouseholdStore,
   createMemoryStorage,
+  prepareHouseholdRecordForSave,
   prepareHouseholdStore,
   readHouseholdStore,
 } from './persistence.js';
@@ -15,7 +17,14 @@ const pristinePlan = { meta: {}, household: { primary: { currentAge: 60, retirem
 
 function createBlankHousehold(id){
   const p = JSON.parse(JSON.stringify(pristinePlan));
-  p.meta = { householdId: id, name: 'New Household', accountSchemaVersion: ACCOUNT_SCHEMA_VERSION };
+  p.meta = {
+    householdId: id,
+    name: 'New Household',
+    accountSchemaVersion: ACCOUNT_SCHEMA_VERSION,
+    householdRecordSchemaVersion: HOUSEHOLD_RECORD_SCHEMA_VERSION,
+  };
+  p.income.other = [];
+  p.incomeTax = { adjustments: [], deductions: [], credits: [] };
   p.taxProfiles = createBlankTaxProfiles();
   return p;
 }
@@ -113,8 +122,10 @@ test('dangling active pointer resolves only after validation', () => {
 test('a valid active pointer is preserved after all households migrate', () => {
   const one = createBlankHousehold('one');
   delete one.meta.accountSchemaVersion;
+  delete one.meta.householdRecordSchemaVersion;
   const two = createBlankHousehold('two');
   delete two.meta.accountSchemaVersion;
+  delete two.meta.householdRecordSchemaVersion;
   const storage = createMemoryStorage({
     [HHDB_KEY]: JSON.stringify({ one, two }),
     [ACTIVE_KEY]: 'two',
@@ -232,6 +243,131 @@ test('commit performs no new storage reads after preparation', () => {
   assert.equal(commit.ok, true);
   assert.ok(written[HHDB_KEY]);
   assert.equal(written[ACTIVE_KEY], 'demo');
+});
+
+test('durable save preparation validates stable row identity before cloning', () => {
+  const valid = createBlankHousehold('save');
+  valid.income.other.push({
+    id: 'income_save',
+    typeId: 'wages',
+    label: 'Wages or salary',
+    owner: 'client',
+    amount: 100000,
+    startAge: 60,
+    endAge: 64,
+    realGrowth: 0,
+    taxablePct: 1,
+  });
+
+  const prepared = prepareHouseholdRecordForSave(valid, 'save');
+  assert.notEqual(prepared, valid);
+  assert.equal(prepared.income.other[0].id, 'income_save');
+
+  const invalid = structuredClone(valid);
+  delete invalid.income.other[0].id;
+  assert.throws(
+    () => prepareHouseholdRecordForSave(invalid, 'save'),
+    /income\.other\[0\]\.id is required/,
+  );
+});
+
+test('Tax completion zeros and planning source overrides survive Save and reload', () => {
+  const household = createBlankHousehold('tax-save');
+  household.incomeTax.current1040 = {
+    schemaVersion: 1,
+    taxYear: 2026,
+    incomeSourcesComplete: true,
+    planningIncomeOverrides: ['wages', 'interest'],
+    income: {
+      wages: 125000,
+      taxableInterest: 0,
+      taxExemptInterest: 0,
+    },
+    adjustments: { mode: 'supplied-line10', amount: 0 },
+    deductions: {
+      method: 'itemized',
+      source: 'supplied-line12e',
+      line12e: 0,
+      qbi: 0,
+      schedule1A: { mode: 'supplied-line13b', amount: 0 },
+    },
+    passThrough: {
+      line17: 0,
+      line19: 0,
+      line20: 0,
+      line23: 0,
+    },
+  };
+  const prepared = prepareHouseholdRecordForSave(household, 'tax-save');
+  const storage = createMemoryStorage({
+    [HHDB_KEY]: JSON.stringify({ 'tax-save': prepared }),
+    [ACTIVE_KEY]: 'tax-save',
+  });
+
+  const reloaded = prepareHouseholdStore(readHouseholdStore(storage), deps);
+  const current = reloaded.db['tax-save'].incomeTax.current1040;
+
+  assert.equal(current.incomeSourcesComplete, true);
+  assert.deepEqual(current.planningIncomeOverrides, ['wages', 'interest']);
+  assert.equal(Object.hasOwn(current.income, 'taxableInterest'), true);
+  assert.equal(Object.hasOwn(current.income, 'taxExemptInterest'), true);
+  assert.equal(current.adjustments.amount, 0);
+  assert.equal(current.deductions.line12e, 0);
+  assert.equal(current.deductions.qbi, 0);
+  assert.equal(current.deductions.schedule1A.amount, 0);
+  assert.deepEqual(current.passThrough, {
+    line17: 0,
+    line19: 0,
+    line20: 0,
+    line23: 0,
+  });
+});
+
+test('legacy duplicate-wage repair persists once and reloads byte-stably', () => {
+  const legacy = createBlankHousehold('legacy-wages');
+  delete legacy.meta.householdRecordSchemaVersion;
+  const wage = {
+    typeId: 'wages',
+    label: 'Wages or salary',
+    owner: 'client',
+    amount: 125000,
+    startAge: 60,
+    endAge: 64,
+    realGrowth: 0,
+    taxablePct: 1,
+  };
+  legacy.income.other = [structuredClone(wage), structuredClone(wage)];
+  const storage = createCountingStorage({
+    [HHDB_KEY]: JSON.stringify({ 'legacy-wages': legacy }),
+    [ACTIVE_KEY]: 'legacy-wages',
+  });
+
+  const first = prepareHouseholdStore(readHouseholdStore(storage), deps);
+  assert.equal(first.ok, true);
+  assert.equal(first.changed, true);
+  assert.equal(first.db['legacy-wages'].income.other.length, 1);
+  assert.match(first.db['legacy-wages'].income.other[0].id, /^row_legacy_/);
+  assert.deepEqual(first.db['legacy-wages'].meta.legacyRepairArchive, [{
+    version: 1,
+    code: 'LEGACY_GPC_DUPLICATE_WAGE_REMOVED',
+    householdId: 'legacy-wages',
+    keptLegacyIndex: 0,
+    removedLegacyIndex: 1,
+    row: wage,
+  }]);
+
+  const committed = commitPreparedHouseholdStore(storage, first);
+  assert.equal(committed.ok, true);
+  const persistedBytes = storage.getItem(HHDB_KEY);
+  const writesAfterFirstCommit = storage.writeCount();
+
+  const second = prepareHouseholdStore(readHouseholdStore(storage), deps);
+  assert.equal(second.ok, true);
+  assert.equal(second.changed, false);
+  assert.deepEqual(second.repairsByHousehold['legacy-wages'], []);
+  assert.equal(commitPreparedHouseholdStore(storage, second).wrote, false);
+  assert.equal(storage.writeCount(), writesAfterFirstCommit);
+  assert.equal(storage.getItem(HHDB_KEY), persistedBytes);
 });
 
 test('pointer write failure reports partial persistence without destructive rollback', () => {

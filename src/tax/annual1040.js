@@ -11,8 +11,21 @@ export { validateClient1040Intake, client1040IntakeToComposerInput };
 export { buildIntakeReport };
 export { resolveLawVersionForTaxYear, supportedTaxYears, buildTaxContext };
 export { engineYearTo1040Input, mapSimulationRowToYearFacts };
+export {
+  CLIENT_1040_INTAKE_CONTRACT_ID,
+  CLIENT_1040_INTAKE_SCHEMA_VERSION,
+  CLIENT_1040_INTAKE_CONTRACT_VERSION,
+  CLIENT_1040_SUPPORTED_TAX_YEARS,
+  CLIENT_1040_FIELD_DISPOSITIONS,
+  CLIENT_1040_ADJUSTMENT_MODES,
+  CLIENT_1040_SOCIAL_SECURITY_MODES,
+  CLIENT_1040_LIMITATIONS,
+  describeClient1040IntakeContract,
+  deriveAccountTaxTreatment,
+  validateClient1040Contract,
+} from './core/client1040IntakeContract.js';
 
-export const ANNUAL_1040_MODULE_VERSION = '1.2.0';
+export const ANNUAL_1040_MODULE_VERSION = '1.6.0';
 
 export function buildDefaultTaxContext(overrides = {}){
   return buildTaxContext(overrides);
@@ -59,9 +72,9 @@ function extractRates(audits){
 /** Stable result contract for engine integration (one year, federal 1040 spine). */
 export function buildAnnual1040Result(intake, composeResult, audits, validation, context, report){
   const form1040 = composeResult.form1040;
-  const preferential = resolvePreferentialComponents(
-    client1040IntakeToComposerInput(intake)
-  );
+  const preferential = composeResult.preferentialIncome !== undefined
+    ? { total: composeResult.preferentialIncome }
+    : resolvePreferentialComponents(client1040IntakeToComposerInput(intake));
 
   const { marginalRate, effectiveRate } = extractRates(audits);
   const line15 = form1040.line15?.value ?? null;
@@ -69,9 +82,11 @@ export function buildAnnual1040Result(intake, composeResult, audits, validation,
 
   return {
     moduleVersion: ANNUAL_1040_MODULE_VERSION,
+    contract: report.contract,
     taxYear: intake.taxYear ?? context.taxYear ?? null,
     filingStatus: intake.filingStatus,
     lines: {
+      line9: lineSnapshot(form1040, 'line9'),
       line11: lineSnapshot(form1040, 'line11a'),
       line15: lineSnapshot(form1040, 'line15'),
       line16: lineSnapshot(form1040, 'line16'),
@@ -92,6 +107,17 @@ export function buildAnnual1040Result(intake, composeResult, audits, validation,
     passThrough: report.passThrough,
     unsupportedIntentional: report.unsupportedIntentional,
     architectureLater: report.architectureLater,
+    limitations: report.limitations,
+    readiness: {
+      unresolvedTaxableIncomeLines:
+        composeResult.readiness?.unresolvedTaxableIncomeLines ?? [],
+      capitalLossCarryforward:
+        composeResult.readiness?.capitalLossCarryforward ?? {
+          status: 'NOT_EVALUATED',
+          exactAmount: null,
+          minimumAmount: null,
+        },
+    },
     warnings: report.validation.warnings,
     errors: report.validation.errors,
     audit: audits.map((entry) => ({
@@ -106,6 +132,7 @@ export function buildAnnual1040Result(intake, composeResult, audits, validation,
       lawVersion: context.lawVersion,
       engineTaxYear: context.taxYear,
       mapVersion: report.mapVersion,
+      contract: report.contract,
     },
     line24Breakdown: report.line24Breakdown,
     reconciliation: report.reconciliation,

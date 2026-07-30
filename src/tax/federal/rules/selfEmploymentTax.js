@@ -17,22 +17,34 @@ import { TaxDataError, TaxInputError } from '../../core/errors.js';
 
 export const meta = {
   ruleId: 'FED_SELF_EMPLOYMENT_TAX',
-  ruleVersion: '1.0.0',
-  taxYear: 2025,
-  lawVersion: '2025_FINAL',
+  ruleVersion: '1.1.0',
+  supportedTaxYears: [2025, 2026],
+  supportedLawVersions: ['2025_FINAL', '2026_FINAL'],
   jurisdiction: 'federal',
   category: 'self_employment_tax',
-  authority: ['IRS 2025 Schedule SE (Form 1040), Part I'],
-  dataSourcesRequired: ['IRS_2025_SCHEDULE_SE_v1.0'],
-  inputsRequired: ['netEarningsFromSelfEmployment', 'socialSecurityWagesAndTips'],
+  authority: [
+    'IRS 2025 Schedule SE (Form 1040), Part I',
+    'IRS Publication 505 (2026), Worksheet 2-3',
+  ],
+  dataSourcesRequired: [
+    'IRS_2025_SCHEDULE_SE_v1.0',
+    'IRS_2026_PUBLICATION_505_SCHEDULE_SE_v1.0',
+  ],
+  inputsRequired: [
+    'netEarningsFromSelfEmployment',
+    'socialSecurityWagesAndTips',
+    'socialSecurityWagesAndTipsIsScheduleSELine8d',
+  ],
   outputs: [
     'socialSecurityTaxableEarnings',
     'socialSecurityTax',
     'medicareTax',
     'selfEmploymentTax',
+    'deductiblePartOfSelfEmploymentTax',
   ],
   limitations: [
-    'Expects resolved Schedule SE line 6 net earnings; does not reconstruct Schedule C, Schedule F, or optional-method income',
+    'Expects resolved Schedule SE line 6 net earnings after the upstream 92.35%, line 4c $400-threshold, church-income, and optional-method rules; this rule does not reapply those steps',
+    'socialSecurityWagesAndTips must be the resolved Schedule SE line 8d aggregate, including W-2 Social Security wages/tips and applicable unreported tips, Form 8919 wages, and Tier 1 railroad compensation',
     'Calculates one person per invocation; joint returns must calculate each spouse separately and sum the results',
     'Uses whole-dollar return rounding for Schedule SE lines 10 through 12',
     'Does not calculate Additional Medicare Tax (Form 8959)',
@@ -54,6 +66,11 @@ export function validate(input){
     'socialSecurityWagesAndTips',
     'selfEmploymentTax input'
   );
+  if(input.socialSecurityWagesAndTipsIsScheduleSELine8d !== true){
+    throw new TaxInputError(
+      'selfEmploymentTax input requires confirmation that socialSecurityWagesAndTips is resolved Schedule SE line 8d'
+    );
+  }
   return input;
 }
 
@@ -83,6 +100,7 @@ export function calculate(input, context){
     taxpayer,
     netEarningsFromSelfEmployment,
     socialSecurityWagesAndTips,
+    socialSecurityWagesAndTipsIsScheduleSELine8d,
   } = input;
   const remainingSocialSecurityWageBase = Math.max(
     0,
@@ -97,6 +115,7 @@ export function calculate(input, context){
   );
   const medicareTax = roundDollar(netEarningsFromSelfEmployment * law.medicareRate);
   const total = socialSecurityTax + medicareTax;
+  const deductiblePartOfSelfEmploymentTax = roundDollar(total * 0.50);
 
   const result = {
     remainingSocialSecurityWageBase,
@@ -104,11 +123,13 @@ export function calculate(input, context){
     socialSecurityTax,
     medicareTax,
     selfEmploymentTax: total,
+    deductiblePartOfSelfEmploymentTax,
   };
 
   const inputsUsed = {
     netEarningsFromSelfEmployment,
     socialSecurityWagesAndTips,
+    socialSecurityWagesAndTipsIsScheduleSELine8d,
   };
   if(taxpayer !== undefined) inputsUsed.taxpayer = taxpayer;
 
@@ -144,6 +165,11 @@ export function calculate(input, context){
         scheduleSELine: 12,
         operation: 'line 10 plus line 11',
         tax: total,
+      },
+      {
+        scheduleSELine: 13,
+        operation: '50% deductible part of self-employment tax',
+        deduction: deductiblePartOfSelfEmploymentTax,
       },
     ],
     authority: meta.authority,

@@ -1,3 +1,5 @@
+import { newWizardRowId } from './householdRecordSchema.js';
+
 const freezeRows = rows => Object.freeze(rows.map(row => Object.freeze({ ...row })));
 
 export const INCOME_SOURCE_TYPES = freezeRows([
@@ -18,6 +20,64 @@ export const INCOME_SOURCE_TYPES = freezeRows([
   { id: 'deferred_comp', label: 'Deferred compensation', timing: 'retirement', taxablePct: 1 },
   { id: 'other', label: 'Other income', timing: 'ongoing', taxablePct: 1 },
 ]);
+
+export const CURRENT_1040_INCOME_SOURCE_GROUPS = Object.freeze([
+  Object.freeze({
+    id: 'wages',
+    typeIds: Object.freeze(['wages', 'bonus']),
+    fields: Object.freeze(['wages']),
+  }),
+  Object.freeze({
+    id: 'interest',
+    typeIds: Object.freeze(['interest', 'tax_exempt_interest']),
+    fields: Object.freeze(['taxableInterest', 'taxExemptInterest']),
+  }),
+  Object.freeze({
+    id: 'dividends',
+    typeIds: Object.freeze(['dividends']),
+    fields: Object.freeze(['ordinaryDividends', 'qualifiedDividends']),
+  }),
+  Object.freeze({
+    id: 'ira',
+    typeIds: Object.freeze(['ira_distribution']),
+    fields: Object.freeze(['iraDistributions', 'taxableIra']),
+  }),
+  Object.freeze({
+    id: 'roth-conversion',
+    typeIds: Object.freeze(['roth_conversion']),
+    fields: Object.freeze(['rothConversion']),
+  }),
+  Object.freeze({
+    id: 'pension',
+    typeIds: Object.freeze(['pension', 'annuity']),
+    fields: Object.freeze(['pensionAmount', 'taxablePensions']),
+  }),
+  Object.freeze({
+    id: 'other-income',
+    typeIds: Object.freeze([
+      'self_employment',
+      'rental',
+      'deferred_comp',
+      'other',
+    ]),
+    fields: Object.freeze(['otherIncome']),
+  }),
+  Object.freeze({
+    id: 'long-term-gain-loss',
+    typeIds: Object.freeze(['long_term_capital_gain']),
+    fields: Object.freeze([]),
+  }),
+]);
+
+export const CURRENT_1040_INCOME_SOURCE_GROUP_IDS = Object.freeze(
+  CURRENT_1040_INCOME_SOURCE_GROUPS.map(group => group.id),
+);
+
+export function current1040IncomeSourceGroup(typeId){
+  return CURRENT_1040_INCOME_SOURCE_GROUPS.find(
+    group => group.typeIds.includes(typeId),
+  ) || null;
+}
 
 export const ADJUSTMENT_TYPES = freezeRows([
   { id: '401k', label: '401(k) contribution', note: 'pre-tax · while working' },
@@ -90,12 +150,16 @@ export function normalizedIncomeSource(plan, source = {}){
   const owner = source.owner === 'spouse' || source.owner === 'joint' ? source.owner : 'client';
   const currentAge = currentAgeForOwner(plan, owner);
   const retirementAge = retirementAgeForOwner(plan, owner);
+  const enteredAmount = Number(source.amount);
+  const amount = type.id === 'long_term_capital_gain'
+    ? (Number.isFinite(enteredAmount) ? enteredAmount : 0)
+    : Math.max(0, enteredAmount || 0);
   return {
     ...source,
     typeId: type.id,
     label: source.label || type.label,
     owner,
-    amount: Math.max(0, Number(source.amount) || 0),
+    amount,
     startAge: source.startAge ?? currentAge,
     endAge: source.endAge ?? (type.timing === 'working'
       ? retirementAge - 1
@@ -168,6 +232,7 @@ export function createIncomeSource(plan, typeId = 'wages', owner = 'client'){
   const currentAge = currentAgeForOwner(plan, owner);
   const retirementAge = retirementAgeForOwner(plan, owner);
   return {
+    id: newWizardRowId('income'),
     typeId: type.id,
     label: type.label,
     owner,
@@ -185,6 +250,7 @@ export function createIncomeSource(plan, typeId = 'wages', owner = 'client'){
 export function createAdjustment(typeId = '401k', owner = 'client'){
   const type = adjustmentType(typeId);
   return {
+    id: newWizardRowId('adjustment'),
     typeId: type.id,
     label: type.label,
     owner,
@@ -195,10 +261,10 @@ export function createAdjustment(typeId = '401k', owner = 'client'){
 
 export function createDeduction(typeId = 'charitable'){
   const type = deductionType(typeId);
-  return { typeId: type.id, label: type.label, amount: 0 };
+  return { id: newWizardRowId('deduction'), typeId: type.id, label: type.label, amount: 0 };
 }
 
 export function createCredit(typeId = 'premium_tax_credit'){
   const type = creditType(typeId);
-  return { typeId: type.id, label: type.label, amount: 0 };
+  return { id: newWizardRowId('credit'), typeId: type.id, label: type.label, amount: 0 };
 }
