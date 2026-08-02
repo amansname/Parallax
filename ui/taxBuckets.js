@@ -12,7 +12,7 @@ export function createTaxBucketsController(deps) {
   function renderBlocked() {
     if (!root) return;
     const message = deps.getBlockedMessage?.()
-      || 'Household data is unavailable. Resolve storage to use Tax Buckets.';
+      || 'Household data is unavailable. Resolve storage to use Withdrawal planner.';
     root.innerHTML = `<div class="taw-blocked" role="status">${escHtml(message)}</div>`;
   }
 
