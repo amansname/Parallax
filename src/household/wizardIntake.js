@@ -1,3 +1,4 @@
+import { buildWizardIncomeTaxSummary } from './buildWizardIncomeTaxSummary.js';
 import {
   buildWizardTaxPlan,
   ensureWizardCurrent1040,
@@ -21,6 +22,7 @@ import {
 } from './wizardTaxMutations.js';
 
 export {
+  buildWizardIncomeTaxSummary,
   buildWizardTaxPlan,
   clearWizardTaxConfirmation,
   confirmWizardTaxInputs,

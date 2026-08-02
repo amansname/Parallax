@@ -1,4 +1,3 @@
-import { buildCurrentIncomeTaxSummary } from '../planning/tax/buildCurrentIncomeTaxSummary.js';
 import { buildCurrentTaxBucketSnapshot } from '../planning/taxBuckets/buildCurrentTaxBucketSnapshot.js';
 import {
   createHouseholdWizard,
@@ -7,7 +6,7 @@ import {
 import { escHtml } from '../../ui/dom.js';
 import { getWizardAccountTypes } from './accountTypes.js';
 import {
-  buildWizardTaxPlan,
+  buildWizardIncomeTaxSummary,
   readWizardTaxState,
 } from './wizardIntake.js';
 
@@ -77,8 +76,7 @@ export function createHouseholdWizardController({
       accountTypes: HOUSEHOLD_WIZARD_ACCOUNT_TYPES,
       taxState: () => readWizardTaxState(getPlan()),
       taxBucketSnapshot: () => buildCurrentTaxBucketSnapshot(getPlan()),
-      incomeTaxSummary: () =>
-        buildCurrentIncomeTaxSummary(buildWizardTaxPlan(getPlan())),
+      incomeTaxSummary: () => buildWizardIncomeTaxSummary(getPlan()),
     });
     return wizard;
   }
@@ -193,7 +191,7 @@ export function createHouseholdWizardController({
   }
 
   function canAdvanceTax(){
-    return readWizardTaxState(getPlan()).completionConfirmed;
+    return true;
   }
 
   function bindRail(){

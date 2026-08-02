@@ -6,7 +6,6 @@ export function renderHouseholdWizardTax(ctx){
     current,
     deductionMode,
     planningIncome,
-    completionConfirmed,
     taxView,
     optionalItems,
     optionalMenuOpen,
@@ -129,8 +128,7 @@ export function renderHouseholdWizardTax(ctx){
     </section>
   `;
 
-  const suppliedZeroIsVisible = value =>
-    value !== 0 || completionConfirmed !== true;
+  const suppliedZeroIsVisible = value => value !== 0;
 
   const itemIsVisible = item => optionalItems.has(item)
     || (item === 'adjustments'
@@ -411,12 +409,6 @@ export function renderHouseholdWizardTax(ctx){
           </div>
         ` : ''}
       </div>
-
-      <label class="hh-tax-confirmation" data-tax-confirmation-control>
-        <input type="checkbox" data-tax-confirmation
-          ${completionConfirmed ? 'checked' : ''}>
-        <span>I’ve entered every current-year tax item that applies. Treat blank income amounts and unadded optional tax lines as $0.</span>
-      </label>
 
       <div class="hh-tax-readiness"
         data-tax-readiness="${taxSummary.status === 'ready' ? 'ready' : 'needs-facts'}"

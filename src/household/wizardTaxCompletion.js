@@ -185,14 +185,28 @@ function ensureScheduleDCompletion(current, planning, { materialize }){
     );
   }
 
-  const scheduleD = current.scheduleD;
+  let scheduleD = current.scheduleD;
   if(!scheduleD
       || !hasOwn(scheduleD, 'netLongTermGainOrLoss')){
-    missingWizardFact(
-      'Enter 0 when there is no long-term capital gain or loss',
-      'scheduleD.netLongTermGainOrLoss',
-      'CURRENT_1040_SCHEDULE_D_AMOUNT_REQUIRED',
-    );
+    if(materialize){
+      if(!scheduleD || typeof scheduleD !== 'object' || Array.isArray(scheduleD)){
+        current.scheduleD = {
+          mode: 'manual-net-long-term',
+          netLongTermGainOrLoss: 0,
+        };
+      }else{
+        scheduleD.mode = scheduleD.mode || 'manual-net-long-term';
+        scheduleD.netLongTermGainOrLoss = 0;
+        current.scheduleD = scheduleD;
+      }
+      scheduleD = current.scheduleD;
+    }else{
+      missingWizardFact(
+        'Enter 0 when there is no long-term capital gain or loss',
+        'scheduleD.netLongTermGainOrLoss',
+        'CURRENT_1040_SCHEDULE_D_AMOUNT_REQUIRED',
+      );
+    }
   }
   if(typeof scheduleD.netLongTermGainOrLoss !== 'number'
       || !Number.isFinite(scheduleD.netLongTermGainOrLoss)){

@@ -137,16 +137,11 @@ export function createHouseholdWizard(dependencies){
     const index = HOUSEHOLD_WIZARD_STEPS.findIndex(step => step.id === stepId);
     const isFirst = index <= 0;
     const isLast = index === HOUSEHOLD_WIZARD_STEPS.length - 1;
-    const completionConfirmed = dependencies.taxState().completionConfirmed === true;
-    const planningBlocked = isLast && !completionConfirmed;
     return `
       <button type="button" class="hh-footer-back" data-hh-action="step-back"
         ${isFirst ? 'disabled' : ''}>Back</button>
       <div class="hh-footer-progress">Step ${index + 1} of ${HOUSEHOLD_WIZARD_STEPS.length}</div>
-      <button type="button" class="hh-footer-next" data-hh-action="step-next"
-        ${planningBlocked
-          ? 'aria-disabled="true" data-tax-completion-required="true"'
-          : ''}>
+      <button type="button" class="hh-footer-next" data-hh-action="step-next">
         ${isLast ? 'Enter planning' : 'Continue'}
       </button>
     `;

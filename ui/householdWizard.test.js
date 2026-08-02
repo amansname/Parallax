@@ -204,10 +204,6 @@ test('Tax preserves the approved 1040 order and removes ledger-only columns', ()
   assert.doesNotMatch(html, /workplace plan coverage/i);
   assert.doesNotMatch(html, /Account name|Tax treatment selector/i);
   assert.doesNotMatch(html, /Client 1040/i);
-  assert.match(
-    html,
-    /I’ve entered every current-year tax item that applies\./,
-  );
 });
 
 test('Detailed Tax adds return-only facts without changing the stored core inputs', () => {
@@ -289,13 +285,9 @@ test('Tax shows planning-row provenance and requires an explicit current-year ov
   );
 });
 
-test('Tax completion checkbox reflects persisted canonical completeness', () => {
-  const unchecked = wizard().render('tax');
-  assert.match(unchecked, /data-tax-confirmation/);
-  assert.doesNotMatch(unchecked, /data-tax-confirmation\s+checked/);
-
-  const checked = wizard({ completionConfirmed: true }).render('tax');
-  assert.match(checked, /data-tax-confirmation\s+checked/);
+test('Tax page omits confirmation checkbox markup', () => {
+  const html = wizard().render('tax');
+  assert.doesNotMatch(html, /data-tax-confirmation/);
 });
 
 test('Summary remains minimal and omits the rejected status and unlock sections', () => {
@@ -315,21 +307,15 @@ test('Summary remains minimal and omits the rejected status and unlock sections'
   assert.doesNotMatch(html, /What this intake unlocks/i);
 });
 
-test('incomplete Summary remains viewable but cannot enter planning', () => {
-  const incomplete = wizard({ completionConfirmed: false, taxReady: false });
+test('Summary Enter planning is available even when tax summary is not calculable', () => {
+  const incomplete = wizard({ taxReady: false });
   assert.match(
     incomplete.render('summary'),
-    /data-summary-tax-scope="NOT_CALCULABLE"/,
+    /data-summary-tax-status="not-calculable"/,
   );
-  assert.match(
+  assert.doesNotMatch(
     incomplete.footer('summary'),
     /data-tax-completion-required="true"/,
   );
-  assert.match(incomplete.footer('summary'), /aria-disabled="true"/);
-
-  const complete = wizard({ completionConfirmed: true });
-  assert.doesNotMatch(
-    complete.footer('summary'),
-    /data-tax-completion-required="true"/,
-  );
+  assert.doesNotMatch(incomplete.footer('summary'), /aria-disabled="true"/);
 });
