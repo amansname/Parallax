@@ -218,6 +218,7 @@
   background: transparent;
   cursor: pointer;
   display: block;
+  transition: none;
 }
 
 .page[data-page="tax-buckets"] .taw-range::-webkit-slider-runnable-track {
@@ -398,6 +399,17 @@
   transition: opacity .18s ease;
   pointer-events: none;
   white-space: nowrap;
+}
+
+.page[data-page="tax-buckets"] .taw-slider-val,
+.page[data-page="tax-buckets"] .taw-col-rate,
+.page[data-page="tax-buckets"] .taw-col-foot-val,
+.page[data-page="tax-buckets"] .taw-col-edge span,
+.page[data-page="tax-buckets"] [data-taw-baseline-total],
+.page[data-page="tax-buckets"] [data-taw-fact-ss],
+.page[data-page="tax-buckets"] [data-taw-fact-other],
+.page[data-page="tax-buckets"] [data-taw-caused-val] {
+  transition: none;
 }
 
 .page[data-page="tax-buckets"] .taw-col-foot {
