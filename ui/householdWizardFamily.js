@@ -1,3 +1,5 @@
+import { renderBirthDateField } from './birthDateField.js';
+
 export function renderHouseholdWizardFamily(ctx){
   const {
     plan,
@@ -43,9 +45,7 @@ export function renderHouseholdWizardFamily(ctx){
           </label>
           <label class="hh-field hh-field--date">
             <span>Date of birth</span>
-            <input type="date" value="${esc(birthDate)}"
-              data-hh-field="${owner}.birthDate"
-              data-wizard-scope="family" data-wizard-field="${owner}.birthDate">
+            ${renderBirthDateField({ owner, iso: birthDate, esc })}
           </label>
           <div class="hh-field hh-field--age">
             <span>Age</span>
