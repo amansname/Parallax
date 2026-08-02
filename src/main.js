@@ -1062,6 +1062,7 @@ const goalsHorizon=createGoalsHorizonController({
   removeGoal:removeGoalAt,
 });
 const taxBuckets=createTaxBucketsController({
+  getPlan:()=>plan,
   getSnapshot:()=>buildCurrentTaxBucketSnapshot(plan),
   getRecoveryMessage:()=>isHouseholdStorageBlocked() ? getBlockedMessage() : null,
   onError:error=>console.error('Tax Buckets failed:', error),

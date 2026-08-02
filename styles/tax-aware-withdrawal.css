@@ -1,0 +1,484 @@
+/* Tax-Aware Withdrawal planner — warm hairline treatment scoped to Tax Buckets tab. */
+
+.page[data-page="tax-buckets"] .tb-subnav {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  margin: 0 auto 24px;
+  max-width: calc(100vw - 112px);
+  width: 1240px;
+  border: 1px solid rgba(231, 222, 201, .11);
+  border-radius: 6px;
+}
+
+.page[data-page="tax-buckets"] .tb-subnav-btn {
+  flex: 1;
+  padding: 8px 14px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ink-mute);
+  font: 600 10px/1 var(--font-sans);
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.page[data-page="tax-buckets"] .tb-subnav-btn[aria-pressed="true"] {
+  background: rgba(198, 166, 98, .16);
+  color: var(--accent-bright);
+}
+
+.page[data-page="tax-buckets"] .tb-panel--withdrawal {
+  width: 100%;
+  max-width: 100%;
+  min-height: 0;
+}
+
+.page[data-page="tax-buckets"] .taw-mount {
+  width: 100%;
+  min-height: min(72vh, 900px);
+}
+
+.page[data-page="tax-buckets"] .taw-root {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(7px, 1.2vh, 11px);
+  min-height: min(72vh, 900px);
+  width: 100%;
+  max-width: calc(100vw - 64px);
+  margin: 0 auto;
+  padding: 0 32px clamp(12px, 2vh, 24px);
+  box-sizing: border-box;
+}
+
+.page[data-page="tax-buckets"] .taw-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+  flex: none;
+}
+
+.page[data-page="tax-buckets"] .taw-toolbar-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.page[data-page="tax-buckets"] .taw-law {
+  margin-left: auto;
+  font: 400 10.5px/1 var(--font-sans);
+  color: var(--ink-faint);
+  letter-spacing: .06em;
+}
+
+.page[data-page="tax-buckets"] .taw-seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid rgba(231, 222, 201, .11);
+  border-radius: 6px;
+}
+
+.page[data-page="tax-buckets"] .taw-seg-btn {
+  padding: 5px 10px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ink-mute);
+  font: 600 9.5px/1 var(--font-sans);
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.page[data-page="tax-buckets"] .taw-seg-btn.is-on {
+  background: rgba(198, 166, 98, .16);
+  color: var(--accent-bright);
+}
+
+.page[data-page="tax-buckets"] .taw-grid {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+  gap: clamp(7px, 1.2vh, 11px);
+  align-items: stretch;
+}
+
+.page[data-page="tax-buckets"] .taw-left {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+.page[data-page="tax-buckets"] .taw-card {
+  background: rgba(255, 255, 255, .02);
+  border: 1px solid rgba(231, 222, 201, .085);
+  border-radius: 12px;
+  padding: clamp(9px, 1.45vh, 13px) 15px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.page[data-page="tax-buckets"] .taw-card--inputs {
+  flex: 1;
+}
+
+.page[data-page="tax-buckets"] .taw-income-wash {
+  flex: none;
+  margin: calc(-1 * clamp(9px, 1.45vh, 13px)) -15px 0;
+  padding: clamp(9px, 1.45vh, 13px) 15px clamp(7px, 1.2vh, 11px);
+  background: linear-gradient(180deg, rgba(198, 166, 98, .075), rgba(198, 166, 98, 0));
+  display: flex;
+  flex-direction: column;
+  gap: clamp(2px, .6vh, 5px);
+}
+
+.page[data-page="tax-buckets"] .taw-income-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: clamp(2px, .5vh, 4px);
+  white-space: nowrap;
+}
+
+.page[data-page="tax-buckets"] .taw-income-head span:first-child {
+  font: 600 9.5px/1 var(--font-sans);
+  letter-spacing: .15em;
+  text-transform: uppercase;
+  color: rgba(198, 166, 98, .78);
+}
+
+.page[data-page="tax-buckets"] .taw-income-head span:last-child {
+  font: 400 clamp(11px, 1.5vh, 12.5px)/1 var(--font-serif);
+  color: var(--ink-bright);
+}
+
+.page[data-page="tax-buckets"] .taw-income-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  white-space: nowrap;
+}
+
+.page[data-page="tax-buckets"] .taw-income-row > span:first-child {
+  font: 400 12px/1.3 var(--font-sans);
+  color: var(--ink-body);
+}
+
+.page[data-page="tax-buckets"] .taw-income-row > span:last-child {
+  font: 400 14px/1 var(--font-serif);
+  color: var(--num);
+  text-align: right;
+}
+
+.page[data-page="tax-buckets"] .taw-wages {
+  width: 96px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: 400 14px/1.25 var(--font-serif);
+  color: var(--num);
+  text-align: right;
+  outline: none;
+  -webkit-text-fill-color: var(--num);
+}
+
+.page[data-page="tax-buckets"] .taw-wages:focus {
+  color: var(--ink-bright);
+  -webkit-text-fill-color: var(--ink-bright);
+}
+
+.page[data-page="tax-buckets"] .taw-divider {
+  flex: none;
+  height: 1px;
+  background: rgba(231, 222, 201, .09);
+  margin: clamp(7px, 1.2vh, 11px) 0;
+}
+
+.page[data-page="tax-buckets"] .taw-sliders {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(2px, 1.3vh, 13px);
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
+  padding-right: 2px;
+}
+
+.page[data-page="tax-buckets"] .taw-slider-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.page[data-page="tax-buckets"] .taw-slider-label {
+  font: 500 clamp(11px, 1.5vh, 12.5px)/1.2 var(--font-sans);
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.page[data-page="tax-buckets"] .taw-slider-val {
+  font: 400 clamp(12px, 1.7vh, 14px)/1 var(--font-serif);
+  color: var(--ink-bright);
+}
+
+.page[data-page="tax-buckets"] .taw-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 13px;
+  margin-top: clamp(3px, .8vh, 7px);
+  background: transparent;
+  cursor: pointer;
+  display: block;
+}
+
+.page[data-page="tax-buckets"] .taw-range::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(231, 222, 201, .13);
+}
+
+.page[data-page="tax-buckets"] .taw-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: -4.5px;
+  border-radius: 50%;
+  background: linear-gradient(180deg, var(--accent-bright), var(--accent));
+  border: none;
+  box-shadow: 0 0 0 3px rgba(198, 166, 98, .13);
+}
+
+.page[data-page="tax-buckets"] .taw-range::-moz-range-track {
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(231, 222, 201, .13);
+}
+
+.page[data-page="tax-buckets"] .taw-range::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.page[data-page="tax-buckets"] .taw-tax-caused {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 5px;
+  font: 400 11px/1.2 var(--font-sans);
+  color: var(--ink-faint);
+  white-space: nowrap;
+}
+
+.page[data-page="tax-buckets"] .taw-tax-caused span:last-child {
+  color: var(--ink-body);
+}
+
+.page[data-page="tax-buckets"] .taw-att-note {
+  flex: none;
+  margin: clamp(5px, 1vh, 9px) 0 0;
+  font: 400 10px/1.35 var(--font-sans);
+  color: var(--ink-faint);
+  text-wrap: pretty;
+}
+
+.page[data-page="tax-buckets"] .taw-thresholds-head {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.page[data-page="tax-buckets"] .taw-thresholds-head span {
+  font: 600 9.5px/1 var(--font-sans);
+  letter-spacing: .15em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+}
+
+.page[data-page="tax-buckets"] .taw-cols {
+  flex: 1;
+  min-height: 200px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: clamp(10px, 1.9vh, 18px);
+}
+
+.page[data-page="tax-buckets"] .taw-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.page[data-page="tax-buckets"] .taw-col-name {
+  flex: none;
+  min-height: 2.4em;
+  font: 500 clamp(10px, 1.35vh, 11.5px)/1.2 var(--font-sans);
+  color: var(--ink);
+  text-wrap: pretty;
+}
+
+.page[data-page="tax-buckets"] .taw-col-rate {
+  flex: none;
+  font: 400 clamp(15px, 2.3vh, 19px)/1.15 var(--font-serif);
+  margin-top: 3px;
+}
+
+.page[data-page="tax-buckets"] .taw-col-bar {
+  flex: 1;
+  min-height: 120px;
+  position: relative;
+  margin-top: 9px;
+  border-radius: 4px;
+  background: rgba(231, 222, 201, .045);
+  overflow: hidden;
+}
+
+.page[data-page="tax-buckets"] .taw-col-base,
+.page[data-page="tax-buckets"] .taw-col-fill,
+.page[data-page="tax-buckets"] .taw-col-gap {
+  position: absolute;
+  left: 0;
+  right: 0;
+  transition: height .22s cubic-bezier(.4, 0, .2, 1), bottom .22s cubic-bezier(.4, 0, .2, 1);
+}
+
+.page[data-page="tax-buckets"] .taw-col-base {
+  bottom: 0;
+}
+
+.page[data-page="tax-buckets"] .taw-col-fill {
+  bottom: 0;
+}
+
+.page[data-page="tax-buckets"] .taw-col-gap {
+  z-index: 1;
+  background: linear-gradient(0deg, rgba(231, 222, 201, .05), rgba(231, 222, 201, .012));
+}
+
+.page[data-page="tax-buckets"] .taw-col-edge {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  z-index: 3;
+  transition: bottom .22s cubic-bezier(.4, 0, .2, 1);
+}
+
+.page[data-page="tax-buckets"] .taw-col-edge span {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  white-space: nowrap;
+  font: 500 10px/1 var(--font-sans);
+  color: var(--ink-bright);
+  text-shadow: 0 1px 3px rgba(11, 13, 17, .95);
+}
+
+.page[data-page="tax-buckets"] .taw-mark {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 11px;
+  z-index: 2;
+}
+
+.page[data-page="tax-buckets"] .taw-mark-tick {
+  position: absolute;
+  top: 5px;
+  height: 1px;
+  transition: width .2s cubic-bezier(.4, 0, .2, 1), background .25s ease;
+}
+
+.page[data-page="tax-buckets"] .taw-mark-tick--l { left: 0; }
+.page[data-page="tax-buckets"] .taw-mark-tick--r { right: 0; }
+
+.page[data-page="tax-buckets"] .taw-mark-chip {
+  position: absolute;
+  left: 3px;
+  top: -3px;
+  padding: 1.5px 4px;
+  border-radius: 3px;
+  background: rgba(11, 13, 17, .88);
+  font: 500 12px/1 var(--font-sans);
+  transition: opacity .18s ease;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.page[data-page="tax-buckets"] .taw-col-foot {
+  flex: none;
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.page[data-page="tax-buckets"] .taw-col-foot-label {
+  font: 400 9px/1 var(--font-sans);
+  letter-spacing: .11em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.page[data-page="tax-buckets"] .taw-col-foot-val {
+  font: 500 clamp(11px, 1.6vh, 13px)/1 var(--font-sans);
+  color: var(--ink-bright);
+  white-space: nowrap;
+}
+
+@media (max-width: 1100px) {
+  .page[data-page="tax-buckets"] .taw-grid {
+    grid-template-columns: 1fr;
+  }
+  .page[data-page="tax-buckets"] .taw-cols {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .page[data-page="tax-buckets"] .taw-root {
+    padding: 0 16px 16px;
+  }
+  .page[data-page="tax-buckets"] .taw-cols {
+    grid-template-columns: 1fr;
+  }
+  .page[data-page="tax-buckets"] .tb-subnav {
+    max-width: calc(100vw - 32px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page[data-page="tax-buckets"] .taw-col-base,
+  .page[data-page="tax-buckets"] .taw-col-fill,
+  .page[data-page="tax-buckets"] .taw-col-gap,
+  .page[data-page="tax-buckets"] .taw-col-edge,
+  .page[data-page="tax-buckets"] .taw-mark-tick,
+  .page[data-page="tax-buckets"] .taw-mark-chip {
+    transition: none !important;
+  }
+}

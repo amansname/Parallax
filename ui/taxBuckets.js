@@ -1,4 +1,5 @@
 import { escHtml } from './dom.js';
+import { createTaxAwareWithdrawalController } from './taxAwareWithdrawal.js';
 
 const BUCKET_KEYS = Object.freeze(['taxable', 'traditional', 'roth']);
 const money = new Intl.NumberFormat('en-US', {
@@ -146,9 +147,19 @@ function stateMessage(status, recoveryMessage){
   return 'Some account data needs review in Household before Tax Buckets can be shown.';
 }
 
+function renderSubNav(active){
+  const currentOn = active === 'current' ? ' aria-pressed="true"' : ' aria-pressed="false"';
+  const withdrawalOn = active === 'withdrawal' ? ' aria-pressed="true"' : ' aria-pressed="false"';
+  return `<div class="tb-subnav" role="group" aria-label="Tax Buckets views">
+    <button type="button" class="tb-subnav-btn" data-tb-sub="current"${currentOn}>Current buckets</button>
+    <button type="button" class="tb-subnav-btn" data-tb-sub="withdrawal"${withdrawalOn}>Withdrawal planner</button>
+  </div>`;
+}
+
 export function renderTaxBucketsPage(snapshot, {
   explored = false,
   recoveryMessage = null,
+  subTab = 'current',
 } = {}){
   const model = recoveryMessage ? null : buildTaxBucketsViewModel(snapshot);
   const showEntry = !explored && !recoveryMessage;
@@ -165,14 +176,20 @@ export function renderTaxBucketsPage(snapshot, {
         <button class="tb-cta" type="button" data-tb-explore>Explore Tax Buckets</button>
       </section>
       <section class="tb-view" data-tb-view${showEntry ? ' hidden' : ''} aria-labelledby="tb-view-title">
-        <div class="tb-frame">
-          <header class="tb-view-head">
-            <div>
-              <div class="tb-kicker">Tax Buckets</div>
-              <h2 id="tb-view-title">Current Tax Buckets</h2>
-            </div>
-          </header>
-          ${content}
+        ${explored || recoveryMessage ? renderSubNav(subTab) : ''}
+        <div class="tb-panel" data-tb-panel="current"${subTab === 'withdrawal' ? ' hidden' : ''}>
+          <div class="tb-frame">
+            <header class="tb-view-head">
+              <div>
+                <div class="tb-kicker">Tax Buckets</div>
+                <h2 id="tb-view-title">Current Tax Buckets</h2>
+              </div>
+            </header>
+            ${content}
+          </div>
+        </div>
+        <div class="tb-panel tb-panel--withdrawal" data-tb-panel="withdrawal"${subTab === 'current' ? ' hidden' : ''}>
+          <div id="tax-aware-withdrawal-mount" class="taw-mount" data-taw-mount></div>
         </div>
       </section>
     </div>`;
@@ -182,10 +199,15 @@ export function createTaxBucketsController(deps){
   if(typeof deps?.getSnapshot !== 'function'){
     throw new TypeError('getSnapshot is required');
   }
+  if(typeof deps?.getPlan !== 'function'){
+    throw new TypeError('getPlan is required');
+  }
   let root = null;
   let explored = false;
+  let subTab = 'current';
   let transitionTimer = null;
   let renderToken = 0;
+  const withdrawal = createTaxAwareWithdrawalController({ getPlan: deps.getPlan });
 
   function activateView(){
     const token = ++renderToken;
@@ -197,12 +219,10 @@ export function createTaxBucketsController(deps){
 
   function showView(){
     if(!root) return;
-    const entry = root.querySelector('[data-tb-entry]');
-    const view = root.querySelector('[data-tb-view]');
-    if(!entry || !view) return;
-    entry.hidden = true;
-    view.hidden = false;
     explored = true;
+    render();
+    const view = root.querySelector('[data-tb-view]');
+    if(view) view.hidden = false;
     activateView();
   }
 
@@ -216,6 +236,27 @@ export function createTaxBucketsController(deps){
       clearTimeout(transitionTimer);
       transitionTimer = setTimeout(showView, 380);
     }, { once: true });
+  }
+
+  function ensureWithdrawalMount(){
+    const mount = root?.querySelector('[data-taw-mount]');
+    if(!mount) return;
+    withdrawal.bind(mount);
+  }
+
+  function bindSubNav(){
+    root?.querySelectorAll('[data-tb-sub]').forEach(button => {
+      button.addEventListener('click', () => {
+        const next = button.getAttribute('data-tb-sub');
+        if(!next || next === subTab) return;
+        subTab = next;
+        render();
+        if(subTab === 'withdrawal'){
+          ensureWithdrawalMount();
+          withdrawal.sync();
+        }
+      });
+    });
   }
 
   function render(){
@@ -232,9 +273,11 @@ export function createTaxBucketsController(deps){
         recoveryMessage = 'Tax Buckets could not be displayed. Review Household account data.';
       }
     }
-    root.innerHTML = renderTaxBucketsPage(snapshot, { explored, recoveryMessage });
+    root.innerHTML = renderTaxBucketsPage(snapshot, { explored, recoveryMessage, subTab });
     if(explored || recoveryMessage) activateView();
     else bindExplore();
+    bindSubNav();
+    if(subTab === 'withdrawal') ensureWithdrawalMount();
   }
 
   function bind(element){
@@ -243,9 +286,14 @@ export function createTaxBucketsController(deps){
     render();
   }
 
+  function sync(){
+    render();
+    if(subTab === 'withdrawal') withdrawal.sync();
+  }
+
   return Object.freeze({
     bind,
-    sync: render,
+    sync,
     hasExplored: () => explored,
   });
 }
