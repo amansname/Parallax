@@ -1758,7 +1758,6 @@ bindHouseholdEditor({
   preflightWizardEdit: command => householdWizardCommitBoundary.preflight(command),
   syncHousehold,
   navigateWizard: direction => householdWizardController.navigate(direction),
-  canAdvanceTax: () => householdWizardController.canAdvanceTax(),
   syncHeaderStatus,
   liveCommas,
 });

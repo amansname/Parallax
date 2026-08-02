@@ -42,7 +42,6 @@ export function bindHouseholdEditor({
   preflightWizardEdit = () => true,
   syncHousehold,
   navigateWizard,
-  canAdvanceTax = () => true,
   syncHeaderStatus,
   liveCommas,
 }){
@@ -51,9 +50,6 @@ export function bindHouseholdEditor({
   function reportError(error, control = null){
     const message = error instanceof Error ? error.message : String(error);
     wizardRoot.dataset.validationCode = error?.code || 'WIZARD_EDIT_REJECTED';
-    if(control?.matches?.('[data-tax-confirmation]')){
-      control.checked = false;
-    }
     const errorField = error?.field;
     const fieldControl = errorField
       ? Array.from(wizardRoot.querySelectorAll(

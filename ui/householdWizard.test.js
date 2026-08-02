@@ -88,7 +88,6 @@ function wizard({
   grossOnlyDistributions = false,
   planningWages = false,
   planningWagesOverridden = false,
-  completionConfirmed = false,
   taxReady = true,
 } = {}){
   const value = plan();
@@ -121,7 +120,6 @@ function wizard({
     taxState: () => ({
       current: value.incomeTax.current1040,
       deductionMode: 'standard',
-      completionConfirmed,
       planningIncome: {
         hasActivePlanningSocialSecurity: false,
         hasNonzeroShortTermCapitalGain: false,

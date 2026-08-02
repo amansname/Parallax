@@ -190,10 +190,6 @@ export function createHouseholdWizardController({
     return setStep(STEP_IDS[index + 1]);
   }
 
-  function canAdvanceTax(){
-    return true;
-  }
-
   function bindRail(){
     document.querySelectorAll('[data-hh-wizard-nav]').forEach(button =>
       button.addEventListener('click', () => setStep(button.dataset.hhWizardNav)));
@@ -224,7 +220,6 @@ export function createHouseholdWizardController({
 
   return {
     uiState,
-    canAdvanceTax,
     navigate,
     resetForPlan,
     setStep,

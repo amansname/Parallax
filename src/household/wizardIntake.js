@@ -13,7 +13,6 @@ import {
   clearWizardTaxConfirmation,
   confirmWizardTaxInputs,
   invalidateWizardTaxCompletion,
-  isWizardTaxComplete,
 } from './wizardTaxCompletion.js';
 import {
   deductionModeForWizard,
@@ -42,6 +41,5 @@ export function readWizardTaxState(plan){
     current,
     deductionMode: deductionModeForWizard(current),
     planningIncome: readWizardPlanningIncome(wizardPlan, current),
-    completionConfirmed: isWizardTaxComplete(wizardPlan),
   });
 }

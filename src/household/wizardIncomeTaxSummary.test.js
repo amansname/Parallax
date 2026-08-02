@@ -133,7 +133,6 @@ test('Summary Enter planning is never blocked by tax readiness', () => {
       current: plan.incomeTax.current1040,
       deductionMode: 'standard',
       planningIncome: { groups: {} },
-      completionConfirmed: false,
     }),
     taxBucketSnapshot: () => ({
       totalBalance: 0,

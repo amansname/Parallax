@@ -121,7 +121,6 @@ export function createHouseholdWizard(dependencies){
       current: taxState.current,
       deductionMode: taxState.deductionMode,
       planningIncome: taxState.planningIncome,
-      completionConfirmed: taxState.completionConfirmed,
       taxView: dependencies.uiState.taxView,
       optionalItems: dependencies.uiState.optionalTaxItems,
       optionalMenuOpen: dependencies.uiState.optionalMenuOpen,
