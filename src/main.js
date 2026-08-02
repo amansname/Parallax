@@ -1,7 +1,6 @@
 import { runSimulation, resolveInputs, generateReturnPath, resetSeed, LONGRUN_INFLATION, pathDigest, RISK_PROFILES, defaultPlan as plan } from '../engine.js';
 import { runFederalFundingSimulation } from './planning/tax/runMonteCarloWithFederalFunding.js';
 import { runHistoricalPathWithFederalTax } from './planning/tax/runHistoricalPathWithFederalTax.js';
-import { buildCurrentTaxBucketSnapshot } from './planning/taxBuckets/buildCurrentTaxBucketSnapshot.js';
 import { fmtM, fmtMoney } from '../ui/formatters.js';
 import { storyChart, seqChartSvg } from '../ui/charts.js?v=2';
 import { escHtml } from '../ui/dom.js';
@@ -1063,9 +1062,8 @@ const goalsHorizon=createGoalsHorizonController({
 });
 const taxBuckets=createTaxBucketsController({
   getPlan:()=>plan,
-  getSnapshot:()=>buildCurrentTaxBucketSnapshot(plan),
-  getRecoveryMessage:()=>isHouseholdStorageBlocked() ? getBlockedMessage() : null,
-  onError:error=>console.error('Tax Buckets failed:', error),
+  isStorageBlocked:isHouseholdStorageBlocked,
+  getBlockedMessage,
 });
 taxBuckets.bind($('#tax-buckets-view'));
 

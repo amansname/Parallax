@@ -1,43 +1,16 @@
 /* Tax-Aware Withdrawal planner — warm hairline treatment scoped to Tax Buckets tab. */
 
-.page[data-page="tax-buckets"] .tb-subnav {
-  display: inline-flex;
-  gap: 2px;
-  padding: 2px;
-  margin: 0 auto 24px;
-  max-width: calc(100vw - 112px);
-  width: 1240px;
-  border: 1px solid rgba(231, 222, 201, .11);
-  border-radius: 6px;
-}
-
-.page[data-page="tax-buckets"] .tb-subnav-btn {
-  flex: 1;
-  padding: 8px 14px;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
+.page[data-page="tax-buckets"] .taw-blocked {
+  max-width: 42ch;
+  margin: 48px auto;
+  padding: 0 32px;
   color: var(--ink-mute);
-  font: 600 10px/1 var(--font-sans);
-  letter-spacing: .1em;
-  text-transform: uppercase;
-  cursor: pointer;
-  white-space: nowrap;
+  font-size: 14px;
+  line-height: 1.5;
+  text-wrap: pretty;
 }
 
-.page[data-page="tax-buckets"] .tb-subnav-btn[aria-pressed="true"] {
-  background: rgba(198, 166, 98, .16);
-  color: var(--accent-bright);
-}
-
-.page[data-page="tax-buckets"] .tb-panel--withdrawal {
-  width: 100%;
-  max-width: 100%;
-  min-height: 0;
-}
-
-.page[data-page="tax-buckets"] .taw-mount {
-  width: 100%;
+.page[data-page="tax-buckets"] #tax-buckets-view {
   min-height: min(72vh, 900px);
 }
 
@@ -466,9 +439,6 @@
   }
   .page[data-page="tax-buckets"] .taw-cols {
     grid-template-columns: 1fr;
-  }
-  .page[data-page="tax-buckets"] .tb-subnav {
-    max-width: calc(100vw - 32px);
   }
 }
 
