@@ -484,6 +484,44 @@
   grid-column: span 2;
 }
 
+.page[data-page="household"] .hh-birth-date {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr auto 1.35fr;
+  align-items: center;
+  gap: 4px;
+  height: 35px;
+}
+
+.page[data-page="household"] .hh-birth-date-part {
+  width: 100%;
+  min-width: 0;
+  height: 35px;
+  padding: 0 8px;
+  border: 1px solid var(--hh-line-soft);
+  background: var(--hh-surface);
+  color: var(--hh-body);
+  font-size: 13px;
+}
+
+.page[data-page="household"] .hh-birth-date-part--year {
+  padding-right: 6px;
+}
+
+.page[data-page="household"] .hh-birth-date-sep {
+  color: var(--hh-muted);
+  font-size: 13px;
+  user-select: none;
+}
+
+.page[data-page="household"] .hh-birth-date-part:focus {
+  border-color: var(--hh-accent);
+  outline: none;
+}
+
+.page[data-page="household"] .hh-birth-date-part[aria-invalid="true"] {
+  border-color: var(--hh-danger, #c45);
+}
+
 .page[data-page="household"] .hh-field--age output {
   display: flex;
   align-items: center;
