@@ -42,7 +42,11 @@ function syncTaxpayerFacts(plan, current){
     const birthDate = birthDateValue(plan, owner);
     if(birthDate) prior.birthDate = birthDate;
     else delete prior.birthDate;
-    if(Object.keys(prior).length > 0) taxpayers[owner] = prior;
+    if(filingStatus === 'marriedFilingJointly'){
+      taxpayers[owner] = prior;
+    }else if(Object.keys(prior).length > 0){
+      taxpayers[owner] = prior;
+    }
   }
   if(filingStatus !== 'marriedFilingSeparately'){
     current.returnScope = returnScopeForFilingStatus(filingStatus);

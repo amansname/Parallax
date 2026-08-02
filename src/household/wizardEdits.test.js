@@ -421,6 +421,17 @@ test('income completion rejects hidden taxable-portion gaps and accepts explicit
 
 test('failed Tax confirmation is atomic and performs no commit transition', () => {
   let current = plan();
+  current = applyHouseholdWizardEdit(current, {
+    scope: 'family',
+    field: 'client.birthDate',
+    value: '1971-03-14',
+  }, { timestamp: '2026-07-29T12:00:00.000Z' });
+  current = applyHouseholdWizardEdit(current, {
+    scope: 'tax',
+    action: 'set',
+    field: 'income.iraDistributions',
+    value: 20000,
+  });
   let replacements = 0;
   let transitions = 0;
   const before = structuredClone(current);
@@ -438,7 +449,7 @@ test('failed Tax confirmation is atomic and performs no commit transition', () =
       scope: 'tax',
       action: 'confirm-tax-inputs',
     }),
-    /Enter 0 when there is no long-term capital gain or loss/,
+    /taxable IRA amount/,
   );
   assert.equal(replacements, 0);
   assert.equal(transitions, 0);

@@ -1,3 +1,4 @@
+import { buildWizardIncomeTaxSummary } from './buildWizardIncomeTaxSummary.js';
 import {
   buildWizardTaxPlan,
   ensureWizardCurrent1040,
@@ -12,7 +13,6 @@ import {
   clearWizardTaxConfirmation,
   confirmWizardTaxInputs,
   invalidateWizardTaxCompletion,
-  isWizardTaxComplete,
 } from './wizardTaxCompletion.js';
 import {
   deductionModeForWizard,
@@ -21,6 +21,7 @@ import {
 } from './wizardTaxMutations.js';
 
 export {
+  buildWizardIncomeTaxSummary,
   buildWizardTaxPlan,
   clearWizardTaxConfirmation,
   confirmWizardTaxInputs,
@@ -40,6 +41,5 @@ export function readWizardTaxState(plan){
     current,
     deductionMode: deductionModeForWizard(current),
     planningIncome: readWizardPlanningIncome(wizardPlan, current),
-    completionConfirmed: isWizardTaxComplete(wizardPlan),
   });
 }

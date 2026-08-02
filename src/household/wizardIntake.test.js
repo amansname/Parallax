@@ -22,6 +22,7 @@ import { parseWizardNumber } from './wizardTaxMutations.js';
 
 test('wizard intake facade exposes only the stable acyclic production surface', () => {
   assert.deepEqual(Object.keys(wizardIntakeFacade).sort(), [
+    'buildWizardIncomeTaxSummary',
     'buildWizardTaxPlan',
     'clearWizardTaxConfirmation',
     'confirmWizardTaxInputs',
@@ -347,23 +348,16 @@ test('planning income groups aggregate rows and override or revert one source at
   assert.equal(readWizardPlanningIncome(subject, current).groups.wages.rowSourced, true);
 });
 
-test('Tax confirmation persists approved zeros but never creates Schedule D zero', () => {
+test('confirmWizardTaxInputs materializes Schedule D zero when blank', () => {
   const subject = plan();
   ensureWizardCurrent1040(subject);
-  assert.throws(
-    () => confirmWizardTaxInputs(subject),
-    error => error.code === 'CURRENT_1040_SCHEDULE_D_AMOUNT_REQUIRED',
-  );
-  assert.equal(
-    Object.hasOwn(subject.incomeTax.current1040.scheduleD || {},
-      'netLongTermGainOrLoss'),
-    false,
-  );
-
-  setWizardTaxField(subject, 'scheduleD.netLongTermGainOrLoss', 0);
   confirmWizardTaxInputs(subject);
+  assert.equal(
+    subject.incomeTax.current1040.scheduleD?.netLongTermGainOrLoss,
+    0,
+  );
+  assert.equal(subject.incomeTax.current1040.incomeSourcesComplete, true);
   const current = subject.incomeTax.current1040;
-  assert.equal(current.incomeSourcesComplete, true);
   for(const field of [
     'wages',
     'taxableInterest',

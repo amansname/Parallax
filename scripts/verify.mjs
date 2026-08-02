@@ -1670,7 +1670,6 @@ try {
     await goToWizardStep(page, 'tax');
     const taxBefore = await page.evaluate(() => {
       const fields = [...document.querySelectorAll('[data-tax-field]')];
-      const confirmation = document.querySelector('[data-tax-confirmation]');
       const mutations = [...document.querySelectorAll(
         '[data-hh-action="override-income-group"],'
         + ' [data-hh-action="revert-income-group"],'
@@ -1681,24 +1680,19 @@ try {
         enabledFields: fields.filter(element => !element.disabled)
           .map(element => element.dataset.taxField),
         taxYear: document.querySelector('[data-tax-field="taxYear"]')?.value || '',
-        confirmed: Boolean(confirmation?.checked),
-        confirmationDisabled: Boolean(confirmation?.disabled),
         mutationCount: mutations.length,
         enabledMutations: mutations.filter(element => !element.disabled)
           .map(element => element.dataset.hhAction),
       };
     });
     if(!taxBefore.fieldCount || taxBefore.enabledFields.length
-      || !taxBefore.confirmationDisabled || taxBefore.enabledMutations.length){
+      || taxBefore.enabledMutations.length){
       throw new Error(`read-only Tax controls are not disabled: ${JSON.stringify(taxBefore)}`);
     }
     await page.evaluate(() => {
       const taxYear = document.querySelector('[data-tax-field="taxYear"]');
       taxYear.value = taxYear.value === '2026' ? '2025' : '2026';
       taxYear.dispatchEvent(new Event('change', { bubbles: true }));
-      const confirmation = document.querySelector('[data-tax-confirmation]');
-      confirmation.checked = !confirmation.checked;
-      confirmation.dispatchEvent(new Event('change', { bubbles: true }));
       document.querySelector(
         '[data-hh-action="override-income-group"], [data-hh-action="revert-income-group"]',
       )?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -1707,9 +1701,8 @@ try {
     await goToWizardStep(page, 'tax');
     const taxAfter = await page.evaluate(() => ({
       taxYear: document.querySelector('[data-tax-field="taxYear"]')?.value || '',
-      confirmed: Boolean(document.querySelector('[data-tax-confirmation]')?.checked),
     }));
-    if(taxAfter.taxYear !== taxBefore.taxYear || taxAfter.confirmed !== taxBefore.confirmed){
+    if(taxAfter.taxYear !== taxBefore.taxYear){
       throw new Error(`read-only Tax edit changed immediate state: ${JSON.stringify({ taxBefore, taxAfter })}`);
     }
     await assertPinned('Tax fields and completion');

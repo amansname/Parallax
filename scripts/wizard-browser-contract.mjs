@@ -810,58 +810,38 @@ async function verifyPlanningSourceAndTaxFlow(page){
   );
 
   await goToWizardStep(page, 'summary');
-  const beforeSummary = await page.evaluate(() => ({
+  const derivedSummary = await page.evaluate(() => ({
     income: document.querySelector('[data-summary-metric="income"]')
       ?.dataset.summaryIncomeStatus || '',
     tax: document.querySelector('[data-summary-metric="federal-tax"]')
       ?.dataset.summaryTaxStatus || '',
   }));
   requireCondition(
-    beforeSummary.income === 'not-calculable'
-      && beforeSummary.tax === 'not-calculable',
-    `Incomplete Tax facts looked calculated: ${JSON.stringify(beforeSummary)}`,
+    derivedSummary.income === 'ready' && derivedSummary.tax === 'ready',
+    `Derived Tax summary did not calculate: ${JSON.stringify(derivedSummary)}`,
   );
   const summaryContinueSelector = '#hh-wiz-footer [data-hh-action="step-next"]';
-  const beforeSummaryContinue = await wizardState(page);
-  await clickWizardAction(page, summaryContinueSelector, {
-    expectRevision: false,
-  });
-  const blockedSummaryContinue = await page.evaluate(() => ({
-    activePage: document.querySelector('.page.on')?.dataset.page || '',
-    step: document.querySelector('[data-hh-wizard-root]')
-      ?.dataset.wizardStep || '',
-    code: document.querySelector('[data-hh-wizard-root]')
-      ?.dataset.validationCode || '',
-  }));
-  const afterSummaryContinue = await wizardState(page);
-  requireCondition(
-    blockedSummaryContinue.activePage === 'household'
-      && blockedSummaryContinue.step === 'summary'
-      && blockedSummaryContinue.code === 'CURRENT_1040_TAX_CONFIRMATION_REQUIRED'
-      && afterSummaryContinue.revision === beforeSummaryContinue.revision,
-    `Incomplete Summary entered planning: ${JSON.stringify(blockedSummaryContinue)}`,
-  );
 
   await goToWizardStep(page, 'tax');
   const continueSelector = '#hh-wiz-footer [data-hh-action="step-next"]';
   const beforeContinue = await wizardState(page);
-  await clickWizardAction(page, continueSelector, { expectRevision: false });
-  const blockedContinue = await page.evaluate(() => ({
-    code: document.querySelector('[data-hh-wizard-root]')
-      ?.dataset.validationCode || '',
-    checked: document.querySelector('[data-tax-confirmation]')?.checked === true,
+  await page.click(continueSelector);
+  await waitForWizard(page, {
+    step: 'summary',
+    afterRevision: beforeContinue.revision,
+  });
+
+  const taxUi = await page.evaluate(() => ({
+    confirmationCount: document.querySelectorAll('[data-tax-confirmation]').length,
+    readiness: document.querySelector('[data-tax-readiness]')
+      ?.dataset.taxReadiness || '',
   }));
   requireCondition(
-    blockedContinue.code === 'CURRENT_1040_TAX_CONFIRMATION_REQUIRED'
-      && blockedContinue.checked === false,
-    `Generic Tax Continue did not fail closed: ${JSON.stringify(blockedContinue)}`,
+    taxUi.confirmationCount === 0,
+    `Tax confirmation checkbox should be removed: ${JSON.stringify(taxUi)}`,
   );
-  const afterContinue = await wizardState(page);
-  requireCondition(
-    afterContinue.revision === beforeContinue.revision
-      && afterContinue.step === 'tax',
-    'Generic Tax Continue mutated or navigated the wizard',
-  );
+
+  await goToWizardStep(page, 'tax');
 
   await clickWizardAction(
     page,
@@ -927,45 +907,14 @@ async function verifyPlanningSourceAndTaxFlow(page){
     'standard',
   );
 
-  await requireUnique(page, '[data-tax-confirmation]');
-  const beforeBlankConfirmation = await wizardState(page);
-  await page.click('[data-tax-confirmation]');
-  const blankConfirmation = await page.evaluate(() => ({
-    checked: document.querySelector('[data-tax-confirmation]')?.checked === true,
-    code: document.querySelector('[data-hh-wizard-root]')
-      ?.dataset.validationCode || '',
-    scheduleDInvalid: document.querySelector(
-      '[data-tax-field="scheduleD.netLongTermGainOrLoss"]',
-    )?.getAttribute('aria-invalid') || '',
-  }));
-  const afterBlankConfirmation = await wizardState(page);
-  requireCondition(
-    blankConfirmation.checked === false
-      && blankConfirmation.code === 'CURRENT_1040_SCHEDULE_D_AMOUNT_REQUIRED'
-      && blankConfirmation.scheduleDInvalid === 'true'
-      && afterBlankConfirmation.revision === beforeBlankConfirmation.revision,
-    `Blank long-term field did not stay missing: ${JSON.stringify(blankConfirmation)}`,
-  );
-
-  await setWizardValue(
-    page,
-    '[data-tax-field="scheduleD.netLongTermGainOrLoss"]',
-    '0',
-  );
-  await clickWizardAction(page, '[data-tax-confirmation]');
-  const complete = await page.evaluate(() => ({
-    checked: document.querySelector('[data-tax-confirmation]')?.checked === true,
+  const readiness = await page.evaluate(() => ({
     readiness: document.querySelector('[data-tax-readiness]')
       ?.dataset.taxReadiness || '',
-    scheduleD: document.querySelector(
-      '[data-tax-field="scheduleD.netLongTermGainOrLoss"]',
-    )?.value || '',
+    confirmationCount: document.querySelectorAll('[data-tax-confirmation]').length,
   }));
   requireCondition(
-    complete.checked
-      && complete.readiness === 'ready'
-      && complete.scheduleD === '0',
-    `Explicit Tax completion did not calculate: ${JSON.stringify(complete)}`,
+    readiness.readiness === 'ready' && readiness.confirmationCount === 0,
+    `Tax readiness did not derive an estimate: ${JSON.stringify(readiness)}`,
   );
 
   await goToWizardStep(page, 'summary');
@@ -1019,7 +968,6 @@ async function verifySaveReloadAndOverride(page){
   const savedOverride = await page.evaluate(() => {
     const row = document.querySelector('[data-income-source-group="wages"]');
     return {
-      checked: document.querySelector('[data-tax-confirmation]')?.checked === true,
       value: row?.querySelector('[data-tax-field="income.wages"]')?.value || '',
       disabled: row?.querySelector('[data-tax-field="income.wages"]')
         ?.disabled === true,
@@ -1029,11 +977,10 @@ async function verifySaveReloadAndOverride(page){
     };
   });
   requireCondition(
-    savedOverride.checked
-      && savedOverride.value === '81000'
+    savedOverride.value === '81000'
       && !savedOverride.disabled
       && savedOverride.revert === 1,
-    `Save/reload lost Tax completion or override: ${JSON.stringify(savedOverride)}`,
+    `Save/reload lost Tax override: ${JSON.stringify(savedOverride)}`,
   );
 
   await clickWizardAction(
@@ -1043,15 +990,14 @@ async function verifySaveReloadAndOverride(page){
   const reverted = await page.evaluate(() => {
     const row = document.querySelector('[data-income-source-group="wages"]');
     return {
-      checked: document.querySelector('[data-tax-confirmation]')?.checked === true,
       value: row?.querySelector('[data-tax-field="income.wages"]')?.value || '',
       disabled: row?.querySelector('[data-tax-field="income.wages"]')
         ?.disabled === true,
     };
   });
   requireCondition(
-    !reverted.checked && reverted.value === '75000' && reverted.disabled,
-    `Planning-income revert did not invalidate completion: ${JSON.stringify(reverted)}`,
+    reverted.value === '75000' && reverted.disabled,
+    `Planning-income revert failed: ${JSON.stringify(reverted)}`,
   );
   await saveAndWait(page);
   await reloadWizard(page);
