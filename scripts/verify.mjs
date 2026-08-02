@@ -103,9 +103,13 @@ function verifyTaxBuckets(){
   const css = read(join(ROOT, 'styles', 'tax-buckets.css'));
 
   ok(/styles\/tax-buckets\.css\?v=1/.test(html), 'Tax Buckets stylesheet is not linked');
+  ok(/styles\/tax-aware-withdrawal\.css\?v=1/.test(html), 'Tax-Aware Withdrawal stylesheet is not linked');
   ok(/data-page="scenarios"[\s\S]*data-page="tax-buckets"[\s\S]*data-page="sequencing"/.test(html), 'Tax Buckets must sit between Scenarios and Sequencing');
   ok(/<section class="page" data-page="tax-buckets">[\s\S]*id="tax-buckets-view"/.test(html), 'Tax Buckets page mount is missing');
   ok(/buildCurrentTaxBucketSnapshot/.test(main), 'current Tax Buckets snapshot is not wired');
+  ok(/getPlan:\(\)=>plan/.test(main), 'Tax Buckets must read household plan without mutating it');
+  ok(/createTaxAwareWithdrawalController/.test(view), 'Withdrawal planner controller is not wired');
+  ok(/taxEngineAdapter/.test(read(join(ROOT, 'src', 'planning', 'taxBuckets', 'taxEngineAdapter.js'))), 'Tax engine adapter seam is missing');
   ok(/createTaxBucketsController/.test(main), 'Tax Buckets view controller is not wired');
   ok(!/(?:engine\.js|src\/tax\/|annual1040|ordinaryIncomeTax)/.test(view), 'Tax Buckets UI must not own engine or federal-tax math');
   ok(!/replay/i.test(view), 'production Tax Buckets UI must not ship a replay control');
@@ -368,6 +372,29 @@ try {
       throw new Error(`Tax Bucket pods do not share identical glass: ${JSON.stringify(live.styles)}`);
     }
     await page.screenshot({ path:join(OUT, '02-tax-buckets.png') });
+
+    await stableClick('[data-tb-sub="withdrawal"]');
+    await page.waitForFunction(() => {
+      const root = document.querySelector('[data-taw-root]');
+      const cols = document.querySelectorAll('.taw-col');
+      return !!root && cols.length === 4;
+    }, { timeout: 15000 });
+    const planner = await page.evaluate(() => ({
+      thresholds: document.querySelector('.taw-thresholds-head span')?.textContent.trim() || '',
+      columns: [...document.querySelectorAll('.taw-col-name')].map(el => el.textContent.trim()),
+      incomeTaxRate: document.querySelector('[data-taw-col="ord"] .taw-col-rate')?.textContent.trim() || '',
+      sliders: document.querySelectorAll('.taw-range').length,
+    }));
+    if(planner.thresholds !== 'Thresholds') throw new Error(`Withdrawal planner thresholds header missing: ${JSON.stringify(planner)}`);
+    if(planner.columns.join('|') !== 'Income Tax|Long-term gains|Medicare IRMAA|Social Security'){
+      throw new Error(`Withdrawal planner columns mismatch: ${JSON.stringify(planner.columns)}`);
+    }
+    if(planner.sliders !== 5) throw new Error(`Withdrawal planner expected five sliders: ${planner.sliders}`);
+    if(!/%/.test(planner.incomeTaxRate) && planner.incomeTaxRate !== '—'){
+      throw new Error(`Income tax marginal display unexpected: "${planner.incomeTaxRate}"`);
+    }
+    await page.screenshot({ path:join(OUT, '02-tax-buckets-withdrawal-planner.png') });
+
     await page.setViewport({ width:1920, height:1080, deviceScaleFactor:3 });
   });
 
