@@ -560,15 +560,12 @@
 .page[data-page="household"] .hh-account-row {
   display: grid;
   grid-template-columns:
-    minmax(140px, 1.1fr)
-    minmax(128px, 0.92fr)
-    minmax(105px, 0.72fr)
-    minmax(112px, 0.78fr)
-    minmax(112px, 0.72fr)
-    minmax(112px, 0.72fr)
+    minmax(190px, 1.35fr)
+    minmax(150px, 0.9fr)
+    minmax(170px, 0.9fr)
     52px;
-  align-items: center;
-  gap: 9px;
+  align-items: start;
+  gap: 14px;
 }
 
 .page[data-page="household"] .hh-account-head {
@@ -595,21 +592,35 @@
 }
 
 .page[data-page="household"] .hh-cell--amount input,
-.page[data-page="household"] .hh-cell--basis input {
+.page[data-page="household"] .hh-account-basis input {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
 
-.page[data-page="household"] .hh-cell--treatment {
+.page[data-page="household"] .hh-account-meta {
   display: flex;
   min-width: 0;
   align-items: center;
   gap: 8px;
+  margin-top: 6px;
   overflow: hidden;
-  color: var(--hh-body);
-  font-size: 11px;
+  color: var(--hh-muted);
+  font-size: 9px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.page[data-page="household"] .hh-account-basis {
+  display: grid;
+  gap: 4px;
+  margin-top: 7px;
+}
+
+.page[data-page="household"] .hh-account-basis > span {
+  color: var(--hh-muted);
+  font-size: 8px;
+  line-height: 1.2;
+  text-align: right;
 }
 
 .page[data-page="household"] .hh-treatment-dot {
@@ -665,7 +676,7 @@
 
 .page[data-page="household"] .hh-account-add-form {
   display: grid;
-  grid-template-columns: 1.2fr 1fr 0.75fr 0.78fr auto;
+  grid-template-columns: 1.2fr 0.9fr 0.9fr auto;
   align-items: end;
   gap: 10px;
   margin-top: 12px;
@@ -1218,14 +1229,11 @@
   .page[data-page="household"] .hh-account-head,
   .page[data-page="household"] .hh-account-row {
     grid-template-columns:
-      minmax(130px, 1fr)
-      minmax(120px, 0.92fr)
-      minmax(90px, 0.65fr)
-      minmax(105px, 0.72fr)
-      minmax(102px, 0.68fr)
-      minmax(102px, 0.68fr)
+      minmax(170px, 1.2fr)
+      minmax(130px, 0.85fr)
+      minmax(150px, 0.85fr)
       46px;
-    gap: 7px;
+    gap: 10px;
   }
 
   .page[data-page="household"] .hh-account-add-form {
@@ -1308,7 +1316,7 @@
 
   .page[data-page="household"] .hh-account-head,
   .page[data-page="household"] .hh-account-row {
-    min-width: 870px;
+    min-width: 620px;
   }
 }
 

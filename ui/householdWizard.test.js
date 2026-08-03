@@ -183,12 +183,17 @@ test('Family is compact and omits MFS and survivor controls', () => {
   assert.doesNotMatch(html, /Survivor assumption/i);
 });
 
-test('Net Worth uses stable account identity and derived tax treatment', () => {
+test('Net Worth presents account type, owner, and balance without a redundant account-name column', () => {
   const html = wizard().render('net-worth');
   assert.match(html, /data-account-id="acct-1"/);
   assert.match(html, /data-derived-treatment="acct-1"/);
-  assert.match(html, /data-account-field="displayName"/);
+  assert.match(html, />Account type</);
+  assert.match(html, />Account owner</);
+  assert.match(html, />Balance</);
+  assert.doesNotMatch(html, /data-account-field="displayName"/);
   assert.doesNotMatch(html, /data-account-field="taxTreatment"/);
+  assert.doesNotMatch(html, />Joint brokerage</);
+  assert.match(html, /<option value="joint" selected>Joint<\/option>/);
 });
 
 test('Tax preserves the approved 1040 order and removes ledger-only columns', () => {

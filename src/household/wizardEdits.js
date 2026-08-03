@@ -361,6 +361,10 @@ function applyAccountEdit(plan, command, timestamp){
   }else if(command.field === 'displayName'){
     account.displayName = normalizedText(command.value);
   }else if(command.field === 'owner'){
+    if(account.typeId === 'joint_brokerage' && command.value !== 'joint'){
+      account = replaceAccountType(account, 'brokerage_taxable');
+      plan.portfolio.extraAccounts[index] = account;
+    }
     const entry = getAccountTypeById(account.typeId);
     if(!entry?.wizardOwners?.includes(command.value)) throw new Error('Owner is not valid for this account type');
     account.owner = command.value;

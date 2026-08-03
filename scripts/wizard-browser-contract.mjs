@@ -579,12 +579,6 @@ async function verifyFamilyPropagation(page){
   await clickWizardAction(page, '[data-hh-action="add-account"]');
   await setWizardValue(
     page,
-    '[data-account-draft="displayName"]',
-    'Co-client Roth',
-    { expectRevision: false, eventType: 'input' },
-  );
-  await setWizardValue(
-    page,
     '[data-account-draft="typeId"]',
     'roth_ira',
     { expectRevision: false, eventType: 'input' },
@@ -724,11 +718,22 @@ async function verifyAccountFlow(page){
   await clickWizardAction(page, '[data-hh-action="add-account"]', {
     expectRevision: true,
   });
-  await setWizardValue(
-    page,
-    '[data-account-draft="displayName"]',
-    'Verifier brokerage',
-    { expectRevision: false, eventType: 'input' },
+  const accountFields = await page.evaluate(() => ({
+    name: document.querySelectorAll('[data-account-draft="displayName"]').length,
+    type: document.querySelectorAll('[data-account-draft="typeId"]').length,
+    owner: document.querySelectorAll('[data-account-draft="owner"]').length,
+    balance: document.querySelectorAll('[data-account-draft="balance"]').length,
+    jointType: !!document.querySelector('[data-account-draft="typeId"] option[value="joint_brokerage"]'),
+    jointOwner: !!document.querySelector('[data-account-draft="owner"] option[value="joint"]'),
+  }));
+  requireCondition(
+    accountFields.name === 0
+      && accountFields.type === 1
+      && accountFields.owner === 1
+      && accountFields.balance === 1
+      && accountFields.jointType === false
+      && accountFields.jointOwner === true,
+    `Net Worth must expose only type, owner, and balance: ${JSON.stringify(accountFields)}`,
   );
   await setWizardValue(
     page,

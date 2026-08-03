@@ -308,19 +308,20 @@ test('account updates and removals resolve the stable ID after reorder', () => {
   assert.deepEqual(removed.portfolio.extraAccounts.map(account => account.id), [first.id]);
 });
 
-test('account type derives tax treatment and displayName remains independent', () => {
+test('taxable brokerage accepts joint ownership while legacy joint brokerage remains editable', () => {
   const subject = plan();
   let edited = applyHouseholdWizardEdit(subject, {
     scope: 'account',
     action: 'add',
-    typeId: 'joint_brokerage',
+    typeId: 'brokerage_taxable',
     displayName: 'Joint brokerage',
-    owner: 'client',
+    owner: 'joint',
     balance: 1450000,
   }, { timestamp: '2026-07-29T12:00:00.000Z' });
 
   const account = edited.portfolio.extraAccounts[0];
   assert.equal(account.displayName, 'Joint brokerage');
+  assert.equal(account.typeId, 'brokerage_taxable');
   assert.equal(account.owner, 'joint');
   assert.equal(account.bucket, 'taxable');
 
@@ -334,6 +335,23 @@ test('account type derives tax treatment and displayName remains independent', (
   assert.equal(edited.portfolio.extraAccounts[0].displayName, 'Joint brokerage');
   assert.equal(edited.portfolio.extraAccounts[0].bucket, 'roth');
   assert.equal(edited.portfolio.extraAccounts[0].owner, 'client');
+
+  const legacy = createAccount('joint_brokerage', {
+    displayName: 'Existing joint brokerage',
+    owner: 'joint',
+    balance: 250000,
+  });
+  edited.portfolio.extraAccounts = [legacy];
+  edited = applyHouseholdWizardEdit(edited, {
+    scope: 'account',
+    action: 'update',
+    accountId: legacy.id,
+    field: 'owner',
+    value: 'client',
+  }, { timestamp: '2026-07-29T12:00:00.000Z' });
+  assert.equal(edited.portfolio.extraAccounts[0].typeId, 'brokerage_taxable');
+  assert.equal(edited.portfolio.extraAccounts[0].owner, 'client');
+  assert.equal(edited.portfolio.extraAccounts[0].balance, 250000);
 });
 
 test('tax edits route only through canonical current1040 and preserve explicit zero', () => {
