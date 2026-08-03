@@ -354,6 +354,36 @@ test('taxable brokerage accepts joint ownership while legacy joint brokerage rem
   assert.equal(edited.portfolio.extraAccounts[0].balance, 250000);
 });
 
+test('account money edits accept comma-formatted display values without storing strings', () => {
+  let edited = applyHouseholdWizardEdit(plan(), {
+    scope: 'account',
+    action: 'add',
+    typeId: 'brokerage_taxable',
+    owner: 'joint',
+    balance: '1,234,567',
+  }, { timestamp: '2026-07-29T12:00:00.000Z' });
+  const account = edited.portfolio.extraAccounts[0];
+  assert.equal(account.balance, 1234567);
+
+  edited = applyHouseholdWizardEdit(edited, {
+    scope: 'account',
+    action: 'update',
+    accountId: account.id,
+    field: 'basis',
+    value: '765,432',
+  }, { timestamp: '2026-07-29T12:00:00.000Z' });
+  assert.equal(edited.portfolio.extraAccounts[0].basis.amount, 765432);
+
+  edited = applyHouseholdWizardEdit(edited, {
+    scope: 'account',
+    action: 'update',
+    accountId: account.id,
+    field: 'balance',
+    value: '2,000,000',
+  }, { timestamp: '2026-07-29T12:00:00.000Z' });
+  assert.equal(edited.portfolio.extraAccounts[0].balance, 2000000);
+});
+
 test('tax edits route only through canonical current1040 and preserve explicit zero', () => {
   let subject = plan();
   subject = applyHouseholdWizardEdit(subject, {

@@ -23,6 +23,15 @@ function fieldValue(value){
   return escHtml(String(value));
 }
 
+function moneyFieldValue(value){
+  if(value === undefined || value === null || value === '') return '';
+  const parsed = typeof value === 'number'
+    ? value
+    : Number(String(value).replace(/[$,\s]/g, ''));
+  if(!Number.isFinite(parsed) || parsed < 0) return fieldValue(value);
+  return escHtml(Math.round(parsed).toLocaleString('en-US'));
+}
+
 function optionList(options, selected){
   return options.map(option => {
     const [value, label] = Array.isArray(option)
@@ -109,6 +118,7 @@ export function createHouseholdWizard(dependencies){
       uiState: dependencies.uiState,
       esc: escHtml,
       fieldValue,
+      moneyFieldValue,
       optionList,
       money,
       states: dependencies.states,

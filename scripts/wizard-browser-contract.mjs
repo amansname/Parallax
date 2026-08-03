@@ -753,6 +753,14 @@ async function verifyAccountFlow(page){
     '250000',
     { expectRevision: false, eventType: 'input' },
   );
+  const formattedDraftBalance = await page.$eval(
+    '[data-account-draft="balance"]',
+    input => input.value,
+  );
+  requireCondition(
+    formattedDraftBalance === '250,000',
+    `Account draft balance did not format with commas: "${formattedDraftBalance}"`,
+  );
   await clickWizardAction(page, '[data-hh-action="save-account"]');
   const account = await page.evaluate(() => {
     const row = document.querySelector('.hh-account-row');
@@ -767,7 +775,7 @@ async function verifyAccountFlow(page){
     account.count === 1
       && account.id
       && account.treatment === 'Taxable'
-      && account.balance === '250000',
+      && account.balance === '250,000',
     `Account add/derived treatment failed: ${JSON.stringify(account)}`,
   );
   await setWizardValue(

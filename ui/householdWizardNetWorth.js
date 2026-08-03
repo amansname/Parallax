@@ -2,7 +2,7 @@ export function renderHouseholdWizardNetWorth(ctx){
   const {
     plan,
     esc,
-    fieldValue,
+    moneyFieldValue,
     money,
     accountTypes,
     accountTreatment,
@@ -63,14 +63,14 @@ export function renderHouseholdWizardNetWorth(ctx){
         <div class="hh-cell hh-cell--amount">
           <label>
             <span class="hh-sr-only">Balance</span>
-            <input type="text" inputmode="decimal" value="${fieldValue(account.balance)}"
+            <input type="text" inputmode="decimal" value="${moneyFieldValue(account.balance)}"
               data-hh-field="account.${esc(account.id)}.balance"
               data-account-field="balance" data-account-id="${esc(account.id)}">
           </label>
           ${basis.editable ? `
             <label class="hh-account-basis">
               <span>${esc(basis.label)}</span>
-              <input type="text" inputmode="decimal" value="${fieldValue(basis.value)}"
+              <input type="text" inputmode="decimal" value="${moneyFieldValue(basis.value)}"
                 placeholder="${esc(basis.placeholder)}" aria-label="${esc(basis.label)}"
                 data-hh-field="account.${esc(account.id)}.basis"
                 data-account-field="basis" data-account-id="${esc(account.id)}">
@@ -103,7 +103,7 @@ export function renderHouseholdWizardNetWorth(ctx){
       </label>
       <label class="hh-field">
         <span>Balance</span>
-        <input type="text" inputmode="decimal" value="${esc(uiState.accountDraft.balance || '')}"
+        <input type="text" inputmode="decimal" value="${moneyFieldValue(uiState.accountDraft.balance)}"
           data-account-draft="balance" placeholder="0">
       </label>
       <div class="hh-account-add-actions">

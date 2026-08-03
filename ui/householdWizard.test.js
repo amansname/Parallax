@@ -82,6 +82,8 @@ function plan(){
 }
 
 function wizard({
+  accountFormOpen = false,
+  accountDraft = {},
   taxView = 'simplified',
   optionalMenuOpen = false,
   showScheduleSE = false,
@@ -106,8 +108,8 @@ function wizard({
     }];
   }
   const uiState = {
-    accountFormOpen: false,
-    accountDraft: {},
+    accountFormOpen,
+    accountDraft,
     taxView,
     optionalTaxItems: new Set(),
     optionalMenuOpen,
@@ -194,6 +196,16 @@ test('Net Worth presents account type, owner, and balance without a redundant ac
   assert.doesNotMatch(html, /data-account-field="taxTreatment"/);
   assert.doesNotMatch(html, />Joint brokerage</);
   assert.match(html, /<option value="joint" selected>Joint<\/option>/);
+  assert.match(html, /value="1,450,000"\s+data-hh-field="account\.acct-1\.balance"/);
+  assert.match(html, /value="980,000"\s+placeholder="Cost basis"/);
+});
+
+test('Net Worth formats an in-progress account balance with grouping separators', () => {
+  const html = wizard({
+    accountFormOpen: true,
+    accountDraft: { balance: '250000' },
+  }).render('net-worth');
+  assert.match(html, /value="250,000"\s+data-account-draft="balance"/);
 });
 
 test('Tax preserves the approved 1040 order and removes ledger-only columns', () => {
