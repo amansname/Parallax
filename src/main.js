@@ -1993,8 +1993,8 @@ function runAll(){
       if(window.ScenariosUI) window.ScenariosUI.sync();   // one authoritative Scenarios renderer
       const firstFailure = scenarios.find(s => s.runError)?.runError;
       syncHeaderStatus(failed
-        ? `Complete · ${failed} scenario${failed>1?'s':''} could not run${firstFailure ? `: ${firstFailure}` : ''}`
-        : 'Complete');
+        ? `Partial run · ${failed} scenario${failed>1?'s':''} could not run${firstFailure ? `: ${firstFailure}` : ''}`
+        : 'Plan updated · using available inputs');
       uiState.plansDirty = false;
     }catch(e){ syncHeaderStatus('Error'); console.error(e); }
     btn.disabled=false; running=false;

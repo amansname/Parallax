@@ -654,7 +654,7 @@ try {
     for(let i = 0; i < 60; i++){
       await new Promise(r => setTimeout(r, 500));
       const status = await page.evaluate(() => document.querySelector('#status')?.textContent || '');
-      if(/Complete/i.test(status)) break;
+      if(/Plan updated|Partial run/i.test(status)) break;
     }
 
     await page.click('button[data-page="scenarios"]');
@@ -1093,7 +1093,7 @@ try {
     await sleep(1200);
     await page.waitForSelector('#run-btn:not([disabled])', { timeout: 10000 });
     await page.click('#run-btn');
-    await page.waitForFunction(() => /Complete/i.test(document.querySelector('#status')?.textContent || ''), { timeout: 30000 });
+    await page.waitForFunction(() => /Plan updated|Partial run/i.test(document.querySelector('#status')?.textContent || ''), { timeout: 30000 });
     await page.click('button[data-page="scenarios"]');
     await sleep(600);
     await page.click('#scn-seg-compare');
