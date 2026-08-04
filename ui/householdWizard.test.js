@@ -91,6 +91,8 @@ function wizard({
   planningWages = false,
   planningWagesOverridden = false,
   taxReady = true,
+  partialIncome = false,
+  partialTax = false,
 } = {}){
   const value = plan();
   if(grossOnlyDistributions){
@@ -155,9 +157,19 @@ function wizard({
           taxTotalScope: 'FULL_1040',
           reasonCodes: [],
         })
-      : ({
+      : partialTax
+        ? ({
+            status: 'partial',
+            calculationScope: 'available-inputs',
+            totalIncome: partialIncome ? 125000 : null,
+            federalTaxLiability: 18734,
+            effectiveRate: 0.172,
+            taxTotalScope: 'FULL_1040',
+            reasonCodes: [],
+          })
+        : ({
           status: 'needs_facts',
-          totalIncome: null,
+          totalIncome: partialIncome ? 125000 : null,
           federalTaxLiability: null,
           taxTotalScope: 'NOT_CALCULABLE',
           reasonCodes: ['CURRENT_1040_LINE9_DEFERRED'],
@@ -320,6 +332,22 @@ test('Summary remains minimal and omits the rejected status and unlock sections'
   assert.match(html, /Portfolio by tax treatment/);
   assert.doesNotMatch(html, /Intake status/i);
   assert.doesNotMatch(html, /What this intake unlocks/i);
+});
+
+test('Summary shows available-input income and tax without incompleteness flags', () => {
+  const html = wizard({
+    taxReady: false,
+    partialIncome: true,
+    partialTax: true,
+  }).render('summary');
+  assert.match(html, /data-summary-income-status="partial"/);
+  assert.match(html, /\$125,000/);
+  assert.match(html, /data-summary-tax-status="partial"/);
+  assert.match(html, /data-summary-tax-scope="available-inputs"/);
+  assert.match(html, /Modeled federal tax[\s\S]*\$18,734/);
+  assert.doesNotMatch(html, /more facts needed/i);
+  assert.doesNotMatch(html, /additional tax facts/i);
+  assert.doesNotMatch(html, /needs additional facts/i);
 });
 
 test('Summary Enter planning is available even when tax summary is not calculable', () => {

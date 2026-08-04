@@ -1,4 +1,6 @@
+import { buildAvailableInputTaxSummary } from '../planning/tax/buildAvailableInputTaxSummary.js';
 import { buildCurrentIncomeTaxSummary } from '../planning/tax/buildCurrentIncomeTaxSummary.js';
+import { buildKnownCurrent1040IncomeSubtotal } from '../planning/tax/buildCurrent1040Intake.js';
 import { buildWizardTaxPlan } from './wizardCurrent1040.js';
 import { confirmWizardTaxInputs } from './wizardTaxCompletion.js';
 
@@ -10,7 +12,7 @@ function wizardNeedsFactsSummary(plan, error){
     message: error?.message || 'Current-return tax facts are incomplete',
     reasonCodes: code ? [code] : [],
     field: error?.field,
-    totalIncome: null,
+    totalIncome: buildKnownCurrent1040IncomeSubtotal(plan),
     federalTaxLiability: null,
     deductionUsed: null,
     rmdAge: 73,
@@ -27,6 +29,8 @@ export function buildWizardIncomeTaxSummary(plan){
   try{
     confirmWizardTaxInputs(clone);
   }catch(error){
+    const available = buildAvailableInputTaxSummary(plan, clone, error);
+    if(available) return available;
     return wizardNeedsFactsSummary(plan, error);
   }
   return buildCurrentIncomeTaxSummary(clone);

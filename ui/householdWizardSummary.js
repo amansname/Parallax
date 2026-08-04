@@ -8,9 +8,18 @@ export function renderHouseholdWizardSummary(ctx){
   const total = taxBucketSnapshot.totalBalance || 0;
   const buckets = taxBucketSnapshot.buckets;
   const pct = value => total > 0 ? Math.round((value / total) * 100) : 0;
-  const taxReady = taxSummary.status === 'ready'
-    && typeof taxSummary.federalTaxLiability === 'number';
+  const taxReady = typeof taxSummary.federalTaxLiability === 'number';
+  const taxStatus = !taxReady
+    ? 'not-calculable'
+    : taxSummary.status === 'ready'
+      ? 'ready'
+      : 'partial';
   const incomeReady = typeof taxSummary.totalIncome === 'number';
+  const incomeStatus = !incomeReady
+    ? 'not-calculable'
+    : taxSummary.status === 'ready'
+      ? 'ready'
+      : 'partial';
 
   return `
     <div class="hh-screen hh-summary-screen" data-hh-wizard-screen="summary"
@@ -31,19 +40,21 @@ export function renderHouseholdWizardSummary(ctx){
             + taxBucketSnapshot.buckets.roth.accountCount} funded accounts</small>
         </div>
         <div class="hh-summary-metric" data-summary-metric="income"
-          data-summary-income-status="${incomeReady ? 'ready' : 'not-calculable'}">
+          data-summary-income-status="${incomeStatus}">
           <span>Base-year income</span>
           <strong>${incomeReady ? money(taxSummary.totalIncome) : 'Unavailable'}</strong>
-          <small>${incomeReady ? 'Form 1040 total income' : esc(taxSummary.message || 'Additional tax facts required')}</small>
+          ${incomeStatus === 'ready'
+            ? '<small>Form 1040 total income</small>'
+            : ''}
         </div>
         <div class="hh-summary-metric" data-summary-metric="federal-tax"
-          data-summary-tax-status="${taxReady ? 'ready' : 'not-calculable'}"
-          data-summary-tax-scope="${esc(taxSummary.taxTotalScope || '')}">
+          data-summary-tax-status="${taxStatus}"
+          data-summary-tax-scope="${esc(taxSummary.calculationScope || taxSummary.taxTotalScope || '')}">
           <span>Modeled federal tax</span>
           <strong>${taxReady ? money(taxSummary.federalTaxLiability) : 'Unavailable'}</strong>
-          <small>${taxReady && typeof taxSummary.effectiveRate === 'number'
-            ? `Effective rate ${(taxSummary.effectiveRate * 100).toFixed(1)}%`
-            : esc(taxSummary.taxTotalScope || 'Needs additional facts')}</small>
+          ${taxReady && typeof taxSummary.effectiveRate === 'number'
+            ? `<small>Effective rate ${(taxSummary.effectiveRate * 100).toFixed(1)}%</small>`
+            : ''}
         </div>
       </section>
 
