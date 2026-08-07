@@ -30,8 +30,8 @@ export function resolveGoalSpan(plan){
   if(spouse && Number.isFinite(+spouse.currentAge) && Number.isFinite(+spouse.retirementAge)){
     retireAge = Math.max(retireAge, currentAge + (+spouse.retirementAge - +spouse.currentAge));
   }
-  if(spouse && Number.isFinite(+spouse.currentAge) && Number.isFinite(+spouse.planEndAge)){
-    planEndAge = Math.max(planEndAge, currentAge + (+spouse.planEndAge - +spouse.currentAge));
+  if(spouse && Number.isFinite(+spouse.planEndAge)){
+    planEndAge = Math.max(planEndAge, +spouse.planEndAge);
   }
   const endAge = Math.max(50, Math.round(planEndAge));
   const retirementAge = clamp(Math.round(retireAge), 50, endAge);

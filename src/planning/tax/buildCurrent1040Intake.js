@@ -631,6 +631,12 @@ export function buildCurrent1040Intake(plan){
   });
 }
 
+/** Return canonical current-return facts only when the full intake is ready. */
+export function buildReadyCurrent1040Intake(plan){
+  const built = buildCurrent1040Intake(plan);
+  return built.gaps.length === 0 ? built.intake : null;
+}
+
 /**
  * Sum only Form 1040 income amounts that are explicitly available now.
  * Missing fields stay missing: this never materializes or assumes zeroes.

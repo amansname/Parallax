@@ -138,7 +138,6 @@
 .app-header .cluster[data-state="saved"] .dot { background: var(--hdr-saved); }
 .app-header .cluster[data-state="edited"] .dot { background: var(--hdr-accent); }
 .app-header .cluster[data-state="needs-run"] .dot { background: var(--hdr-needs-run); }
-.app-header .cluster__save,
 .app-header .cluster__run {
   display: flex;
   align-items: center;
@@ -153,21 +152,6 @@
   font-size: 12.5px;
   line-height: 1;
   text-transform: uppercase;
-}
-.app-header .cluster__save {
-  color: var(--hdr-faint);
-  font-weight: 600;
-  letter-spacing: 0.14em;
-  cursor: default;
-  opacity: 1;
-}
-.app-header .cluster__save.save-btn--dirty {
-  color: var(--hdr-accent);
-  cursor: pointer;
-}
-.app-header .cluster__save.save-btn--failed {
-  color: var(--hdr-needs-run);
-  cursor: pointer;
 }
 .app-header .cluster__run {
   min-width: 64px;
@@ -184,7 +168,6 @@
   cursor: wait;
 }
 .app-header .htab:focus-visible,
-.app-header .cluster__save:focus-visible,
 .app-header .cluster__run:focus-visible {
   outline: 1px solid rgba(198, 166, 98, 0.70);
   outline-offset: 3px;

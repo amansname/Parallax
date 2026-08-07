@@ -677,7 +677,13 @@ async function verifyFamilyPropagation(page){
       && removed.removeAction === 0,
     `Confirmed co-client removal was not atomic: ${JSON.stringify(removed)}`,
   );
-  await saveAndWait(page);
+  await page.waitForFunction(() => {
+    const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+    const active = localStorage.getItem('parallax.activeHouseholdId');
+    const saved = db?.[active];
+    return saved?.meta?.filingStatus === 'single'
+      && saved?.household?.spouse == null;
+  }, { timeout: 10000 });
   await reloadWizard(page);
   await goToWizardStep(page, 'family');
   const persistedRemoval = await page.evaluate(() => ({
@@ -956,19 +962,25 @@ async function verifyPlanningSourceAndTaxFlow(page){
   );
 }
 
-async function saveAndWait(page){
-  await requireUnique(page, '#save-btn', 'Save button');
-  const disabled = await page.$eval('#save-btn', button => button.disabled);
-  requireCondition(!disabled, 'Save was not armed after wizard edits');
-  await page.click('#save-btn');
+async function waitForAutoSave(page){
+  const saveCount = await page.$$eval('#save-btn', elements => elements.length);
+  requireCondition(saveCount === 0, 'Manual Save control still rendered');
   await page.waitForFunction(() => {
-    const button = document.querySelector('#save-btn');
-    return button?.disabled === true && /^Saved/.test(button.textContent.trim());
-  }, { timeout: 8000 });
+    const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+    const active = localStorage.getItem('parallax.activeHouseholdId');
+    const saved = db?.[active];
+    const rows = (saved?.income?.other || [])
+      .filter(row => row?.typeId === 'wages' || row?.typeId === 'bonus')
+      .map(row => ({ owner: row.owner, amount: row.amount }));
+    return JSON.stringify(rows) === JSON.stringify([
+      { owner: 'client', amount: 81000 },
+      { owner: 'spouse', amount: 39000 },
+    ]);
+  }, { timeout: 10000 });
 }
 
-async function verifySaveReloadAndMemberWages(page){
-  await saveAndWait(page);
+async function verifyAutoSaveReloadAndMemberWages(page){
+  await waitForAutoSave(page);
   await reloadWizard(page);
   await goToWizardStep(page, 'tax');
   const savedWages = await page.evaluate(() => {
@@ -1013,7 +1025,7 @@ async function verifySaveReloadAndMemberWages(page){
       && !savedWages.clientDisabled
       && !savedWages.spouseDisabled
       && savedWages.sourceButtons === 0,
-    `Save/reload lost member wages: ${JSON.stringify(savedWages)}`,
+    `Auto-save/reload lost member wages: ${JSON.stringify(savedWages)}`,
   );
   requireCondition(
     JSON.stringify(savedWages.rows) === JSON.stringify([
@@ -1035,7 +1047,7 @@ async function verifySaveReloadAndMemberWages(page){
         },
       })
       && savedWages.storedAggregate === false,
-    `Saved wages did not use the member-owned contract: ${JSON.stringify(savedWages)}`,
+    `Auto-saved wages did not use the member-owned contract: ${JSON.stringify(savedWages)}`,
   );
 }
 
@@ -1274,7 +1286,7 @@ export async function runWizardBrowserContract(
     await verifyFamilyPropagation(page);
     await verifyAccountFlow(page);
     await verifyPlanningSourceAndTaxFlow(page);
-    await verifySaveReloadAndMemberWages(page);
+    await verifyAutoSaveReloadAndMemberWages(page);
     await verifyDuplicateRepair(page);
 
     const viewports = [

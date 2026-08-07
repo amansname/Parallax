@@ -72,7 +72,7 @@ const scenariosUiValues = {
   cashActive: false,
   focusedId: null,
   showRange: true,
-  goalsExpanded: false,
+  goalsExpanded: true,
   cashFromRetirement: false,
 };
 
