@@ -102,6 +102,7 @@ function verifyTaxBuckets(){
   const main = read(join(ROOT, 'src', 'main.js'));
   const view = read(join(ROOT, 'ui', 'taxBuckets.js'));
   const columns = read(join(ROOT, 'ui', 'taxAwareWithdrawalColumns.js'));
+  const withdrawalDom = read(join(ROOT, 'ui', 'taxAwareWithdrawalDom.js'));
   const css = read(join(ROOT, 'styles', 'tax-buckets.css'));
 
   ok(/styles\/tax-buckets\.css\?v=1/.test(html), 'Tax Buckets stylesheet is not linked');
@@ -120,6 +121,8 @@ function verifyTaxBuckets(){
   ok(!/(?:engine\.js|src\/tax\/|annual1040|ordinaryIncomeTax)/.test(view), 'Tax Buckets UI must not own engine or federal-tax math');
   ok(/thresholdTaxDollars/.test(columns), 'Withdrawal Planner columns must display tax-engine dollar outputs');
   ok(!/label:\s*['"](?:15|20|50|85)%['"]/.test(columns), 'Withdrawal Planner UI must not hardcode federal tax-rate labels');
+  ok(!/data-taw-(?:year|fs|mfs|law)/.test(withdrawalDom), 'Withdrawal Planner must use canonical household tax facts without page-local overrides');
+  ok(!/Shapley|Attribution unavailable|Conversion and QCD held fixed/.test(withdrawalDom), 'Withdrawal Planner must not render calculation methodology copy');
   ok(!/replay/i.test(view), 'production Tax Buckets UI must not ship a replay control');
   ok(/#tax-buckets-view/.test(css), 'Tax Buckets page mount styling is missing');
 
@@ -274,7 +277,7 @@ try {
     const blank = firstRun.db?.demo;
     if(firstRun.active !== 'demo' || !blank) throw new Error('first run did not create the blank demo slot');
     if(blank.meta?.name !== 'Demo Household' || blank.meta?.isDemo !== true) throw new Error('blank demo metadata is wrong');
-    if(blank.meta?.primaryName || blank.household?.spouse || blank.income?.socialSecurity?.primary?.pia !== 0 || blank.income?.socialSecurity?.primary?.claimAge !== 67)
+    if(blank.meta?.primaryName || blank.household?.spouse || blank.income?.socialSecurity?.primary?.pia !== null || blank.income?.socialSecurity?.primary?.claimAge !== 67)
       throw new Error(`first-run demo contains fictional values: ${JSON.stringify(blank)}`);
   });
 
@@ -395,14 +398,19 @@ try {
       active: document.querySelector('.page.on')?.dataset.page || '',
       columns: document.querySelectorAll('[data-taw-col]').length,
       sliders: document.querySelectorAll('.taw-range').length,
+      enabledSliders: document.querySelectorAll('.taw-range:not(:disabled)').length,
+      sliderCaps: Array.from(document.querySelectorAll('.taw-range'), input => Number(input.max)),
       ord: !!document.querySelector('[data-taw-col="ord"]'),
     }));
     if(planner.active !== 'tax-buckets') throw new Error(`Tax Buckets tab not active: ${JSON.stringify(planner)}`);
     if(planner.columns !== 4 || !planner.ord) throw new Error(`Withdrawal planner layout incomplete: ${JSON.stringify(planner)}`);
     if(planner.sliders !== 5) throw new Error(`Withdrawal planner expected five sliders: ${planner.sliders}`);
+    if(planner.enabledSliders !== 5 || planner.sliderCaps.some(cap => !(cap > 0))){
+      throw new Error(`funded Withdrawal Planner sliders are not enabled: ${JSON.stringify(planner)}`);
+    }
 
     await page.waitForFunction(
-      () => document.querySelector('[data-taw-law]')?.textContent.trim() !== '\u2014',
+      () => document.querySelector('[data-taw-federal-tax]')?.textContent.trim() !== '\u2014',
       { timeout: 15000 },
     );
     const thresholdProof = await page.evaluate(async () => {
@@ -437,14 +445,23 @@ try {
           ordinary: money(result?.thresholdTaxDollars?.ordinaryIncomeTax),
           ltcg: money(result?.thresholdTaxDollars?.preferentialIncomeTax),
           socialSecurity: money(result?.thresholdTaxDollars?.socialSecurityIncrementalModeledFederalIncomeTax),
+          federalTax: money(result?.totals?.federalTax),
+          effectiveRate: pct(result?.totals?.effectiveRate),
+          marginalRate: pct(result?.totals?.marginalRate ?? result?.ordinary?.rate),
           ltcgMiddleRate: pct(result?.ladders?.ltcg?.rates?.middle),
           socialSecurityLowerRate: pct(result?.ladders?.socialSecurity?.rates?.lowerTier),
         },
         actual: {
+          ordinaryHeadline: text('[data-taw-col="ord"] .taw-col-rate'),
+          ltcgHeadline: text('[data-taw-col="ltcg"] .taw-col-rate'),
+          socialSecurityHeadline: text('[data-taw-col="ss"] .taw-col-rate'),
           ordinary: text('[data-taw-col="ord"] .taw-col-edge span'),
           ltcg: text('[data-taw-col="ltcg"] .taw-col-edge span'),
           irmaa: text('[data-taw-col="irmaa"] .taw-col-edge span'),
           socialSecurity: text('[data-taw-col="ss"] .taw-col-edge span'),
+          federalTax: text('[data-taw-federal-tax]'),
+          effectiveRate: text('[data-taw-effective-rate]'),
+          marginalRate: text('[data-taw-marginal-rate]'),
           ltcgMiddleRate: text('[data-taw-mark="ltcg:0"] .taw-mark-chip'),
           socialSecurityLowerRate: text('[data-taw-mark="ss:0"] .taw-mark-chip'),
         },
@@ -452,55 +469,86 @@ try {
     });
     if(thresholdProof.resultCode) throw new Error(`live tax-engine result unavailable: ${JSON.stringify(thresholdProof)}`);
     if(
-      thresholdProof.actual.ordinary !== thresholdProof.expected.ordinary
+      thresholdProof.actual.ordinaryHeadline !== thresholdProof.expected.ordinary
+      || thresholdProof.actual.ltcgHeadline !== thresholdProof.expected.ltcg
+      || thresholdProof.actual.socialSecurityHeadline !== thresholdProof.expected.socialSecurity
+      || thresholdProof.actual.ordinary !== thresholdProof.expected.ordinary
       || thresholdProof.actual.ltcg !== thresholdProof.expected.ltcg
       || thresholdProof.actual.socialSecurity !== thresholdProof.expected.socialSecurity
       || thresholdProof.actual.irmaa !== '\u2014'
+      || thresholdProof.actual.federalTax !== thresholdProof.expected.federalTax
+      || thresholdProof.actual.effectiveRate !== thresholdProof.expected.effectiveRate
+      || thresholdProof.actual.marginalRate !== thresholdProof.expected.marginalRate
       || thresholdProof.actual.ltcgMiddleRate !== thresholdProof.expected.ltcgMiddleRate
       || thresholdProof.actual.socialSecurityLowerRate !== thresholdProof.expected.socialSecurityLowerRate
     ) {
       throw new Error(`rendered threshold contract differs from tax engine: ${JSON.stringify(thresholdProof)}`);
     }
 
-    await page.click('[data-taw-year="2025"]');
-    await page.waitForFunction(() => {
-      const year = document.querySelector('[data-taw-year="2025"]');
-      const edge = document.querySelector('[data-taw-col="ord"] .taw-col-edge span');
-      return year?.classList.contains('is-on') && edge?.textContent.trim() === '\u2014';
-    }, { timeout: 15000 });
-    const incomplete = await page.evaluate(() => {
-      const text = selector => document.querySelector(selector)?.textContent.trim() ?? null;
-      const columns = ['ord', 'ltcg', 'ss'].map(id => ({
-        id,
-        rate: text(`[data-taw-col="${id}"] .taw-col-rate`),
-        edge: text(`[data-taw-col="${id}"] .taw-col-edge span`),
-        foot: text(`[data-taw-col="${id}"] .taw-col-foot-val`),
-      }));
-      return {
-        baseline: text('[data-taw-baseline-total]'),
-        socialSecurity: text('[data-taw-fact-ss]'),
-        otherIncome: text('[data-taw-fact-other]'),
-        wages: text('[data-taw-fact-wages]'),
-        columns,
-      };
-    });
+    const plannerControls = await page.evaluate(() => ({
+      localTaxOverrides: document.querySelectorAll(
+        '[data-taw-year], [data-taw-fs], [data-taw-mfs], [data-taw-law]',
+      ).length,
+      methodologyCopy: document.querySelectorAll('.taw-att-note').length,
+      wageTag: document.querySelector('[data-taw-fact-wages]')?.tagName ?? null,
+      fixedIncomeInputs: document.querySelectorAll(
+        'input[data-taw-fact-wages], input[data-taw-fact-ss], input[data-taw-fact-other]',
+      ).length,
+      fixedIncomeOrder: Array.from(
+        document.querySelector('.taw-income-list')?.children || [],
+        element => element.className,
+      ),
+      amountRightEdges: [
+        '[data-taw-fact-ss]',
+        '[data-taw-fact-wages]',
+        '[data-taw-fact-other]',
+        '[data-taw-baseline-total]',
+        '[data-taw-slider-val="rothConversion"]',
+        '[data-taw-slider-val="rothWithdrawal"]',
+        '[data-taw-slider-val="qcd"]',
+        '[data-taw-slider-val="deferredWithdrawal"]',
+        '[data-taw-slider-val="taxableWithdrawal"]',
+      ].map(selector => document.querySelector(selector)?.getBoundingClientRect().right ?? null),
+    }));
+    const amountEdges = plannerControls.amountRightEdges.filter(Number.isFinite);
     if(
-      incomplete.baseline !== '\u2014'
-      || incomplete.socialSecurity !== '\u2014'
-      || incomplete.otherIncome !== '\u2014'
-      || incomplete.wages !== '\u2014'
-      || incomplete.columns.some(column => (
-        column.rate !== '\u2014' || column.edge !== '\u2014' || column.foot !== '\u2014'
-      ))
+      plannerControls.localTaxOverrides !== 0
+      || plannerControls.methodologyCopy !== 0
+      || plannerControls.wageTag !== 'SPAN'
+      || plannerControls.fixedIncomeInputs !== 0
+      || plannerControls.fixedIncomeOrder.join('|') !== [
+        'taw-income-heading',
+        'taw-income-row',
+        'taw-income-row',
+        'taw-income-row',
+        'taw-income-total',
+      ].join('|')
+      || amountEdges.length !== 9
+      || Math.max(...amountEdges) - Math.min(...amountEdges) > 0.5
     ) {
-      throw new Error(`incomplete prior-year facts rendered false values: ${JSON.stringify(incomplete)}`);
+      throw new Error(`Withdrawal Planner contains non-canonical controls or copy: ${JSON.stringify(plannerControls)}`);
     }
-    await page.click('[data-taw-year="2026"]');
-    await page.waitForFunction(
-      () => document.querySelector('[data-taw-year="2026"]')?.classList.contains('is-on')
-        && document.querySelector('[data-taw-col="ord"] .taw-col-edge span')?.textContent.trim() !== '\u2014',
-      { timeout: 15000 },
+
+    const baselinePlannerTax = await page.$eval(
+      '[data-taw-federal-tax]',
+      element => element.textContent.trim(),
     );
+    await page.$eval('[data-taw-lever="deferredWithdrawal"]', input => {
+      input.value = '50000';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await page.waitForFunction(baseline => (
+      document.querySelector('[data-taw-slider-val="deferredWithdrawal"]')?.textContent.trim() === '$50,000'
+      && document.querySelector('[data-taw-federal-tax]')?.textContent.trim() !== baseline
+    ), { timeout: 15000 }, baselinePlannerTax);
+    await page.$eval('[data-taw-lever="deferredWithdrawal"]', input => {
+      input.value = '0';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await page.waitForFunction(baseline => (
+      document.querySelector('[data-taw-slider-val="deferredWithdrawal"]')?.textContent.trim() === '$0'
+      && document.querySelector('[data-taw-federal-tax]')?.textContent.trim() === baseline
+    ), { timeout: 15000 }, baselinePlannerTax);
     await page.screenshot({ path:join(OUT, '02-tax-buckets.png') });
     await page.setViewport({ width:1920, height:1080, deviceScaleFactor:3 });
   });
@@ -597,10 +645,11 @@ try {
       nextApprovalGate = new Promise(resolveGate => { releaseStaleApproval = resolveGate; });
       conversion.value = '30000';
       conversion.dispatchEvent(new Event('input', { bubbles: true }));
+      const conversionImmediatelyAfterInput = conversion.value;
       await waitFor(() => calls.length === 3, 'approval pending before refresh');
       let releaseRefresh;
       nextRefreshGate = new Promise(resolveGate => { releaseRefresh = resolveGate; });
-      host.querySelector('[data-taw-year="2025"]').click();
+      controller.sync();
       await waitFor(
         () => refreshStateCalls === 1 && conversion.value === '60000',
         'refresh invalidation of pending approval',
@@ -630,6 +679,7 @@ try {
           wages: wages.textContent,
         },
         refreshRace: {
+          conversionImmediatelyAfterInput,
           conversionAfterStaleReturn,
           callsWhileRefreshPending,
           postRefreshCall: calls[3],
@@ -658,7 +708,8 @@ try {
       throw new Error(`available income fields were erased by a partial result: ${JSON.stringify(proof)}`);
     }
     if (
-      proof.refreshRace.conversionAfterStaleReturn !== '60000'
+      proof.refreshRace.conversionImmediatelyAfterInput !== '30000'
+      || proof.refreshRace.conversionAfterStaleReturn !== '60000'
       || proof.refreshRace.callsWhileRefreshPending !== 3
       || proof.refreshRace.postRefreshCall?.currentLevers?.rothConversion !== 60000
       || proof.refreshRace.finalTaxable !== '10000'
@@ -1683,7 +1734,7 @@ try {
     if(s.active !== 'demo') throw new Error(`active household not "demo" on first load (got "${s.active}")`);
     if(!s.db.demo.meta || s.db.demo.meta.isDemo !== true) throw new Error('seeded demo record missing meta.isDemo=true');
     if(s.db.demo.meta.name !== 'Demo Household') throw new Error(`seeded demo meta.name wrong: "${s.db.demo.meta?.name}"`);
-    if(s.db.demo.meta.primaryName || s.db.demo.household.spouse || s.db.demo.income.socialSecurity.primary.pia !== 0 || s.db.demo.income.socialSecurity.primary.claimAge !== 67)
+    if(s.db.demo.meta.primaryName || s.db.demo.household.spouse || s.db.demo.income.socialSecurity.primary.pia !== null || s.db.demo.income.socialSecurity.primary.claimAge !== 67)
       throw new Error(`first-run demo is not blank: ${JSON.stringify(s.db.demo)}`);
     if((s.db.demo.portfolio.extraAccounts || []).length || (s.db.demo.income.other || []).length)
       throw new Error('first-run demo contains hardcoded accounts or income');
@@ -1832,7 +1883,7 @@ try {
     }), customId);
     if(after.active !== 'demo' || !after.db.demo || after.db.demo.meta.isDemo !== true)
       throw new Error(`Load Demo did not recreate and activate demo: ${JSON.stringify(after)}`);
-    if(after.db.demo.meta.primaryName || after.db.demo.household.spouse || after.db.demo.income.socialSecurity.primary.pia !== 0 || after.db.demo.income.socialSecurity.primary.claimAge !== 67)
+    if(after.db.demo.meta.primaryName || after.db.demo.household.spouse || after.db.demo.income.socialSecurity.primary.pia !== null || after.db.demo.income.socialSecurity.primary.claimAge !== 67)
       throw new Error(`Load Demo recreated fictional values: ${JSON.stringify(after.db.demo)}`);
     if(after.db[customId]?.meta?.primaryName !== 'Custom Saved' || after.db[customId]?.income?.socialSecurity?.primary?.pia !== 7777)
       throw new Error(`Load Demo altered the saved custom household: ${JSON.stringify(after.db[customId])}`);

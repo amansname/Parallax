@@ -3,7 +3,6 @@ import {
   applyHoverColumns,
   applyIncomeFacts,
   applyResultView,
-  applyToolbarState,
   cacheWithdrawalRefs,
   mountWithdrawalPlannerShell,
   paintLeverSync,
@@ -55,8 +54,6 @@ export function createTaxAwareWithdrawalController(deps) {
   let levers = defaultLevers();
   let facts = defaultFacts(null);
   let accountState = null;
-  let filingStatusOverride = null;
-  let livedWithSpouseOverride = null;
   let activeHouseholdId = null;
   let activePlan = null;
   let result = null;
@@ -208,9 +205,10 @@ export function createTaxAwareWithdrawalController(deps) {
       ) return;
       const nextFacts = {
         ...inc,
-        filingStatus:
-          filingStatusOverride ?? inc.filingStatus ?? plan.meta?.filingStatus ?? null,
-        livedWithSpouse: livedWithSpouseOverride,
+        filingStatus: inc.filingStatus ?? plan.meta?.filingStatus ?? null,
+        livedWithSpouse: typeof inc.livedWithSpouse === 'boolean'
+          ? inc.livedWithSpouse
+          : null,
         socialSecurityBenefits: Number.isFinite(inc.socialSecurityBenefits)
           ? inc.socialSecurityBenefits
           : null,
@@ -259,7 +257,6 @@ export function createTaxAwareWithdrawalController(deps) {
       updateSliderCaps(viewRefs, accountState);
       facts = nextFacts;
       applyIncomeFacts(viewRefs, facts);
-      applyToolbarState(viewRefs, { taxYear: selectedTaxYear, facts });
       await recompute();
     } finally {
       releaseRefresh();
@@ -282,6 +279,7 @@ export function createTaxAwareWithdrawalController(deps) {
       : 0;
     const plan = deps.getPlan();
     const viewRefs = refs;
+    paintLeverSync(viewRefs, key, value);
     const work = leverQueue.then(async () => {
       let ad = null;
       try {
@@ -347,33 +345,6 @@ export function createTaxAwareWithdrawalController(deps) {
     }
   }
 
-  function onClick(event) {
-    const btn = event.target.closest('button');
-    if (!btn || !host?.contains(btn) || !refs) return;
-    const fs = btn.getAttribute('data-taw-fs');
-    if (fs) {
-      filingStatusOverride = fs;
-      facts = { ...facts, filingStatus: fs };
-      applyToolbarState(refs, { taxYear, facts });
-      refreshCapsAndIncome();
-      return;
-    }
-    const year = btn.getAttribute('data-taw-year');
-    if (year) {
-      taxYear = Number(year);
-      applyToolbarState(refs, { taxYear, facts });
-      refreshCapsAndIncome();
-      return;
-    }
-    const mfs = btn.getAttribute('data-taw-mfs');
-    if (mfs) {
-      livedWithSpouseOverride = mfs === 'together';
-      facts = { ...facts, livedWithSpouse: livedWithSpouseOverride };
-      applyToolbarState(refs, { taxYear, facts });
-      recompute();
-    }
-  }
-
   function onMarkEnter(event) {
     const mark = event.target.closest('[data-taw-mark]');
     if (!mark || !host?.contains(mark) || mark.hidden) return;
@@ -399,7 +370,6 @@ export function createTaxAwareWithdrawalController(deps) {
     if (listenersHost === element) return;
     listenersHost = element;
     element.addEventListener('input', onInput);
-    element.addEventListener('click', onClick);
     element.addEventListener('mouseover', onMarkEnter);
     element.addEventListener('mouseout', onMarkLeave);
   }
@@ -420,20 +390,18 @@ export function createTaxAwareWithdrawalController(deps) {
     activeHouseholdId = plan?.meta?.householdId ?? null;
     activePlan = plan;
     facts = defaultFacts(plan);
-    taxYear = 2026;
+    taxYear = Number.isInteger(plan?.incomeTax?.current1040?.taxYear)
+      ? plan.incomeTax.current1040.taxYear
+      : (Number.isInteger(plan?.meta?.planningAsOfYear)
+        ? plan.meta.planningAsOfYear
+        : 2026);
     levers = defaultLevers();
     accountState = null;
-    filingStatusOverride = null;
-    livedWithSpouseOverride = null;
     attribution = null;
     result = null;
     hoverMark = null;
     bindListeners(host);
     ensureShell();
-    applyToolbarState(refs, { taxYear, facts });
-    if (refs.attNote) {
-      refs.attNote.textContent = 'Tax caused: order-independent Shapley split of line 24 across the three withdrawal sleeves.';
-    }
     LEVER_KEYS.forEach(key => paintLeverSync(refs, key, levers[key]));
     refreshCapsAndIncome({ clearCaps: true });
   }
@@ -441,6 +409,11 @@ export function createTaxAwareWithdrawalController(deps) {
   function sync() {
     if (!host) return;
     const plan = deps.getPlan();
+    const nextTaxYear = Number.isInteger(plan?.incomeTax?.current1040?.taxYear)
+      ? plan.incomeTax.current1040.taxYear
+      : (Number.isInteger(plan?.meta?.planningAsOfYear)
+        ? plan.meta.planningAsOfYear
+        : 2026);
     const nextHouseholdId = plan?.meta?.householdId ?? null;
     const householdChanged = nextHouseholdId !== null
       ? nextHouseholdId !== activeHouseholdId
@@ -452,21 +425,19 @@ export function createTaxAwareWithdrawalController(deps) {
       recomputeToken++;
       activeHouseholdId = nextHouseholdId;
       activePlan = plan;
-      taxYear = 2026;
+      taxYear = nextTaxYear;
       levers = defaultLevers();
       facts = defaultFacts(plan);
       accountState = null;
-      filingStatusOverride = null;
-      livedWithSpouseOverride = null;
       attribution = null;
       result = null;
       hoverMark = null;
       invalidateComputedView({ clearCaps: true });
       LEVER_KEYS.forEach(key => paintLeverSync(refs, key, levers[key]));
-      applyToolbarState(refs, { taxYear, facts });
       applyAttribution(refs, null, null);
     } else {
       activePlan = plan;
+      taxYear = nextTaxYear;
     }
     refreshCapsAndIncome({ clearCaps: householdChanged });
   }
