@@ -1,6 +1,7 @@
 import { runSimulation, resolveInputs, generateReturnPath, resetSeed, LONGRUN_INFLATION, pathDigest, RISK_PROFILES, defaultPlan as plan } from '../engine.js';
 import { runFederalFundingSimulation } from './planning/tax/runMonteCarloWithFederalFunding.js';
 import { runHistoricalPathWithFederalTax } from './planning/tax/runHistoricalPathWithFederalTax.js';
+import { buildCurrent1040Intake } from './planning/tax/buildCurrent1040Intake.js';
 import { fmtM, fmtMoney } from '../ui/formatters.js';
 import { storyChart, seqChartSvg } from '../ui/charts.js?v=2';
 import { escHtml } from '../ui/dom.js';
@@ -25,6 +26,7 @@ import {
   readHouseholdStore,
 } from './household/persistence.js';
 import { createGoalsHorizonController } from '../ui/goalsHorizon.js';
+import { resolveGoalSpan } from './goals/horizonModel.js';
 import { createTaxBucketsController } from '../ui/taxBuckets.js';
 import { pathModeLabel, drawSeqChart, renderPrints, syncPathControls, updatePathReplayMode } from '../ui/sequencing.js';
 import { buildPathRows, buildCashSummary, renderCashflow } from '../ui/cashflow.js';
@@ -423,18 +425,26 @@ function removeScenario(ci){
 // same markets — apples-to-apples, deterministic with our seeded RNG.
 function trySuccess(L){
   if(!canRunEngine() || isHouseholdStorageReadOnly()) return NaN;
-  const p = planForScenario(L);
-  const ov = leversToOverrides(L);
-  return runSimulation(p, ov, sharedPaths).successRate;
+  try{
+    const p = planForScenario(L);
+    const ov = leversToOverrides(L);
+    return runSimulation(p, ov, sharedPaths).successRate;
+  }catch(_){
+    return NaN;
+  }
 }
 // Probability (0–100) of ending with at least `goal` dollars — the legacy score.
 function tryLegacyProb(L, goal){
   if(!canRunEngine() || isHouseholdStorageReadOnly()) return NaN;
-  const p = planForScenario(L);
-  const ov = leversToOverrides(L);
-  const res = runSimulation(p, ov, sharedPaths);
-  const n = res.sims.length || 1;
-  return 100 * res.sims.filter(s => s.terminalBalance >= goal).length / n;
+  try{
+    const p = planForScenario(L);
+    const ov = leversToOverrides(L);
+    const res = runSimulation(p, ov, sharedPaths);
+    const n = res.sims.length || 1;
+    return 100 * res.sims.filter(s => s.terminalBalance >= goal).length / n;
+  }catch(_){
+    return NaN;
+  }
 }
 // Solve ONE lever: holding all others at `baseLev`, find the value of `key`
 // closest to its baseline that achieves >= targetPct. Returns { value,
@@ -470,12 +480,14 @@ function solveLeverFor(baseLev, key, targetPct, score = trySuccess, band = null)
     for(let i = 0; i <= nSteps; i++){
       const v = lo + i * step;
       const pct = pctAt(v);
+      if(!Number.isFinite(pct)) continue;
       if(pct > bestPct){ bestPct = pct; bestVal = v; }
       if(pct >= targetPct &&
          (passVal === null || Math.abs(v - baseV) < Math.abs(passVal - baseV))){
         passVal = v; passPct = pct;
       }
     }
+    if(!Number.isFinite(bestPct)) return null;
     return passVal !== null
       ? { value: passVal, reachedPct: passPct, capped: false }
       : { value: bestVal, reachedPct: bestPct, capped: true };
@@ -483,6 +495,7 @@ function solveLeverFor(baseLev, key, targetPct, score = trySuccess, band = null)
 
   // Large monotonic range → bisection (detect direction from the endpoints).
   const pctLo = pctAt(lo), pctHi = pctAt(hi);
+  if(!Number.isFinite(pctLo) || !Number.isFinite(pctHi)) return null;
   const increases = pctHi >= pctLo;                  // success rises with higher value?
   const best      = Math.max(pctLo, pctHi);
   const bestVal   = (pctHi >= pctLo) ? hi : lo;
@@ -494,6 +507,7 @@ function solveLeverFor(baseLev, key, targetPct, score = trySuccess, band = null)
     const mid = Math.max(lo, Math.min(hi, Math.round(((a+b)/2) / step) * step));
     if(mid === a || mid === b) break;
     const pct = pctAt(mid);
+    if(!Number.isFinite(pct)) return null;
     const meets = pct >= targetPct;
     // For positive direction (success rises with value): we want SMALLEST value
     // that meets. For inverse: we want LARGEST value that meets.
@@ -501,7 +515,10 @@ function solveLeverFor(baseLev, key, targetPct, score = trySuccess, band = null)
     else         { if(meets) a = mid; else b = mid; }
   }
   const value = increases ? b : a;
-  return { value, reachedPct: pctAt(value), capped: false };
+  const reachedPct = pctAt(value);
+  return Number.isFinite(reachedPct)
+    ? { value, reachedPct, capped: false }
+    : null;
 }
 // ── Solver (selectable goal · solo per-lever answers) ───────────────────────
 // The advisor picks a GOAL the client actually wants (retire early, afford a big
@@ -576,6 +593,7 @@ function renderSolvePanel(){
   el.innerHTML = solvePanelHTML({
     solverFormOpen, scenarios, defaultLevers, goals:GOALS,
     currentAge:plan.household.primary.currentAge,
+    planEndAge:resolveGoalSpan(plan).planEndAge,
     solverResults, solverSearching, comboOpen, comboSearching, comboResults,
     levCfg:LEVCFG, comboShort:COMBO_SHORT, escHtml,
   });
@@ -593,9 +611,19 @@ async function runSolve(goalType, params){
   uiState.solving = true; uiState.solverFormOpen = false; uiState.solverSearching = true; uiState.solverResults = null;
   renderSolvePanel();
 
+  let preflight = null;
+  try{ preflight = resolveInputs(plan, {}); }catch(_){ /* unavailable below */ }
+  if(!preflight
+      || preflight.simulationAvailable === false){
+    uiState.solverSearching = false;
+    uiState.solving = false;
+    renderSolvePanel();
+    return;
+  }
+
   if(!sharedPaths){
     resetSeed();
-    const horizon = resolveInputs(plan, {}).horizonYears;
+    const horizon = preflight.horizonYears;
   uiState.sharedPaths = [];
   for(let i=0; i<plan.simulation.iterations; i++) uiState.appendSharedPath(generateReturnPath(horizon));
   }
@@ -667,10 +695,19 @@ async function runComboSolve(){
   uiState.comboSearching = true; uiState.comboResults = null; renderSolvePanel();
   await new Promise(r=>setTimeout(r,0));     // let the spinner paint
 
+  let preflight = null;
+  try{ preflight = resolveInputs(plan, {}); }catch(_){ /* unavailable below */ }
+  if(!preflight
+      || preflight.simulationAvailable === false){
+    uiState.comboSearching = false;
+    renderSolvePanel();
+    return;
+  }
+
   // sharedPaths is already built by the solo solve, but guard anyway.
   if(!sharedPaths){
     resetSeed();
-    const horizon = resolveInputs(plan, {}).horizonYears;
+    const horizon = preflight.horizonYears;
   uiState.sharedPaths = [];
   for(let i=0;i<plan.simulation.iterations;i++) uiState.appendSharedPath(generateReturnPath(horizon));
   }
@@ -1334,7 +1371,7 @@ const ROW_KINDS = {
   income:    { arr:'income.other',   mk:()=>({ ...createIncomeSource(plan, 'wages', 'client'), label:'' }) },
   expense:   { arr:'expenses.extra', mk:()=>({ label:'', amount:0, startAge:65, endAge:80 }) },
   liability: { arr:'liabilities',    mk:()=>({ label:'', amount:0, startAge:65, endAge:75, colaPct:0 }) },
-  goalRec:   { arr:'goals',          mk:()=>({ name:'',  amount:0, startAge:plan.household.primary.retirementAge, endAge:plan.household.primary.planEndAge }) },
+  goalRec:   { arr:'goals',          mk:()=>{ const span=resolveGoalSpan(plan); return { name:'', amount:0, startAge:span.retirementAge, endAge:span.planEndAge }; } },
   goalOnce:  { arr:'goals',          mk:()=>({ name:'',  amount:0, startAge:70, endAge:70 }) },
   property:  { arr:'properties',     mk:()=>({ name:'',  value:0, purchasePrice:0, mortgage:{ balance:0, rate:0, termYears:0 } }) },
   account:   { arr:'portfolio.extraAccounts', mk:()=>createAccount('brokerage_taxable', { owner:'joint', balance:0 }) },
@@ -1781,7 +1818,7 @@ function levRange(cfg){
   }
   // Sale lever: min = currentAge−1 (the "Keep" / off state), max = plan end.
   if(cfg.key==='sellAge'){
-    const c=plan.household.primary.currentAge, e=plan.household.primary.planEndAge;
+    const c=plan.household.primary.currentAge, e=resolveGoalSpan(plan).planEndAge;
     return { min:c-1, max:e, step:1 };
   }
   return { min:cfg.min, max:cfg.max, step:cfg.step };
@@ -1839,9 +1876,9 @@ let running=false;
 // runs (scenario columns, the goals page's per-goal cost runs). Identical
 // markets across runs make any difference a pure decision-effect, and the
 // fixed seed keeps an unchanged plan at an identical % between Runs.
-function ensureSharedPaths(){
+function ensureSharedPaths(resolvedInputs=null){
   if(!canRunEngine()) return null;
-  const horizon = resolveInputs(plan, {}).horizonYears;
+  const horizon = (resolvedInputs || resolveInputs(plan, {})).horizonYears;
   if(!(horizon > 0)) return null;
   const iters = plan.simulation.iterations;
   if(!sharedPaths || sharedPaths.length !== iters || sharedPaths[0].length !== horizon){
@@ -1913,9 +1950,12 @@ function computeHistoricalStress(s, p, ov){
         undefined,
         ov2,
         {
-          baseTaxYear: new Date().getFullYear(),
+          baseTaxYear: Number.isInteger(rp.meta?.planningAsOfYear)
+            ? rp.meta.planningAsOfYear
+            : new Date().getFullYear(),
           filingStatus: rp.meta?.filingStatus,
           scenarioId: `historical_stress_${s.name}_${e.y}`,
+          current1040Intake: buildCurrent1040Intake(rp).intake,
         }
       );
       return { year: e.year, name: e.name, pass: eraPasses(h) };
@@ -1944,7 +1984,16 @@ function runAll(){
       // across Runs. Within a Run, every column sees the SAME markets (any
       // difference between columns is the DECISION). Across Runs, the bundle
       // is cached so identical inputs give an identical % — no noise drift.
-      const horizon = resolveInputs(plan, {}).horizonYears;
+      const preflight = resolveInputs(plan, {});
+      if(preflight.simulationAvailable === false){
+        scenarios.forEach(s=>{ s.res=null; s.runError=null; });
+        renderSolvePanel(); buildSeqSelect();
+        if(window.ScenariosUI) window.ScenariosUI.sync();
+        syncHeaderStatus('Plan updated · using available inputs');
+        uiState.plansDirty = false;
+        btn.disabled=false; running=false; return;
+      }
+      const horizon = preflight.horizonYears;
       const iters = plan.simulation.iterations;
       // Degenerate plan guard: a non-positive horizon (plan-end age at/below
       // current age) can't be simulated. Surface a clear reason and bail
@@ -1953,12 +2002,14 @@ function runAll(){
         syncHeaderStatus('Check plan: end age must be after current age');
         btn.disabled=false; running=false; return;
       }
-      ensureSharedPaths();
+      ensureSharedPaths(preflight);
       // Isolate each scenario: one bad column (e.g. an out-of-range saved lever)
       // must not abort the whole Run and blank every other column + the cash
       // flow drawer. Failed scenarios get res=null and are skipped downstream.
       let failed=0;
-      const baseTaxYear = new Date().getFullYear();
+      const baseTaxYear = Number.isInteger(plan.meta?.planningAsOfYear)
+        ? plan.meta.planningAsOfYear
+        : new Date().getFullYear();
       scenarios.forEach(s=>{
         try{
           const p=planForScenario(s.lev);
@@ -1967,6 +2018,7 @@ function runAll(){
             baseTaxYear,
             scenarioId: s.name,
             filingStatus: p.meta?.filingStatus,
+            current1040Intake: buildCurrent1040Intake(p).intake,
           };
           // One converged federal run now supplies probability, paths, taxes,
           // withdrawals, and balances together. A failed convergence is a
@@ -1989,7 +2041,8 @@ function runAll(){
           console.error('Scenario failed:', s.name, err);
         }
       });
-      renderSolvePanel(); buildSeqSelect(); runSeq();
+      renderSolvePanel(); buildSeqSelect();
+      if($('.page.on')?.dataset.page === 'sequencing') runSeq();
       if(window.ScenariosUI) window.ScenariosUI.sync();   // one authoritative Scenarios renderer
       const firstFailure = scenarios.find(s => s.runError)?.runError;
       syncHeaderStatus(failed
@@ -2015,7 +2068,7 @@ $('#solve-panel').addEventListener('change', e=>{
     const baseSucc = scenarios.find(s=>s.base)?.res?.successRate ?? 85;
     const defPct = Math.min(95, Math.ceil((baseSucc+1)/5)*5);
     const wrap = $('#sf-params');
-    if(wrap) wrap.innerHTML = goalParamsHtml(e.target.value, baseLev, defPct, { goals:GOALS, currentAge:plan.household.primary.currentAge });
+    if(wrap) wrap.innerHTML = goalParamsHtml(e.target.value, baseLev, defPct, { goals:GOALS, currentAge:plan.household.primary.currentAge, planEndAge:resolveGoalSpan(plan).planEndAge });
   }
 });
 $('#solve-panel').addEventListener('submit', e=>{
@@ -2028,7 +2081,7 @@ $('#solve-panel').addEventListener('submit', e=>{
   const goalType = $('#sf-goal')?.value || 'confidence';
   const num = id => parseInt(($(id)?.value||'').replace(/[^0-9]/g,''), 10);
   const params = { pct };
-  const {currentAge, planEndAge} = plan.household.primary;
+  const {currentAge, planEndAge} = resolveGoalSpan(plan);
   const flashAge = id => { const el=$(id); if(el){ el.style.outline='2px solid var(--negative)'; el.focus(); setTimeout(()=>el.style.outline='',1500); } };
   if(goalType==='retire'){
     params.age = num('#sf-p-age');
@@ -2429,7 +2482,7 @@ $('#path-mode').onchange=e=>{
   // Pure presentation: no engine math, no re-simulation.
   function viabilityString(s) {
     if (!s.res) return '';
-    const planEnd = plan.household.primary.planEndAge;
+    const planEnd = resolveGoalSpan(plan).planEndAge;
     // Use the p50 (typical) path index from the scenario's own result set so
     // the viability string is consistent with the rest of the Focus panel.
     const p50Idx = (s.res.paths && s.res.paths.p50 && s.res.paths.p50.simIndex != null)
@@ -2576,7 +2629,7 @@ $('#path-mode').onchange=e=>{
     } else if (edit === 'eventAmt') {
       L.eventAmt = raw > 0 ? Math.round(raw) : 0;
     } else if (edit === 'eventAge') {
-      const lo = plan.household.primary.currentAge, hi = plan.household.primary.planEndAge;
+      const lo = plan.household.primary.currentAge, hi = resolveGoalSpan(plan).planEndAge;
       const a = Math.round(raw);
       if (isFinite(a)) L.eventAge = Math.max(lo, Math.min(hi, a));
     }
@@ -2597,7 +2650,7 @@ $('#path-mode').onchange=e=>{
     const base = (Array.isArray(plan.goals) ? plan.goals : [])[idx]; if (!base) return;
     const raw = parseFloat(String(inp.value).replace(/[^0-9.]/g, ''));
     if (!isFinite(raw) || raw < 0) return;
-    const lo = plan.household.primary.currentAge, hi = plan.household.primary.planEndAge;
+    const lo = plan.household.primary.currentAge, hi = resolveGoalSpan(plan).planEndAge;
     if (!sc.lev.goalOv) sc.lev.goalOv = {};
     const ov = sc.lev.goalOv[idx] || (sc.lev.goalOv[idx] = {});
     if (field === 'amount') {
@@ -2633,10 +2686,11 @@ $('#path-mode').onchange=e=>{
   /* ---- adapter: production scenario → view-model -------------------------- */
   function vmScenario(s) {
     const prob = PROD.prob(s);
+    const median = PROD.median(s);
     return {
       id: PROD.id(s), name: PROD.name(s), prob: prob,
       probStr: (prob == null ? '—' : scenarioNum(prob, 1)),
-      tone: toneForProb(prob), median: fmtMoney(PROD.median(s)),
+      tone: toneForProb(prob), median: median == null ? '—' : fmtMoney(median),
       isBaseline: PROD.isBaseline(s), levers: PROD.levers(s), goals: PROD.goals(s),
       range: PROD.range(s), viability: PROD.viability(s), stress: PROD.stress(s), raw: s,
     };

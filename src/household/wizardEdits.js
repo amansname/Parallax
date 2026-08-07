@@ -89,7 +89,7 @@ function ensureSpouse(plan){
     };
   }
   if(!plan.income.socialSecurity.spouse){
-    plan.income.socialSecurity.spouse = { pia: 0, claimAge: 67 };
+    plan.income.socialSecurity.spouse = { pia: null, claimAge: 67 };
   }
   return plan.household.spouse;
 }
@@ -228,7 +228,7 @@ function applyFamilyEdit(plan, command, timestamp){
     plan.household.dependentsCount = integer(command.value, { min: 0, max: 20 });
     return;
   }
-  const match = /^(client|spouse)\.(birthDate|status|retirementAge|socialSecurityAge)$/.exec(field);
+  const match = /^(client|spouse)\.(birthDate|status|retirementAge|socialSecurityAge|socialSecurityBenefit|planEndAge)$/.exec(field);
   if(!match) throw new Error(`Unsupported family field: ${field}`);
   const [, owner, personField] = match;
   const person = personForOwner(plan, owner);
@@ -241,12 +241,26 @@ function applyFamilyEdit(plan, command, timestamp){
     person.employmentStatus = command.value;
   }else if(personField === 'retirementAge'){
     person.retirementAge = integer(command.value, { min: 45, max: 90 });
+  }else if(personField === 'planEndAge'){
+    const planEndAge = integer(command.value, { min: 45, max: 125 });
+    if(Number.isFinite(person.currentAge) && planEndAge < person.currentAge){
+      throw new Error('Live-to age cannot precede current age');
+    }
+    person.planEndAge = planEndAge;
   }else{
     const key = owner === 'spouse' ? 'spouse' : 'primary';
     if(!plan.income.socialSecurity[key]){
-      plan.income.socialSecurity[key] = { pia: 0, claimAge: 67 };
+      plan.income.socialSecurity[key] = { pia: null, claimAge: 67 };
     }
-    plan.income.socialSecurity[key].claimAge = integer(command.value, { min: 62, max: 70 });
+    if(personField === 'socialSecurityBenefit'){
+      plan.income.socialSecurity[key].pia = command.value === ''
+        || command.value === null
+        || command.value === undefined
+        ? null
+        : money(command.value);
+    }else{
+      plan.income.socialSecurity[key].claimAge = integer(command.value, { min: 62, max: 70 });
+    }
   }
 }
 

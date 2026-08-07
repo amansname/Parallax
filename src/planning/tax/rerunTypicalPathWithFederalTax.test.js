@@ -4,6 +4,7 @@ import {
   defaultPlan,
   generateReturnPath,
   resetSeed,
+  resolveInputs,
   runSimulation,
 } from '../../../engine.js';
 import { attachPathFederalTax } from './attachTypicalPathFederalTax.js';
@@ -12,7 +13,7 @@ import { rerunTypicalPathWithFederalTax } from './rerunTypicalPathWithFederalTax
 function fixture(){
   const plan = structuredClone(defaultPlan);
   plan.meta.filingStatus = 'single';
-  const horizon = plan.household.primary.planEndAge - plan.household.primary.currentAge;
+  const horizon = resolveInputs(plan, {}).horizonYears;
   resetSeed(20260710);
   const paths = Array.from({ length: 40 }, () => generateReturnPath(horizon));
   const analysis = runSimulation(plan, {}, paths);

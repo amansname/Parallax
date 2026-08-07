@@ -1,5 +1,10 @@
 import { resolvePortfolioAccounts } from './src/household/resolvePortfolioAccounts.js';
-import { resolveTaxableStartingBasis } from './src/household/resolveTaxableStartingBasis.js';
+import {
+  resolveAccountTaxReportingGap,
+  resolveTaxableStartingBasis,
+} from './src/household/resolveTaxableStartingBasis.js';
+import { getAccountTypeById } from './src/household/accountTypes.js';
+import { normalizedIncomeSource } from './src/household/incomeTaxModel.js';
 
 /* ============================================================================
    PARALLAX ENGINE  —  the heart of the model. Treat as SACRED.
@@ -365,7 +370,7 @@ const ASSET_STATS = computeAssetStats(RETURN_DATA);
 // and the 85% taxable portion of Social Security) and long-term capital gains
 // (used for the gain portion of taxable account withdrawals).
 const plan = {
-  meta: { version: 'v3.0-ledger', name: 'Demo Household', householdId: null, primaryName: '', spouseName: '', spouseAge: null, location: '', familyNotes: '' },
+  meta: { version: 'v3.0-ledger', name: 'Demo Household', householdId: null, primaryName: '', spouseName: '', spouseAge: null, location: '', familyNotes: '', planningAsOfYear: 2026 },
   household: { primary: { currentAge: 65, planEndAge: 95, retirementAge: 65 }, spouse: null },
   portfolio: {
     riskProfile: 3,
@@ -553,6 +558,11 @@ function weightedAssetReturn(row, weights){
 
 function runSimulation(plan, overrides = {}, returnPaths = null, options = {}){
   const inputs = resolveInputs(plan, overrides);
+  if(inputs.simulationAvailable === false){
+    const error = new RangeError('HOUSEHOLD_TIMELINE_INCOMPLETE');
+    error.code = 'HOUSEHOLD_TIMELINE_INCOMPLETE';
+    throw error;
+  }
   const sims = [];
   // When a return-path bundle is supplied it is authoritative: iterate over
   // exactly those paths so identical inputs + identical paths are reproducible.
@@ -571,17 +581,1019 @@ function runSimulation(plan, overrides = {}, returnPaths = null, options = {}){
 }
 
 
+const WITHDRAWAL_PLANNER_LEVER_KEYS = Object.freeze([
+  'taxableWithdrawal',
+  'deferredWithdrawal',
+  'rothConversion',
+  'rothWithdrawal',
+  'qcd',
+]);
+const TRADITIONAL_WITHDRAWAL_LEVERS = Object.freeze([
+  'deferredWithdrawal',
+  'rothConversion',
+  'qcd',
+]);
+
+function finiteAge(value, fallback, path){
+  const resolved = value == null ? fallback : value;
+  if(typeof resolved !== 'number' || !Number.isFinite(resolved) || !Number.isInteger(resolved)){
+    throw new TypeError(`${path} must be a finite integer`);
+  }
+  return resolved;
+}
+
+function finiteOptionalAge(value, path){
+  if(value == null) return null;
+  if(typeof value !== 'number' || !Number.isFinite(value) || !Number.isInteger(value)){
+    throw new TypeError(`${path} must be a finite integer or null`);
+  }
+  return value;
+}
+
+function mapPersonAgeToPrimary(primaryCurrentAge, personCurrentAge, personAge){
+  return primaryCurrentAge + (personAge - personCurrentAge);
+}
+
+function resolveHouseholdTimeline(plan, overrides = {}){
+  const clientPlan = plan?.household?.primary;
+  if(!clientPlan) throw new TypeError('household.primary is required');
+  const spousePlan = plan.household.spouse || null;
+  const ss = plan?.income?.socialSecurity || {};
+  const retirementDelay = overrides.retireDelay || 0;
+  const longevityYears = overrides.longevityYears || 0;
+  const currentTaxYear = Number.isInteger(plan?.meta?.planningAsOfYear)
+    ? plan.meta.planningAsOfYear
+    : 2026;
+  if(typeof longevityYears !== 'number' || !Number.isFinite(longevityYears)
+      || longevityYears < 0){
+    throw new TypeError('longevityYears must be a finite nonnegative number');
+  }
+  const clientCurrentAge = finiteAge(clientPlan.currentAge, null, 'household.primary.currentAge');
+  const clientBirthDateFact = plan?.taxProfiles?.client?.birthDate;
+  const clientProfileBirthDate = clientBirthDateFact?.status === 'confirmed'
+    ? clientBirthDateFact.value
+    : null;
+  const clientProfileBirthYear = typeof clientProfileBirthDate === 'string'
+    && /^\d{4}-\d{2}-\d{2}$/.test(clientProfileBirthDate)
+    ? Number(clientProfileBirthDate.slice(0, 4))
+    : null;
+  const clientHouseholdBirthYear = Number.isInteger(clientPlan.birthYear)
+    ? clientPlan.birthYear
+    : null;
+  const clientBirthYearConflict = clientProfileBirthYear !== null
+    && clientHouseholdBirthYear !== null
+    && clientProfileBirthYear !== clientHouseholdBirthYear;
+  const clientBirthYear = clientProfileBirthYear ?? clientHouseholdBirthYear;
+  const clientEarlierPossibleBirthYear = currentTaxYear - clientCurrentAge - 1;
+  const clientLaterPossibleBirthYear = currentTaxYear - clientCurrentAge;
+  const clientEarlierPossibleRmdAge = clientEarlierPossibleBirthYear >= 1960
+    ? 75
+    : (clientEarlierPossibleBirthYear >= 1951 ? 73 : 72);
+  const clientLaterPossibleRmdAge = clientLaterPossibleBirthYear >= 1960
+    ? 75
+    : (clientLaterPossibleBirthYear >= 1951 ? 73 : 72);
+  const clientBirthYearConsistent = !clientBirthYearConflict
+    && (clientBirthYear === null
+      || clientCurrentAge === currentTaxYear - clientBirthYear
+      || clientCurrentAge === currentTaxYear - clientBirthYear - 1);
+  const clientRmdStartAge = !clientBirthYearConsistent
+    ? null
+    : clientBirthYear === null
+    ? (clientEarlierPossibleRmdAge === clientLaterPossibleRmdAge
+      ? clientEarlierPossibleRmdAge
+      : null)
+    : (clientBirthYear >= 1960 ? 75 : (clientBirthYear >= 1951 ? 73 : 72));
+  const clientRetirementFact = finiteOptionalAge(
+    clientPlan.retirementAge,
+    'household.primary.retirementAge'
+  );
+  const clientRetirementAge = clientRetirementFact === null
+    ? null
+    : clientRetirementFact + retirementDelay;
+  const clientClaimFact = finiteOptionalAge(
+    ss.primary?.claimAge,
+    'income.socialSecurity.primary.claimAge'
+  );
+  const clientClaimAge = clientClaimFact === null
+    ? null
+    : Math.max(62, Math.min(70, clientClaimFact + (overrides.ssDelayYears || 0)));
+  const clientBaseEndAge = finiteOptionalAge(
+    clientPlan.planEndAge,
+    'household.primary.planEndAge'
+  );
+  if(clientBaseEndAge !== null && clientBaseEndAge < clientCurrentAge){
+    throw new RangeError('household.primary.planEndAge cannot precede currentAge');
+  }
+  const clientEndAge = clientBaseEndAge === null
+    ? null
+    : clientBaseEndAge + longevityYears;
+  const client = Object.freeze({
+    currentAge: clientCurrentAge,
+    birthYear: clientBirthYear,
+    rmdStartAge: clientRmdStartAge,
+    retirementAge: clientRetirementAge,
+    socialSecurityClaimAge: clientClaimAge,
+    planEndAge: clientEndAge,
+    retirementAgeOnPrimaryTimeline: clientRetirementAge,
+    socialSecurityClaimAgeOnPrimaryTimeline: clientClaimAge,
+    planEndAgeOnPrimaryTimeline: clientEndAge,
+  });
+
+  let spouse = null;
+  if(spousePlan){
+    const spouseCurrentAge = finiteOptionalAge(
+      spousePlan.currentAge,
+      'household.spouse.currentAge'
+    );
+    const spouseBirthDateFact = plan?.taxProfiles?.spouse?.birthDate;
+    const spouseProfileBirthDate = spouseBirthDateFact?.status === 'confirmed'
+      ? spouseBirthDateFact.value
+      : null;
+    const spouseProfileBirthYear = typeof spouseProfileBirthDate === 'string'
+      && /^\d{4}-\d{2}-\d{2}$/.test(spouseProfileBirthDate)
+      ? Number(spouseProfileBirthDate.slice(0, 4))
+      : null;
+    const spouseHouseholdBirthYear = Number.isInteger(spousePlan.birthYear)
+      ? spousePlan.birthYear
+      : null;
+    const spouseBirthYearConflict = spouseProfileBirthYear !== null
+      && spouseHouseholdBirthYear !== null
+      && spouseProfileBirthYear !== spouseHouseholdBirthYear;
+    const spouseBirthYear = spouseProfileBirthYear ?? spouseHouseholdBirthYear;
+    const spouseEarlierPossibleBirthYear = spouseCurrentAge === null
+      ? null
+      : currentTaxYear - spouseCurrentAge - 1;
+    const spouseLaterPossibleBirthYear = spouseCurrentAge === null
+      ? null
+      : currentTaxYear - spouseCurrentAge;
+    const spouseEarlierPossibleRmdAge = spouseEarlierPossibleBirthYear === null
+      ? null
+      : (spouseEarlierPossibleBirthYear >= 1960
+        ? 75
+        : (spouseEarlierPossibleBirthYear >= 1951 ? 73 : 72));
+    const spouseLaterPossibleRmdAge = spouseLaterPossibleBirthYear === null
+      ? null
+      : (spouseLaterPossibleBirthYear >= 1960
+        ? 75
+        : (spouseLaterPossibleBirthYear >= 1951 ? 73 : 72));
+    const spouseBirthYearConsistent = !spouseBirthYearConflict
+      && (spouseBirthYear === null
+        || spouseCurrentAge === currentTaxYear - spouseBirthYear
+        || spouseCurrentAge === currentTaxYear - spouseBirthYear - 1);
+    const spouseRmdStartAge = !spouseBirthYearConsistent
+      ? null
+      : spouseBirthYear === null
+      ? (spouseEarlierPossibleRmdAge !== null
+          && spouseEarlierPossibleRmdAge === spouseLaterPossibleRmdAge
+        ? spouseEarlierPossibleRmdAge
+        : null)
+      : (spouseBirthYear >= 1960 ? 75 : (spouseBirthYear >= 1951 ? 73 : 72));
+    const spouseRetirementFact = finiteOptionalAge(
+      spousePlan.retirementAge,
+      'household.spouse.retirementAge'
+    );
+    const spouseRetirementAge = spouseCurrentAge === null || spouseRetirementFact === null
+      ? null
+      : spouseRetirementFact + retirementDelay;
+    const spouseClaimFact = finiteOptionalAge(
+      ss.spouse?.claimAge,
+      'income.socialSecurity.spouse.claimAge'
+    );
+    const spouseClaimAge = spouseClaimFact === null
+      ? null
+      : Math.max(62, Math.min(70, spouseClaimFact));
+    const spouseBaseEndAge = finiteOptionalAge(
+      spousePlan.planEndAge,
+      'household.spouse.planEndAge'
+    );
+    if(spouseCurrentAge !== null && spouseBaseEndAge !== null
+        && spouseBaseEndAge < spouseCurrentAge){
+      throw new RangeError('household.spouse.planEndAge cannot precede currentAge');
+    }
+    const spouseEndAge = spouseBaseEndAge === null
+      ? null
+      : spouseBaseEndAge + longevityYears;
+    spouse = Object.freeze({
+      currentAge: spouseCurrentAge,
+      birthYear: spouseBirthYear,
+      rmdStartAge: spouseRmdStartAge,
+      retirementAge: spouseRetirementAge,
+      socialSecurityClaimAge: spouseClaimAge,
+      planEndAge: spouseEndAge,
+      retirementAgeOnPrimaryTimeline: spouseCurrentAge === null
+        || spouseRetirementAge === null
+        ? null
+        : mapPersonAgeToPrimary(clientCurrentAge, spouseCurrentAge, spouseRetirementAge),
+      socialSecurityClaimAgeOnPrimaryTimeline: spouseCurrentAge === null
+        || spouseClaimAge === null
+        ? null
+        : mapPersonAgeToPrimary(clientCurrentAge, spouseCurrentAge, spouseClaimAge),
+      planEndAgeOnPrimaryTimeline: spouseCurrentAge === null || spouseEndAge === null
+        ? null
+        : mapPersonAgeToPrimary(clientCurrentAge, spouseCurrentAge, spouseEndAge),
+    });
+  }
+
+  const retirementMilestones = [
+    client.retirementAgeOnPrimaryTimeline,
+    spouse?.retirementAgeOnPrimaryTimeline,
+  ].filter(Number.isFinite);
+  const endMilestones = [
+    client.planEndAgeOnPrimaryTimeline,
+    spouse?.planEndAgeOnPrimaryTimeline,
+  ].filter(Number.isFinite);
+  const retirementComplete = client.retirementAgeOnPrimaryTimeline !== null
+    && (!spouse || spouse.retirementAgeOnPrimaryTimeline !== null);
+  const endComplete = client.planEndAgeOnPrimaryTimeline !== null
+    && (!spouse || spouse.planEndAgeOnPrimaryTimeline !== null);
+  return Object.freeze({
+    people: Object.freeze({ client, spouse }),
+    householdRetirementAgeOnPrimaryTimeline: retirementComplete
+      ? Math.max(...retirementMilestones)
+      : null,
+    householdEndAgeOnPrimaryTimeline: endComplete
+      ? Math.max(...endMilestones)
+      : null,
+    completeForSimulation: retirementComplete && endComplete,
+  });
+}
+
+function normalizeWithdrawalPlannerLevers(requested = {}){
+  const out = {};
+  for(const key of WITHDRAWAL_PLANNER_LEVER_KEYS){
+    const value = requested[key] ?? 0;
+    if(typeof value !== 'number' || !Number.isFinite(value) || value < 0){
+      throw new TypeError(`${key} must be a finite nonnegative number`);
+    }
+    out[key] = value;
+  }
+  return Object.freeze(out);
+}
+
+function resolveWithdrawalPlannerAccountState(
+  plan,
+  requestedLevers = {},
+  accountReservations = {}
+){
+  const requested = normalizeWithdrawalPlannerLevers(requestedLevers);
+  const reservedTraditionalTotal = accountReservations?.traditionalTotal
+    ?? accountReservations?.traditional
+    ?? 0;
+  const reservedRmdEligibleCash = accountReservations?.rmdEligibleCash ?? 0;
+  const focusTaxYear = accountReservations?.taxYear
+    ?? (Number.isInteger(plan?.meta?.planningAsOfYear)
+      ? plan.meta.planningAsOfYear
+      : 2026);
+  if(typeof reservedTraditionalTotal !== 'number'
+      || !Number.isFinite(reservedTraditionalTotal)
+      || reservedTraditionalTotal < 0){
+    throw new TypeError('accountReservations.traditionalTotal must be a finite nonnegative number');
+  }
+  if(typeof reservedRmdEligibleCash !== 'number'
+      || !Number.isFinite(reservedRmdEligibleCash)
+      || reservedRmdEligibleCash < 0
+      || reservedRmdEligibleCash > reservedTraditionalTotal){
+    throw new TypeError('accountReservations.rmdEligibleCash must be within traditionalTotal');
+  }
+  if(!Number.isInteger(focusTaxYear)){
+    throw new TypeError('accountReservations.taxYear must be an integer');
+  }
+  let reservedTraditionalByOwner = null;
+  if(accountReservations?.traditionalByOwner != null){
+    if(typeof accountReservations.traditionalByOwner !== 'object'
+        || Array.isArray(accountReservations.traditionalByOwner)){
+      throw new TypeError('accountReservations.traditionalByOwner must be an object');
+    }
+    reservedTraditionalByOwner = {
+      client: accountReservations.traditionalByOwner.client ?? 0,
+      spouse: accountReservations.traditionalByOwner.spouse ?? 0,
+    };
+    if(Object.values(reservedTraditionalByOwner).some(value => (
+      typeof value !== 'number' || !Number.isFinite(value) || value < 0
+    ))){
+      throw new TypeError('accountReservations.traditionalByOwner values must be finite and nonnegative');
+    }
+  }
+  let reservedRmdEligibleCashByOwner = null;
+  if(accountReservations?.rmdEligibleCashByOwner != null){
+    if(typeof accountReservations.rmdEligibleCashByOwner !== 'object'
+        || Array.isArray(accountReservations.rmdEligibleCashByOwner)){
+      throw new TypeError('accountReservations.rmdEligibleCashByOwner must be an object');
+    }
+    reservedRmdEligibleCashByOwner = {
+      client: accountReservations.rmdEligibleCashByOwner.client ?? 0,
+      spouse: accountReservations.rmdEligibleCashByOwner.spouse ?? 0,
+    };
+    if(Object.values(reservedRmdEligibleCashByOwner).some(value => (
+      typeof value !== 'number' || !Number.isFinite(value) || value < 0
+    ))){
+      throw new TypeError('accountReservations.rmdEligibleCashByOwner values must be finite and nonnegative');
+    }
+  }
+  const fold = resolvePortfolioAccounts(plan);
+  const balances = { taxable: 0, traditional: 0, roth: 0 };
+  const traditionalBalancesByOwner = { client: 0, spouse: 0 };
+  let traditionalBalanceAttributionAvailable = true;
+  const excludedAccountIds = [];
+  const accountSourceIssues = [];
+  const legacyPools = new Set();
+  const typedPools = new Set();
+  for(const account of fold.accounts){
+    const raw = account.sourceKind === 'typed-account'
+      ? plan?.portfolio?.extraAccounts?.[account.sourceIndex]
+      : null;
+    const canonical = account.sourceKind === 'typed-account'
+      ? getAccountTypeById(account.typeId)
+      : null;
+    const reportingGap = account.sourceKind === 'typed-account'
+      && canonical?.supportedForTax === true
+      ? resolveAccountTaxReportingGap(raw, account, plan)
+      : null;
+    const ownerAvailable = account.owner !== 'spouse'
+      || Boolean(plan?.household?.spouse);
+    const eligible = ownerAvailable
+      && account.taxBucketGroup
+      && !account.strategyRulesPending
+      && (account.sourceKind === 'legacy-base'
+        || (account.classificationStatus === 'included'
+          && canonical?.supportedForTax === true
+          && reportingGap === null));
+    if(eligible){
+      balances[account.taxBucketGroup] += account.balance;
+      if(account.taxBucketGroup === 'traditional' && account.balance > 0){
+        if(account.sourceKind === 'typed-account'
+            && (account.owner === 'client' || account.owner === 'spouse')){
+          traditionalBalancesByOwner[account.owner] += account.balance;
+        }else{
+          traditionalBalanceAttributionAvailable = false;
+        }
+      }
+      if(account.balance > 0){
+        (account.sourceKind === 'legacy-base' ? legacyPools : typedPools)
+          .add(account.taxBucketGroup);
+      }
+    }else if(account.balance > 0){
+      excludedAccountIds.push(account.id);
+      if(!ownerAvailable){
+        accountSourceIssues.push(`ACCOUNT_OWNER_UNAVAILABLE:${account.id}`);
+      }else if(account.sourceKind === 'typed-account'
+          && canonical?.supportedForTax !== true){
+        accountSourceIssues.push(`ACCOUNT_TAX_SCOPE_UNAVAILABLE:${account.id}`);
+      }else if(reportingGap){
+        accountSourceIssues.push(`${reportingGap.code}:${account.id}`);
+      }
+    }
+  }
+  const ambiguousPools = new Set(
+    [...legacyPools].filter(pool => typedPools.has(pool))
+  );
+
+  const availableFor = pool => ambiguousPools.has(pool) ? null : balances[pool];
+  const taxableAvailable = availableFor('taxable');
+  const traditionalAvailable = availableFor('traditional');
+  const rothAvailable = availableFor('roth');
+  let rmdStatus = 'not-required';
+  let rmdOwner = null;
+  let rmdAge = null;
+  let rmdApplicableAge = null;
+  let rmdPriorYearEndBalance = null;
+  let rmdRequired = 0;
+  let rmdIssue = null;
+  let rmdByOwner = null;
+  let rmdContainsEmployerPlan = false;
+  if(traditionalAvailable === null){
+    rmdStatus = 'unavailable';
+    rmdRequired = null;
+    rmdIssue = 'ACCOUNT_POOL_AMBIGUOUS';
+  }else if(traditionalAvailable > 0.01){
+    try{
+      const resolved = resolveInputs(plan, {});
+      const contract = resolved.rmdContract;
+      const baseTaxYear = contract?.planningAsOfYear
+        ?? (Number.isInteger(plan?.meta?.planningAsOfYear)
+          ? plan.meta.planningAsOfYear
+          : 2026);
+      const primaryAge = resolved.currentAge + (focusTaxYear - baseTaxYear);
+      const householdState = householdTaxStatusAtAge(resolved, primaryAge);
+      const ownerContracts = Object.entries(contract?.byOwner || {});
+      const exactMultiOwnerFocus = traditionalBalanceAttributionAvailable
+        && ownerContracts.length > 1
+        && ownerContracts.every(([owner, ownerContract]) => (
+          Math.abs(
+            ownerContract.balance - (traditionalBalancesByOwner[owner] ?? 0)
+          ) <= 0.01
+        ));
+      if(exactMultiOwnerFocus){
+        const details = {};
+        let anyKnown = false;
+        let anyUnavailable = false;
+        let requiredTotal = 0;
+        let priorYearEndTotal = 0;
+        let priorYearEndComplete = true;
+        for(const [owner, ownerContract] of ownerContracts){
+          const ownerPerson = householdState.people?.[owner] ?? null;
+          let status = 'not-required';
+          let required = 0;
+          let issue = null;
+          if(!ownerPerson?.alive){
+            status = 'unavailable';
+            required = null;
+            issue = 'TRADITIONAL_ACCOUNT_OWNER_LIFECYCLE_UNAVAILABLE';
+          }else if(ownerContract.startAge === null){
+            status = 'unavailable';
+            required = null;
+            issue = 'RMD_BIRTH_COHORT_UNAVAILABLE';
+          }else if(ownerPerson.age >= ownerContract.startAge){
+            if(focusTaxYear !== baseTaxYear){
+              status = 'unavailable';
+              required = null;
+              issue = 'RMD_FOCUS_YEAR_BALANCE_UNAVAILABLE';
+            }else if(ownerContract.rmdAccountAttributionAvailable !== true){
+              status = 'unavailable';
+              required = null;
+              issue = 'EMPLOYER_PLAN_RMD_ACCOUNT_ATTRIBUTION_UNAVAILABLE';
+            }else if(ownerContract.focusRulesAvailable !== true){
+              status = 'unavailable';
+              required = null;
+              issue = 'TRADITIONAL_ACCOUNT_RMD_RULE_UNAVAILABLE';
+            }else if(ownerContract.containsEmployerPlan
+                && ownerPerson.retired !== true){
+              status = 'unavailable';
+              required = null;
+              issue = 'EMPLOYER_PLAN_RMD_RULE_UNAVAILABLE';
+            }else if(ownerContract.priorYearEndBalanceAvailable !== true
+                || !Number.isFinite(ownerContract.priorYearEndBalance)){
+              status = 'unavailable';
+              required = null;
+              issue = 'RMD_PRIOR_YEAR_END_BALANCE_UNAVAILABLE';
+            }else{
+              status = 'known';
+              required = ownerContract.priorYearEndBalance / rmdDivisor(ownerPerson.age);
+            }
+          }
+          if(status === 'known') anyKnown = true;
+          if(status === 'unavailable') anyUnavailable = true;
+          if(required !== null) requiredTotal += required;
+          if(Number.isFinite(ownerContract.priorYearEndBalance)){
+            priorYearEndTotal += ownerContract.priorYearEndBalance;
+          }else{
+            priorYearEndComplete = false;
+          }
+          details[owner] = {
+            status,
+            age: ownerPerson?.age ?? null,
+            applicableAge: ownerContract.startAge,
+            priorYearEndBalance: ownerContract.priorYearEndBalance,
+            containsEmployerPlan: ownerContract.containsEmployerPlan === true,
+            required,
+            issue,
+          };
+        }
+        rmdByOwner = details;
+        rmdOwner = null;
+        rmdAge = null;
+        rmdApplicableAge = null;
+        rmdPriorYearEndBalance = priorYearEndComplete
+          ? priorYearEndTotal
+          : null;
+        if(anyUnavailable){
+          rmdStatus = 'unavailable';
+          rmdRequired = null;
+          rmdIssue = Object.values(details).find(detail => detail.issue)?.issue
+            ?? 'RMD_CONTRACT_UNAVAILABLE';
+        }else{
+          rmdStatus = anyKnown ? 'known' : 'not-required';
+          rmdRequired = requiredTotal;
+        }
+      }else{
+        const person = contract?.owner
+          ? householdState.people?.[contract.owner]
+          : null;
+        rmdOwner = contract?.owner ?? null;
+        rmdContainsEmployerPlan = contract?.containsEmployerPlan === true;
+        rmdAge = person?.age ?? null;
+        rmdApplicableAge = contract?.startAge ?? null;
+        rmdPriorYearEndBalance = contract?.priorYearEndBalance ?? null;
+        if(!contract?.available || !contract.owner){
+          const possibleOwners = contract?.owner
+            ? [householdState.people?.[contract.owner]].filter(Boolean)
+            : Object.values(householdState.people || {}).filter(Boolean);
+          const noCurrentRmdExposure = possibleOwners.length > 0
+            && possibleOwners.every(candidate => (
+              candidate.alive === true
+                && typeof candidate.age === 'number'
+                && candidate.age < (candidate.rmdStartAge ?? 72)
+            ));
+          if(noCurrentRmdExposure){
+            rmdStatus = 'not-required';
+          }else{
+            rmdStatus = 'unavailable';
+            rmdRequired = null;
+            rmdIssue = contract?.issue ?? 'TRADITIONAL_ACCOUNT_OWNER_UNAVAILABLE';
+          }
+        }else if(!person?.alive){
+          rmdStatus = 'unavailable';
+          rmdRequired = null;
+          rmdIssue = 'TRADITIONAL_ACCOUNT_OWNER_LIFECYCLE_UNAVAILABLE';
+        }else if(person.age < contract.startAge){
+          rmdStatus = 'not-required';
+        }else if(focusTaxYear !== baseTaxYear){
+          rmdStatus = 'unavailable';
+          rmdRequired = null;
+          rmdIssue = 'RMD_FOCUS_YEAR_BALANCE_UNAVAILABLE';
+        }else if(contract.focusRulesAvailable !== true){
+          rmdStatus = 'unavailable';
+          rmdRequired = null;
+          rmdIssue = 'TRADITIONAL_ACCOUNT_RMD_RULE_UNAVAILABLE';
+        }else if(contract.containsEmployerPlan && person.retired !== true){
+          rmdStatus = 'unavailable';
+          rmdRequired = null;
+          rmdIssue = 'EMPLOYER_PLAN_RMD_RULE_UNAVAILABLE';
+        }else if(contract.priorYearEndBalanceAvailable !== true
+            || !Number.isFinite(contract.priorYearEndBalance)){
+          rmdStatus = 'unavailable';
+          rmdRequired = null;
+          rmdIssue = 'RMD_PRIOR_YEAR_END_BALANCE_UNAVAILABLE';
+        }else{
+          rmdStatus = 'known';
+          rmdRequired = contract.priorYearEndBalance / rmdDivisor(person.age);
+        }
+      }
+    }catch(error){
+      rmdStatus = 'unavailable';
+      rmdRequired = null;
+      rmdIssue = error?.code ?? 'RMD_CONTRACT_UNAVAILABLE';
+    }
+  }
+
+  let appliedReservedTraditionalTotal = reservedTraditionalTotal;
+  let appliedReservedRmdEligibleCash = reservedRmdEligibleCash;
+  let traditionalOwnerCapacityIssue = null;
+  let traditionalOwnerAttributionMissing = false;
+  let rmdOwnerCapacityIssue = null;
+  if(rmdByOwner){
+    const traditionalOwnerTotal = reservedTraditionalByOwner
+      ? reservedTraditionalByOwner.client + reservedTraditionalByOwner.spouse
+      : null;
+    const rmdCashOwnerTotal = reservedRmdEligibleCashByOwner
+      ? reservedRmdEligibleCashByOwner.client + reservedRmdEligibleCashByOwner.spouse
+      : null;
+    const traditionalOwnerAttributionAvailable = reservedTraditionalTotal === 0
+      || (traditionalOwnerTotal !== null
+        && Math.abs(traditionalOwnerTotal - reservedTraditionalTotal) <= 0.01);
+    const rmdCashOwnerAttributionAvailable = reservedRmdEligibleCash === 0
+      || (rmdCashOwnerTotal !== null
+        && Math.abs(rmdCashOwnerTotal - reservedRmdEligibleCash) <= 0.01);
+    const ownerCashWithinTraditional = reservedTraditionalByOwner
+      && reservedRmdEligibleCashByOwner
+      ? ['client', 'spouse'].every(owner => (
+        reservedRmdEligibleCashByOwner[owner] <= reservedTraditionalByOwner[owner] + 0.01
+      ))
+      : reservedRmdEligibleCash === 0;
+    if(traditionalOwnerAttributionAvailable && reservedTraditionalByOwner){
+      appliedReservedTraditionalTotal = reservedTraditionalByOwner.client
+        + reservedTraditionalByOwner.spouse;
+    }
+    if(rmdCashOwnerAttributionAvailable && reservedRmdEligibleCashByOwner){
+      appliedReservedRmdEligibleCash = reservedRmdEligibleCashByOwner.client
+        + reservedRmdEligibleCashByOwner.spouse;
+    }
+    traditionalOwnerAttributionMissing = !traditionalOwnerAttributionAvailable
+      || !rmdCashOwnerAttributionAvailable
+      || !ownerCashWithinTraditional;
+    if(traditionalOwnerAttributionMissing && rmdStatus === 'known'){
+      rmdStatus = 'unavailable';
+      rmdRequired = null;
+      rmdIssue = 'TRADITIONAL_DISTRIBUTION_OWNER_UNAVAILABLE';
+    }
+  }else if(rmdOwner && plan?.household?.spouse){
+    const traditionalOwnerTotal = reservedTraditionalByOwner
+      ? reservedTraditionalByOwner.client + reservedTraditionalByOwner.spouse
+      : null;
+    const rmdCashOwnerTotal = reservedRmdEligibleCashByOwner
+      ? reservedRmdEligibleCashByOwner.client + reservedRmdEligibleCashByOwner.spouse
+      : null;
+    const traditionalOwnerAttributionAvailable = reservedTraditionalTotal === 0
+      || (traditionalOwnerTotal !== null
+        && Math.abs(traditionalOwnerTotal - reservedTraditionalTotal) <= 0.01);
+    const rmdCashOwnerAttributionAvailable = reservedRmdEligibleCash === 0
+      || (rmdCashOwnerTotal !== null
+        && Math.abs(rmdCashOwnerTotal - reservedRmdEligibleCash) <= 0.01);
+    const ownerCashWithinTraditional = reservedTraditionalByOwner
+      && reservedRmdEligibleCashByOwner
+      ? ['client', 'spouse'].every(owner => (
+        reservedRmdEligibleCashByOwner[owner] <= reservedTraditionalByOwner[owner] + 0.01
+      ))
+      : reservedRmdEligibleCash === 0;
+    if(traditionalOwnerAttributionAvailable && reservedTraditionalByOwner){
+      appliedReservedTraditionalTotal = reservedTraditionalByOwner[rmdOwner];
+    }
+    if(rmdCashOwnerAttributionAvailable && reservedRmdEligibleCashByOwner){
+      appliedReservedRmdEligibleCash = reservedRmdEligibleCashByOwner[rmdOwner];
+    }
+    if(rmdStatus === 'known'
+        && (!traditionalOwnerAttributionAvailable
+          || !rmdCashOwnerAttributionAvailable
+          || !ownerCashWithinTraditional)){
+      rmdStatus = 'unavailable';
+      rmdRequired = null;
+      rmdIssue = 'TRADITIONAL_DISTRIBUTION_OWNER_UNAVAILABLE';
+    }
+  }
+  if(rmdStatus === 'known'){
+    const employerPlanCashOwner = rmdByOwner
+      ? Object.entries(rmdByOwner).find(([owner, detail]) => (
+        detail.containsEmployerPlan === true
+          && (reservedRmdEligibleCashByOwner?.[owner] ?? 0) > 0
+      ))?.[0] ?? null
+      : (rmdContainsEmployerPlan && appliedReservedRmdEligibleCash > 0
+        ? rmdOwner
+        : null);
+    if(employerPlanCashOwner){
+      rmdStatus = 'unavailable';
+      rmdRequired = null;
+      rmdIssue = 'EMPLOYER_PLAN_RMD_CASH_ATTRIBUTION_UNAVAILABLE';
+      if(rmdByOwner?.[employerPlanCashOwner]){
+        rmdByOwner[employerPlanCashOwner] = {
+          ...rmdByOwner[employerPlanCashOwner],
+          status: 'unavailable',
+          required: null,
+          issue: rmdIssue,
+        };
+      }
+    }
+  }
+  if(rmdByOwner && reservedTraditionalByOwner){
+    for(const owner of Object.keys(rmdByOwner)){
+      const reserved = reservedTraditionalByOwner[owner] ?? 0;
+      const available = traditionalBalancesByOwner[owner] ?? 0;
+      if(reserved > available + 0.01){
+        traditionalOwnerCapacityIssue = {
+          code: 'TRADITIONAL_OWNER_POOL_EXCEEDED',
+          owner,
+          requested: reserved,
+          available,
+        };
+        break;
+      }
+    }
+  }
+  let rmdMinimumCash = rmdStatus === 'known'
+    ? Math.max(0, rmdRequired - appliedReservedRmdEligibleCash)
+    : 0;
+  if(rmdByOwner && rmdStatus === 'known'){
+    rmdMinimumCash = 0;
+    for(const [owner, detail] of Object.entries(rmdByOwner)){
+      const fixedTraditional = reservedTraditionalByOwner?.[owner] ?? 0;
+      const fixedCash = reservedRmdEligibleCashByOwner?.[owner] ?? 0;
+      const ownerFloor = detail.status === 'known'
+        ? Math.max(0, detail.required - fixedCash)
+        : 0;
+      rmdMinimumCash += ownerFloor;
+      if(!traditionalOwnerCapacityIssue
+          && fixedTraditional + ownerFloor
+            > traditionalBalancesByOwner[owner] + 0.01){
+        rmdOwnerCapacityIssue = {
+          code: 'RMD_MINIMUM_EXCEEDS_OWNER_TRADITIONAL',
+          owner,
+          required: ownerFloor,
+          reserved: fixedTraditional,
+          available: traditionalBalancesByOwner[owner],
+        };
+      }
+    }
+    if(rmdOwnerCapacityIssue){
+      rmdStatus = 'unavailable';
+      rmdRequired = null;
+      rmdIssue = rmdOwnerCapacityIssue.code;
+      rmdMinimumCash = 0;
+    }
+  }
+  const rmdSatisfiedByFixedCash = rmdStatus === 'known'
+    ? (rmdByOwner
+      ? Object.entries(rmdByOwner).reduce((sum, [owner, detail]) => (
+        sum + (detail.status === 'known'
+          ? Math.min(detail.required, reservedRmdEligibleCashByOwner?.[owner] ?? 0)
+          : 0)
+      ), 0)
+      : Math.min(rmdRequired, appliedReservedRmdEligibleCash))
+    : (rmdStatus === 'not-required' ? 0 : null);
+  const levers = Object.freeze({
+    ...requested,
+    deferredWithdrawal: Math.max(requested.deferredWithdrawal, rmdMinimumCash),
+  });
+  const rmdRemaining = rmdStatus === 'known'
+    ? Math.max(0, rmdRequired - rmdSatisfiedByFixedCash - levers.deferredWithdrawal)
+    : (rmdStatus === 'not-required' ? 0 : null);
+  const rmdOwnerDetails = rmdByOwner ?? (rmdOwner
+    ? {
+      [rmdOwner]: {
+        status: rmdStatus,
+        age: rmdAge,
+        applicableAge: rmdApplicableAge,
+        priorYearEndBalance: rmdPriorYearEndBalance,
+        required: rmdRequired,
+        issue: rmdIssue,
+      },
+    }
+    : null);
+  const frozenRmdByOwner = rmdOwnerDetails
+    ? Object.freeze(Object.fromEntries(Object.entries(rmdOwnerDetails).map(([owner, detail]) => {
+      const fixedCash = rmdStatus === 'unavailable'
+        ? null
+        : Math.min(
+          detail.required ?? 0,
+          rmdByOwner
+            ? reservedRmdEligibleCashByOwner?.[owner] ?? 0
+            : appliedReservedRmdEligibleCash
+        );
+      const plannerCash = detail.status === 'known' && fixedCash !== null
+        ? Math.max(0, detail.required - fixedCash)
+        : (detail.status === 'not-required' ? 0 : null);
+      return [owner, Object.freeze({
+        ...detail,
+        satisfiedByFixedCash: fixedCash,
+        satisfiedByPlannerCash: plannerCash,
+        remaining: detail.status === 'unavailable' || fixedCash === null
+          ? null
+          : Math.max(0, (detail.required ?? 0) - fixedCash - plannerCash),
+      })];
+    })))
+    : null;
+  const rmd = Object.freeze({
+    status: rmdStatus,
+    owner: rmdOwner,
+    age: rmdAge,
+    applicableAge: rmdApplicableAge,
+    priorYearEndBalance: rmdPriorYearEndBalance,
+    required: rmdRequired,
+    satisfiedByFixedCash: rmdSatisfiedByFixedCash,
+    remaining: rmdRemaining,
+    issue: rmdIssue,
+    byOwner: frozenRmdByOwner,
+  });
+  const rmdShortfall = rmdStatus === 'known'
+    ? Math.max(0, rmdRequired - rmdSatisfiedByFixedCash - levers.deferredWithdrawal)
+    : 0;
+  const interactiveTraditionalUsed = TRADITIONAL_WITHDRAWAL_LEVERS
+    .reduce((sum, key) => sum + levers[key], 0);
+  const traditionalUsed = appliedReservedTraditionalTotal + interactiveTraditionalUsed;
+  const traditionalRemaining = traditionalAvailable === null
+    ? null
+    : Math.max(0, traditionalAvailable - traditionalUsed);
+  const traditionalOwnerLimitsUnavailable = Boolean(
+    traditionalOwnerCapacityIssue || traditionalOwnerAttributionMissing
+  );
+  const deferredMaximum = traditionalAvailable === null
+      || traditionalOwnerLimitsUnavailable
+    ? null
+    : Math.max(
+      0,
+      traditionalAvailable
+        - appliedReservedTraditionalTotal
+        - levers.rothConversion
+        - levers.qcd
+    );
+  const conversionMaximum = traditionalAvailable === null
+      || traditionalOwnerLimitsUnavailable
+      || rmdStatus === 'unavailable'
+    ? null
+    : Math.max(
+      0,
+      traditionalAvailable
+        - appliedReservedTraditionalTotal
+        - levers.deferredWithdrawal
+        - levers.qcd
+        - rmdShortfall
+    );
+  const qcdMaximum = traditionalAvailable === null
+      || traditionalOwnerLimitsUnavailable
+    ? null
+    : Math.max(
+      0,
+      traditionalAvailable
+        - appliedReservedTraditionalTotal
+        - levers.deferredWithdrawal
+        - levers.rothConversion
+        - rmdShortfall
+    );
+  const limits = {
+    taxableWithdrawal: Object.freeze({
+      pool: 'taxable', min: 0, max: taxableAvailable,
+      available: taxableAvailable !== null,
+    }),
+    rothWithdrawal: Object.freeze({
+      pool: 'roth', min: 0, max: rothAvailable,
+      available: rothAvailable !== null,
+    }),
+    deferredWithdrawal: Object.freeze({
+      pool: 'traditional', min: rmdMinimumCash, max: deferredMaximum,
+      available: deferredMaximum !== null,
+    }),
+    rothConversion: Object.freeze({
+      pool: 'traditional', min: 0, max: conversionMaximum,
+      available: conversionMaximum !== null,
+    }),
+    qcd: Object.freeze({
+      pool: 'traditional', min: 0, max: qcdMaximum,
+      available: qcdMaximum !== null,
+    }),
+  };
+
+  const issues = [];
+  if(traditionalOwnerCapacityIssue){
+    issues.push(Object.freeze(traditionalOwnerCapacityIssue));
+  }
+  if(rmdOwnerCapacityIssue){
+    issues.push(Object.freeze(rmdOwnerCapacityIssue));
+  }
+  if(traditionalOwnerAttributionMissing){
+    for(const lever of TRADITIONAL_WITHDRAWAL_LEVERS){
+      if(levers[lever] > 0){
+        issues.push(Object.freeze({
+          code: 'TRADITIONAL_DISTRIBUTION_OWNER_UNAVAILABLE',
+          lever,
+          requested: levers[lever],
+        }));
+      }
+    }
+  }
+  const usedByPool = {
+    taxable: levers.taxableWithdrawal,
+    traditional: traditionalUsed,
+    roth: levers.rothWithdrawal,
+  };
+  for(const pool of ambiguousPools){
+    if(usedByPool[pool] > 0){
+      issues.push(Object.freeze({
+        code: 'ACCOUNT_POOL_AMBIGUOUS',
+        pool,
+        requested: usedByPool[pool],
+      }));
+    }
+  }
+  if(taxableAvailable !== null && levers.taxableWithdrawal > taxableAvailable){
+    issues.push(Object.freeze({
+      code: 'TAXABLE_POOL_EXCEEDED',
+      available: taxableAvailable,
+      requested: levers.taxableWithdrawal,
+    }));
+  }
+  if(rothAvailable !== null && levers.rothWithdrawal > rothAvailable){
+    issues.push(Object.freeze({
+      code: 'ROTH_POOL_EXCEEDED',
+      available: rothAvailable,
+      requested: levers.rothWithdrawal,
+    }));
+  }
+  if(traditionalAvailable !== null && traditionalUsed > traditionalAvailable){
+    issues.push(Object.freeze({
+      code: 'TRADITIONAL_POOL_EXCEEDED',
+      available: traditionalAvailable,
+      requested: traditionalUsed,
+    }));
+  }
+  if(rmdStatus === 'known'
+      && deferredMaximum !== null
+      && rmdMinimumCash > deferredMaximum){
+    issues.push(Object.freeze({
+      code: 'RMD_MINIMUM_EXCEEDS_AVAILABLE_TRADITIONAL',
+      required: rmdMinimumCash,
+      available: deferredMaximum,
+    }));
+  }
+  if(rmdStatus === 'unavailable' && levers.rothConversion > 0){
+    issues.push(Object.freeze({
+      code: 'RMD_ACCOUNT_LIMIT_UNAVAILABLE',
+      lever: 'rothConversion',
+      requested: levers.rothConversion,
+    }));
+  }
+
+  return Object.freeze({
+    valid: issues.length === 0,
+    requestedLevers: requested,
+    levers,
+    reservations: Object.freeze({
+      traditional: appliedReservedTraditionalTotal,
+      traditionalTotal: appliedReservedTraditionalTotal,
+      rmdEligibleCash: appliedReservedRmdEligibleCash,
+      taxYear: focusTaxYear,
+    }),
+    balances: Object.freeze({ ...balances }),
+    limits: Object.freeze(limits),
+    rmd,
+    pools: Object.freeze({
+      taxable: Object.freeze({
+        available: taxableAvailable,
+        used: levers.taxableWithdrawal,
+        remaining: taxableAvailable === null
+          ? null
+          : Math.max(0, taxableAvailable - levers.taxableWithdrawal),
+      }),
+      traditional: Object.freeze({
+        available: traditionalAvailable,
+        used: traditionalUsed,
+        remaining: traditionalRemaining,
+      }),
+      roth: Object.freeze({
+        available: rothAvailable,
+        used: levers.rothWithdrawal,
+        remaining: rothAvailable === null
+          ? null
+          : Math.max(0, rothAvailable - levers.rothWithdrawal),
+      }),
+    }),
+    issues: Object.freeze(issues),
+    sourceIssues: Object.freeze([...new Set([...fold.issues, ...accountSourceIssues])]),
+    ambiguousPools: Object.freeze([...ambiguousPools]),
+    excludedAccountIds: Object.freeze(excludedAccountIds),
+  });
+}
+
+function approveWithdrawalPlannerLeverChange(
+  plan,
+  currentLevers,
+  changedLever,
+  requestedValue,
+  accountReservations = {}
+){
+  if(!WITHDRAWAL_PLANNER_LEVER_KEYS.includes(changedLever)){
+    throw new TypeError(`Unknown Withdrawal Planner lever: ${changedLever}`);
+  }
+  if(typeof requestedValue !== 'number' || !Number.isFinite(requestedValue) || requestedValue < 0){
+    throw new TypeError('requestedValue must be a finite nonnegative number');
+  }
+  const currentState = resolveWithdrawalPlannerAccountState(
+    plan,
+    normalizeWithdrawalPlannerLevers(currentLevers),
+    accountReservations
+  );
+  const current = currentState.levers;
+  const minimum = currentState.limits[changedLever].min ?? 0;
+  const maximum = currentState.limits[changedLever].max;
+  if(maximum === null){
+    return Object.freeze({
+      approved: false,
+      requestedValue,
+      approvedValue: current[changedLever],
+      clamped: requestedValue !== current[changedLever],
+      levers: current,
+      state: currentState,
+    });
+  }
+  const approvedValue = Math.max(minimum, Math.min(requestedValue, maximum));
+  const levers = Object.freeze({ ...current, [changedLever]: approvedValue });
+  const state = resolveWithdrawalPlannerAccountState(plan, levers, accountReservations);
+  return Object.freeze({
+    approved: state.valid,
+    requestedValue,
+    approvedValue,
+    clamped: approvedValue !== requestedValue,
+    levers,
+    state,
+  });
+}
+
+function buildWithdrawalPlannerCashContract(levers, incrementalModeledFederalIncomeTax){
+  const normalized = normalizeWithdrawalPlannerLevers(levers);
+  if(incrementalModeledFederalIncomeTax !== null
+      && (typeof incrementalModeledFederalIncomeTax !== 'number'
+        || !Number.isFinite(incrementalModeledFederalIncomeTax))){
+    throw new TypeError('incrementalModeledFederalIncomeTax must be finite or null');
+  }
+  const round2 = value => Math.round((value + Number.EPSILON) * 100) / 100;
+  const grossWithdrawalCash = round2(
+    normalized.taxableWithdrawal
+      + normalized.deferredWithdrawal
+      + normalized.rothWithdrawal
+  );
+  if(incrementalModeledFederalIncomeTax === null){
+    return Object.freeze({
+      grossWithdrawalCash,
+      incrementalModeledFederalIncomeTax: null,
+      netAfterIncrementalModeledFederalIncomeTax: null,
+    });
+  }
+  return Object.freeze({
+    grossWithdrawalCash,
+    incrementalModeledFederalIncomeTax: round2(incrementalModeledFederalIncomeTax),
+    netAfterIncrementalModeledFederalIncomeTax: round2(
+      grossWithdrawalCash - incrementalModeledFederalIncomeTax
+    ),
+  });
+}
+
 function resolveInputs(plan, ov){
   const profile = RISK_PROFILES[plan.portfolio.riskProfile];
-  const pCurAge = plan.household.primary.currentAge;
+  const timeline = resolveHouseholdTimeline(plan, ov);
+  const pCurAge = timeline.people.client.currentAge;
   const spousePlan = plan.household.spouse || null;
-  const spouseCurAge = spousePlan?.currentAge ?? pCurAge;
-  const primaryEndAge = plan.household.primary.planEndAge;
-  const spouseEndAge = spousePlan
-    ? pCurAge + ((spousePlan.planEndAge ?? primaryEndAge) - spouseCurAge)
-    : null;
-  const householdEndAge = Math.max(primaryEndAge, spouseEndAge ?? primaryEndAge);
-  const horizon = (householdEndAge + (ov.longevityYears || 0)) - pCurAge;
+  const spouseCurAge = timeline.people.spouse?.currentAge ?? null;
+  const primaryEndAge = timeline.people.client.planEndAgeOnPrimaryTimeline;
+  const spouseEndAge = timeline.people.spouse?.planEndAgeOnPrimaryTimeline ?? null;
+  const householdEndAge = timeline.householdEndAgeOnPrimaryTimeline;
+  const horizon = (householdEndAge ?? pCurAge) - pCurAge + 1;
   const equityShockShare = profile.eq;
 
   // Social Security — per person. Each benefit is the pia (benefit at FRA, today's
@@ -592,21 +1604,27 @@ function resolveInputs(plan, ov){
   // age; the spouse keeps their own claim age (edited on the input page).
   const ssCfg = plan.income.socialSecurity || {};
   const ssCutMult = 1 - (ov.ssCut || 0);
-  const ssDelta = ov.ssDelayYears || 0;
   const ssBenefits = [];
-  function addSS(person, isPrimary){
+  const incomeContractIssues = [];
+  function addSS(person, owner){
     if(!person || !(person.pia > 0)) return;
-    const claim = Math.max(62, Math.min(70, (person.claimAge != null ? person.claimAge : SS_FRA)
-                                            + (isPrimary ? ssDelta : 0)));
-    const personCurAge = isPrimary ? pCurAge : spouseCurAge;
+    const isPrimary = owner === 'client';
+    const personTimeline = timeline.people[owner];
+    const claim = personTimeline.socialSecurityClaimAge;
+    const personCurAge = personTimeline.currentAge;
+    if(claim === null || personCurAge === null){
+      incomeContractIssues.push(`SOCIAL_SECURITY_TIMELINE_INCOMPLETE:${owner}`);
+      return;
+    }
     ssBenefits.push({
+      owner,
       amount:   ssAdjust(person.pia, claim) * ssCutMult,
       startAge: pCurAge + (claim - personCurAge),
       endAge: isPrimary ? primaryEndAge : spouseEndAge,
     });
   }
-  addSS(ssCfg.primary, true);
-  addSS(ssCfg.spouse, false);
+  addSS(ssCfg.primary, 'client');
+  if(timeline.people.spouse) addSS(ssCfg.spouse, 'spouse');
 
   // Spend cut: proportional reduction across all expense categories.
   // spendCut reduces spending (stress); spendBump raises it (elasticity probe).
@@ -630,6 +1648,18 @@ function resolveInputs(plan, ov){
   // Typed accounts (401k, SEP, etc.) fold into their tax sleeve before shock/basis
   // so the engine sees correct bucket totals. Default (no extras) is byte-identical.
   const accountFold = resolvePortfolioAccounts(plan);
+  const unavailableOwnerAccount = accountFold.accounts.find(account => (
+    account.sourceKind === 'typed-account'
+      && account.owner === 'spouse'
+      && !spousePlan
+      && account.balance > 0
+  ));
+  if(unavailableOwnerAccount){
+    const error = new RangeError('ACCOUNT_OWNER_UNAVAILABLE');
+    error.code = 'ACCOUNT_OWNER_UNAVAILABLE';
+    error.accountId = unavailableOwnerAccount.id;
+    throw error;
+  }
   const taxableBasis = resolveTaxableStartingBasis(plan, accountFold);
   const taxableRaw = accountFold.engineBuckets.taxable.balance;
   const tradRaw    = accountFold.engineBuckets.traditional.balance;
@@ -648,18 +1678,104 @@ function resolveInputs(plan, ov){
       balance: rothRaw * shockMult
     }
   };
+  const traditionalOwners = new Set();
+  const traditionalOwnerDetails = {
+    client: {
+      balance: 0,
+      priorYearEndBalance: 0,
+      priorYearEndBalanceAvailable: true,
+      focusRulesAvailable: true,
+      containsEmployerPlan: false,
+      traditionalIraAccountCount: 0,
+      employerPlanAccountCount: 0,
+      rmdAccountAttributionAvailable: true,
+    },
+    spouse: {
+      balance: 0,
+      priorYearEndBalance: 0,
+      priorYearEndBalanceAvailable: true,
+      focusRulesAvailable: true,
+      containsEmployerPlan: false,
+      traditionalIraAccountCount: 0,
+      employerPlanAccountCount: 0,
+      rmdAccountAttributionAvailable: true,
+    },
+  };
+  let traditionalOwnerKnown = true;
+  let traditionalAccountRulesKnown = true;
+  let traditionalFocusRulesKnown = true;
+  let traditionalContainsEmployerPlan = false;
+  const planningAsOfYear = Number.isInteger(plan?.meta?.planningAsOfYear)
+    ? plan.meta.planningAsOfYear
+    : 2026;
+  const requiredPriorYearEndDate = `${planningAsOfYear - 1}-12-31`;
+  let traditionalPriorYearEndBalance = 0;
+  let traditionalPriorYearEndBalanceAvailable = true;
+  for(const account of accountFold.accounts){
+    if(account.engineBucket !== 'traditional' || account.strategyRulesPending
+        || account.balance <= 0) continue;
+    if(account.sourceKind === 'legacy-base'){
+      traditionalFocusRulesKnown = false;
+      traditionalPriorYearEndBalanceAvailable = false;
+    }else if(account.sourceKind === 'typed-account'){
+      const accountType = getAccountTypeById(account.typeId);
+      if(accountType?.taxCharacter === 'employer_pretax'){
+        traditionalContainsEmployerPlan = true;
+      }else if(accountType?.taxCharacter !== 'traditional_ira'){
+        traditionalAccountRulesKnown = false;
+      }
+      if(account.valuationDate === requiredPriorYearEndDate){
+        traditionalPriorYearEndBalance += account.balance;
+      }else{
+        traditionalPriorYearEndBalanceAvailable = false;
+      }
+      if(account.owner === 'client'
+          || (account.owner === 'spouse' && timeline.people.spouse)){
+        const ownerDetail = traditionalOwnerDetails[account.owner];
+        ownerDetail.balance += account.balance;
+        if(accountType?.taxCharacter === 'employer_pretax'){
+          ownerDetail.containsEmployerPlan = true;
+          ownerDetail.employerPlanAccountCount += 1;
+        }else if(accountType?.taxCharacter === 'traditional_ira'){
+          ownerDetail.traditionalIraAccountCount += 1;
+        }else if(accountType?.taxCharacter !== 'traditional_ira'){
+          ownerDetail.focusRulesAvailable = false;
+        }
+        if(account.valuationDate === requiredPriorYearEndDate){
+          ownerDetail.priorYearEndBalance += account.balance;
+        }else{
+          ownerDetail.priorYearEndBalanceAvailable = false;
+        }
+      }
+    }
+    if(account.owner === 'client'
+        || (account.owner === 'spouse' && timeline.people.spouse)){
+      traditionalOwners.add(account.owner);
+    }else if(!timeline.people.spouse && account.owner !== 'spouse'){
+      traditionalOwners.add('client');
+    }else{
+      traditionalOwnerKnown = false;
+    }
+  }
+  let traditionalRmdAccountAttributionKnown = true;
+  for(const ownerDetail of Object.values(traditionalOwnerDetails)){
+    ownerDetail.rmdAccountAttributionAvailable =
+      ownerDetail.employerPlanAccountCount === 0
+      || (ownerDetail.employerPlanAccountCount === 1
+        && ownerDetail.traditionalIraAccountCount === 0);
+    if(ownerDetail.balance > 0
+        && !ownerDetail.rmdAccountAttributionAvailable){
+      traditionalRmdAccountAttributionKnown = false;
+    }
+  }
+  if(traditionalOwners.size > 1) traditionalOwnerKnown = false;
+  const traditionalRmdOwner = traditionalOwnerKnown && traditionalOwners.size === 1
+    ? [...traditionalOwners][0]
+    : (traditionalOwnerKnown && !timeline.people.spouse ? 'client' : null);
 
   // ── Accumulation, pension, and LTC resolution (all no-op at plan defaults) ──
-  const curAge        = plan.household.primary.currentAge;
-  const retireDelay   = ov.retireDelay || 0;
-  const primaryRetirementAge = Math.max(curAge, (plan.household.primary.retirementAge != null
-                          ? plan.household.primary.retirementAge : curAge) + retireDelay);
-  const spouse = spousePlan;
-  let spouseRetirementAgeOnPrimaryTimeline = null;
-  if(spouse && spouse.retirementAge != null){
-    spouseRetirementAgeOnPrimaryTimeline = curAge + Math.max(0, (spouse.retirementAge + retireDelay) - spouseCurAge);
-  }
-  const retirementAge = Math.max(curAge, primaryRetirementAge, spouseRetirementAgeOnPrimaryTimeline ?? curAge);
+  const curAge        = timeline.people.client.currentAge;
+  const retirementAge = timeline.householdRetirementAgeOnPrimaryTimeline ?? curAge;
   const savingsAnnual = Math.max(0, ((plan.savings && plan.savings.annual) || 0) * (1 + (ov.savingsBump || 0)));
   // Contribution split — where accumulation savings land across the three sleeves.
   // Default 100% pre-tax (Traditional) so existing plans are byte-identical. Lets
@@ -679,6 +1795,12 @@ function resolveInputs(plan, ov){
       ? { traditional: _st/_ssum, roth: _sr/_ssum, taxable: _sx/_ssum }
       : { traditional: 1, roth: 0, taxable: 0 };
   }
+  const traditionalContributionOwnerKnown = !(timeline.people.spouse
+    && savingsAnnual > 0
+    && savingsSplit.traditional > 0);
+  const traditionalRmdStartAge = traditionalRmdOwner
+    ? timeline.people[traditionalRmdOwner]?.rmdStartAge ?? null
+    : null;
   const pen           = plan.income.pension || {};
   // Chosen collection age. The UI computes this (retirement-linked or custom) and
   // passes it as an absolute override; fall back to the plan's startAge (+ legacy
@@ -697,6 +1819,106 @@ function resolveInputs(plan, ov){
   const penColaReal = ((pen.colaPct || 0) / 100) - LONGRUN_INFLATION;
   const pensionAmount = penBase;
   const ltc           = plan.ltc || {};
+
+  const savedOtherIncome = Array.isArray(plan.income.other)
+    ? plan.income.other
+    : (plan.income.other ? [plan.income.other] : []);
+  const current1040 = plan.incomeTax?.current1040;
+  const current1040MatchesPlanYear = Number(current1040?.taxYear)
+    === Number(planningAsOfYear);
+  const hasExplicitCurrentWages = current1040?.income
+    && Object.prototype.hasOwnProperty.call(current1040.income, 'wages')
+    && Number.isFinite(current1040.income.wages)
+    && current1040.income.wages >= 0;
+  const savedMemberWageOwners = new Set(savedOtherIncome
+    .filter(source => source?.typeId === 'wages' || source?.typeId === 'bonus')
+    .map(source => source?.owner)
+    .filter(owner => owner === 'client' || owner === 'spouse'));
+  const singleCurrentWageFallback = !spousePlan
+    && savedMemberWageOwners.size === 0
+    && current1040MatchesPlanYear
+    && hasExplicitCurrentWages
+    ? [{
+        typeId: 'wages',
+        owner: 'client',
+        amount: current1040.income.wages,
+        realGrowth: 0,
+        taxablePct: 1,
+      }]
+    : [];
+  const rawOtherIncome = [...savedOtherIncome, ...singleCurrentWageFallback];
+  const wageOwners = new Set([
+    ...savedMemberWageOwners,
+    ...singleCurrentWageFallback.map(source => source.owner),
+  ]);
+  if(current1040 && current1040.incomeSourcesComplete !== true){
+    for(const [owner, personPlan, personTimeline] of [
+      ['client', plan.household.primary, timeline.people.client],
+      ['spouse', spousePlan, timeline.people.spouse],
+    ]){
+      if(!personPlan || !personTimeline) continue;
+      const working = personPlan.employmentStatus !== 'retired'
+        && personTimeline.currentAge !== null
+        && personTimeline.retirementAge !== null
+        && personTimeline.currentAge < personTimeline.retirementAge;
+      if(working && !wageOwners.has(owner)){
+        incomeContractIssues.push(`INCOME_SOURCE_MISSING:${owner}:wages`);
+      }
+    }
+  }
+  const otherIncome = rawOtherIncome.map(o => {
+    const source = normalizedIncomeSource(plan, o);
+    const missingSourceOwner = source.owner === 'spouse' && !spousePlan;
+    const spouseOwned = source.owner === 'spouse' && Boolean(spousePlan);
+    const unassignedHouseholdWage = Boolean(spousePlan)
+      && source.owner === 'joint'
+      && (source.typeId === 'wages' || source.typeId === 'bonus');
+    const missingOwnerTimeline = missingSourceOwner
+      || (spouseOwned && spouseCurAge === null);
+    const ownerRetirementAge = source.owner === 'spouse'
+      ? timeline.people.spouse?.retirementAge
+      : timeline.people.client.retirementAge;
+    const missingWorkingEnd = source.timing === 'working'
+      && o.endAge == null
+      && ownerRetirementAge === null;
+    const duplicateSocialSecurity = source.typeId === 'social_security'
+      && ssBenefits.some(benefit => benefit.owner === source.owner);
+    if(duplicateSocialSecurity){
+      incomeContractIssues.push(`SOCIAL_SECURITY_SOURCE_OVERLAP:${source.owner}`);
+    }else if(unassignedHouseholdWage){
+      incomeContractIssues.push('INCOME_OWNER_UNAVAILABLE:joint:wages');
+    }else if(missingSourceOwner){
+      incomeContractIssues.push(`INCOME_OWNER_UNAVAILABLE:${source.owner}:${source.typeId}`);
+    }else if(missingOwnerTimeline || missingWorkingEnd){
+      incomeContractIssues.push(`INCOME_TIMELINE_INCOMPLETE:${source.owner}:${source.typeId}`);
+    }
+    const mapAge = age => spouseOwned && age !== 999
+      ? pCurAge + (age - spouseCurAge)
+      : age;
+    const ownerEndAge = spouseOwned
+      ? spouseEndAge
+      : source.owner === 'joint' ? householdEndAge : primaryEndAge;
+    return {
+      typeId: source.typeId,
+      owner: source.owner,
+      amount: source.typeId === 'long_term_capital_gain'
+        ? source.amount
+        : Math.max(0, source.amount || 0),
+      startAge: missingOwnerTimeline || missingWorkingEnd || duplicateSocialSecurity
+          || unassignedHouseholdWage
+        ? Infinity
+        : mapAge(source.startAge),
+      endAge: missingOwnerTimeline || missingWorkingEnd || duplicateSocialSecurity
+          || unassignedHouseholdWage
+        ? -Infinity
+        : Math.min(mapAge(source.endAge), ownerEndAge ?? 999),
+      realGrowth: source.realGrowth,
+      taxablePct: source.taxablePct == null
+        ? 1
+        : Math.max(0, Math.min(1, source.taxablePct)),
+      qualifiedPct: Math.max(0, Math.min(1, source.qualifiedPct || 0)),
+    };
+  });
 
   // ── Earmarked-asset sale (override-only; never baked into the base plan) ──────
   // ov.assetSale = { asset: <index into plan.properties>, age: <sale age> }. We
@@ -743,8 +1965,15 @@ function resolveInputs(plan, ov){
   }
 
   return {
-    currentAge: plan.household.primary.currentAge,
+    currentAge: pCurAge,
     retirementAge,
+    people: timeline.people,
+    simulationAvailable: timeline.completeForSimulation,
+    simulationIssues: timeline.completeForSimulation
+      ? Object.freeze([])
+      : Object.freeze(['HOUSEHOLD_TIMELINE_INCOMPLETE']),
+    incomeContractAvailable: incomeContractIssues.length === 0,
+    incomeContractIssues: Object.freeze([...incomeContractIssues]),
     savingsAnnual,
     savingsSplit,
     horizonYears: horizon,
@@ -759,23 +1988,57 @@ function resolveInputs(plan, ov){
     // Other income — normalized to an array of timed streams, each carrying its
     // own real growth and taxable share (both defaulting to the legacy flat-real,
     // fully-taxed behavior). Accepts a legacy single object too.
-    otherIncome: (Array.isArray(plan.income.other) ? plan.income.other
-                  : (plan.income.other ? [plan.income.other] : []))
-      .map(o => {
-        const spouseOwned = o.owner === 'spouse' && spousePlan;
-        const mapAge = age => spouseOwned && age !== 999
-          ? pCurAge + (age - spouseCurAge)
-          : age;
-        const ownerEndAge = spouseOwned ? spouseEndAge : primaryEndAge;
-        return {
-          amount: Math.max(0, o.amount || 0),
-          startAge: mapAge(o.startAge != null ? o.startAge : 0),
-          endAge: Math.min(mapAge(o.endAge != null ? o.endAge : 999), ownerEndAge ?? 999),
-          realGrowth: o.realGrowth || 0,
-          taxablePct: o.taxablePct == null ? 1 : Math.max(0, Math.min(1, o.taxablePct)),
-        };
-      }),
+    otherIncome,
     pension:        { amount: pensionAmount, startAge: penStartAge, colaReal: penColaReal },
+    rmdContract: Object.freeze({
+      available: traditionalOwnerKnown
+        && traditionalAccountRulesKnown
+        && traditionalRmdAccountAttributionKnown
+        && traditionalContributionOwnerKnown
+        && Boolean(traditionalRmdOwner)
+        && traditionalRmdStartAge !== null,
+      owner: traditionalRmdOwner,
+      startAge: traditionalRmdStartAge,
+      containsEmployerPlan: traditionalContainsEmployerPlan,
+      focusRulesAvailable: traditionalFocusRulesKnown,
+      planningAsOfYear,
+      priorYearEndBalance: traditionalPriorYearEndBalanceAvailable
+        ? traditionalPriorYearEndBalance
+        : null,
+      priorYearEndBalanceAvailable: traditionalPriorYearEndBalanceAvailable,
+      byOwner: Object.freeze(Object.fromEntries(
+        [...traditionalOwners].map(owner => {
+          const detail = traditionalOwnerDetails[owner];
+          const startAge = timeline.people[owner]?.rmdStartAge ?? null;
+          return [owner, Object.freeze({
+            available: detail.focusRulesAvailable
+              && detail.priorYearEndBalanceAvailable
+              && startAge !== null,
+            balance: detail.balance,
+            startAge,
+            containsEmployerPlan: detail.containsEmployerPlan,
+            focusRulesAvailable: detail.focusRulesAvailable,
+            rmdAccountAttributionAvailable:
+              detail.rmdAccountAttributionAvailable,
+            priorYearEndBalance: detail.priorYearEndBalanceAvailable
+              ? detail.priorYearEndBalance
+              : null,
+            priorYearEndBalanceAvailable: detail.priorYearEndBalanceAvailable,
+          })];
+        })
+      )),
+      issue: !traditionalOwnerKnown || !traditionalRmdOwner
+        ? 'TRADITIONAL_ACCOUNT_OWNER_UNAVAILABLE'
+        : !traditionalAccountRulesKnown
+          ? 'TRADITIONAL_ACCOUNT_RMD_RULE_UNAVAILABLE'
+          : !traditionalRmdAccountAttributionKnown
+            ? 'EMPLOYER_PLAN_RMD_ACCOUNT_ATTRIBUTION_UNAVAILABLE'
+            : !traditionalContributionOwnerKnown
+              ? 'TRADITIONAL_CONTRIBUTION_OWNER_UNAVAILABLE'
+              : traditionalRmdStartAge === null
+                ? 'RMD_BIRTH_COHORT_UNAVAILABLE'
+                : null,
+    }),
     ltc:            { amount: Math.max(0, (ltc.amount || 0) * (1 + (ov.ltcAdj || 0))), onsetAge: (ltc.onsetAge != null ? ltc.onsetAge : 999) },
     expenses: {
       // Absolute living spend is a narrow zero-base scenario seam. It avoids
@@ -866,15 +2129,14 @@ function resolveInputs(plan, ov){
 
 // ── RMDs (Required Minimum Distributions) ───────────────────────────────────
 // SECURE 2.0: the pre-tax (Traditional) sleeve must distribute a minimum each
-// year from age 73 = prior-year-end balance ÷ the IRS Uniform Lifetime divisor
-// for that age. Roth is exempt. The distribution is ordinary income; any part
+// year from the owner's cohort-specific applicable age. Roth is exempt. The
+// distribution is ordinary income; any part
 // not needed for spending is reinvested (after tax) into the taxable sleeve —
 // you must TAKE it, not SPEND it, so the portfolio only loses the tax.
 //
 // Divisors: IRS Uniform Lifetime Table (Pub 590-B, Table III), current 2026.
-const RMD_START_AGE = 73;
 const UNIFORM_LIFETIME = {
-  73:26.5, 74:25.5, 75:24.6, 76:23.7, 77:22.9, 78:22.0, 79:21.1, 80:20.2,
+  72:27.4, 73:26.5, 74:25.5, 75:24.6, 76:23.7, 77:22.9, 78:22.0, 79:21.1, 80:20.2,
   81:19.4, 82:18.5, 83:17.7, 84:16.8, 85:16.0, 86:15.2, 87:14.4, 88:13.7,
   89:12.9, 90:12.2, 91:11.5, 92:10.8, 93:10.1, 94:9.5, 95:8.9, 96:8.4,
   97:7.8, 98:7.3, 99:6.8, 100:6.4, 101:6.0, 102:5.6, 103:5.2, 104:4.9,
@@ -882,37 +2144,242 @@ const UNIFORM_LIFETIME = {
   113:3.1, 114:3.0, 115:2.9, 116:2.8, 117:2.7, 118:2.5, 119:2.3, 120:2.0
 };
 function rmdDivisor(age){
-  if(age < RMD_START_AGE) return Infinity;          // no RMD → required = 0
+  if(age < 72) return Infinity;                     // no RMD → required = 0
   return UNIFORM_LIFETIME[Math.min(age, 120)];      // table floors at 120+
+}
+
+function requiredMinimumDistribution(p, primaryAge, traditionalBalance){
+  if(!(traditionalBalance > 0.01)){
+    return { required: 0, available: true, owner: p.rmdContract?.owner ?? null, issue: null };
+  }
+  const contract = p.rmdContract;
+  if(!contract?.available || !contract.owner){
+    const householdState = householdTaxStatusAtAge(p, primaryAge);
+    const possibleOwners = contract?.owner
+      ? [householdState.people?.[contract.owner]].filter(Boolean)
+      : Object.values(householdState.people || {}).filter(Boolean);
+    const noCurrentRmdExposure = possibleOwners.length > 0
+      && possibleOwners.every(person => (
+        person.alive === true
+          && typeof person.age === 'number'
+          && person.age < (person.rmdStartAge ?? 72)
+    ));
+    if(noCurrentRmdExposure){
+      return { required: 0, available: true, owner: contract?.owner ?? null, issue: null };
+    }
+    return {
+      required: null,
+      available: false,
+      owner: null,
+      issue: contract?.issue ?? 'TRADITIONAL_ACCOUNT_OWNER_UNAVAILABLE',
+    };
+  }
+  const person = householdTaxStatusAtAge(p, primaryAge).people?.[contract.owner];
+  if(!person?.alive){
+    return {
+      required: null,
+      available: false,
+      owner: contract.owner,
+      issue: 'TRADITIONAL_ACCOUNT_OWNER_LIFECYCLE_UNAVAILABLE',
+    };
+  }
+  if(person.age < contract.startAge){
+    return {
+      required: 0,
+      available: true,
+      owner: contract.owner,
+      issue: null,
+    };
+  }
+  if(contract.containsEmployerPlan && person.retired !== true){
+    return {
+      required: null,
+      available: false,
+      owner: contract.owner,
+      issue: 'EMPLOYER_PLAN_RMD_RULE_UNAVAILABLE',
+    };
+  }
+  return {
+    required: traditionalBalance / rmdDivisor(person.age),
+    available: true,
+    owner: contract.owner,
+    issue: null,
+  };
 }
 
 function externalIncomeAtAge(p, age){
   let ssInc = 0;
-  for(const b of p.ss){ if(age >= b.startAge && (b.endAge == null || age < b.endAge)) ssInc += b.amount; }
+  for(const b of p.ss){ if(age >= b.startAge && (b.endAge == null || age <= b.endAge)) ssInc += b.amount; }
   let oiInc = 0, oiTaxable = 0;
+  const taxIncome = {};
+  const add = (key, value) => {
+    if(value !== 0) taxIncome[key] = (taxIncome[key] || 0) + value;
+  };
   for(const o of p.otherIncome){
     if(age >= o.startAge && age <= o.endAge){
       const amt = o.amount * Math.pow(1 + o.realGrowth, age - o.startAge);
+      const taxable = amt * o.taxablePct;
+      if(o.typeId === 'social_security'){
+        ssInc += amt;
+        continue;
+      }
       oiInc     += amt;
-      oiTaxable += amt * o.taxablePct;
+      oiTaxable += taxable;
+      if(o.typeId === 'wages' || o.typeId === 'bonus') add('wages', amt);
+      else if(o.typeId === 'interest'){
+        add('taxableInterest', taxable);
+        add('taxExemptInterest', amt - taxable);
+      }else if(o.typeId === 'tax_exempt_interest') add('taxExemptInterest', amt);
+      else if(o.typeId === 'dividends'){
+        add('ordinaryDividends', taxable);
+        add('qualifiedDividends', taxable * o.qualifiedPct);
+      }else if(o.typeId === 'pension' || o.typeId === 'annuity'){
+        add('pensionAmount', amt);
+        add('taxablePensions', taxable);
+      }else if(o.typeId === 'ira_distribution'){
+        add('iraDistributions', amt);
+        add('iraCashDistributions', amt);
+        add('taxableIra', taxable);
+        if(o.owner === 'client' || o.owner === 'spouse'){
+          taxIncome.iraDistributionsByOwner ??= { client: 0, spouse: 0 };
+          taxIncome.iraCashDistributionsByOwner ??= { client: 0, spouse: 0 };
+          taxIncome.iraDistributionsByOwner[o.owner] += amt;
+          taxIncome.iraCashDistributionsByOwner[o.owner] += amt;
+        }
+      }else if(o.typeId === 'roth_conversion'){
+        add('iraDistributions', amt);
+        add('rothConversions', amt);
+        add('taxableIra', taxable);
+        if(o.owner === 'client' || o.owner === 'spouse'){
+          taxIncome.iraDistributionsByOwner ??= { client: 0, spouse: 0 };
+          taxIncome.rothConversionsByOwner ??= { client: 0, spouse: 0 };
+          taxIncome.iraDistributionsByOwner[o.owner] += amt;
+          taxIncome.rothConversionsByOwner[o.owner] += amt;
+        }
+      }else if(o.typeId === 'long_term_capital_gain') add('capitalGain', amt);
+      else add('otherIncome', taxable);
     }
   }
   const penInc = (p.pension && age >= p.pension.startAge)
     ? p.pension.amount * Math.pow(1 + (p.pension.colaReal || 0), age - p.pension.startAge) : 0;
-  return { ssInc, oiInc, oiTaxable, penInc };
+  add('socialSecurityBenefits', ssInc);
+  if(penInc !== 0){
+    add('pensionAmount', penInc);
+    add('taxablePensions', penInc);
+  }
+  return { ssInc, oiInc, oiTaxable, penInc, taxIncome };
+}
+
+function householdStateAtYear(p, yearIndex){
+  if(typeof yearIndex !== 'number' || !Number.isFinite(yearIndex)){
+    throw new TypeError('yearIndex must be a finite number');
+  }
+  const people = p?.people;
+  if(!people?.client){
+    throw new TypeError('resolved household people are required');
+  }
+
+  const stateFor = person => {
+    if(!person) return null;
+    const age = person.currentAge === null ? null : person.currentAge + yearIndex;
+    const alive = age === null || person.planEndAge === null
+      ? (yearIndex <= 0 ? true : null)
+      : age <= person.planEndAge;
+    return Object.freeze({
+      age,
+      alive,
+      rmdStartAge: person.rmdStartAge,
+      retired: alive === null || person.retirementAge === null
+        ? null
+        : alive && age >= person.retirementAge,
+      claimingSocialSecurity: alive === null || person.socialSecurityClaimAge === null
+        ? null
+        : alive && age >= person.socialSecurityClaimAge,
+    });
+  };
+  const client = stateFor(people.client);
+  const spouse = stateFor(people.spouse);
+  const hasSpouseTimeline = spouse !== null;
+  const survivor = hasSpouseTimeline
+    && typeof client.alive === 'boolean'
+    && typeof spouse.alive === 'boolean'
+    && client.alive !== spouse.alive;
+  const survivingOwner = survivor
+    ? (client.alive ? 'client' : 'spouse')
+    : null;
+  const ages = spouse
+    ? Object.freeze({ client: client.age, spouse: spouse.age })
+    : Object.freeze({ client: client.age });
+
+  const filingStatus = !hasSpouseTimeline
+    ? (client.alive === true ? p.survival?.initialFilingStatus ?? null : null)
+    : client.alive === true && spouse.alive === true
+      ? p.survival?.initialFilingStatus ?? null
+      : (client.alive === true && spouse.alive === false)
+          || (client.alive === false && spouse.alive === true)
+        ? 'single'
+        : null;
+
+  return Object.freeze({
+    ages,
+    people: Object.freeze({ client, spouse }),
+    filingStatus,
+    survivor,
+    survivingOwner,
+  });
+}
+
+function householdIncomeAtYear(p, yearIndex){
+  const age = p.currentAge + yearIndex;
+  const income = externalIncomeAtAge(p, age);
+  const taxIncome = { ...income.taxIncome };
+  const wages = taxIncome.wages || 0;
+  const grossOtherIncome = income.oiInc - wages + income.penInc;
+  const householdState = householdStateAtYear(p, yearIndex);
+  const socialSecurityAvailable = !(p.incomeContractIssues || []).some(issue => (
+    String(issue).startsWith('SOCIAL_SECURITY_TIMELINE_INCOMPLETE:')
+  ));
+  const unavailableIncomeTypes = new Set((p.incomeContractIssues || [])
+    .filter(issue => (
+      String(issue).startsWith('INCOME_OWNER_UNAVAILABLE:')
+        || String(issue).startsWith('INCOME_TIMELINE_INCOMPLETE:')
+    ))
+    .map(issue => String(issue).split(':').at(-1)));
+  const missingWageOwners = (p.incomeContractIssues || [])
+    .filter(issue => String(issue).startsWith('INCOME_SOURCE_MISSING:')
+      && String(issue).endsWith(':wages'))
+    .map(issue => String(issue).split(':')[1]);
+  const wagesAvailable = !unavailableIncomeTypes.has('wages')
+    && !unavailableIncomeTypes.has('bonus')
+    && missingWageOwners.every(owner => (
+      householdState.people?.[owner]?.retired !== false
+    ));
+  const otherIncomeAvailable = [...unavailableIncomeTypes].every(typeId => (
+    typeId === 'wages' || typeId === 'bonus' || typeId === 'social_security'
+  ));
+  const pensionAvailable = !unavailableIncomeTypes.has('pension')
+    && !unavailableIncomeTypes.has('annuity');
+  return Object.freeze({
+    ...householdState,
+    ...taxIncome,
+    available: householdState.filingStatus !== null,
+    incomeIssues: p.incomeContractIssues ?? Object.freeze([]),
+    age,
+    socialSecurityBenefits: socialSecurityAvailable
+      ? taxIncome.socialSecurityBenefits || 0
+      : null,
+    wages: wagesAvailable ? wages : null,
+    otherIncome: otherIncomeAvailable ? taxIncome.otherIncome || 0 : null,
+    taxableOtherIncome: otherIncomeAvailable ? taxIncome.otherIncome || 0 : null,
+    grossSupplementalIncome: otherIncomeAvailable ? income.oiInc : null,
+    grossOtherIncome: otherIncomeAvailable ? grossOtherIncome : null,
+    pensionAmount: pensionAvailable ? taxIncome.pensionAmount || 0 : null,
+    taxablePensions: pensionAvailable ? taxIncome.taxablePensions || 0 : null,
+  });
 }
 
 function householdTaxStatusAtAge(p, age){
-  const survival = p.survival || {};
-  const primaryAlive = survival.primaryEndAge == null || age < survival.primaryEndAge;
-  const spouseAlive = survival.spouseEndAge == null || age < survival.spouseEndAge;
-  const hasSpouseTimeline = survival.spouseEndAge != null;
-  return {
-    filingStatus: hasSpouseTimeline && (!primaryAlive || !spouseAlive)
-      ? 'single'
-      : survival.initialFilingStatus,
-    survivor: hasSpouseTimeline && primaryAlive !== spouseAlive,
-  };
+  return householdStateAtYear(p, age - p.currentAge);
 }
 
 function shortcutTaxOnExternalIncome(p, { ssInc, oiTaxable, penInc }){
@@ -986,6 +2453,7 @@ function buildFederalFundingCandidate({
   oiInc,
   oiTaxable,
   penInc,
+  taxIncome,
   expenses,
   goalsY,
   liabCost,
@@ -1004,9 +2472,12 @@ function buildFederalFundingCandidate({
     roth: accounts.roth.balance,
   };
   const taxableStartingBasis = accounts.taxable.basis;
-  const rmdRequired = age >= RMD_START_AGE && accountStartingBalances.traditional > 0.01
-    ? accountStartingBalances.traditional / rmdDivisor(age)
-    : 0;
+  const rmd = requiredMinimumDistribution(
+    p,
+    age,
+    accountStartingBalances.traditional
+  );
+  const rmdRequired = rmd.required;
 
   const adjustedGap = gap + taxFundingAdjustment;
   const funding = adjustedGap > 0
@@ -1086,10 +2557,14 @@ function buildFederalFundingCandidate({
     socialSecurity: ssInc,
     otherIncome: oiInc,
     pension: penInc,
+    incomeTaxFacts: { ...taxIncome },
     withdrawal,
     ...(oiInc > 0 ? { otherIncomeTaxable: oiTaxable } : {}),
     rmd: rmdForced,
     rmdRequired,
+    rmdAvailable: rmd.available,
+    rmdOwner: rmd.owner,
+    rmdIssue: rmd.issue,
     assetSale: saleProceeds,
     expenses,
     goals: goalsY,
@@ -1225,6 +2700,11 @@ function solveFederalFundingYear(args, taxPolicy){
 }
 
 function runSinglePath(p, returnPath, options = {}){
+  if(p.simulationAvailable === false){
+    const error = new RangeError('HOUSEHOLD_TIMELINE_INCOMPLETE');
+    error.code = 'HOUSEHOLD_TIMELINE_INCOMPLETE';
+    throw error;
+  }
   const taxPolicy = options.taxPolicy ?? null;
   const fundTaxPolicyDelta = options.fundTaxPolicyDelta === true;
   if(taxPolicy !== null && typeof taxPolicy !== 'function'){
@@ -1270,13 +2750,26 @@ function runSinglePath(p, returnPath, options = {}){
       accounts.taxable.basis   += saleProceeds;
     }
 
+    const openingRmd = requiredMinimumDistribution(
+      p,
+      age,
+      accounts.traditional.balance
+    );
+    if(!openingRmd.available){
+      const error = new RangeError('HOUSEHOLD_RMD_UNAVAILABLE');
+      error.code = 'HOUSEHOLD_RMD_UNAVAILABLE';
+      error.rmdIssue = openingRmd.issue;
+      error.age = age;
+      throw error;
+    }
+
     // ── ACCUMULATION PHASE (age < retirementAge) ──────────────────────────
     // Still working: portfolio grows and receives savings; no retirement
     // spending or withdrawals yet. Timed external income (wages, etc.) is
     // reported on rows for Cash Flow; recurring living costs are still assumed
     // covered off-books while working. No-op at default (retirementAge==currentAge).
     if(age < p.retirementAge){
-      const { ssInc, oiInc, oiTaxable, penInc } = externalIncomeAtAge(p, age);
+      const { ssInc, oiInc, oiTaxable, penInc, taxIncome } = externalIncomeAtAge(p, age);
       returnProduct *= (1 + r);
       if(y < 10) first10Product *= (1 + r);
       const accFactor = Math.abs(r) < 1e-7 ? 12 : r / (Math.pow(1 + r, 1/12) - 1);
@@ -1290,6 +2783,21 @@ function runSinglePath(p, returnPath, options = {}){
       accounts.traditional.balance = accounts.traditional.balance * (1 + r) + contrib * p.savingsSplit.traditional;
       // Taxable contributions are after-tax dollars → their principal adds to basis.
       if(p.savingsSplit.taxable > 0) accounts.taxable.basis += p.savingsAnnual * p.savingsSplit.taxable;
+      let rmdForcedA = 0;
+      let rmdTaxA = 0;
+      if(openingRmd.required > 0){
+        rmdForcedA = Math.min(
+          openingRmd.required,
+          Math.max(0, accounts.traditional.balance)
+        );
+        if(rmdForcedA > 0.01){
+          accounts.traditional.balance -= rmdForcedA;
+          rmdTaxA = rmdForcedA * p.taxRates.ordinary;
+          const reinvest = rmdForcedA - rmdTaxA;
+          accounts.taxable.balance += reinvest;
+          accounts.taxable.basis += reinvest;
+        }
+      }
       // One-time capital outlay (e.g. a home purchase) during working years. The
       // engine assumes salary covers recurring costs while working, but a large
       // purchase is funded by liquidating investments — taxable first, then
@@ -1322,37 +2830,47 @@ function runSinglePath(p, returnPath, options = {}){
       if(endBalanceA > peakBalance) peakBalance = endBalanceA;
       if(peakBalance > 0){ const dd = (peakBalance - endBalanceA) / peakBalance; if(dd > maxDrawdown) maxDrawdown = dd; }
       const { taxOnSS, taxOnOI, taxOnPen, shortcutTax } = shortcutTaxOnExternalIncome(p, { ssInc, oiTaxable, penInc });
+      const rowShortcutTax = shortcutTax + rmdTaxA;
       const row = {
         year: y+1, age, source: rp.y, returnRate: r, phase: 'accum',
         ...householdTaxStatusAtAge(p, age),
         returnDollars: startBalanceA * r,
-        socialSecurity: ssInc, otherIncome: oiInc, pension: penInc, withdrawal: 0, assetSale: saleProceeds,
+        socialSecurity: ssInc, otherIncome: oiInc, pension: penInc,
+        incomeTaxFacts: { ...taxIncome }, withdrawal: 0,
+        rmd: rmdForcedA,
+        rmdRequired: openingRmd.required,
+        rmdAvailable: true,
+        rmdOwner: openingRmd.owner,
+        rmdIssue: null,
+        assetSale: saleProceeds,
         ...(oiInc > 0 ? { otherIncomeTaxable: oiTaxable } : {}),
-        expenses: 0, goals: goalsA, liabilities: 0, taxes: shortcutTax, savings: p.savingsAnnual, lumpSum: lumpA,
+        expenses: 0, goals: goalsA, liabilities: 0, taxes: rowShortcutTax, savings: p.savingsAnnual, lumpSum: lumpA,
         startBalance: startBalanceA, wdRate: 0,
         netCashflow: saleProceeds - lumpA - goalsA,
         balance: endBalanceA, failed: false,
         accountBreakdown: { taxable: 0, traditional: 0, roth: 0 },
         accountBalances: { taxable: accounts.taxable.balance, traditional: accounts.traditional.balance, roth: accounts.roth.balance },
         taxableEndingBasis: accounts.taxable.basis,
-        taxBySource: { ss: taxOnSS, oi: taxOnOI, traditional: 0, taxable: 0 }
+        taxBySource: { ss: taxOnSS, oi: taxOnOI, traditional: rmdTaxA, taxable: 0 }
       };
       // Reporting-only federal reruns (T7/T8). Income tax during working years is
       // display-only — it does not fund from the portfolio and fundTaxPolicyDelta
       // remains retirement-only.
       if(taxPolicy){
-        const reportingTax = taxPolicy(row, { shortcutTax, yearIndex: y });
+        const reportingTax = taxPolicy(row, { shortcutTax: rowShortcutTax, yearIndex: y });
         if(!Number.isFinite(reportingTax) || reportingTax < 0){
           throw new TypeError('taxPolicy must return a finite non-negative tax');
         }
         row.taxes = reportingTax;
         lifetimeTax += reportingTax;
+      }else{
+        lifetimeTax += rowShortcutTax;
       }
       rows.push(row);
       continue;
     }
 
-    const { ssInc, oiInc, oiTaxable, penInc } = externalIncomeAtAge(p, age);
+    const { ssInc, oiInc, oiTaxable, penInc, taxIncome } = externalIncomeAtAge(p, age);
     const ltcCost = (p.ltc && age >= p.ltc.onsetAge) ? p.ltc.amount : 0;
     let extraExp = 0;
     for(const e of p.expenses.extra){ if(age >= e.startAge && age <= e.endAge) extraExp += e.amount; }
@@ -1410,11 +2928,8 @@ function runSinglePath(p, returnPath, options = {}){
       roth: accounts.roth.balance
     };
     const taxableStartingBasis = accounts.taxable.basis;
-    // Existing engine RMD model: combined Traditional sleeve on the primary
-    // age timeline. This is a planning fact, not owner-by-owner legal RMD truth.
-    const rmdRequired = age >= RMD_START_AGE && accountStartingBalances.traditional > 0.01
-      ? accountStartingBalances.traditional / rmdDivisor(age)
-      : 0;
+    const rmd = openingRmd;
+    const rmdRequired = rmd.required;
 
     if(taxPolicy && fundTaxPolicyDelta){
       const solved = solveFederalFundingYear({
@@ -1429,6 +2944,7 @@ function runSinglePath(p, returnPath, options = {}){
         oiInc,
         oiTaxable,
         penInc,
+        taxIncome,
         expenses,
         goalsY,
         liabCost,
@@ -1465,6 +2981,7 @@ function runSinglePath(p, returnPath, options = {}){
         for(let z = y + 1; z < p.horizonYears; z++){
           rows.push({
             year:z+1, age:p.currentAge+z, source:null, returnRate:0, returnDollars:0,
+            ...householdStateAtYear(p, z),
             socialSecurity:0, otherIncome:0, withdrawal:0,
             expenses:0, goals:0, taxes:0,
             startBalance:0, wdRate:0, netCashflow:0, balance:0, failed:true,
@@ -1595,9 +3112,14 @@ function runSinglePath(p, returnPath, options = {}){
       nominalReturn: (rp && rp.proxyNominalReturn != null) ? rp.proxyNominalReturn : null,
       inflationRate: (rp && rp.proxyInflationRate != null) ? rp.proxyInflationRate : null,
       realReturnUsed: r,
-      socialSecurity: ssInc, otherIncome: oiInc, pension: penInc, withdrawal,
+      socialSecurity: ssInc, otherIncome: oiInc, pension: penInc,
+      incomeTaxFacts: { ...taxIncome }, withdrawal,
       ...(oiInc > 0 ? { otherIncomeTaxable: oiTaxable } : {}),
-      rmd: rmdForced, rmdRequired, assetSale: saleProceeds,
+      rmd: rmdForced, rmdRequired,
+      rmdAvailable: rmd.available,
+      rmdOwner: rmd.owner,
+      rmdIssue: rmd.issue,
+      assetSale: saleProceeds,
       expenses, goals: goalsY, liabilities: liabCost, taxes: resolvedTax, lumpSum: lumpY,
       startBalance, wdRate,
       netCashflow: (ssInc + oiInc + penInc + saleProceeds)
@@ -1643,6 +3165,7 @@ function runSinglePath(p, returnPath, options = {}){
       for(let z = y+1; z < p.horizonYears; z++){
         rows.push({
           year:z+1, age:p.currentAge+z, source:null, returnRate:0, returnDollars:0,
+          ...householdStateAtYear(p, z),
           socialSecurity:0, otherIncome:0, withdrawal:0,
           expenses:0, goals:0, taxes:0,
           startBalance:0, wdRate:0, netCashflow:0, balance:0, failed:true,
@@ -1846,6 +3369,11 @@ function runHistoricalPath(plan, startYear, strategy, transform, overrides, opti
   // pensionStartAge, …) so a chosen scenario is sequenced faithfully, not just
   // its allocation. Defaults to {} → behavior identical to the original.
   const rawInputs = resolveInputs(plan, overrides || {});
+  if(rawInputs.simulationAvailable === false){
+    const error = new RangeError('HOUSEHOLD_TIMELINE_INCOMPLETE');
+    error.code = 'HOUSEHOLD_TIMELINE_INCOMPLETE';
+    throw error;
+  }
   // Override strategy for this run
   rawInputs.withdrawalStrategy = strategy;
 
@@ -2034,7 +3562,11 @@ export {
   RETURN_DATA, ASSET_META, ASSET_KEYS, EQUITY_MIX, DEFENSIVE_MIX,
   RISK_PROFILES, ASSET_STATS, LONGRUN_INFLATION,
   buildAssetWeights, computeAssetStats, generateReturnPath, resetSeed, weightedAssetReturn,
-  runSimulation, resolveInputs, runSinglePath, analyzeResults, runHistoricalPath,
+  ssAdjust,
+  runSimulation, resolveInputs, resolveHouseholdTimeline, householdStateAtYear,
+  householdIncomeAtYear, resolveWithdrawalPlannerAccountState,
+  approveWithdrawalPlannerLeverChange, buildWithdrawalPlannerCashContract,
+  runSinglePath, analyzeResults, runHistoricalPath,
   annualMortgagePayment,
   pathDigest, assessPlan, ASSESSMENT_RULES,
   plan as defaultPlan

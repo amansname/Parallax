@@ -83,7 +83,7 @@ const BLANK_GEOM = Object.freeze({
 export function buildThresholdColumns({ result, hoverMark }) {
   const m = formatWithdrawalMoney;
   const pc = formatWithdrawalPct;
-  if (!result || result.error) {
+  if (!result || result.error || result.code) {
     return [
       { id: 'ord', name: 'Income Tax', current: '—', tone: 'var(--ink-bright)', footLabel: 'Room', foot: '—', ...BLANK_GEOM },
       { id: 'ltcg', name: 'Long-term gains', current: '—', tone: 'var(--ok)', footLabel: 'Room', foot: '—', ...BLANK_GEOM },
@@ -97,6 +97,7 @@ export function buildThresholdColumns({ result, hoverMark }) {
   const ss = result.socialSecurity || {};
   const lad = result.ladders || {};
   const bl = result.baseline || {};
+  const taxDollars = result.thresholdTaxDollars || {};
   const ordL = lad.ordinary || [];
 
   const gOrd = columnGeom(
@@ -111,8 +112,8 @@ export function buildThresholdColumns({ result, hoverMark }) {
   const gLtcg = columnGeom(
     'ltcg',
     [
-      { v: lad.ltcg?.zeroRateMax, label: '15%' },
-      { v: lad.ltcg?.fifteenRateMax, label: '20%' },
+      { v: lad.ltcg?.zeroRateMax, label: pc(lad.ltcg?.rates?.middle) },
+      { v: lad.ltcg?.fifteenRateMax, label: pc(lad.ltcg?.rates?.top) },
     ],
     ltcg.stackedOn,
     ltcg.gains,
@@ -123,8 +124,8 @@ export function buildThresholdColumns({ result, hoverMark }) {
   const gSs = columnGeom(
     'ss',
     [
-      { v: lad.socialSecurity?.tier1, label: '50%' },
-      { v: lad.socialSecurity?.tier2, label: '85%' },
+      { v: lad.socialSecurity?.tier1, label: pc(lad.socialSecurity?.rates?.lowerTier) },
+      { v: lad.socialSecurity?.tier2, label: pc(lad.socialSecurity?.rates?.upperTier) },
     ],
     floorOf(bl.provisionalIncome, ss.provisionalIncome),
     (ss.provisionalIncome || 0) - floorOf(bl.provisionalIncome, ss.provisionalIncome),
@@ -150,6 +151,7 @@ export function buildThresholdColumns({ result, hoverMark }) {
       baseBg: dim,
       edge: 'rgba(216,192,132,.45)',
       ...(gOrd || blank),
+      value: m(taxDollars.ordinaryIncomeTax),
     },
     {
       id: 'ltcg',
@@ -162,6 +164,7 @@ export function buildThresholdColumns({ result, hoverMark }) {
       baseBg: dim,
       edge: 'rgba(169,193,154,.45)',
       ...(gLtcg || blank),
+      value: m(taxDollars.preferentialIncomeTax),
     },
     {
       id: 'irmaa',
@@ -183,6 +186,7 @@ export function buildThresholdColumns({ result, hoverMark }) {
       baseBg: dim,
       edge: 'rgba(216,192,132,.45)',
       ...(gSs || blank),
+      value: m(taxDollars.socialSecurityIncrementalModeledFederalIncomeTax),
     },
   ];
 }

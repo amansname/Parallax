@@ -61,20 +61,40 @@ function resolveIncomeComponent(lineId, value, { ruleId = null, auditIndex = nul
   return suppliedLine(lineId, value);
 }
 
-function buildLine6b(input, context, audits, scheduleSETotals){
+function buildLine6b(
+  input,
+  context,
+  audits,
+  scheduleSETotals,
+  scheduleDClassificationResult
+){
   const supplied = readSupplied(input, 'line6b');
   if(supplied !== undefined) return suppliedLine('line6b', supplied);
 
   if(input.socialSecurity){
+    const {
+      addResolvedScheduleDLine7ToOtherIncome,
+      ...socialSecurity
+    } = input.socialSecurity;
+    if(addResolvedScheduleDLine7ToOtherIncome
+        && !scheduleDClassificationResult){
+      throw new TaxInputError(
+        'Social Security requested a resolved Schedule D line 7 without Schedule D facts'
+      );
+    }
+    const scheduleDLine7 = addResolvedScheduleDLine7ToOtherIncome
+      ? scheduleDClassificationResult.form1040Line7
+      : 0;
     const worksheetAdjustments = isCanonicalComposerInput(input)
       ? round2(
-        input.socialSecurity.adjustments
+        socialSecurity.adjustments
         + (scheduleSETotals?.deductiblePartOfSelfEmploymentTax ?? 0)
       )
-      : input.socialSecurity.adjustments;
+      : socialSecurity.adjustments;
     const ss = taxableSocialSecurity.calculate({
       filingStatus: input.filingStatus,
-      ...input.socialSecurity,
+      ...socialSecurity,
+      otherIncome: round2(socialSecurity.otherIncome + scheduleDLine7),
       adjustments: worksheetAdjustments,
     }, context);
     audits.push(ss.audit);
@@ -480,7 +500,13 @@ function buildIncomeAndDeductionLines(input, context, audits){
     line3b: buildLine3b(input),
     line4b: resolveIncomeComponent('line4b', readSupplied(input, 'line4b')),
     line5b: resolveIncomeComponent('line5b', readSupplied(input, 'line5b')),
-    line6b: buildLine6b(input, context, audits, scheduleSETotals),
+    line6b: buildLine6b(
+      input,
+      context,
+      audits,
+      scheduleSETotals,
+      scheduleDClassificationResult
+    ),
     line7a: buildLine7a(input, context, audits, scheduleDClassificationResult),
     line8: resolveIncomeComponent('line8', readSupplied(input, 'line8')),
   };
@@ -547,9 +573,16 @@ function buildIncomeAndDeductionLines(input, context, audits){
       Math.max(0, round2(lineAmount(line11b) - lineAmount(line14)))
     );
 
-  const pref = canonical && line3a.status === LINE_STATUS.DEFERRED
+  const rawPreferentialIncome = canonical && line3a.status === LINE_STATUS.DEFERRED
     ? null
     : preferentialIncome(input, scheduleDClassificationResult);
+  const pref = line15.status === LINE_STATUS.DEFERRED
+      || rawPreferentialIncome === null
+    ? null
+    : Math.min(
+      line15.value,
+      Math.max(0, rawPreferentialIncome)
+    );
   const ordinaryTaxableIncome = (
     line15.status === LINE_STATUS.DEFERRED
     || pref === null

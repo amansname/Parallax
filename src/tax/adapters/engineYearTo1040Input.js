@@ -19,12 +19,14 @@ import { TaxInputError } from '../core/errors.js';
 const INCOME_KEYS = [
   'wages',
   'taxableInterest',
+  'taxExemptInterest',
   'ordinaryDividends',
   'qualifiedDividends',
   'socialSecurityBenefits',
   'pensionAmount',
   'otherIncome',
   'iraDistributions',
+  'rothConversion',
   'capitalGain',
 ];
 
@@ -67,7 +69,7 @@ function hasResolvedTaxableSocialSecurity(income){
   return income.taxableSocialSecurity !== undefined || income.taxableSS !== undefined;
 }
 
-function sumSocialSecurityWorksheetOtherIncome(income){
+function sumSocialSecurityWorksheetOtherIncome(income, includeCapitalGain = true){
   // Qualified dividends are already included in ordinary dividends and must not
   // be counted a second time in the Social Security worksheet.
   const directIncome = [
@@ -75,7 +77,7 @@ function sumSocialSecurityWorksheetOtherIncome(income){
     income.taxableInterest,
     income.ordinaryDividends,
     income.otherIncome,
-    income.capitalGain,
+    includeCapitalGain ? income.capitalGain : undefined,
   ].reduce((sum, value) => sum + (typeof value === 'number' ? value : 0), 0);
   const taxableIra = income.taxableIra ?? income.iraDistributions ?? 0;
   const taxablePensions = income.taxablePensions ?? income.pensionAmount ?? 0;
@@ -107,15 +109,21 @@ function buildSocialSecurityWorksheetInput(engineYearFacts, income){
     );
   }
 
-  // Planner rows do not currently expose tax-exempt interest or excluded-income
-  // add-backs. Keep those limitations explicit as zero unless facts are supplied.
+  const resolvesScheduleDLine7 = engineYearFacts.scheduleD !== undefined;
   return {
     socialSecurityBenefits: income.socialSecurityBenefits,
-    otherIncome: sumSocialSecurityWorksheetOtherIncome(income),
-    taxExemptInterest: supplemental.taxExemptInterest ?? 0,
+    otherIncome: sumSocialSecurityWorksheetOtherIncome(
+      income,
+      !resolvesScheduleDLine7
+    ),
+    taxExemptInterest:
+      supplemental.taxExemptInterest ?? income.taxExemptInterest ?? 0,
     excludedIncomeAddBacks: supplemental.excludedIncomeAddBacks ?? 0,
     adjustments: supplemental.adjustments ?? 0,
     livedWithSpouse: supplemental.livedWithSpouse ?? false,
+    ...(resolvesScheduleDLine7
+      ? { addResolvedScheduleDLine7ToOtherIncome: true }
+      : {}),
   };
 }
 
@@ -137,6 +145,20 @@ export function engineYearTo1040Input(engineYearFacts){
   if(taxYear !== undefined) intake.taxYear = taxYear;
   if(id !== undefined) intake.id = id;
   if(label !== undefined) intake.label = label;
+  if(engineYearFacts.returnScope !== undefined){
+    assertPlainObject(engineYearFacts.returnScope, 'engineYearFacts.returnScope');
+    intake.returnScope = { ...engineYearFacts.returnScope };
+  }
+  if(engineYearFacts.taxpayers !== undefined){
+    assertPlainObject(engineYearFacts.taxpayers, 'engineYearFacts.taxpayers');
+    intake.taxpayers = Object.fromEntries(
+      Object.entries(engineYearFacts.taxpayers)
+        .map(([owner, taxpayer]) => {
+          assertPlainObject(taxpayer, `engineYearFacts.taxpayers.${owner}`);
+          return [owner, { ...taxpayer }];
+        })
+    );
+  }
 
   if(taxableOrdinaryIncome !== undefined && !hasDetailedIncome(engineYearFacts)){
     intake.taxableOrdinaryIncome = taxableOrdinaryIncome;
@@ -159,6 +181,13 @@ export function engineYearTo1040Input(engineYearFacts){
   if(engineYearFacts.resolved){
     intake.income = intake.income || {};
     applyResolvedIncome(intake.income, engineYearFacts.resolved);
+  }
+
+  if(engineYearFacts.scheduleD && intake.income?.capitalGain !== undefined){
+    throw new TaxInputError(
+      'engineYearFacts cannot supply both income.capitalGain and scheduleD',
+      { fields: ['income.capitalGain', 'scheduleD'] }
+    );
   }
 
   if(intake.income?.socialSecurityBenefits > 0
@@ -205,40 +234,82 @@ export function mapSimulationRowToYearFacts(row, planMeta){
     throw new TaxInputError('planMeta is missing filingStatus', { field: 'filingStatus' });
   }
 
+  const rowTaxFacts = row.incomeTaxFacts && typeof row.incomeTaxFacts === 'object'
+    && !Array.isArray(row.incomeTaxFacts)
+    ? row.incomeTaxFacts
+    : null;
   const income = {};
-  if(planMeta.wages !== undefined) income.wages = planMeta.wages;
-  if(row.socialSecurity > 0) income.socialSecurityBenefits = row.socialSecurity;
-  if(row.pension > 0) income.pensionAmount = row.pension;
-  if(row.otherIncome > 0){
-    income.otherIncome = row.otherIncomeTaxable ?? row.otherIncome;
+  if(rowTaxFacts){
+    for(const key of INCOME_KEYS){
+      if(rowTaxFacts[key] !== undefined) income[key] = rowTaxFacts[key];
+    }
+  }
+  if(planMeta.current1040Income){
+    assertPlainObject(planMeta.current1040Income, 'planMeta.current1040Income');
+    copyDefinedIncome(income, planMeta.current1040Income);
+  }
+  if(planMeta.wages !== undefined && income.wages === undefined){
+    income.wages = planMeta.wages;
+  }
+  if(!rowTaxFacts){
+    if(row.socialSecurity > 0) income.socialSecurityBenefits = row.socialSecurity;
+    if(row.pension > 0) income.pensionAmount = row.pension;
+    if(row.otherIncome > 0){
+      income.otherIncome = row.otherIncomeTaxable ?? row.otherIncome;
+    }
+  }
+
+  let netLongTermGainOrLoss = planMeta.currentNetLongTermGainOrLoss
+    ?? rowTaxFacts?.capitalGain;
+  if(netLongTermGainOrLoss !== undefined){
+    delete income.capitalGain;
   }
 
   const traditionalWithdrawal = row.accountBreakdown?.traditional ?? 0;
   const rmd = row.rmd ?? 0;
   const iraGross = traditionalWithdrawal + rmd;
-  if(iraGross > 0) income.iraDistributions = iraGross;
+  if(iraGross > 0){
+    income.iraDistributions = (income.iraDistributions ?? 0) + iraGross;
+  }
 
   const taxableWithdrawal = row.accountBreakdown?.taxable ?? 0;
   if(taxableWithdrawal > 0){
+    let withdrawalCapitalGain;
     if(row.taxableCapitalGain !== undefined){
-      income.capitalGain = row.taxableCapitalGain;
+      withdrawalCapitalGain = row.taxableCapitalGain;
     } else if(planMeta.capitalGain !== undefined){
-      income.capitalGain = planMeta.capitalGain;
+      withdrawalCapitalGain = planMeta.capitalGain;
     } else if(planMeta.taxableGainFraction !== undefined){
-      income.capitalGain = taxableWithdrawal * planMeta.taxableGainFraction;
+      withdrawalCapitalGain = taxableWithdrawal * planMeta.taxableGainFraction;
     } else {
       throw new TaxInputError(
         'planMeta.capitalGain or planMeta.taxableGainFraction required when row has taxable withdrawals',
         { taxableWithdrawal }
       );
     }
+    netLongTermGainOrLoss = (netLongTermGainOrLoss ?? 0) + withdrawalCapitalGain;
   }
 
   const resolved = {};
+  if(rowTaxFacts?.taxableIra !== undefined){
+    resolved.taxableIra = rowTaxFacts.taxableIra;
+  }
+  if(rowTaxFacts?.taxablePensions !== undefined){
+    resolved.taxablePensions = rowTaxFacts.taxablePensions;
+  }
+  if(planMeta.current1040Income?.taxableIra !== undefined){
+    resolved.taxableIra = planMeta.current1040Income.taxableIra;
+  }
+  if(planMeta.current1040Income?.taxablePensions !== undefined){
+    resolved.taxablePensions = planMeta.current1040Income.taxablePensions;
+  }
+  if(planMeta.current1040Income?.taxableSS !== undefined){
+    resolved.taxableSS = planMeta.current1040Income.taxableSS;
+  }
   const fullyTaxable = planMeta.treatWithdrawalsAsFullyTaxable !== false;
   if(fullyTaxable){
-    if(iraGross > 0) resolved.taxableIra = iraGross;
-    if(row.pension > 0) resolved.taxablePensions = row.pension;
+    if(iraGross > 0) resolved.taxableIra = (resolved.taxableIra ?? 0) + iraGross;
+    if(!rowTaxFacts && row.pension > 0) resolved.taxablePensions = row.pension;
   }
   if(planMeta.resolved){
     Object.assign(resolved, planMeta.resolved);
@@ -252,6 +323,26 @@ export function mapSimulationRowToYearFacts(row, planMeta){
     income,
     deductions: planMeta.deductions ?? { useStandard: true },
   };
+  if(planMeta.adjustments) facts.adjustments = { ...planMeta.adjustments };
+  if(planMeta.taxpayers) facts.taxpayers = structuredClone(planMeta.taxpayers);
+  if(planMeta.returnScope) facts.returnScope = { ...planMeta.returnScope };
+  if(planMeta.passThrough) facts.passThrough = { ...planMeta.passThrough };
+
+  if(planMeta.scheduleD !== undefined){
+    assertPlainObject(planMeta.scheduleD, 'planMeta.scheduleD');
+    if(netLongTermGainOrLoss !== undefined){
+      throw new TaxInputError(
+        'raw long-term capital gain facts cannot be combined with planMeta.scheduleD',
+        { fields: ['incomeTaxFacts.capitalGain', 'planMeta.scheduleD'] }
+      );
+    }
+    facts.scheduleD = { ...planMeta.scheduleD };
+  } else if(netLongTermGainOrLoss !== undefined){
+    facts.scheduleD = {
+      mode: 'manual-net-long-term',
+      netLongTermGainOrLoss,
+    };
+  }
 
   if(Object.keys(resolved).length > 0) facts.resolved = resolved;
   if(planMeta.socialSecurityWorksheet){

@@ -21,6 +21,7 @@ test('benefits below the base amount are not taxable', () => {
     livedWithSpouse: false,
   }, ctx());
   assert.strictEqual(result.taxableBenefits, 0);
+  assert.deepStrictEqual(result.ratesUsed, { lowerTier: 0.50, upperTier: 0.85 });
 });
 
 test('single filer in the 50% band taxes half of excess over base amount', () => {

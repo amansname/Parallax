@@ -30,7 +30,7 @@ function defaultLevers() {
 function defaultFacts(plan) {
   return {
     filingStatus: plan?.meta?.filingStatus ?? null,
-    livedWithSpouse: false,
+    livedWithSpouse: null,
     socialSecurityBenefits: 0,
     wages: 0,
     otherIncome: 0,
@@ -42,114 +42,299 @@ export function createTaxAwareWithdrawalController(deps) {
 
   let host = null;
   let refs = null;
-  let adapter = null;
+  let adapter = deps?.adapter ?? null;
   let attTimer = null;
   let recomputeToken = 0;
+  let refreshToken = 0;
+  let leverToken = 0;
+  let leverQueue = Promise.resolve();
+  let attributionToken = 0;
   let shellReady = false;
 
   let taxYear = 2026;
   let levers = defaultLevers();
   let facts = defaultFacts(null);
-  let caps = { taxable: null, traditional: null, roth: null };
+  let accountState = null;
+  let filingStatusOverride = null;
+  let livedWithSpouseOverride = null;
+  let activeHouseholdId = null;
+  let activePlan = null;
   let result = null;
   let attribution = null;
   let hoverMark = null;
 
   async function getAdapter() {
     if (adapter) return adapter;
-    adapter = await adapterPromise;
+    try {
+      adapter = await adapterPromise;
+    } catch {
+      adapter = null;
+    }
     return adapter;
+  }
+
+  function invalidateComputedView({ clearCaps = false } = {}) {
+    recomputeToken++;
+    attributionToken++;
+    clearTimeout(attTimer);
+    attTimer = null;
+    result = null;
+    attribution = null;
+    hoverMark = null;
+    if (!refs) return;
+    if (clearCaps) {
+      accountState = null;
+      updateSliderCaps(refs, null);
+    }
+    applyResultView(refs, { result: null, facts, taxYear, hoverMark: null });
+    applyAttribution(refs, null, null);
   }
 
   function scheduleAttribution() {
     clearTimeout(attTimer);
+    const token = ++attributionToken;
+    const viewRefs = refs;
+    const plan = deps.getPlan();
+    const selectedTaxYear = taxYear;
+    const factSnapshot = { ...facts };
+    const leverSnapshot = { ...levers };
+    if (!plan || !factSnapshot.filingStatus || !viewRefs) return;
     attTimer = setTimeout(async () => {
+      attTimer = null;
       const ad = await getAdapter();
-      const plan = deps.getPlan();
-      if (!ad || !plan || !facts.filingStatus || !refs) return;
+      if (
+        token !== attributionToken
+        || refs !== viewRefs
+        || plan !== deps.getPlan()
+        || !ad
+      ) return;
       let next = null;
       try {
         next = await ad.attributeSleeves({
           plan,
-          taxYear,
-          facts: { ...facts },
-          levers: { ...levers },
+          taxYear: selectedTaxYear,
+          facts: factSnapshot,
+          levers: leverSnapshot,
         });
       } catch (e) {
         next = { error: String(e.message || e) };
       }
+      if (
+        token !== attributionToken
+        || refs !== viewRefs
+        || plan !== deps.getPlan()
+      ) return;
       attribution = next;
-      applyAttribution(refs, attribution, attribution);
+      applyAttribution(viewRefs, attribution, attribution);
     }, ATTRIBUTION_DEBOUNCE_MS);
   }
 
   async function recompute() {
-    const token = ++recomputeToken;
-    const ad = await getAdapter();
+    invalidateComputedView();
+    const token = recomputeToken;
+    const viewRefs = refs;
     const plan = deps.getPlan();
-    if (!refs) return;
-    if (!ad || !plan || !facts.filingStatus) {
-      result = null;
-      applyResultView(refs, { result, facts, taxYear, hoverMark });
-      return;
-    }
+    const selectedTaxYear = taxYear;
+    const factSnapshot = { ...facts };
+    const leverSnapshot = { ...levers };
+    const ad = await getAdapter();
+    if (
+      token !== recomputeToken
+      || refs !== viewRefs
+      || plan !== deps.getPlan()
+      || !ad
+      || !plan
+      || !factSnapshot.filingStatus
+    ) return;
     let next = null;
     try {
       next = await ad.evaluateYear({
         plan,
-        taxYear,
-        facts: { ...facts },
-        levers: { ...levers },
+        taxYear: selectedTaxYear,
+        facts: factSnapshot,
+        levers: leverSnapshot,
       });
     } catch (e) {
       next = { error: String(e.message || e) };
     }
-    if (token !== recomputeToken) return;
+    if (
+      token !== recomputeToken
+      || refs !== viewRefs
+      || plan !== deps.getPlan()
+    ) return;
     result = next;
-    applyResultView(refs, { result, facts, taxYear, hoverMark });
+    applyResultView(viewRefs, {
+      result,
+      facts: factSnapshot,
+      taxYear: selectedTaxYear,
+      hoverMark,
+    });
     scheduleAttribution();
   }
 
-  async function refreshCapsAndIncome() {
-    const ad = await getAdapter();
-    const plan = deps.getPlan();
-    if (!plan || !refs) return;
-    if (ad) {
-      try { caps = await ad.sleeveBalances(plan); } catch (e) { /* keep prior caps */ }
+  async function refreshCapsAndIncome({ clearCaps = false } = {}) {
+    const token = ++refreshToken;
+    leverToken++;
+    let releaseRefresh;
+    leverQueue = new Promise(resolve => { releaseRefresh = resolve; });
+    try {
+      invalidateComputedView({ clearCaps });
+      const viewRefs = refs;
+      const plan = deps.getPlan();
+      const selectedTaxYear = taxYear;
+      const leverSnapshot = { ...levers };
+      LEVER_KEYS.forEach(key => paintLeverSync(viewRefs, key, levers[key]));
+      const ad = await getAdapter();
+      if (
+        token !== refreshToken
+        || refs !== viewRefs
+        || plan !== deps.getPlan()
+        || !plan
+      ) return;
+      let inc = {
+        available: false,
+        filingStatus: null,
+        socialSecurityBenefits: null,
+        otherIncome: null,
+        wages: null,
+      };
+      if (ad) {
+        try { inc = await ad.householdIncome(plan, selectedTaxYear); } catch (e) { /* keep defaults */ }
+      }
+      if (
+        token !== refreshToken
+        || refs !== viewRefs
+        || plan !== deps.getPlan()
+      ) return;
+      const nextFacts = {
+        ...inc,
+        filingStatus:
+          filingStatusOverride ?? inc.filingStatus ?? plan.meta?.filingStatus ?? null,
+        livedWithSpouse: livedWithSpouseOverride,
+        socialSecurityBenefits: Number.isFinite(inc.socialSecurityBenefits)
+          ? inc.socialSecurityBenefits
+          : null,
+        otherIncome: Number.isFinite(inc.otherIncome) ? inc.otherIncome : null,
+        wages: Number.isFinite(inc.wages) ? inc.wages : null,
+      };
+      let nextAccountState = null;
+      if (ad) {
+        try {
+          nextAccountState = await ad.withdrawalAccountState(
+            plan,
+            leverSnapshot,
+            nextFacts
+          );
+        } catch (e) {
+          nextAccountState = null;
+        }
+      }
+      if (
+        token !== refreshToken
+        || refs !== viewRefs
+        || plan !== deps.getPlan()
+      ) return;
+      if (
+        nextAccountState?.valid === false
+        && Object.values(leverSnapshot).some(value => value > 0)
+      ) {
+        levers = defaultLevers();
+        try {
+          nextAccountState = await ad.withdrawalAccountState(plan, levers, nextFacts);
+        } catch (e) {
+          nextAccountState = null;
+        }
+        if (
+          token !== refreshToken
+          || refs !== viewRefs
+          || plan !== deps.getPlan()
+        ) return;
+        LEVER_KEYS.forEach(key => paintLeverSync(viewRefs, key, levers[key]));
+      }
+      if (nextAccountState?.valid && nextAccountState.levers) {
+        levers = { ...nextAccountState.levers };
+        LEVER_KEYS.forEach(key => paintLeverSync(viewRefs, key, levers[key]));
+      }
+      accountState = nextAccountState;
+      updateSliderCaps(viewRefs, accountState);
+      facts = nextFacts;
+      applyIncomeFacts(viewRefs, facts);
+      applyToolbarState(viewRefs, { taxYear: selectedTaxYear, facts });
+      await recompute();
+    } finally {
+      releaseRefresh();
     }
-    updateSliderCaps(refs, caps);
-    const preservedWages = facts.wages;
-    const preservedFs = facts.filingStatus ?? plan.meta?.filingStatus ?? null;
-    const preservedMfs = facts.livedWithSpouse;
-    let inc = { socialSecurityBenefits: 0, otherIncome: 0, filingStatus: preservedFs };
-    if (ad) {
-      try { inc = await ad.householdIncome(plan, taxYear); } catch (e) { /* keep defaults */ }
-    }
-    facts = {
-      filingStatus: preservedFs ?? inc.filingStatus,
-      livedWithSpouse: preservedMfs,
-      socialSecurityBenefits: inc.socialSecurityBenefits ?? 0,
-      otherIncome: inc.otherIncome ?? 0,
-      wages: preservedWages,
-    };
-    applyIncomeFacts(refs, facts);
-    applyToolbarState(refs, { taxYear, facts });
-    await recompute();
   }
 
   function ensureShell() {
     if (shellReady && refs) return;
-    mountWithdrawalPlannerShell(host, { caps });
+    mountWithdrawalPlannerShell(host, { caps: accountState });
     refs = cacheWithdrawalRefs(host);
-    updateSliderCaps(refs, caps);
+    updateSliderCaps(refs, accountState);
     shellReady = true;
   }
 
   function setLever(key, raw) {
-    const v = Number(raw);
-    levers[key] = Number.isFinite(v) ? Math.max(0, v) : 0;
-    paintLeverSync(refs, key, levers[key]);
-    recompute();
+    const token = leverToken;
+    const requestedValue = Number(raw);
+    const value = Number.isFinite(requestedValue)
+      ? Math.max(0, requestedValue)
+      : 0;
+    const plan = deps.getPlan();
+    const viewRefs = refs;
+    const work = leverQueue.then(async () => {
+      let ad = null;
+      try {
+        ad = await getAdapter();
+      } catch (e) {
+        ad = null;
+      }
+      if (
+        token !== leverToken
+        || refs !== viewRefs
+        || plan !== deps.getPlan()
+        || !ad
+        || !plan
+        || !viewRefs
+      ) return;
+      let approval = null;
+      try {
+        approval = await ad.approveWithdrawalPlannerLeverChange(
+          plan,
+          { ...levers },
+          key,
+          value,
+          { ...facts }
+        );
+      } catch (e) {
+        approval = null;
+      }
+      if (
+        token !== leverToken
+        || refs !== viewRefs
+        || plan !== deps.getPlan()
+      ) return;
+      if (approval?.approved) {
+        levers = { ...approval.levers };
+        accountState = approval.state;
+      } else {
+        try {
+          accountState = await ad.withdrawalAccountState(plan, levers, facts);
+        } catch (e) {
+          accountState = null;
+        }
+      }
+      if (
+        token !== leverToken
+        || refs !== viewRefs
+        || plan !== deps.getPlan()
+      ) return;
+      LEVER_KEYS.forEach(leverKey => paintLeverSync(viewRefs, leverKey, levers[leverKey]));
+      updateSliderCaps(viewRefs, accountState);
+      recompute();
+    });
+    leverQueue = work.catch(() => {});
+    return leverQueue;
   }
 
   function onInput(event) {
@@ -160,13 +345,6 @@ export function createTaxAwareWithdrawalController(deps) {
       setLever(lever, t.value);
       return;
     }
-    if (t.matches('[data-taw-wages]') && t instanceof HTMLInputElement) {
-      const stripped = String(t.value).replace(/[^0-9.]/g, '');
-      facts = { ...facts, wages: Math.max(0, Number(stripped) || 0) };
-      t.value = `$${facts.wages.toLocaleString('en-US')}`;
-      applyIncomeFacts(refs, facts);
-      recompute();
-    }
   }
 
   function onClick(event) {
@@ -174,6 +352,7 @@ export function createTaxAwareWithdrawalController(deps) {
     if (!btn || !host?.contains(btn) || !refs) return;
     const fs = btn.getAttribute('data-taw-fs');
     if (fs) {
+      filingStatusOverride = fs;
       facts = { ...facts, filingStatus: fs };
       applyToolbarState(refs, { taxYear, facts });
       refreshCapsAndIncome();
@@ -188,7 +367,8 @@ export function createTaxAwareWithdrawalController(deps) {
     }
     const mfs = btn.getAttribute('data-taw-mfs');
     if (mfs) {
-      facts = { ...facts, livedWithSpouse: mfs === 'together' };
+      livedWithSpouseOverride = mfs === 'together';
+      facts = { ...facts, livedWithSpouse: livedWithSpouseOverride };
       applyToolbarState(refs, { taxYear, facts });
       recompute();
     }
@@ -230,9 +410,21 @@ export function createTaxAwareWithdrawalController(deps) {
     shellReady = false;
     refs = null;
     const plan = deps.getPlan();
+    refreshToken++;
+    leverToken++;
+    leverQueue = Promise.resolve();
+    recomputeToken++;
+    attributionToken++;
+    clearTimeout(attTimer);
+    attTimer = null;
+    activeHouseholdId = plan?.meta?.householdId ?? null;
+    activePlan = plan;
     facts = defaultFacts(plan);
     taxYear = 2026;
     levers = defaultLevers();
+    accountState = null;
+    filingStatusOverride = null;
+    livedWithSpouseOverride = null;
     attribution = null;
     result = null;
     hoverMark = null;
@@ -243,12 +435,40 @@ export function createTaxAwareWithdrawalController(deps) {
       refs.attNote.textContent = 'Tax caused: order-independent Shapley split of line 24 across the three withdrawal sleeves.';
     }
     LEVER_KEYS.forEach(key => paintLeverSync(refs, key, levers[key]));
-    refreshCapsAndIncome();
+    refreshCapsAndIncome({ clearCaps: true });
   }
 
   function sync() {
     if (!host) return;
-    refreshCapsAndIncome();
+    const plan = deps.getPlan();
+    const nextHouseholdId = plan?.meta?.householdId ?? null;
+    const householdChanged = nextHouseholdId !== null
+      ? nextHouseholdId !== activeHouseholdId
+      : plan !== activePlan;
+    if (householdChanged) {
+      refreshToken++;
+      leverToken++;
+      leverQueue = Promise.resolve();
+      recomputeToken++;
+      activeHouseholdId = nextHouseholdId;
+      activePlan = plan;
+      taxYear = 2026;
+      levers = defaultLevers();
+      facts = defaultFacts(plan);
+      accountState = null;
+      filingStatusOverride = null;
+      livedWithSpouseOverride = null;
+      attribution = null;
+      result = null;
+      hoverMark = null;
+      invalidateComputedView({ clearCaps: true });
+      LEVER_KEYS.forEach(key => paintLeverSync(refs, key, levers[key]));
+      applyToolbarState(refs, { taxYear, facts });
+      applyAttribution(refs, null, null);
+    } else {
+      activePlan = plan;
+    }
+    refreshCapsAndIncome({ clearCaps: householdChanged });
   }
 
   return Object.freeze({ bind, sync });

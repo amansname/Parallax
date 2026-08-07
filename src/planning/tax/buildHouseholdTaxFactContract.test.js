@@ -366,10 +366,12 @@ test('confirmed cost basis reaches row gain facts and changes federal line 24', 
   ];
   const unknown = plan();
   unknown.portfolio.extraAccounts = [account('brokerage_taxable', 'broker', 200000)];
-  const returnPath = [{ y: 2025, proxyReturn: 0 }];
-
   const confirmedParams = resolveInputs(confirmed, {});
   const unknownParams = resolveInputs(unknown, {});
+  const returnPath = Array.from(
+    { length: confirmedParams.horizonYears },
+    (_, yearIndex) => ({ y: 2025 + yearIndex, proxyReturn: 0 })
+  );
   const confirmedRow = runSinglePath(confirmedParams, returnPath).rows[0];
   const unknownRow = runSinglePath(unknownParams, returnPath).rows[0];
   assert.ok(confirmedRow.taxableGainFraction > unknownRow.taxableGainFraction);

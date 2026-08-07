@@ -155,23 +155,6 @@
   text-align: right;
 }
 
-.page[data-page="tax-buckets"] .taw-wages {
-  width: 96px;
-  padding: 0;
-  border: none;
-  background: transparent;
-  font: 400 14px/1.25 var(--font-serif);
-  color: var(--num);
-  text-align: right;
-  outline: none;
-  -webkit-text-fill-color: var(--num);
-}
-
-.page[data-page="tax-buckets"] .taw-wages:focus {
-  color: var(--ink-bright);
-  -webkit-text-fill-color: var(--ink-bright);
-}
-
 .page[data-page="tax-buckets"] .taw-divider {
   flex: none;
   height: 1px;

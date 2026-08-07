@@ -1,6 +1,7 @@
 /* RULE: Federal Long-Term Capital Gains Stacking (FED_CAPITAL_GAINS_STACKING) */
 
 import {
+  CAPITAL_GAINS_TAX_RATES,
   CAPITAL_GAINS_THRESHOLDS,
   CAPITAL_GAINS_THRESHOLDS_SOURCE,
   FILING_STATUSES,
@@ -12,7 +13,7 @@ import { TaxDataError, TaxInputError } from '../../core/errors.js';
 
 export const meta = {
   ruleId: 'FED_CAPITAL_GAINS_STACKING',
-  ruleVersion: '1.0.1',
+  ruleVersion: '1.0.2',
   supportedTaxYears: [2025, 2026],
   supportedLawVersions: ['2025_FINAL', '2026_FINAL'],
   jurisdiction: 'federal',
@@ -27,7 +28,7 @@ export const meta = {
     'IRS_2026_CAPITAL_GAINS_RATES_v1.0',
   ],
   inputsRequired: ['filingStatus', 'ordinaryTaxableIncome', 'netLongTermCapitalGains', 'qualifiedDividends'],
-  outputs: ['preferentialIncomeTax', 'marginalPreferentialRate', 'effectivePreferentialRate', 'rateBreakdown'],
+  outputs: ['preferentialIncomeTax', 'marginalPreferentialRate', 'effectivePreferentialRate', 'rateBreakdown', 'ratesUsed'],
   limitations: [
     'Does not calculate NIIT',
     'Does not classify gains or dividends',
@@ -106,21 +107,36 @@ export function calculate(input, context){
   let marginalPreferentialRate = 0;
 
   const zeroRateIncome = Math.min(remaining, Math.max(0, thresholds.zeroRateMax - ordinaryTaxableIncome));
-  preferentialIncomeTax += addRateBand(rateBreakdown, calculationSteps, 0, zeroRateIncome);
+  preferentialIncomeTax += addRateBand(
+    rateBreakdown,
+    calculationSteps,
+    CAPITAL_GAINS_TAX_RATES.zero,
+    zeroRateIncome
+  );
   remaining = round2(remaining - zeroRateIncome);
-  if(zeroRateIncome > 0) marginalPreferentialRate = 0;
+  if(zeroRateIncome > 0) marginalPreferentialRate = CAPITAL_GAINS_TAX_RATES.zero;
 
   const fifteenRateIncome = Math.min(
     remaining,
     Math.max(0, thresholds.fifteenRateMax - ordinaryTaxableIncome - zeroRateIncome)
   );
-  preferentialIncomeTax += addRateBand(rateBreakdown, calculationSteps, 0.15, fifteenRateIncome);
+  preferentialIncomeTax += addRateBand(
+    rateBreakdown,
+    calculationSteps,
+    CAPITAL_GAINS_TAX_RATES.middle,
+    fifteenRateIncome
+  );
   remaining = round2(remaining - fifteenRateIncome);
-  if(fifteenRateIncome > 0) marginalPreferentialRate = 0.15;
+  if(fifteenRateIncome > 0) marginalPreferentialRate = CAPITAL_GAINS_TAX_RATES.middle;
 
   const twentyRateIncome = Math.max(0, remaining);
-  preferentialIncomeTax += addRateBand(rateBreakdown, calculationSteps, 0.20, twentyRateIncome);
-  if(twentyRateIncome > 0) marginalPreferentialRate = 0.20;
+  preferentialIncomeTax += addRateBand(
+    rateBreakdown,
+    calculationSteps,
+    CAPITAL_GAINS_TAX_RATES.top,
+    twentyRateIncome
+  );
+  if(twentyRateIncome > 0) marginalPreferentialRate = CAPITAL_GAINS_TAX_RATES.top;
 
   preferentialIncomeTax = round2(preferentialIncomeTax);
   const effectivePreferentialRate = preferentialIncome > 0 ? round6(preferentialIncomeTax / preferentialIncome) : 0;
@@ -132,6 +148,7 @@ export function calculate(input, context){
     preferentialIncome,
     taxableIncomeAfterPreferential: round2(ordinaryTaxableIncome + preferentialIncome),
     rateBreakdown,
+    ratesUsed: CAPITAL_GAINS_TAX_RATES,
     thresholdsUsed: {
       zeroRateMax: thresholds.zeroRateMax,
       fifteenRateMax: thresholds.fifteenRateMax,

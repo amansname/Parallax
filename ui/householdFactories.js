@@ -25,6 +25,7 @@ export function createBlankHousehold(pristinePlan, householdId, currentYear){
   p.meta.spouseName  = '';
   p.meta.filingStatus = 'single';
   p.meta.state       = 'VA';
+  p.meta.planningAsOfYear = currentYear;
   p.household.primary = { currentAge: 60, retirementAge: 65, planEndAge: 90, birthYear: currentYear - 60 };
   p.household.spouse  = null;
   p.household.children = [];
@@ -43,7 +44,7 @@ export function createBlankHousehold(pristinePlan, householdId, currentYear){
   p.expenses.extra = [];
   p.savings.annual        = 0;
   p.income.workingIncome  = 0;
-  p.income.socialSecurity.primary = { pia: 0, claimAge: 67 };
+  p.income.socialSecurity.primary = { pia: null, claimAge: 67 };
   p.income.socialSecurity.spouse  = null;
   p.income.pension = { benefitByAge: {}, base: 0, startAge: 65, colaPct: 0 };
   p.income.other   = [];

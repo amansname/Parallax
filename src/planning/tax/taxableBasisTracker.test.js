@@ -135,5 +135,8 @@ test('mapSimulationRowToYearFacts accepts zero gain fraction without throwing', 
     { accountBreakdown: { taxable: 50000, traditional: 0, roth: 0 } },
     { filingStatus: 'single', taxableGainFraction: 0 }
   );
-  assert.strictEqual(facts.income.capitalGain, 0);
+  assert.deepStrictEqual(facts.scheduleD, {
+    mode: 'manual-net-long-term',
+    netLongTermGainOrLoss: 0,
+  });
 });

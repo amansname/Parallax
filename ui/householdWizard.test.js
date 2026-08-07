@@ -18,14 +18,14 @@ function plan(){
       state: 'VA',
     },
     household: {
-      primary: { currentAge: 55, retirementAge: 62, employmentStatus: 'employed' },
-      spouse: { currentAge: 55, retirementAge: 62, employmentStatus: 'employed' },
+      primary: { currentAge: 55, retirementAge: 62, planEndAge: 94, employmentStatus: 'employed' },
+      spouse: { currentAge: 55, retirementAge: 64, planEndAge: 101, employmentStatus: 'employed' },
       dependentsCount: 0,
     },
     income: {
       socialSecurity: {
-        primary: { claimAge: 67 },
-        spouse: { claimAge: 67 },
+        primary: { pia: 31200, claimAge: 67 },
+        spouse: { pia: 24600, claimAge: 68 },
       },
     },
     incomeTax: {
@@ -127,6 +127,14 @@ function wizard({
       planningIncome: {
         hasActivePlanningSocialSecurity: false,
         hasNonzeroShortTermCapitalGain: false,
+        wagesByOwner: {
+          client: {
+            rowIds: planningWages ? ['income-wages-1'] : [],
+            value: 125000,
+            present: planningWages,
+          },
+          spouse: { rowIds: [], value: 0, present: false },
+        },
         groups: {
           wages: {
             id: 'wages',
@@ -193,6 +201,13 @@ test('Family is compact and omits MFS and survivor controls', () => {
   assert.match(html, /Married filing jointly/);
   assert.match(html, /data-hh-action="remove-spouse"/);
   assert.match(html, /Remove co-client/);
+  assert.match(html, /data-wizard-field="client\.socialSecurityBenefit"/);
+  assert.match(html, /data-wizard-field="spouse\.socialSecurityBenefit"/);
+  assert.match(html, /data-wizard-field="client\.planEndAge"/);
+  assert.match(html, /data-wizard-field="spouse\.planEndAge"/);
+  assert.match(html, /Annual Social Security at full retirement age/);
+  assert.match(html, /value="31,200"/);
+  assert.match(html, /value="24,600"/);
   assert.doesNotMatch(html, /Married filing separately/);
   assert.doesNotMatch(html, /Survivor assumption/i);
 });
@@ -224,7 +239,8 @@ test('Tax preserves the approved 1040 order and removes ledger-only columns', ()
   const html = wizard().render('tax');
   assert.match(html, /Long-term capital gain or loss/);
   assert.match(html, /data-tax-field="scheduleD\.netLongTermGainOrLoss"/);
-  assert.match(html, /data-tax-field="income\.wages"/);
+  assert.match(html, /data-tax-field="income\.wages\.client"/);
+  assert.match(html, /data-tax-field="income\.wages\.spouse"/);
   assert.doesNotMatch(html, />Line</);
   assert.doesNotMatch(html, />Treatment</);
   assert.doesNotMatch(html, /IRA deduction from MAGI/i);
@@ -289,27 +305,15 @@ test('Simplified Tax reveals taxable companions when gross distributions are ent
   assert.match(html, /data-tax-field="income\.taxablePensions"/);
 });
 
-test('Tax shows planning-row provenance and requires an explicit current-year override', () => {
+test('Tax edits member wages directly without source or override controls', () => {
   const rowSourced = wizard({ planningWages: true }).render('tax');
-  assert.match(rowSourced, /From planning income/);
-  assert.match(rowSourced, /data-hh-action="override-income-group"/);
-  assert.match(rowSourced, /data-income-group="wages"/);
   assert.match(
     rowSourced,
-    /data-tax-field="income\.wages"[\s\S]*disabled aria-disabled="true"/,
+    /value="125000"[\s\S]*data-tax-field="income\.wages\.client"/,
   );
-  assert.match(rowSourced, /value="125000"/);
-
-  const overridden = wizard({
-    planningWages: true,
-    planningWagesOverridden: true,
-  }).render('tax');
-  assert.match(overridden, /Current-year amount/);
-  assert.match(overridden, /data-hh-action="revert-income-group"/);
-  assert.doesNotMatch(
-    overridden,
-    /data-tax-field="income\.wages"[\s\S]*disabled aria-disabled="true"/,
-  );
+  assert.doesNotMatch(rowSourced, /From planning income|Use current-year amount/);
+  assert.doesNotMatch(rowSourced, /data-income-group="wages"/);
+  assert.doesNotMatch(rowSourced, /income\.wages\.client"[\s\S]*disabled/);
 });
 
 test('Tax page omits confirmation checkbox markup', () => {

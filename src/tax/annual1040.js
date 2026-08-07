@@ -6,6 +6,10 @@ import { buildIntakeReport, runClient1040Intake as runClient1040IntakePipeline }
 import { resolvePreferentialComponents } from './federal/composers/form1040Spine.js';
 import { buildTaxContext, resolveLawVersionForTaxYear, supportedTaxYears } from './core/lawRegistry.js';
 import { engineYearTo1040Input, mapSimulationRowToYearFacts } from './adapters/engineYearTo1040Input.js';
+import {
+  CAPITAL_GAINS_TAX_RATES,
+  SOCIAL_SECURITY_TAXATION_RATES,
+} from './core/constants.js';
 
 export { validateClient1040Intake, client1040IntakeToComposerInput };
 export { buildIntakeReport };
@@ -25,7 +29,7 @@ export {
   validateClient1040Contract,
 } from './core/client1040IntakeContract.js';
 
-export const ANNUAL_1040_MODULE_VERSION = '1.6.0';
+export const ANNUAL_1040_MODULE_VERSION = '1.7.0';
 
 export function buildDefaultTaxContext(overrides = {}){
   return buildTaxContext(overrides);
@@ -97,6 +101,7 @@ export function buildAnnual1040Result(intake, composeResult, audits, validation,
       taxableIncome: line15,
       incomeTax: form1040.line16?.value ?? null,
       federalTaxLiability: line24,
+      incomeTaxComponents: composeResult.incomeTaxComponents,
       preferentialIncome: preferential.total,
       marginalRate,
       effectiveRate: line15 > 0 && line24 != null ? line24 / line15 : effectiveRate,
@@ -169,6 +174,259 @@ export function runEngineYearTax(engineYearFacts, context, options = {}){
   return runClient1040Intake(intake, context, options);
 }
 
+const roundTaxDollar = (value) => Math.round((value + Number.EPSILON) * 100) / 100;
+const finiteTaxDollar = (value) => (
+  typeof value === 'number' && Number.isFinite(value) ? value : null
+);
+const taxDifference = (selected, comparison) => {
+  const selectedValue = finiteTaxDollar(selected);
+  const comparisonValue = finiteTaxDollar(comparison);
+  return selectedValue === null || comparisonValue === null
+    ? null
+    : roundTaxDollar(selectedValue - comparisonValue);
+};
+
+const COMPARISON_SCOPE_LINES = Object.freeze([
+  'line12e',
+  'line13a',
+  'line13b',
+  'line17',
+  'line19',
+  'line20',
+  'line23',
+]);
+
+function stableComparisonValue(value, path = '', omittedPaths = new Set()){
+  if(omittedPaths.has(path)) return undefined;
+  if(Array.isArray(value)){
+    return value.map((item, index) => (
+      stableComparisonValue(item, `${path}[${index}]`, omittedPaths)
+    ));
+  }
+  if(value && typeof value === 'object'){
+    const entries =
+      Object.keys(value).sort().flatMap(key => {
+        const childPath = path ? `${path}.${key}` : key;
+        const child = stableComparisonValue(value[key], childPath, omittedPaths);
+        return child === undefined ? [] : [[key, child]];
+      });
+    return path && entries.length === 0 ? undefined : Object.fromEntries(entries);
+  }
+  return value;
+}
+
+function comparisonIdentity(run, facts){
+  const annual = run?.annual1040Result ?? {};
+  const form1040 = run?.result?.form1040 ?? {};
+  const returnScopeSignature = stableComparisonValue(facts?.returnScope ?? null);
+  const taxpayerSignature = stableComparisonValue(facts?.taxpayers ?? {});
+  return {
+    taxYear: annual.taxYear ?? facts?.taxYear ?? null,
+    filingStatus: annual.filingStatus ?? facts?.filingStatus ?? null,
+    modeledTaxpayer: facts?.returnScope?.modeledTaxpayer ?? null,
+    returnScopeSignature,
+    taxpayerSignature,
+    taxTotalScope: annual.federalSummary?.taxTotalScope ?? null,
+    lineCoverage: Object.fromEntries(
+      COMPARISON_SCOPE_LINES.map(lineId => [
+        lineId,
+        {
+          status: form1040?.[lineId]?.status ?? null,
+          ruleId: form1040?.[lineId]?.ruleId ?? null,
+          suppliedValue: form1040?.[lineId]?.status === 'SUPPLIED'
+            ? form1040?.[lineId]?.value ?? null
+            : null,
+        },
+      ])
+    ),
+  };
+}
+
+function taxRunsAreComparable({
+  selectedRun,
+  comparisonRun,
+  selectedFacts,
+  comparisonFacts,
+  comparison,
+  issues,
+}){
+  if(!selectedRun || !comparisonRun) return false;
+  const selected = comparisonIdentity(selectedRun, selectedFacts);
+  const candidate = comparisonIdentity(comparisonRun, comparisonFacts);
+  const identityMatches = selected.taxYear === candidate.taxYear
+    && selected.filingStatus === candidate.filingStatus
+    && selected.modeledTaxpayer === candidate.modeledTaxpayer
+    && JSON.stringify(selected.returnScopeSignature)
+      === JSON.stringify(candidate.returnScopeSignature)
+    && JSON.stringify(selected.taxpayerSignature)
+      === JSON.stringify(candidate.taxpayerSignature);
+  if(!identityMatches){
+    issues.push({
+      code: 'TAX_IDENTITY_MISMATCH',
+      comparison,
+      selected: {
+        taxYear: selected.taxYear,
+        filingStatus: selected.filingStatus,
+        modeledTaxpayer: selected.modeledTaxpayer,
+        returnScope: selected.returnScopeSignature,
+        taxpayers: selected.taxpayerSignature,
+      },
+      candidate: {
+        taxYear: candidate.taxYear,
+        filingStatus: candidate.filingStatus,
+        modeledTaxpayer: candidate.modeledTaxpayer,
+        returnScope: candidate.returnScopeSignature,
+        taxpayers: candidate.taxpayerSignature,
+      },
+    });
+    return false;
+  }
+
+  const allowedDifferences = comparison === 'baseline'
+    ? new Set([
+      'income.iraDistributions',
+      'income.capitalGain',
+      'resolved.taxableIra',
+      'scheduleD.netLongTermGainOrLoss',
+    ])
+    : new Set(['income.socialSecurityBenefits']);
+  const selectedFactContract = stableComparisonValue(
+    selectedFacts,
+    '',
+    allowedDifferences
+  );
+  const candidateFactContract = stableComparisonValue(
+    comparisonFacts,
+    '',
+    allowedDifferences
+  );
+  if(JSON.stringify(selectedFactContract) !== JSON.stringify(candidateFactContract)){
+    issues.push({
+      code: 'TAX_SCOPE_MISMATCH',
+      comparison,
+      selected: { factContract: selectedFactContract },
+      candidate: { factContract: candidateFactContract },
+    });
+    return false;
+  }
+
+  const scopeMatches = selected.taxTotalScope === candidate.taxTotalScope
+    && JSON.stringify(selected.lineCoverage)
+      === JSON.stringify(candidate.lineCoverage);
+  if(!scopeMatches){
+    issues.push({
+      code: 'TAX_SCOPE_MISMATCH',
+      comparison,
+      selected: {
+        taxTotalScope: selected.taxTotalScope,
+        lineCoverage: selected.lineCoverage,
+      },
+      candidate: {
+        taxTotalScope: candidate.taxTotalScope,
+        lineCoverage: candidate.lineCoverage,
+      },
+    });
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Authoritative tax-engine comparison contract for a Withdrawal Planner year.
+ * The planning layer supplies three fact bundles; this module owns every tax run
+ * and returns finished tax dollars so no bracket or counterfactual math leaks
+ * into the UI.
+ */
+export function runWithdrawalPlannerTaxAnalysis({
+  selectedFacts,
+  baselineFacts,
+  withoutSocialSecurityFacts,
+  context,
+  options = {},
+}){
+  const comparisonIssues = [];
+  const runComparison = (facts, failureCode, comparison) => {
+    try {
+      return runEngineYearTax(facts, context, options);
+    } catch{
+      comparisonIssues.push({
+        code: failureCode,
+        comparison,
+      });
+      return null;
+    }
+  };
+  const selectedRun = runComparison(
+    selectedFacts,
+    'SELECTED_TAX_RUN_FAILED',
+    'selected'
+  );
+  const baselineRun = runComparison(
+    baselineFacts,
+    'BASELINE_TAX_RUN_FAILED',
+    'baseline'
+  );
+  const withoutSocialSecurityRun = runComparison(
+    withoutSocialSecurityFacts,
+    'WITHOUT_SOCIAL_SECURITY_TAX_RUN_FAILED',
+    'withoutSocialSecurity'
+  );
+  const selectedSummary = selectedRun?.annual1040Result?.federalSummary ?? {};
+  const baselineSummary = baselineRun?.annual1040Result?.federalSummary ?? {};
+  const withoutSocialSecuritySummary =
+    withoutSocialSecurityRun?.annual1040Result?.federalSummary ?? {};
+  const components = selectedSummary.incomeTaxComponents ?? {};
+  const selectedTax = finiteTaxDollar(selectedSummary.federalTaxLiability);
+  const baselineTax = finiteTaxDollar(baselineSummary.federalTaxLiability);
+  const withoutSocialSecurityTax = finiteTaxDollar(
+    withoutSocialSecuritySummary.federalTaxLiability
+  );
+  const baselineComparable = taxRunsAreComparable({
+    selectedRun,
+    comparisonRun: baselineRun,
+    selectedFacts,
+    comparisonFacts: baselineFacts,
+    comparison: 'baseline',
+    issues: comparisonIssues,
+  });
+  const withoutSocialSecurityComparable = taxRunsAreComparable({
+    selectedRun,
+    comparisonRun: withoutSocialSecurityRun,
+    selectedFacts,
+    comparisonFacts: withoutSocialSecurityFacts,
+    comparison: 'withoutSocialSecurity',
+    issues: comparisonIssues,
+  });
+
+  return {
+    selectedRun,
+    baselineRun,
+    withoutSocialSecurityRun,
+    thresholdTaxDollars: {
+      ordinaryIncomeTax: finiteTaxDollar(components.ordinaryIncomeTax),
+      preferentialIncomeTax: finiteTaxDollar(components.preferentialIncomeTax),
+      irmaaPremium: null,
+      socialSecurityIncrementalModeledFederalIncomeTax:
+        withoutSocialSecurityComparable
+          ? taxDifference(selectedTax, withoutSocialSecurityTax)
+          : null,
+    },
+    thresholdRates: {
+      ltcg: CAPITAL_GAINS_TAX_RATES,
+      socialSecurity: SOCIAL_SECURITY_TAXATION_RATES,
+    },
+    modeledFederalIncomeTax: {
+      baseline: baselineTax,
+      selected: selectedTax,
+      incremental: baselineComparable
+        ? taxDifference(selectedTax, baselineTax)
+        : null,
+      taxTotalScope: selectedSummary.taxTotalScope ?? null,
+    },
+    comparisonIssues,
+  };
+}
+
 export function assessAnnual1040EngineReadiness(){
   return {
     readyForOneYearEngineAdapter: true,
@@ -181,6 +439,7 @@ export function assessAnnual1040EngineReadiness(){
       'validateClient1040Intake',
       'runClient1040Intake',
       'runEngineYearTax',
+      'runWithdrawalPlannerTaxAnalysis',
       'engineYearTo1040Input',
       'mapSimulationRowToYearFacts',
       'buildAnnual1040Result',

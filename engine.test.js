@@ -7,7 +7,9 @@ import assert from 'node:assert';
 import {
   RETURN_DATA, RISK_PROFILES, generateReturnPath, runSimulation,
   runHistoricalPath, runSinglePath, analyzeResults, resolveInputs, defaultPlan, LONGRUN_INFLATION,
-  annualMortgagePayment, resetSeed
+  annualMortgagePayment, resetSeed, resolveHouseholdTimeline, householdStateAtYear,
+  householdIncomeAtYear, resolveWithdrawalPlannerAccountState,
+  approveWithdrawalPlannerLeverChange, buildWithdrawalPlannerCashContract
 } from './engine.js';
 import { createFederalTaxResolver } from './src/planning/tax/createFederalTaxResolver.js';
 import { createAccount } from './src/household/createAccount.js';
@@ -29,8 +31,7 @@ test('runSimulation returns a success rate in [0,100]', () => {
 });
 
 test('shared paths make identical inputs reproducible', () => {
-  const horizon = defaultPlan.household.primary.planEndAge
-                - defaultPlan.household.primary.currentAge;
+  const horizon = resolveInputs(defaultPlan, {}).horizonYears;
   const bundle = Array.from({length: 300}, () => generateReturnPath(horizon));
   const a = runSimulation(defaultPlan, {}, bundle);
   const b = runSimulation(defaultPlan, {}, bundle);
@@ -72,7 +73,7 @@ test('Sequence Stress is retirement-relative, not contaminated by accumulation y
   const p = JSON.parse(JSON.stringify(defaultPlan));
   p.household.primary = { currentAge: 58, retirementAge: 65, planEndAge: 95 };
   p.savings = { annual: 30000, split: { traditional: 1, roth: 0, taxable: 0 } };
-  const horizon = p.household.primary.planEndAge - p.household.primary.currentAge; // 37
+  const horizon = resolveInputs(p, {}).horizonYears; // ages 58 through 95, inclusive
   // Fixed seed + fixed bundle → fully deterministic selection, so the assertions
   // are reproducible across runs and machines.
   resetSeed(20260615);
@@ -209,6 +210,7 @@ test('annual savings increases terminal wealth during accumulation', () => {
   p.savings.annual = 0;
   const base = runHistoricalPath(p, 1995, 'taxable-first');
   p.savings.annual = 50000;
+  p.savings.split = { taxable: 1, traditional: 0, roth: 0 };
   const saving = runHistoricalPath(p, 1995, 'taxable-first');
   assert.ok(saving.terminalBalance > base.terminalBalance + 1,
     'annual savings must raise ending wealth during working years');
@@ -262,7 +264,7 @@ test('reporting-only federal policy sets accumulation row taxes to Form 1040 lin
   const p = structuredClone(defaultPlan);
   p.meta.filingStatus = 'marriedFilingJointly';
   p.household.primary = { currentAge: 64, retirementAge: 66, planEndAge: 68 };
-  p.household.spouse = { currentAge: 63, retirementAge: 65 };
+  p.household.spouse = { currentAge: 63, retirementAge: 65, planEndAge: 67 };
   p.portfolio.accounts = {
     taxable: { balance: 1000000, basisPct: 1 },
     traditional: { balance: 0 },
@@ -444,6 +446,9 @@ test('a pre-retirement lump sum debits the portfolio (no longer ignored in accum
 // Roth / taxable-only plans have no RMD.
 test('RMDs force pre-tax distributions from 73 and reinvest the excess', () => {
   const p = JSON.parse(JSON.stringify(defaultPlan));
+  p.household.primary = {
+    currentAge: 73, retirementAge: 73, planEndAge: 95, birthYear: 1953,
+  };
   p.portfolio.accounts.taxable.balance     = 0;     // starts empty…
   p.portfolio.accounts.traditional.balance = 10e6;  // big pre-tax → RMD >> spending
   p.portfolio.accounts.roth.balance        = 0;
@@ -466,7 +471,7 @@ test('RMDs force pre-tax distributions from 73 and reinvest the excess', () => {
 
 test('engine rows separate total required RMD from the forced top-up', () => {
   const p = structuredClone(defaultPlan);
-  p.household.primary = { currentAge: 72, retirementAge: 72, planEndAge: 75 };
+  p.household.primary = { currentAge: 72, retirementAge: 72, planEndAge: 74 };
   p.portfolio.accounts = {
     taxable: { balance: 0, basisPct: 1 },
     traditional: { balance: 10_000_000 },
@@ -522,7 +527,7 @@ test('savings split: default is all pre-tax; resolveInputs normalizes a custom s
 });
 
 test('Roth contributions end higher than the same dollars pre-tax (split flows through)', () => {
-  const horizon = 95 - 50;
+  const horizon = 95 - 50 + 1;
   const bundle = Array.from({ length: 200 }, () => generateReturnPath(horizon));
   // Well-funded so the plan SURVIVES — then the withdrawal-side tax treatment
   // (Roth tax-free + no RMD vs Traditional taxed + RMD drag) shows in the terminal.
@@ -775,7 +780,7 @@ test('tax-policy funding mode grosses up a positive delta before depletion', () 
   const build = (balance, living, bucket = 'taxable') => {
     const p = structuredClone(defaultPlan);
     p.meta.filingStatus = 'single';
-    p.household.primary = { currentAge: 65, retirementAge: 65, planEndAge: 66 };
+    p.household.primary = { currentAge: 65, retirementAge: 65, planEndAge: 65 };
     p.household.spouse = null;
     p.portfolio.accounts = {
       taxable: { balance: bucket === 'taxable' ? balance : 0, basisPct: 1 },
@@ -856,7 +861,7 @@ test('tax-policy funding mode grosses up a positive delta before depletion', () 
 
 test('livingAnnual models positive scenario spending over a zero-dollar base', () => {
   const p = structuredClone(defaultPlan);
-  p.household.primary = { currentAge: 65, retirementAge: 65, planEndAge: 66 };
+  p.household.primary = { currentAge: 65, retirementAge: 65, planEndAge: 65 };
   p.household.spouse = null;
   p.portfolio.accounts = {
     taxable: { balance: 100_000, basisPct: 1 },
@@ -925,7 +930,7 @@ test('federal funding rejects non-finite spending inputs before convergence', ()
 
 test('converged age-68 cash-flow row funds the visible federal-tax identity', () => {
   const p = structuredClone(defaultPlan);
-  p.household.primary = { currentAge: 68, retirementAge: 68, planEndAge: 69 };
+  p.household.primary = { currentAge: 68, retirementAge: 68, planEndAge: 68 };
   p.household.spouse = null;
   p.portfolio.accounts = {
     taxable: { balance: 1_000_000, basisPct: 1 },
@@ -980,7 +985,7 @@ test('converged age-68 cash-flow row funds the visible federal-tax identity', ()
 
 test('converged taxable funding rebuilds exact final gain facts from the opening state', () => {
   const p = structuredClone(defaultPlan);
-  p.household.primary = { currentAge: 73, retirementAge: 73, planEndAge: 74 };
+  p.household.primary = { currentAge: 73, retirementAge: 73, planEndAge: 73 };
   p.portfolio.accounts = {
     taxable: { balance: 1_000_000, basisPct: 0.20 },
     traditional: { balance: 10_000_000 },
@@ -1028,7 +1033,7 @@ test('converged taxable funding rebuilds exact final gain facts from the opening
 
 test('lower federal tax beyond a zero draw retains only the incremental saving as taxable basis', () => {
   const p = structuredClone(defaultPlan);
-  p.household.primary = { currentAge: 65, retirementAge: 65, planEndAge: 66 };
+  p.household.primary = { currentAge: 65, retirementAge: 65, planEndAge: 65 };
   p.household.spouse = null;
   p.portfolio.accounts = {
     taxable: { balance: 100_000, basisPct: 1 },
@@ -1202,7 +1207,7 @@ test('selling an asset can rescue a plan that would otherwise run dry', () => {
   p.portfolio.accounts = { taxable:{balance:300000,basisPct:1}, traditional:{balance:0}, roth:{balance:0} };
   p.expenses = { living: 78000, housing: 0, debt: 0, healthcare: 0, healthcareRealGrowth: 0 };
   p.income.other = [];
-  const horizon = 95 - 65;
+  const horizon = 95 - 65 + 1;
   const bundle = Array.from({ length: 300 }, () => generateReturnPath(horizon));
   const keep = runSimulation(p, {}, bundle);
   const sell = runSimulation(p, { assetSale: { asset: 0, age: 66 } }, bundle);
@@ -1213,8 +1218,9 @@ test('selling an asset can rescue a plan that would otherwise run dry', () => {
 test('spouse retirement age extends accumulation on the same calendar timeline', () => {
   const p = JSON.parse(JSON.stringify(defaultPlan));
   p.household.primary = { currentAge: 58, retirementAge: 65, planEndAge: 90 };
-  p.household.spouse = { currentAge: 57, retirementAge: 67 };
+  p.household.spouse = { currentAge: 57, retirementAge: 67, planEndAge: 89 };
   p.savings.annual = 50000;
+  p.savings.split = { traditional: 0, roth: 0, taxable: 1 };
   p.portfolio.accounts.taxable.balance = 5e6;
   p.portfolio.accounts.traditional.balance = 0;
   p.portfolio.accounts.roth.balance = 0;
@@ -1238,6 +1244,9 @@ test('spouse-owned working income uses the spouse timeline and stops at retireme
   const p = JSON.parse(JSON.stringify(defaultPlan));
   p.household.primary = { currentAge: 60, retirementAge: 67, planEndAge: 90 };
   p.household.spouse = { currentAge: 58, retirementAge: 63, planEndAge: 90 };
+  p.portfolio.accounts.taxable.balance += p.portfolio.accounts.traditional.balance;
+  p.portfolio.accounts.traditional.balance = 0;
+  p.savings.annual = 0;
   p.income.other = [{
     typeId: 'wages', owner: 'spouse', label: 'Co-client wages', amount: 60000,
     startAge: 58, endAge: 62, realGrowth: 0, taxablePct: 1,
@@ -1247,6 +1256,1317 @@ test('spouse-owned working income uses the spouse timeline and stops at retireme
     'spouse age 62 maps to primary age 64');
   assert.strictEqual(m.rows.find(row => row.age === 65).otherIncome, 0,
     'spouse wages stop after the spouse working window');
+});
+
+test('Tax-page member wages combine once and stop at each owner retirement age', () => {
+  const p = structuredClone(defaultPlan);
+  p.meta.planningAsOfYear = 2026;
+  p.meta.filingStatus = 'marriedFilingJointly';
+  p.household.primary = {
+    currentAge: 60, retirementAge: 65, planEndAge: 90, employmentStatus: 'employed',
+  };
+  p.household.spouse = {
+    currentAge: 58, retirementAge: 62, planEndAge: 90, employmentStatus: 'employed',
+  };
+  p.incomeTax.current1040 = {
+    taxYear: 2026,
+    incomeSourcesComplete: false,
+    income: {},
+  };
+  p.income.other = [
+    { typeId: 'wages', owner: 'client', amount: 80_000, taxablePct: 1 },
+    { typeId: 'wages', owner: 'spouse', amount: 60_000, taxablePct: 1 },
+  ];
+
+  const resolved = resolveInputs(p, {});
+  assert.strictEqual(householdIncomeAtYear(resolved, 0).wages, 140_000);
+  assert.strictEqual(householdIncomeAtYear(resolved, 3).wages, 140_000);
+  assert.strictEqual(householdIncomeAtYear(resolved, 4).wages, 80_000);
+  assert.strictEqual(householdIncomeAtYear(resolved, 5).wages, 0);
+});
+
+test('current-year single wage total is a safe projection fallback but a prior-year total is not', () => {
+  const p = structuredClone(defaultPlan);
+  p.meta.planningAsOfYear = 2026;
+  p.meta.filingStatus = 'single';
+  p.household.primary = {
+    currentAge: 60, retirementAge: 65, planEndAge: 90, employmentStatus: 'employed',
+  };
+  p.household.spouse = null;
+  p.income.socialSecurity.spouse = null;
+  p.income.other = [];
+  p.incomeTax.current1040 = {
+    taxYear: 2026,
+    incomeSourcesComplete: false,
+    income: { wages: 50_000 },
+  };
+
+  let resolved = resolveInputs(p, {});
+  assert.strictEqual(householdIncomeAtYear(resolved, 0).wages, 50_000);
+  assert.strictEqual(householdIncomeAtYear(resolved, 4).wages, 50_000);
+  assert.strictEqual(householdIncomeAtYear(resolved, 5).wages, 0);
+
+  p.incomeTax.current1040.taxYear = 2025;
+  resolved = resolveInputs(p, {});
+  assert.strictEqual(householdIncomeAtYear(resolved, 0).wages, null);
+  assert.ok(resolved.incomeContractIssues.includes(
+    'INCOME_SOURCE_MISSING:client:wages',
+  ));
+});
+
+test('a retirement-year wage stays in that year without becoming future wages', () => {
+  const p = structuredClone(defaultPlan);
+  p.meta.planningAsOfYear = 2026;
+  p.meta.filingStatus = 'single';
+  p.household.primary = {
+    currentAge: 65, retirementAge: 65, planEndAge: 90, employmentStatus: 'retired',
+  };
+  p.household.spouse = null;
+  p.income.socialSecurity.spouse = null;
+  p.income.other = [{
+    typeId: 'wages', owner: 'client', amount: 25_000,
+    startAge: 65, endAge: 65, taxablePct: 1,
+  }];
+
+  const resolved = resolveInputs(p, {});
+  assert.strictEqual(householdIncomeAtYear(resolved, 0).wages, 25_000);
+  assert.strictEqual(householdIncomeAtYear(resolved, 1).wages, 0);
+});
+
+test('household timeline preserves each person age and lifecycle milestone', () => {
+  const p = structuredClone(defaultPlan);
+  p.meta.filingStatus = 'marriedFilingJointly';
+  p.household.primary = { currentAge: 60, retirementAge: 67, planEndAge: 90 };
+  p.household.spouse = { currentAge: 57, retirementAge: 63, planEndAge: 95 };
+  p.portfolio.accounts.taxable.balance += p.portfolio.accounts.traditional.balance;
+  p.portfolio.accounts.traditional.balance = 0;
+  p.savings.annual = 0;
+  p.income.socialSecurity = {
+    primary: { pia: 30_000, claimAge: 68 },
+    spouse: { pia: 20_000, claimAge: 70 },
+  };
+
+  const timeline = resolveHouseholdTimeline(p);
+  assert.deepStrictEqual(timeline.people.client, {
+    currentAge: 60,
+    birthYear: null,
+    rmdStartAge: 75,
+    retirementAge: 67,
+    socialSecurityClaimAge: 68,
+    planEndAge: 90,
+    retirementAgeOnPrimaryTimeline: 67,
+    socialSecurityClaimAgeOnPrimaryTimeline: 68,
+    planEndAgeOnPrimaryTimeline: 90,
+  });
+  assert.deepStrictEqual(timeline.people.spouse, {
+    currentAge: 57,
+    birthYear: null,
+    rmdStartAge: 75,
+    retirementAge: 63,
+    socialSecurityClaimAge: 70,
+    planEndAge: 95,
+    retirementAgeOnPrimaryTimeline: 66,
+    socialSecurityClaimAgeOnPrimaryTimeline: 73,
+    planEndAgeOnPrimaryTimeline: 98,
+  });
+  assert.strictEqual(timeline.householdRetirementAgeOnPrimaryTimeline, 67);
+  assert.strictEqual(timeline.householdEndAgeOnPrimaryTimeline, 98);
+
+  const resolved = resolveInputs(p, {});
+  const yearSix = householdStateAtYear(resolved, 6);
+  assert.deepStrictEqual(yearSix.ages, { client: 66, spouse: 63 });
+  assert.strictEqual(yearSix.people.client.retired, false);
+  assert.strictEqual(yearSix.people.spouse.retired, true);
+  assert.strictEqual(yearSix.people.client.claimingSocialSecurity, false);
+  assert.strictEqual(yearSix.people.spouse.claimingSocialSecurity, false);
+  assert.strictEqual(yearSix.filingStatus, 'marriedFilingJointly');
+
+  const rows = runHistoricalPath(p, 1995, 'taxable-first').rows;
+  assert.deepStrictEqual(rows[6].ages, { client: 66, spouse: 63 });
+  assert.strictEqual(rows[13].people.client.claimingSocialSecurity, true);
+  assert.strictEqual(rows[13].people.spouse.claimingSocialSecurity, true);
+});
+
+test('RMD cohort inference ignores prior-return years and unconfirmed birth dates', () => {
+  const p = structuredClone(defaultPlan);
+  const currentYear = 2026;
+  p.meta.planningAsOfYear = currentYear;
+  const boundaryAge = currentYear - 1960;
+  p.household.primary = {
+    currentAge: boundaryAge,
+    retirementAge: boundaryAge,
+    planEndAge: boundaryAge + 10,
+  };
+  p.incomeTax = { current1040: { taxYear: currentYear - 1 } };
+  p.taxProfiles = {
+    client: {
+      birthDate: { value: '1960-01-01', status: 'unknown' },
+    },
+  };
+
+  assert.strictEqual(resolveHouseholdTimeline(p).people.client.rmdStartAge, null);
+  p.taxProfiles.client.birthDate.status = 'confirmed';
+  assert.strictEqual(resolveHouseholdTimeline(p).people.client.rmdStartAge, 75);
+  p.household.primary.birthYear = 1959;
+  assert.strictEqual(resolveHouseholdTimeline(p).people.client.birthYear, 1960);
+  assert.strictEqual(resolveHouseholdTimeline(p).people.client.rmdStartAge, null);
+});
+
+test('household income uses the same per-person survival boundary as simulation', () => {
+  const p = structuredClone(defaultPlan);
+  p.meta.filingStatus = 'marriedFilingJointly';
+  p.household.primary = { currentAge: 65, retirementAge: 65, planEndAge: 90 };
+  p.household.spouse = { currentAge: 63, retirementAge: 63, planEndAge: 64 };
+  p.income.socialSecurity = {
+    primary: { pia: 0, claimAge: 67 },
+    spouse: { pia: 24_000, claimAge: 63 },
+  };
+  p.income.other = [];
+
+  const resolved = resolveInputs(p, {});
+  assert.ok(householdIncomeAtYear(resolved, 0).socialSecurityBenefits > 0);
+  const terminalAge = householdIncomeAtYear(resolved, 1);
+  assert.ok(terminalAge.socialSecurityBenefits > 0);
+  assert.strictEqual(terminalAge.filingStatus, 'marriedFilingJointly');
+  assert.strictEqual(terminalAge.people.spouse.alive, true);
+  const afterSpouseEnd = householdIncomeAtYear(resolved, 2);
+  assert.strictEqual(afterSpouseEnd.socialSecurityBenefits, 0);
+  assert.strictEqual(afterSpouseEnd.filingStatus, 'single');
+  assert.strictEqual(afterSpouseEnd.survivingOwner, 'client');
+  assert.deepStrictEqual(afterSpouseEnd.ages, { client: 67, spouse: 65 });
+});
+
+test('terminal ages are included and longevity extends each person consistently', () => {
+  const p = structuredClone(defaultPlan);
+  p.meta.filingStatus = 'marriedFilingJointly';
+  p.household.primary = { currentAge: 65, retirementAge: 65, planEndAge: 67 };
+  p.household.spouse = { currentAge: 63, retirementAge: 63, planEndAge: 66 };
+  const base = resolveInputs(p, {});
+  const extended = resolveInputs(p, { longevityYears: 2 });
+
+  assert.strictEqual(base.horizonYears, 4);
+  assert.strictEqual(householdStateAtYear(base, 2).people.client.alive, true);
+  assert.strictEqual(householdStateAtYear(base, 3).people.client.alive, false);
+  assert.strictEqual(extended.people.client.planEndAge, 69);
+  assert.strictEqual(extended.people.spouse.planEndAge, 68);
+  assert.strictEqual(extended.horizonYears, 6);
+  assert.strictEqual(householdStateAtYear(extended, 4).people.client.alive, true);
+});
+
+test('missing co-client milestones remain unknown and do not create a false simulation', () => {
+  const p = structuredClone(defaultPlan);
+  p.meta.filingStatus = 'marriedFilingJointly';
+  p.household.primary = { currentAge: 65, retirementAge: 65, planEndAge: 90 };
+  p.household.spouse = { currentAge: 60 };
+  p.income.socialSecurity = {
+    primary: { pia: 0, claimAge: 67 },
+    spouse: { pia: 24_000 },
+  };
+
+  const timeline = resolveHouseholdTimeline(p);
+  assert.deepStrictEqual(timeline.people.spouse, {
+    currentAge: 60,
+    birthYear: null,
+    rmdStartAge: 75,
+    retirementAge: null,
+    socialSecurityClaimAge: null,
+    planEndAge: null,
+    retirementAgeOnPrimaryTimeline: null,
+    socialSecurityClaimAgeOnPrimaryTimeline: null,
+    planEndAgeOnPrimaryTimeline: null,
+  });
+  assert.strictEqual(timeline.completeForSimulation, false);
+
+  const resolved = resolveInputs(p, {});
+  const state = householdStateAtYear(resolved, 0);
+  assert.strictEqual(state.people.spouse.age, 60);
+  assert.strictEqual(state.people.spouse.alive, true);
+  assert.strictEqual(state.people.spouse.retired, null);
+  const income = householdIncomeAtYear(resolved, 0);
+  assert.strictEqual(income.available, true);
+  assert.strictEqual(income.socialSecurityBenefits, null);
+  assert.ok(income.incomeIssues.includes('SOCIAL_SECURITY_TIMELINE_INCOMPLETE:spouse'));
+  assert.throws(
+    () => runSimulation(p, {}),
+    error => error?.code === 'HOUSEHOLD_TIMELINE_INCOMPLETE'
+  );
+});
+
+test('income aggregates stay blank when the source owner timeline is incomplete', () => {
+  const p = structuredClone(defaultPlan);
+  p.meta.filingStatus = 'marriedFilingJointly';
+  p.household.primary = { currentAge: 65, retirementAge: 65, planEndAge: 90 };
+  p.household.spouse = { retirementAge: 65, planEndAge: 90 };
+  p.income.socialSecurity = { primary: null, spouse: null };
+  p.income.other = [{
+    typeId: 'rental', owner: 'spouse', amount: 12_000,
+    startAge: 60, endAge: 90, taxablePct: 1,
+  }];
+
+  let facts = householdIncomeAtYear(resolveInputs(p, {}), 0);
+  assert.strictEqual(facts.available, true);
+  assert.strictEqual(facts.grossOtherIncome, null);
+  assert.strictEqual(facts.otherIncome, null);
+  assert.strictEqual(facts.wages, 0);
+  assert.ok(facts.incomeIssues.includes('INCOME_TIMELINE_INCOMPLETE:spouse:rental'));
+
+  p.income.other = [{
+    typeId: 'wages', owner: 'spouse', amount: 12_000,
+    startAge: 60, taxablePct: 1,
+  }];
+  facts = householdIncomeAtYear(resolveInputs(p, {}), 0);
+  assert.strictEqual(facts.available, true);
+  assert.strictEqual(facts.wages, null);
+  assert.strictEqual(facts.grossOtherIncome, 0);
+  assert.ok(facts.incomeIssues.includes('INCOME_TIMELINE_INCOMPLETE:spouse:wages'));
+});
+
+test('missing terminal age preserves known current-year facts but not an invented future status', () => {
+  const p = structuredClone(defaultPlan);
+  p.meta.filingStatus = 'marriedFilingJointly';
+  p.household.primary = { currentAge: 65, retirementAge: 65, planEndAge: 90 };
+  p.household.spouse = { currentAge: 63, retirementAge: 63 };
+  p.income.socialSecurity = { primary: null, spouse: null };
+  p.income.other = [];
+
+  const resolved = resolveInputs(p, {});
+  const current = householdIncomeAtYear(resolved, 0);
+  assert.strictEqual(current.people.spouse.alive, true);
+  assert.strictEqual(current.filingStatus, 'marriedFilingJointly');
+  assert.strictEqual(current.available, true);
+
+  const future = householdIncomeAtYear(resolved, 1);
+  assert.strictEqual(future.people.spouse.alive, null);
+  assert.strictEqual(future.filingStatus, null);
+  assert.strictEqual(future.available, false);
+});
+
+test('past retirement ages remain intact for years-retired calculations', () => {
+  const p = structuredClone(defaultPlan);
+  p.meta.filingStatus = 'single';
+  p.household.primary = { currentAge: 70, retirementAge: 65, planEndAge: 70 };
+  p.household.spouse = null;
+  p.income.socialSecurity = { primary: { pia: 0, claimAge: 67 }, spouse: null };
+  p.income.other = [];
+  p.savings.annual = 0;
+  p.portfolio.accounts = {
+    taxable: { balance: 1_000_000, basisPct: 1 },
+    traditional: { balance: 0 },
+    roth: { balance: 0 },
+  };
+  p.portfolio.extraAccounts = [];
+  p.expenses = {
+    living: 0, housing: 0, debt: 0,
+    healthcare: 10_000, healthcareRealGrowth: 0.10, extra: [],
+  };
+
+  const resolved = resolveInputs(p, {});
+  assert.strictEqual(resolved.retirementAge, 65);
+  const row = runHistoricalPath(p, 1995, 'taxable-first').rows[0];
+  assert.ok(Math.abs(row.expenses - 10_000 * (1.10 ** 5)) < 0.01);
+});
+
+test('focus-year household facts are unavailable after nobody remains alive', () => {
+  const single = structuredClone(defaultPlan);
+  single.meta.filingStatus = 'single';
+  single.household.primary = { currentAge: 65, retirementAge: 65, planEndAge: 65 };
+  single.household.spouse = null;
+  single.income.socialSecurity = { primary: { pia: 0, claimAge: 67 }, spouse: null };
+  single.income.other = [];
+  const singleResolved = resolveInputs(single, {});
+  assert.strictEqual(householdStateAtYear(singleResolved, 1).filingStatus, null);
+  assert.strictEqual(householdIncomeAtYear(singleResolved, 1).available, false);
+
+  const couple = structuredClone(single);
+  couple.meta.filingStatus = 'marriedFilingJointly';
+  couple.household.spouse = { currentAge: 64, retirementAge: 64, planEndAge: 64 };
+  couple.income.socialSecurity.spouse = { pia: 0, claimAge: 67 };
+  const coupleResolved = resolveInputs(couple, {});
+  const afterBoth = householdStateAtYear(coupleResolved, 1);
+  assert.strictEqual(afterBoth.people.client.alive, false);
+  assert.strictEqual(afterBoth.people.spouse.alive, false);
+  assert.strictEqual(afterBoth.filingStatus, null);
+  assert.strictEqual(householdIncomeAtYear(coupleResolved, 1).available, false);
+});
+
+test('a missing Social Security claim age leaves that benefit blank without blocking the plan', () => {
+  const p = structuredClone(defaultPlan);
+  p.meta.filingStatus = 'marriedFilingJointly';
+  p.household.primary = { currentAge: 65, retirementAge: 65, planEndAge: 67 };
+  p.household.spouse = { currentAge: 63, retirementAge: 63, planEndAge: 65 };
+  p.income.socialSecurity = {
+    primary: { pia: 0, claimAge: 67 },
+    spouse: { pia: 24_000 },
+  };
+  p.income.other = [];
+
+  const resolved = resolveInputs(p, {});
+  assert.strictEqual(resolved.simulationAvailable, true);
+  assert.strictEqual(resolved.incomeContractAvailable, false);
+  assert.ok(resolved.incomeContractIssues.includes(
+    'SOCIAL_SECURITY_TIMELINE_INCOMPLETE:spouse'
+  ));
+  assert.strictEqual(
+    householdIncomeAtYear(resolved, 0).socialSecurityBenefits,
+    null,
+  );
+  const path = Array.from({ length: resolved.horizonYears }, (_, index) => ({
+    y: 2026 + index,
+    proxyReturn: 0,
+  }));
+  assert.ok(Number.isFinite(runSimulation(p, {}, [path]).successRate));
+  assert.ok(runSinglePath(resolved, path).rows.length > 0);
+  assert.ok(
+    runHistoricalPath(p, 1995, 'taxable-first').rows.length > 0,
+  );
+});
+
+test('spouse-owned other income ends with the spouse lifetime, not one year later', () => {
+  const p = structuredClone(defaultPlan);
+  p.meta.filingStatus = 'marriedFilingJointly';
+  p.household.primary = { currentAge: 65, retirementAge: 65, planEndAge: 90 };
+  p.household.spouse = { currentAge: 63, retirementAge: 63, planEndAge: 64 };
+  p.income.socialSecurity = { primary: null, spouse: null };
+  p.income.other = [{
+    typeId: 'other', owner: 'spouse', amount: 12_000,
+    startAge: 63, endAge: 90, taxablePct: 1, realGrowth: 0,
+  }];
+  const resolved = resolveInputs(p, {});
+
+  assert.strictEqual(householdIncomeAtYear(resolved, 1).otherIncome, 12_000);
+  assert.strictEqual(householdIncomeAtYear(resolved, 2).otherIncome, 0);
+});
+
+test('typed Social Security, qualified dividends, and signed long-term gains keep their tax character', () => {
+  const p = structuredClone(defaultPlan);
+  p.meta.filingStatus = 'single';
+  p.household.primary = { currentAge: 65, retirementAge: 65, planEndAge: 65 };
+  p.household.spouse = null;
+  p.income.socialSecurity = { primary: { pia: 0, claimAge: 67 }, spouse: null };
+  p.income.other = [
+    { typeId: 'social_security', owner: 'client', amount: 30_000, startAge: 65, endAge: 65 },
+    { typeId: 'dividends', owner: 'client', amount: 100_000, startAge: 65, endAge: 65, taxablePct: 1, qualifiedPct: 1 },
+    { typeId: 'long_term_capital_gain', owner: 'client', amount: -10_000, startAge: 65, endAge: 65 },
+  ];
+
+  const resolved = resolveInputs(p, {});
+  const facts = householdIncomeAtYear(resolved, 0);
+  assert.strictEqual(facts.socialSecurityBenefits, 30_000);
+  assert.strictEqual(facts.ordinaryDividends, 100_000);
+  assert.strictEqual(facts.qualifiedDividends, 100_000);
+  assert.strictEqual(facts.capitalGain, -10_000);
+  assert.strictEqual(facts.otherIncome, 0);
+
+  const row = runHistoricalPath(p, 1995, 'taxable-first').rows[0];
+  assert.deepStrictEqual(row.incomeTaxFacts, {
+    socialSecurityBenefits: 30_000,
+    ordinaryDividends: 100_000,
+    qualifiedDividends: 100_000,
+    capitalGain: -10_000,
+  });
+  assert.strictEqual(row.socialSecurity, 30_000);
+  assert.strictEqual(row.otherIncome, 90_000);
+});
+
+test('cash IRA distributions and Roth conversions remain separate RMD facts', () => {
+  const p = structuredClone(defaultPlan);
+  p.meta.filingStatus = 'single';
+  p.household.primary = { currentAge: 65, retirementAge: 65, planEndAge: 65 };
+  p.household.spouse = null;
+  p.income.socialSecurity = { primary: { pia: 0, claimAge: 67 }, spouse: null };
+  p.income.other = [
+    {
+      typeId: 'ira_distribution', owner: 'client', amount: 10_000,
+      startAge: 65, endAge: 65, taxablePct: 1,
+    },
+    {
+      typeId: 'roth_conversion', owner: 'client', amount: 20_000,
+      startAge: 65, endAge: 65, taxablePct: 1,
+    },
+  ];
+
+  const facts = householdIncomeAtYear(resolveInputs(p, {}), 0);
+  assert.strictEqual(facts.iraDistributions, 30_000);
+  assert.strictEqual(facts.iraCashDistributions, 10_000);
+  assert.strictEqual(facts.rothConversions, 20_000);
+  assert.strictEqual(facts.taxableIra, 30_000);
+});
+
+test('dedicated and typed Social Security for one owner are not counted twice', () => {
+  const p = structuredClone(defaultPlan);
+  p.household.primary = { currentAge: 67, retirementAge: 67, planEndAge: 67 };
+  p.income.socialSecurity = {
+    primary: { pia: 36_000, claimAge: 67 },
+    spouse: null,
+  };
+  p.income.other = [{
+    typeId: 'social_security', owner: 'client', amount: 36_000,
+    startAge: 67, endAge: 67,
+  }];
+  const facts = householdIncomeAtYear(resolveInputs(p, {}), 0);
+  assert.strictEqual(facts.socialSecurityBenefits, 36_000);
+  assert.strictEqual(facts.available, false);
+  assert.ok(facts.incomeIssues.includes('SOCIAL_SECURITY_SOURCE_OVERLAP:client'));
+});
+
+test('RMD uses the known Traditional-account owner age and refuses unknown couple ownership', () => {
+  const spouseOwned = structuredClone(defaultPlan);
+  spouseOwned.meta.filingStatus = 'marriedFilingJointly';
+  spouseOwned.household.primary = { currentAge: 65, retirementAge: 65, planEndAge: 66 };
+  spouseOwned.household.spouse = { currentAge: 73, retirementAge: 73, planEndAge: 74 };
+  spouseOwned.portfolio.accounts = {
+    taxable: { balance: 0, basisPct: 1 },
+    traditional: { balance: 0 },
+    roth: { balance: 0 },
+  };
+  spouseOwned.portfolio.extraAccounts = [
+    createAccount('traditional_ira', { owner: 'spouse', balance: 265_000 }),
+  ];
+  spouseOwned.income.socialSecurity = { primary: { pia: 0, claimAge: 67 }, spouse: { pia: 0, claimAge: 67 } };
+  spouseOwned.income.other = [];
+  spouseOwned.expenses = { living: 0, housing: 0, debt: 0, healthcare: 0, healthcareRealGrowth: 0, extra: [] };
+
+  const spouseRow = runHistoricalPath(spouseOwned, 1995, 'taxable-first').rows[0];
+  assert.strictEqual(spouseRow.rmdOwner, 'spouse');
+  assert.strictEqual(spouseRow.rmdAvailable, true);
+  assert.ok(Math.abs(spouseRow.rmdRequired - 10_000) < 0.01);
+
+  const youngerSpouse = structuredClone(spouseOwned);
+  youngerSpouse.household.primary = { currentAge: 73, retirementAge: 73, planEndAge: 74 };
+  youngerSpouse.household.spouse = { currentAge: 65, retirementAge: 65, planEndAge: 66 };
+  const youngerSpouseRow = runHistoricalPath(youngerSpouse, 1995, 'taxable-first').rows[0];
+  assert.strictEqual(youngerSpouseRow.rmdRequired, 0);
+
+  const unknownCouple = structuredClone(spouseOwned);
+  unknownCouple.household.primary = { currentAge: 73, retirementAge: 73, planEndAge: 74 };
+  unknownCouple.portfolio.accounts.traditional.balance = 265_000;
+  unknownCouple.portfolio.extraAccounts = [];
+  assert.throws(
+    () => runHistoricalPath(unknownCouple, 1995, 'taxable-first'),
+    error => error?.code === 'HOUSEHOLD_RMD_UNAVAILABLE'
+      && error.rmdIssue === 'TRADITIONAL_ACCOUNT_OWNER_UNAVAILABLE'
+      && error.age === 73
+  );
+  assert.strictEqual(
+    resolveWithdrawalPlannerAccountState(unknownCouple).limits.deferredWithdrawal.max,
+    265_000,
+    'current-year planner limits remain available even when full-plan RMD ownership is not'
+  );
+
+  const single = structuredClone(unknownCouple);
+  single.meta.filingStatus = 'single';
+  single.household.primary = { currentAge: 73, retirementAge: 73, planEndAge: 74 };
+  single.household.spouse = null;
+  single.income.socialSecurity.spouse = null;
+  const singleRow = runHistoricalPath(single, 1995, 'taxable-first').rows[0];
+  assert.strictEqual(singleRow.rmdOwner, 'client');
+  assert.ok(Math.abs(singleRow.rmdRequired - 10_000) < 0.01);
+});
+
+test('an older non-owner spouse does not create an RMD for a younger known owner', () => {
+  const p = structuredClone(defaultPlan);
+  const currentYear = 2026;
+  p.meta.planningAsOfYear = currentYear;
+  const ownerAge = currentYear - 1960;
+  p.meta.filingStatus = 'marriedFilingJointly';
+  p.household.primary = {
+    currentAge: ownerAge,
+    retirementAge: ownerAge,
+    planEndAge: ownerAge + 1,
+  };
+  p.household.spouse = { currentAge: 73, retirementAge: 73, planEndAge: 74 };
+  p.income.socialSecurity = {
+    primary: { pia: 0, claimAge: 70 },
+    spouse: { pia: 0, claimAge: 70 },
+  };
+  p.income.other = [];
+  p.savings.annual = 0;
+  p.portfolio.accounts = {
+    taxable: { balance: 0, basisPct: 1 },
+    traditional: { balance: 0 },
+    roth: { balance: 0 },
+  };
+  p.portfolio.extraAccounts = [
+    createAccount('traditional_ira', { owner: 'client', balance: 265_000 }),
+  ];
+
+  const rows = runHistoricalPath(p, 1995, 'taxable-first').rows;
+  assert.strictEqual(rows[0].rmdRequired, 0);
+  assert.strictEqual(rows[0].rmdAvailable, true);
+  assert.strictEqual(rows[0].rmdOwner, 'client');
+});
+
+test('a known RMD owner receives required distributions during household accumulation years', () => {
+  const p = structuredClone(defaultPlan);
+  p.meta.filingStatus = 'marriedFilingJointly';
+  p.household.primary = { currentAge: 73, retirementAge: 75, planEndAge: 75 };
+  p.household.spouse = { currentAge: 65, retirementAge: 67, planEndAge: 67 };
+  p.income.socialSecurity = {
+    primary: { pia: 0, claimAge: 67 },
+    spouse: { pia: 0, claimAge: 67 },
+  };
+  p.income.other = [];
+  p.savings.annual = 0;
+  p.portfolio.accounts = {
+    taxable: { balance: 0, basisPct: 1 },
+    traditional: { balance: 0 },
+    roth: { balance: 0 },
+  };
+  p.portfolio.extraAccounts = [
+    createAccount('traditional_ira', { owner: 'client', balance: 265_000 }),
+  ];
+  p.expenses = { living: 0, housing: 0, debt: 0, healthcare: 0, healthcareRealGrowth: 0, extra: [] };
+
+  const first = runHistoricalPath(p, 1995, 'taxable-first').rows[0];
+  assert.strictEqual(first.phase, 'accum');
+  assert.strictEqual(first.rmdOwner, 'client');
+  assert.ok(Math.abs(first.rmdRequired - 10_000) < 0.01);
+  assert.ok(Math.abs(first.rmd - 10_000) < 0.01);
+  assert.ok(first.taxBySource.traditional > 0);
+});
+
+test('RMD applicable age follows the owner birth cohort', () => {
+  const p = structuredClone(defaultPlan);
+  p.meta.filingStatus = 'single';
+  p.meta.planningAsOfYear = 2026;
+  p.household.primary = {
+    currentAge: 65,
+    retirementAge: 65,
+    planEndAge: 75,
+    birthYear: 1961,
+  };
+  p.household.spouse = null;
+  p.income.socialSecurity = { primary: { pia: 0, claimAge: 70 }, spouse: null };
+  p.income.other = [];
+  p.savings.annual = 0;
+  p.portfolio.accounts = {
+    taxable: { balance: 0, basisPct: 1 },
+    traditional: { balance: 0 },
+    roth: { balance: 0 },
+  };
+  p.portfolio.extraAccounts = [
+    createAccount('traditional_ira', { owner: 'client', balance: 246_000 }),
+  ];
+  p.expenses = { living: 0, housing: 0, debt: 0, healthcare: 0, healthcareRealGrowth: 0, extra: [] };
+  p.goals = [];
+  p.liabilities = [];
+  p.properties = [];
+  p.ltc = { amount: 0, onsetAge: 999 };
+  p.income.pension = { benefitByAge: {}, base: 0, startAge: 99, colaPct: 0 };
+
+  const rows = runSinglePath(
+    resolveInputs(p, {}),
+    Array.from({ length: 11 }, () => ({ proxyReturn: 0 }))
+  ).rows;
+  assert.strictEqual(rows.find(row => row.age === 73).rmdRequired, 0);
+  assert.strictEqual(rows.find(row => row.age === 74).rmdRequired, 0);
+  const at75 = rows.find(row => row.age === 75);
+  assert.ok(Math.abs(
+    at75.rmdRequired - at75.accountStartingBalances.traditional / 24.6
+  ) < 0.01);
+});
+
+test('a working-owner employer plan does not receive an invented RMD', () => {
+  const p = structuredClone(defaultPlan);
+  p.meta.filingStatus = 'single';
+  p.household.primary = {
+    currentAge: 73,
+    retirementAge: 75,
+    planEndAge: 75,
+    birthYear: 1953,
+  };
+  p.household.spouse = null;
+  p.income.socialSecurity = { primary: { pia: 0, claimAge: 70 }, spouse: null };
+  p.income.other = [];
+  p.savings.annual = 0;
+  p.portfolio.accounts = {
+    taxable: { balance: 0, basisPct: 1 },
+    traditional: { balance: 0 },
+    roth: { balance: 0 },
+  };
+  p.portfolio.extraAccounts = [
+    createAccount('401k', { owner: 'client', balance: 265_000 }),
+  ];
+
+  assert.throws(
+    () => runHistoricalPath(p, 1995, 'taxable-first'),
+    error => error?.code === 'HOUSEHOLD_RMD_UNAVAILABLE'
+      && error.rmdIssue === 'EMPLOYER_PLAN_RMD_RULE_UNAVAILABLE'
+      && error.age === 73
+  );
+});
+
+test('full-plan results fail closed for multi-owner and post-death RMD uncertainty', () => {
+  const multiOwner = structuredClone(defaultPlan);
+  multiOwner.meta.filingStatus = 'marriedFilingJointly';
+  multiOwner.household.primary = { currentAge: 73, retirementAge: 73, planEndAge: 75 };
+  multiOwner.household.spouse = { currentAge: 65, retirementAge: 65, planEndAge: 67 };
+  multiOwner.income.socialSecurity = {
+    primary: { pia: 0, claimAge: 67 },
+    spouse: { pia: 0, claimAge: 67 },
+  };
+  multiOwner.income.other = [];
+  multiOwner.savings.annual = 0;
+  multiOwner.portfolio.accounts = {
+    taxable: { balance: 0, basisPct: 1 },
+    traditional: { balance: 0 },
+    roth: { balance: 0 },
+  };
+  multiOwner.portfolio.extraAccounts = [
+    createAccount('traditional_ira', { owner: 'client', balance: 132_500 }),
+    createAccount('traditional_ira', { owner: 'spouse', balance: 132_500 }),
+  ];
+  multiOwner.expenses = { living: 0, housing: 0, debt: 0, healthcare: 0, healthcareRealGrowth: 0, extra: [] };
+  assert.throws(
+    () => runHistoricalPath(multiOwner, 1995, 'taxable-first'),
+    error => error?.code === 'HOUSEHOLD_RMD_UNAVAILABLE'
+  );
+  assert.strictEqual(
+    resolveWithdrawalPlannerAccountState(multiOwner).limits.deferredWithdrawal.max,
+    265_000
+  );
+
+  const ownerDies = structuredClone(multiOwner);
+  ownerDies.household.primary = { currentAge: 73, retirementAge: 73, planEndAge: 73 };
+  ownerDies.household.spouse = { currentAge: 65, retirementAge: 65, planEndAge: 67 };
+  ownerDies.portfolio.extraAccounts = [
+    createAccount('traditional_ira', { owner: 'client', balance: 265_000 }),
+  ];
+  assert.throws(
+    () => runHistoricalPath(ownerDies, 1995, 'taxable-first'),
+    error => error?.code === 'HOUSEHOLD_RMD_UNAVAILABLE'
+      && error.rmdIssue === 'TRADITIONAL_ACCOUNT_OWNER_LIFECYCLE_UNAVAILABLE'
+      && error.age === 74
+  );
+});
+
+test('negative longevity is rejected instead of creating an empty successful plan', () => {
+  assert.throws(
+    () => resolveInputs(structuredClone(defaultPlan), { longevityYears: -1 }),
+    /finite nonnegative/
+  );
+  const invalidEnd = structuredClone(defaultPlan);
+  invalidEnd.household.primary = { currentAge: 65, retirementAge: 65, planEndAge: 64 };
+  assert.throws(() => resolveInputs(invalidEnd, {}), /cannot precede currentAge/);
+  const fractionalAge = structuredClone(defaultPlan);
+  fractionalAge.household.primary.currentAge = 65.5;
+  assert.throws(() => resolveInputs(fractionalAge, {}), /finite integer/);
+});
+
+test('withdrawal planner account limits coordinate one shared traditional pool', () => {
+  const p = structuredClone(defaultPlan);
+  p.portfolio.accounts = {
+    taxable: { balance: 1_200_000, basisPct: 0.6 },
+    traditional: { balance: 100_000 },
+    roth: { balance: 750_000 },
+  };
+  p.portfolio.extraAccounts = [];
+  const requested = {
+    taxableWithdrawal: 0,
+    deferredWithdrawal: 30_000,
+    rothConversion: 60_000,
+    rothWithdrawal: 0,
+    qcd: 0,
+  };
+
+  const state = resolveWithdrawalPlannerAccountState(p, requested);
+  assert.strictEqual(state.valid, true);
+  assert.deepStrictEqual(state.balances, {
+    taxable: 1_200_000,
+    traditional: 100_000,
+    roth: 750_000,
+  });
+  assert.strictEqual(state.limits.taxableWithdrawal.max, 1_200_000);
+  assert.strictEqual(state.limits.rothWithdrawal.max, 750_000);
+  assert.strictEqual(state.limits.rothConversion.max, 70_000);
+  assert.strictEqual(state.limits.deferredWithdrawal.max, 40_000);
+  assert.strictEqual(state.limits.qcd.max, 10_000);
+  assert.deepStrictEqual(state.pools.traditional, {
+    available: 100_000,
+    used: 90_000,
+    remaining: 10_000,
+  });
+
+  const approval = approveWithdrawalPlannerLeverChange(p, requested, 'qcd', 25_000);
+  assert.strictEqual(approval.approved, true);
+  assert.strictEqual(approval.clamped, true);
+  assert.strictEqual(approval.requestedValue, 25_000);
+  assert.strictEqual(approval.approvedValue, 10_000);
+  assert.strictEqual(approval.levers.rothConversion, 60_000);
+  assert.strictEqual(approval.levers.deferredWithdrawal, 30_000);
+  assert.strictEqual(approval.levers.qcd, 10_000);
+  assert.strictEqual(approval.state.pools.traditional.remaining, 0);
+});
+
+test('withdrawal planner account limits reserve fixed traditional distributions', () => {
+  const p = structuredClone(defaultPlan);
+  p.portfolio.accounts = {
+    taxable: { balance: 0, basisPct: 1 },
+    traditional: { balance: 100_000 },
+    roth: { balance: 0 },
+  };
+  p.portfolio.extraAccounts = [];
+
+  const state = resolveWithdrawalPlannerAccountState(
+    p,
+    { rothConversion: 20_000 },
+    { traditional: 80_000 }
+  );
+  assert.strictEqual(state.valid, true);
+  assert.strictEqual(state.limits.rothConversion.max, 20_000);
+  assert.strictEqual(state.limits.deferredWithdrawal.max, 0);
+  assert.deepStrictEqual(state.reservations, {
+    traditional: 80_000,
+    traditionalTotal: 80_000,
+    rmdEligibleCash: 0,
+    taxYear: 2026,
+  });
+  assert.strictEqual(state.pools.traditional.remaining, 0);
+
+  const approval = approveWithdrawalPlannerLeverChange(
+    p,
+    { rothConversion: 0 },
+    'rothConversion',
+    80_000,
+    { traditional: 80_000 }
+  );
+  assert.strictEqual(approval.approvedValue, 20_000);
+  assert.strictEqual(approval.clamped, true);
+});
+
+test('withdrawal planner reserves a known RMD before approving Roth conversions', () => {
+  const p = structuredClone(defaultPlan);
+  p.meta.filingStatus = 'single';
+  p.meta.planningAsOfYear = 2026;
+  p.household.primary = {
+    currentAge: 73, retirementAge: 73, planEndAge: 95, birthYear: 1953,
+  };
+  p.household.spouse = null;
+  p.income.socialSecurity = { primary: { pia: 0, claimAge: 70 }, spouse: null };
+  p.portfolio.accounts = {
+    taxable: { balance: 0, basisPct: 1 },
+    traditional: { balance: 0 },
+    roth: { balance: 0 },
+  };
+  p.portfolio.extraAccounts = [
+    createAccount('traditional_ira', {
+      owner: 'client', balance: 265_000, valuationDate: '2025-12-31',
+    }),
+  ];
+
+  const state = resolveWithdrawalPlannerAccountState(p, {});
+  assert.strictEqual(state.rmd.status, 'known');
+  assert.strictEqual(state.rmd.owner, 'client');
+  assert.strictEqual(state.rmd.age, 73);
+  assert.strictEqual(state.rmd.applicableAge, 73);
+  assert.ok(Math.abs(state.rmd.required - 10_000) < 0.01);
+  assert.strictEqual(state.limits.deferredWithdrawal.min, 10_000);
+  assert.strictEqual(state.levers.deferredWithdrawal, 10_000);
+  assert.strictEqual(state.limits.rothConversion.max, 255_000);
+
+  const approval = approveWithdrawalPlannerLeverChange(
+    p,
+    {},
+    'rothConversion',
+    265_000
+  );
+  assert.strictEqual(approval.approved, true);
+  assert.strictEqual(approval.clamped, true);
+  assert.strictEqual(approval.approvedValue, 255_000);
+  assert.strictEqual(approval.levers.deferredWithdrawal, 10_000);
+  assert.strictEqual(approval.state.pools.traditional.remaining, 0);
+
+  const fixedCash = resolveWithdrawalPlannerAccountState(p, {}, {
+    traditionalTotal: 10_000,
+    rmdEligibleCash: 10_000,
+    taxYear: 2026,
+  });
+  assert.strictEqual(fixedCash.limits.deferredWithdrawal.min, 0);
+  assert.strictEqual(fixedCash.limits.rothConversion.max, 255_000);
+
+  const fixedConversion = resolveWithdrawalPlannerAccountState(p, {}, {
+    traditionalTotal: 10_000,
+    rmdEligibleCash: 0,
+    taxYear: 2026,
+  });
+  assert.strictEqual(fixedConversion.limits.deferredWithdrawal.min, 10_000);
+  assert.strictEqual(fixedConversion.limits.rothConversion.max, 245_000);
+});
+
+test('withdrawal planner computes and reserves current-year RMDs by IRA owner', () => {
+  const p = structuredClone(defaultPlan);
+  p.meta.filingStatus = 'marriedFilingJointly';
+  p.meta.planningAsOfYear = 2026;
+  p.household.primary = {
+    currentAge: 73, retirementAge: 73, planEndAge: 95, birthYear: 1953,
+  };
+  p.household.spouse = {
+    currentAge: 75, retirementAge: 75, planEndAge: 95, birthYear: 1951,
+  };
+  p.income.socialSecurity = {
+    primary: { pia: 0, claimAge: 70 },
+    spouse: { pia: 0, claimAge: 70 },
+  };
+  p.savings.annual = 0;
+  p.portfolio.accounts = {
+    taxable: { balance: 0, basisPct: 1 },
+    traditional: { balance: 0 },
+    roth: { balance: 0 },
+  };
+  p.portfolio.extraAccounts = [
+    createAccount('traditional_ira', {
+      owner: 'client', balance: 265_000, valuationDate: '2025-12-31',
+    }),
+    createAccount('traditional_ira', {
+      owner: 'spouse', balance: 246_000, valuationDate: '2025-12-31',
+    }),
+  ];
+  const reservations = {
+    traditionalTotal: 5_000,
+    rmdEligibleCash: 5_000,
+    traditionalByOwner: { client: 0, spouse: 5_000 },
+    rmdEligibleCashByOwner: { client: 0, spouse: 5_000 },
+    taxYear: 2026,
+  };
+
+  const state = resolveWithdrawalPlannerAccountState(
+    p,
+    { rothConversion: 491_000 },
+    reservations
+  );
+  assert.strictEqual(state.valid, true);
+  assert.strictEqual(state.rmd.status, 'known');
+  assert.strictEqual(state.rmd.owner, null);
+  assert.ok(Math.abs(state.rmd.required - 20_000) < 0.01);
+  assert.strictEqual(state.rmd.satisfiedByFixedCash, 5_000);
+  assert.strictEqual(state.rmd.byOwner.client.required, 10_000);
+  assert.strictEqual(state.rmd.byOwner.client.satisfiedByFixedCash, 0);
+  assert.strictEqual(state.rmd.byOwner.client.satisfiedByPlannerCash, 10_000);
+  assert.strictEqual(state.rmd.byOwner.spouse.required, 10_000);
+  assert.strictEqual(state.rmd.byOwner.spouse.satisfiedByFixedCash, 5_000);
+  assert.strictEqual(state.rmd.byOwner.spouse.satisfiedByPlannerCash, 5_000);
+  assert.strictEqual(state.limits.deferredWithdrawal.min, 15_000);
+  assert.strictEqual(state.levers.deferredWithdrawal, 15_000);
+  assert.strictEqual(state.limits.rothConversion.max, 491_000);
+  assert.strictEqual(state.pools.traditional.remaining, 0);
+
+  const youngerSpouse = structuredClone(p);
+  youngerSpouse.household.spouse = {
+    currentAge: 60, retirementAge: 60, planEndAge: 95, birthYear: 1966,
+  };
+  youngerSpouse.portfolio.extraAccounts[1] = createAccount('traditional_ira', {
+    owner: 'spouse', balance: 100_000, valuationDate: '2025-12-31',
+  });
+  const spouseCashBeforeRmdAge = resolveWithdrawalPlannerAccountState(
+    youngerSpouse,
+    {},
+    {
+      traditionalTotal: 10_000,
+      rmdEligibleCash: 10_000,
+      traditionalByOwner: { client: 0, spouse: 10_000 },
+      rmdEligibleCashByOwner: { client: 0, spouse: 10_000 },
+      taxYear: 2026,
+    }
+  );
+  assert.strictEqual(spouseCashBeforeRmdAge.rmd.required, 10_000);
+  assert.strictEqual(spouseCashBeforeRmdAge.rmd.satisfiedByFixedCash, 0);
+  assert.strictEqual(spouseCashBeforeRmdAge.limits.deferredWithdrawal.min, 10_000);
+  assert.strictEqual(spouseCashBeforeRmdAge.rmd.byOwner.client.satisfiedByPlannerCash, 10_000);
+  assert.strictEqual(spouseCashBeforeRmdAge.rmd.byOwner.spouse.status, 'not-required');
+
+  const preRmdOwnerOverdraw = structuredClone(p);
+  preRmdOwnerOverdraw.household.primary = {
+    currentAge: 60, retirementAge: 60, planEndAge: 95, birthYear: 1966,
+  };
+  preRmdOwnerOverdraw.household.spouse = {
+    currentAge: 61, retirementAge: 61, planEndAge: 95, birthYear: 1965,
+  };
+  preRmdOwnerOverdraw.portfolio.extraAccounts = [
+    createAccount('traditional_ira', {
+      owner: 'client', balance: 100_000, valuationDate: '2025-12-31',
+    }),
+    createAccount('traditional_ira', {
+      owner: 'spouse', balance: 400_000, valuationDate: '2025-12-31',
+    }),
+  ];
+  const impossibleClientDistribution = resolveWithdrawalPlannerAccountState(
+    preRmdOwnerOverdraw,
+    {},
+    {
+      traditionalTotal: 150_000,
+      rmdEligibleCash: 150_000,
+      traditionalByOwner: { client: 150_000, spouse: 0 },
+      rmdEligibleCashByOwner: { client: 150_000, spouse: 0 },
+      taxYear: 2026,
+    }
+  );
+  assert.strictEqual(impossibleClientDistribution.valid, false);
+  assert.strictEqual(impossibleClientDistribution.rmd.status, 'not-required');
+  assert.ok(impossibleClientDistribution.issues.some(issue => (
+    issue.code === 'TRADITIONAL_OWNER_POOL_EXCEEDED'
+      && issue.owner === 'client'
+      && issue.requested === 150_000
+      && issue.available === 100_000
+  )));
+  assert.strictEqual(impossibleClientDistribution.limits.deferredWithdrawal.max, null);
+  assert.strictEqual(impossibleClientDistribution.limits.rothConversion.max, null);
+  assert.strictEqual(impossibleClientDistribution.limits.qcd.max, null);
+
+  const unattributed = resolveWithdrawalPlannerAccountState(p, {}, {
+    traditionalTotal: 5_000,
+    rmdEligibleCash: 5_000,
+    taxYear: 2026,
+  });
+  assert.strictEqual(unattributed.rmd.status, 'unavailable');
+  assert.strictEqual(unattributed.rmd.issue, 'TRADITIONAL_DISTRIBUTION_OWNER_UNAVAILABLE');
+  assert.strictEqual(unattributed.rmd.required, null);
+  assert.strictEqual(unattributed.limits.rothConversion.max, null);
+
+  const singleTrackedOwner = structuredClone(p);
+  singleTrackedOwner.portfolio.extraAccounts = [p.portfolio.extraAccounts[0]];
+  const crossedSingleOwnerFacts = resolveWithdrawalPlannerAccountState(
+    singleTrackedOwner,
+    {},
+    {
+      traditionalTotal: 10_000,
+      rmdEligibleCash: 10_000,
+      traditionalByOwner: { client: 0, spouse: 10_000 },
+      rmdEligibleCashByOwner: { client: 10_000, spouse: 0 },
+      taxYear: 2026,
+    }
+  );
+  assert.strictEqual(crossedSingleOwnerFacts.rmd.status, 'unavailable');
+  assert.strictEqual(crossedSingleOwnerFacts.rmd.required, null);
+  assert.strictEqual(
+    crossedSingleOwnerFacts.rmd.issue,
+    'TRADITIONAL_DISTRIBUTION_OWNER_UNAVAILABLE'
+  );
+
+  const missingSpouseValuation = structuredClone(p);
+  missingSpouseValuation.portfolio.extraAccounts[1] = createAccount('traditional_ira', {
+    owner: 'spouse', balance: 246_000,
+  });
+  const missingValuation = resolveWithdrawalPlannerAccountState(
+    missingSpouseValuation,
+    {},
+    { taxYear: 2026 }
+  );
+  assert.strictEqual(missingValuation.rmd.status, 'unavailable');
+  assert.strictEqual(missingValuation.rmd.issue, 'RMD_PRIOR_YEAR_END_BALANCE_UNAVAILABLE');
+  assert.strictEqual(missingValuation.rmd.byOwner.client.status, 'known');
+  assert.strictEqual(missingValuation.rmd.byOwner.spouse.status, 'unavailable');
+  assert.strictEqual(missingValuation.limits.rothConversion.max, null);
+
+  const ownerOverdraw = resolveWithdrawalPlannerAccountState(p, {}, {
+    traditionalTotal: 260_000,
+    rmdEligibleCash: 0,
+    traditionalByOwner: { client: 260_000, spouse: 0 },
+    rmdEligibleCashByOwner: { client: 0, spouse: 0 },
+    taxYear: 2026,
+  });
+  assert.strictEqual(ownerOverdraw.valid, false);
+  assert.ok(ownerOverdraw.issues.some(issue => (
+    issue.code === 'RMD_MINIMUM_EXCEEDS_OWNER_TRADITIONAL'
+      && issue.owner === 'client'
+  )));
+  assert.strictEqual(ownerOverdraw.rmd.status, 'unavailable');
+  assert.strictEqual(ownerOverdraw.rmd.required, null);
+  assert.strictEqual(ownerOverdraw.limits.rothConversion.max, null);
+
+  const retiredEmployerOwner = structuredClone(p);
+  retiredEmployerOwner.portfolio.extraAccounts[0] = createAccount('401k', {
+    owner: 'client', balance: 265_000, valuationDate: '2025-12-31',
+  });
+  const retiredEmployerState = resolveWithdrawalPlannerAccountState(
+    retiredEmployerOwner,
+    {},
+    { taxYear: 2026 }
+  );
+  assert.strictEqual(retiredEmployerState.rmd.status, 'known');
+  assert.strictEqual(retiredEmployerState.rmd.byOwner.client.required, 10_000);
+  assert.strictEqual(retiredEmployerState.rmd.byOwner.spouse.required, 10_000);
+
+  const singleEmployerOwner = structuredClone(retiredEmployerOwner);
+  singleEmployerOwner.meta.filingStatus = 'single';
+  singleEmployerOwner.household.spouse = null;
+  singleEmployerOwner.income.socialSecurity.spouse = null;
+  singleEmployerOwner.portfolio.extraAccounts = [
+    retiredEmployerOwner.portfolio.extraAccounts[0],
+  ];
+  const singleEmployerPlannerRmd = resolveWithdrawalPlannerAccountState(
+    singleEmployerOwner,
+    {},
+    { taxYear: 2026 }
+  );
+  assert.strictEqual(singleEmployerPlannerRmd.rmd.status, 'known');
+  assert.strictEqual(singleEmployerPlannerRmd.rmd.required, 10_000);
+  assert.strictEqual(singleEmployerPlannerRmd.limits.deferredWithdrawal.min, 10_000);
+
+  const singleEmployerWithFixedIraCash =
+    resolveWithdrawalPlannerAccountState(
+      singleEmployerOwner,
+      {},
+      {
+        traditionalTotal: 10_000,
+        rmdEligibleCash: 10_000,
+        traditionalByOwner: { client: 10_000, spouse: 0 },
+        rmdEligibleCashByOwner: { client: 10_000, spouse: 0 },
+        taxYear: 2026,
+      }
+    );
+  assert.strictEqual(singleEmployerWithFixedIraCash.rmd.status, 'unavailable');
+  assert.strictEqual(singleEmployerWithFixedIraCash.rmd.required, null);
+  assert.strictEqual(
+    singleEmployerWithFixedIraCash.rmd.issue,
+    'EMPLOYER_PLAN_RMD_CASH_ATTRIBUTION_UNAVAILABLE'
+  );
+  assert.strictEqual(
+    singleEmployerWithFixedIraCash.limits.rothConversion.max,
+    null
+  );
+
+  const workingEmployerOwner = structuredClone(retiredEmployerOwner);
+  workingEmployerOwner.household.primary.retirementAge = 80;
+  const workingEmployerState = resolveWithdrawalPlannerAccountState(
+    workingEmployerOwner,
+    {},
+    { taxYear: 2026 }
+  );
+  assert.strictEqual(workingEmployerState.rmd.status, 'unavailable');
+  assert.strictEqual(workingEmployerState.rmd.required, null);
+  assert.strictEqual(
+    workingEmployerState.rmd.byOwner.client.issue,
+    'EMPLOYER_PLAN_RMD_RULE_UNAVAILABLE'
+  );
+
+  const mixedEmployerOwner = structuredClone(p);
+  mixedEmployerOwner.portfolio.extraAccounts = [
+    createAccount('traditional_ira', {
+      owner: 'client', balance: 100_000, valuationDate: '2025-12-31',
+    }),
+    createAccount('401k', {
+      owner: 'client', balance: 265_000, valuationDate: '2025-12-31',
+    }),
+    p.portfolio.extraAccounts[1],
+  ];
+  const mixedEmployerState = resolveWithdrawalPlannerAccountState(
+    mixedEmployerOwner,
+    {},
+    { taxYear: 2026 }
+  );
+  assert.strictEqual(mixedEmployerState.rmd.status, 'unavailable');
+  assert.strictEqual(mixedEmployerState.rmd.required, null);
+  assert.strictEqual(
+    mixedEmployerState.rmd.byOwner.client.issue,
+    'EMPLOYER_PLAN_RMD_ACCOUNT_ATTRIBUTION_UNAVAILABLE'
+  );
+  assert.strictEqual(mixedEmployerState.limits.rothConversion.max, null);
+
+  const singleMixedEmployerOwner = structuredClone(mixedEmployerOwner);
+  singleMixedEmployerOwner.meta.filingStatus = 'single';
+  singleMixedEmployerOwner.household.spouse = null;
+  singleMixedEmployerOwner.income.socialSecurity.spouse = null;
+  singleMixedEmployerOwner.portfolio.extraAccounts =
+    singleMixedEmployerOwner.portfolio.extraAccounts.slice(0, 2);
+  const singleMixedEmployerState = resolveWithdrawalPlannerAccountState(
+    singleMixedEmployerOwner,
+    {},
+    { taxYear: 2026 }
+  );
+  assert.strictEqual(singleMixedEmployerState.rmd.status, 'unavailable');
+  assert.strictEqual(singleMixedEmployerState.rmd.required, null);
+  assert.strictEqual(
+    singleMixedEmployerState.rmd.issue,
+    'EMPLOYER_PLAN_RMD_ACCOUNT_ATTRIBUTION_UNAVAILABLE'
+  );
+});
+
+test('withdrawal planner leaves an unsupported current-year RMD blank', () => {
+  const p = structuredClone(defaultPlan);
+  p.meta.filingStatus = 'single';
+  p.meta.planningAsOfYear = 2026;
+  p.household.primary = {
+    currentAge: 73, retirementAge: 73, planEndAge: 95, birthYear: 1953,
+  };
+  p.household.spouse = null;
+  p.income.socialSecurity = { primary: { pia: 0, claimAge: 70 }, spouse: null };
+  p.portfolio.accounts = {
+    taxable: { balance: 0, basisPct: 1 },
+    traditional: { balance: 0 },
+    roth: { balance: 0 },
+  };
+  p.portfolio.extraAccounts = [
+    createAccount('traditional_ira', { owner: 'client', balance: 265_000 }),
+  ];
+
+  const state = resolveWithdrawalPlannerAccountState(p, {});
+  assert.strictEqual(state.valid, true);
+  assert.strictEqual(state.rmd.status, 'unavailable');
+  assert.strictEqual(state.rmd.issue, 'RMD_PRIOR_YEAR_END_BALANCE_UNAVAILABLE');
+  assert.strictEqual(state.rmd.required, null);
+  assert.strictEqual(state.limits.deferredWithdrawal.max, 265_000);
+  assert.strictEqual(state.limits.rothConversion.max, null);
+
+  const approval = approveWithdrawalPlannerLeverChange(
+    p,
+    {},
+    'rothConversion',
+    1
+  );
+  assert.strictEqual(approval.approved, false);
+  assert.strictEqual(approval.approvedValue, 0);
+});
+
+test('withdrawal planner does not approve a change while another shared-pool violation remains', () => {
+  const p = structuredClone(defaultPlan);
+  p.portfolio.accounts.traditional.balance = 100_000;
+  p.portfolio.extraAccounts = [];
+  const approval = approveWithdrawalPlannerLeverChange(p, {
+    deferredWithdrawal: 100_000,
+    rothConversion: 100_000,
+    qcd: 0,
+  }, 'taxableWithdrawal', 0);
+  assert.strictEqual(approval.approved, false);
+  assert.strictEqual(approval.state.valid, false);
+  assert.ok(approval.state.issues.some(issue => issue.code === 'TRADITIONAL_POOL_EXCEEDED'));
+});
+
+test('withdrawal planner rejects an impossible lever vector without inventing priority', () => {
+  const p = structuredClone(defaultPlan);
+  p.portfolio.accounts.traditional.balance = 100_000;
+  p.portfolio.extraAccounts = [];
+  const state = resolveWithdrawalPlannerAccountState(p, {
+    taxableWithdrawal: 0,
+    deferredWithdrawal: 100_000,
+    rothConversion: 100_000,
+    rothWithdrawal: 0,
+    qcd: 100_000,
+  });
+  assert.strictEqual(state.valid, false);
+  assert.ok(state.issues.some(issue => issue.code === 'TRADITIONAL_POOL_EXCEEDED'));
+});
+
+test('withdrawal planner excludes tax-bucket-ineligible balances from approved limits', () => {
+  const p = structuredClone(defaultPlan);
+  p.portfolio.accounts = {
+    taxable: { balance: 0, basisPct: 1 },
+    traditional: { balance: 0 },
+    roth: { balance: 0 },
+  };
+  p.portfolio.extraAccounts = [
+    createAccount('roth_ira', { owner: 'client', balance: 100_000 }),
+    createAccount('hsa', { owner: 'client', balance: 500_000 }),
+    createAccount('checking', { owner: 'client', balance: 250_000 }),
+  ];
+  const state = resolveWithdrawalPlannerAccountState(p, {});
+  assert.strictEqual(state.balances.roth, 100_000);
+  assert.strictEqual(state.balances.taxable, 0);
+  assert.strictEqual(state.limits.rothWithdrawal.max, 100_000);
+  assert.ok(state.excludedAccountIds.includes(p.portfolio.extraAccounts[1].id));
+  assert.ok(state.excludedAccountIds.includes(p.portfolio.extraAccounts[2].id));
+});
+
+test('withdrawal planner excludes an account whose household tax reporting is unconfirmed', () => {
+  const p = structuredClone(defaultPlan);
+  p.meta.filingStatus = 'single';
+  p.household.spouse = null;
+  p.portfolio.accounts = {
+    taxable: { balance: 0, basisPct: 1 },
+    traditional: { balance: 0 },
+    roth: { balance: 0 },
+  };
+  const joint = createAccount('joint_brokerage', { balance: 100_000 });
+  p.portfolio.extraAccounts = [joint];
+
+  const state = resolveWithdrawalPlannerAccountState(p, {});
+  assert.strictEqual(state.balances.taxable, 0);
+  assert.strictEqual(state.limits.taxableWithdrawal.max, 0);
+  assert.ok(state.excludedAccountIds.includes(joint.id));
+  assert.ok(state.sourceIssues.includes(`TAX_REPORTING_INCLUSION_UNKNOWN:${joint.id}`));
+});
+
+test('stale spouse-owned facts are not reassigned to a single client', () => {
+  const p = structuredClone(defaultPlan);
+  p.meta.filingStatus = 'single';
+  p.household.spouse = null;
+  p.income.socialSecurity.spouse = null;
+  p.portfolio.accounts = {
+    taxable: { balance: 0, basisPct: 1 },
+    traditional: { balance: 0 },
+    roth: { balance: 0 },
+  };
+  const spouseAccount = createAccount('traditional_ira', {
+    owner: 'spouse', balance: 100_000,
+  });
+  p.portfolio.extraAccounts = [spouseAccount];
+  const accountState = resolveWithdrawalPlannerAccountState(p, {});
+  assert.strictEqual(accountState.balances.traditional, 0);
+  assert.strictEqual(accountState.limits.deferredWithdrawal.max, 0);
+  assert.ok(accountState.excludedAccountIds.includes(spouseAccount.id));
+  assert.ok(accountState.sourceIssues.includes(`ACCOUNT_OWNER_UNAVAILABLE:${spouseAccount.id}`));
+  assert.throws(
+    () => resolveInputs(p, {}),
+    error => error?.code === 'ACCOUNT_OWNER_UNAVAILABLE'
+  );
+
+  p.portfolio.extraAccounts = [];
+  p.income.other = [{
+    typeId: 'rental', owner: 'spouse', amount: 12_000,
+    startAge: p.household.primary.currentAge,
+    endAge: p.household.primary.planEndAge,
+  }];
+  const resolved = resolveInputs(p, {});
+  const income = householdIncomeAtYear(resolved, 0);
+  assert.strictEqual(income.otherIncome, null);
+  assert.strictEqual(income.grossOtherIncome, null);
+  assert.strictEqual(income.available, true);
+  assert.ok(income.incomeIssues.includes('INCOME_OWNER_UNAVAILABLE:spouse:rental'));
+});
+
+test('withdrawal planner does not approve an ambiguous legacy plus typed account pool', () => {
+  const p = structuredClone(defaultPlan);
+  p.portfolio.accounts = {
+    taxable: { balance: 100_000, basisPct: 0.6 },
+    traditional: { balance: 0 },
+    roth: { balance: 0 },
+  };
+  p.portfolio.extraAccounts = [
+    createAccount('brokerage_taxable', { owner: 'client', balance: 100_000 }),
+  ];
+  const state = resolveWithdrawalPlannerAccountState(p, { taxableWithdrawal: 1 });
+  assert.strictEqual(state.limits.taxableWithdrawal.max, null);
+  assert.strictEqual(state.valid, false);
+  assert.ok(state.issues.some(issue => issue.code === 'ACCOUNT_POOL_AMBIGUOUS'));
+});
+
+test('withdrawal planner net cash uses incremental tax and excludes conversions and QCDs from cash', () => {
+  const cash = buildWithdrawalPlannerCashContract({
+    taxableWithdrawal: 5_000,
+    deferredWithdrawal: 20_000,
+    rothConversion: 50_000,
+    rothWithdrawal: 10_000,
+    qcd: 15_000,
+  }, 12_000);
+  assert.deepStrictEqual(cash, {
+    grossWithdrawalCash: 35_000,
+    incrementalModeledFederalIncomeTax: 12_000,
+    netAfterIncrementalModeledFederalIncomeTax: 23_000,
+  });
+});
+
+test('withdrawal planner preserves gross cash but leaves net cash blank when incremental tax is unavailable', () => {
+  const cash = buildWithdrawalPlannerCashContract({
+    taxableWithdrawal: 5_000,
+    deferredWithdrawal: 20_000,
+    rothConversion: 50_000,
+    rothWithdrawal: 10_000,
+    qcd: 0,
+  }, null);
+  assert.deepStrictEqual(cash, {
+    grossWithdrawalCash: 35_000,
+    incrementalModeledFederalIncomeTax: null,
+    netAfterIncrementalModeledFederalIncomeTax: null,
+  });
 });
 
 /* ── pathDigest / assessPlan / returnDollars (story-mode aggregates) ────── */

@@ -5,6 +5,7 @@ import {
   defaultPlan,
   generateReturnPath,
   resetSeed,
+  resolveInputs,
   runSimulation,
 } from '../../../engine.js';
 import { attachPathFederalTax } from './attachTypicalPathFederalTax.js';
@@ -18,7 +19,7 @@ function fixture(){
   plan.meta.filingStatus = 'single';
   plan.household.primary = { currentAge: 60, retirementAge: 65, planEndAge: 95 };
   plan.income.other = [{ label: 'Wages', amount: 120000, startAge: 60, endAge: 64, taxablePct: 1 }];
-  const horizon = plan.household.primary.planEndAge - plan.household.primary.currentAge;
+  const horizon = resolveInputs(plan, {}).horizonYears;
   resetSeed(20260711);
   const returnPaths = Array.from({ length: 40 }, () => generateReturnPath(horizon));
   const analysis = runSimulation(plan, {}, returnPaths);

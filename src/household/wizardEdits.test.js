@@ -80,6 +80,74 @@ test('family DOB is one atomic edit across profile, plan age, and canonical taxp
   assert.equal(boundary.revision, 1);
 });
 
+test('family preserves each person\'s Social Security amount and live-to age', () => {
+  let current = applyHouseholdWizardEdit(plan(), {
+    scope: 'family',
+    field: 'filingStatus',
+    value: 'marriedFilingJointly',
+  });
+  current = applyHouseholdWizardEdit(current, {
+    scope: 'family',
+    field: 'client.socialSecurityBenefit',
+    value: '31,200',
+  });
+  current = applyHouseholdWizardEdit(current, {
+    scope: 'family',
+    field: 'spouse.socialSecurityBenefit',
+    value: '24,600',
+  });
+  current = applyHouseholdWizardEdit(current, {
+    scope: 'family',
+    field: 'client.planEndAge',
+    value: 94,
+  });
+  current = applyHouseholdWizardEdit(current, {
+    scope: 'family',
+    field: 'spouse.planEndAge',
+    value: 101,
+  });
+
+  assert.equal(current.income.socialSecurity.primary.pia, 31200);
+  assert.equal(current.income.socialSecurity.spouse.pia, 24600);
+  assert.equal(current.household.primary.planEndAge, 94);
+  assert.equal(current.household.spouse.planEndAge, 101);
+});
+
+test('family rejects a live-to age before that person\'s current age', () => {
+  const subject = plan();
+  assert.throws(
+    () => applyHouseholdWizardEdit(subject, {
+      scope: 'family',
+      field: 'client.planEndAge',
+      value: 59,
+    }),
+    /cannot precede current age/,
+  );
+});
+
+test('family rejects a negative Social Security amount without changing the plan', () => {
+  const subject = plan();
+  const before = structuredClone(subject);
+  assert.throws(
+    () => applyHouseholdWizardEdit(subject, {
+      scope: 'family',
+      field: 'client.socialSecurityBenefit',
+      value: -1,
+    }),
+    /zero or a positive amount/,
+  );
+  assert.deepEqual(subject, before);
+});
+
+test('clearing Social Security keeps the amount unknown instead of inventing zero', () => {
+  const current = applyHouseholdWizardEdit(plan(), {
+    scope: 'family',
+    field: 'client.socialSecurityBenefit',
+    value: '',
+  });
+  assert.equal(current.income.socialSecurity.primary.pia, null);
+});
+
 test('invalid edits leave the live plan untouched and emit no commit transition', () => {
   const current = plan();
   const before = structuredClone(current);

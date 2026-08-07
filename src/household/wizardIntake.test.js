@@ -117,6 +117,81 @@ test('income fields preserve explicit zero and reject negative non-signed amount
   );
 });
 
+test('Tax member wages save as owner-specific planning rows and derive one 1040 total', () => {
+  const subject = plan('marriedFilingJointly');
+  subject.meta.planningAsOfYear = 2026;
+  subject.household.primary.retirementAge = 70;
+  subject.household.spouse.retirementAge = 68;
+  ensureWizardCurrent1040(subject);
+
+  setWizardTaxField(subject, 'income.wages.client', 80_000);
+  setWizardTaxField(subject, 'income.wages.spouse', 60_000);
+
+  assert.deepEqual(
+    subject.income.other.map(row => ({
+      owner: row.owner,
+      amount: row.amount,
+      startAge: row.startAge,
+      endAge: row.endAge,
+    })),
+    [
+      { owner: 'client', amount: 80_000, startAge: undefined, endAge: undefined },
+      { owner: 'spouse', amount: 60_000, startAge: undefined, endAge: undefined },
+    ],
+  );
+  assert.equal(
+    Object.hasOwn(subject.incomeTax.current1040.income, 'wages'),
+    false,
+  );
+  assert.equal(buildCurrent1040Intake(subject).intake.income.wages, 140_000);
+  assert.deepEqual(
+    readWizardPlanningIncome(subject).wagesByOwner.client.value,
+    80_000,
+  );
+  assert.deepEqual(
+    readWizardPlanningIncome(subject).wagesByOwner.spouse.value,
+    60_000,
+  );
+});
+
+test('prior-year member wages remain return facts and do not create projected wage rows', () => {
+  const subject = plan('marriedFilingJointly');
+  subject.meta.planningAsOfYear = 2026;
+  const current = ensureWizardCurrent1040(subject);
+  current.taxYear = 2025;
+
+  setWizardTaxField(subject, 'income.wages.client', 70_000);
+  setWizardTaxField(subject, 'income.wages.spouse', 50_000);
+
+  assert.deepEqual(subject.income.other, []);
+  assert.deepEqual(current.wagesByOwner, { client: 70_000, spouse: 50_000 });
+  assert.equal(current.income.wages, 120_000);
+  assert.deepEqual(current.planningIncomeOverrides, ['wages']);
+});
+
+test('current-year wages entered after retirement stay on the return but do not project', () => {
+  const subject = plan();
+  subject.meta.planningAsOfYear = 2026;
+  subject.household.primary.currentAge = 65;
+  subject.household.primary.retirementAge = 65;
+  subject.household.primary.employmentStatus = 'retired';
+  ensureWizardCurrent1040(subject);
+
+  setWizardTaxField(subject, 'income.wages.client', 25_000);
+
+  assert.deepEqual(
+    subject.income.other.map(row => ({
+      owner: row.owner,
+      amount: row.amount,
+      startAge: row.startAge,
+      endAge: row.endAge,
+    })),
+    [{ owner: 'client', amount: 25_000, startAge: 65, endAge: 65 }],
+  );
+  assert.equal(buildCurrent1040Intake(subject).intake.income.wages, 25_000);
+  assert.equal(readWizardPlanningIncome(subject).wagesByOwner.client.value, 25_000);
+});
+
 test('switches among standard, calculated itemized, and supplied line 12e without mixing sources', () => {
   const subject = plan();
   setWizardTaxField(subject, 'deductions.qbi', 0);
