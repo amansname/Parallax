@@ -865,7 +865,26 @@ function leversToOverrides(L){
     ov.livingAnnual = scenarioSpend;
   }
   if(L.eventAmt>0){ ov.lumpSum = L.eventAmt; ov.lumpSumYear = Math.max(0, L.eventAge - plan.household.primary.currentAge); }
-  if(L.savings !== plan.savings.annual) ov.savingsBump = (L.savings - plan.savings.annual)/Math.max(1,plan.savings.annual);
+  const baseSavings = Number(plan.savings.annual);
+  const scenarioSavings = Number(L.savings);
+  if(!Number.isFinite(baseSavings) || baseSavings < 0
+    || !Number.isFinite(scenarioSavings) || scenarioSavings < 0){
+    throw new TypeError('Scenario savings must be a finite non-negative number');
+  }
+  if(baseSavings > 0 && scenarioSavings !== baseSavings){
+    ov.savingsBump = (scenarioSavings - baseSavings) / baseSavings;
+  }else if(baseSavings === 0 && scenarioSavings > 0){
+    ov.savingsAnnual = scenarioSavings;
+    const savedSplit = plan.savings.split;
+    const traditionalShare = savedSplit
+      ? Number(savedSplit.traditional) || 0
+      : 1;
+    if(plan.household.spouse && traditionalShare > 0){
+      // Generic household savings has no contributor owner. Keep a zero-base
+      // couple scenario in taxable savings instead of inventing an IRA owner.
+      ov.savingsSplit = { taxable: 1 };
+    }
+  }
   // Pension: always pass the chosen age as an absolute override so the engine
   // looks up the entered benefit for THAT exact age (or pays 0 if no entry).
   ov.pensionStartAge = L.pensionAge;
@@ -1005,9 +1024,9 @@ function reseedScenarios({ markDirty = true } = {}){
       const cfg=LEVCFG.find(c=>c.key===k);
       const priorDelta = s.lev[k]-baseSnapshot[k];
       let v=nb[k]+priorDelta;  // new base + this scenario's delta
-      // A blank household's $0 spending is valid. Do not manufacture an $80k
-      // scenario merely because the interactive slider's range starts there.
-      if(cfg && !(k==='spend' && nb[k]===0 && priorDelta===0)){
+      // A scenario with no delta must remain identical to its baseline even
+      // when the baseline sits outside an interactive control's range.
+      if(cfg && priorDelta!==0){
         const r=levRange(cfg); v=Math.max(r.min,Math.min(r.max,v));
       }
       s.lev[k]=v;
@@ -2298,7 +2317,7 @@ function runSeq(){
   const rp=retireNowClone(p, ov, curAge, retAge, accumYears, s.res);
   const ov2={...ov, retireDelay:0};                // retirement age is baked into the clone now
   const historicalTaxOptions={
-    baseTaxYear:new Date().getFullYear(),
+    baseTaxYear:rp.meta?.planningAsOfYear ?? new Date().getFullYear(),
     filingStatus:rp.meta?.filingStatus,
     scenarioId:`sequencing_${s.name}`,
   };
