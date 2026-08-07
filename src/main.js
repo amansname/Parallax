@@ -1,7 +1,7 @@
 import { runSimulation, resolveInputs, generateReturnPath, resetSeed, LONGRUN_INFLATION, pathDigest, RISK_PROFILES, defaultPlan as plan } from '../engine.js';
 import { runFederalFundingSimulation } from './planning/tax/runMonteCarloWithFederalFunding.js';
 import { runHistoricalPathWithFederalTax } from './planning/tax/runHistoricalPathWithFederalTax.js';
-import { buildCurrent1040Intake } from './planning/tax/buildCurrent1040Intake.js';
+import { buildReadyCurrent1040Intake } from './planning/tax/buildCurrent1040Intake.js';
 import { fmtM, fmtMoney } from '../ui/formatters.js';
 import { storyChart, seqChartSvg } from '../ui/charts.js?v=2';
 import { escHtml } from '../ui/dom.js';
@@ -140,7 +140,7 @@ function syncRecoveryControls(){
   const locked = isHouseholdStorageBlocked() || isHouseholdStorageReadOnly();
   if(!locked) return;
   const selectors = [
-    '#save-btn','#hh-new','#scn-solve','#hh-view input','#hh-view select','#hh-view textarea','#hh-view .row-x','#hh-view [data-add]',
+    '#hh-new','#scn-solve','#hh-view input','#hh-view select','#hh-view textarea','#hh-view .row-x','#hh-view [data-add]',
     '#hh-view [data-hh-action="add-account"]','#hh-view [data-hh-action="save-account"]','#hh-view [data-hh-action="remove-account"]',
     '#hh-view [data-hh-action="override-income-group"]','#hh-view [data-hh-action="revert-income-group"]','#hh-view [data-hh-action="remove-tax-item"]',
     '#hh-view [data-hh-action="add-spouse"]','#hh-view [data-hh-action="remove-spouse"]','#hh-view [data-hh-action="save-account"]',
@@ -187,9 +187,8 @@ function saveActiveHousehold(){
   return false;
 }
 function canChangeActiveHousehold(){
-  if(!planSaveDirty) return true;
-  syncHeaderStatus('Save the current household before switching');
-  syncSaveBtn();
+  if(!saveFailed) return true;
+  syncHeaderStatus('Automatic save failed; reload after storage is available');
   return false;
 }
 function ensureDemoRecord(){
@@ -304,11 +303,12 @@ function syncPension(L){
 const SCEN_PREFIX='parallax.scenarios.';
 const scenKey=id=>SCEN_PREFIX + (id || activeHouseholdId || 'demo') + '.v1';
 function saveScenarios(){
-  if(!guardPlanMutation()) return;
+  if(!guardPlanMutation()) return false;
   try{
     const slim=scenarios.map(s=>({name:s.name, base:!!s.base, lev:s.lev}));
     localStorage.setItem(scenKey(), JSON.stringify(slim));
-  }catch(e){/* storage full/blocked — stay in-memory, no crash */}
+    return true;
+  }catch(e){ return false; }
 }
 function loadScenarios(id){
   try{
@@ -345,29 +345,23 @@ function resetScenarios(){
    for client data (no sync, no auth, ~5MB quota, cleared with site data).
    A real backend seam replaces this later.
 
-   The plan is persisted THROUGH the household store: SAVE snapshots the live
-   plan into its household record (saveActiveHousehold). Every edit still
-   auto-commits to the in-memory `plan`; SAVE writes the durable record.
-   planSaveDirty = "working plan differs from the last saved snapshot".
-   (Distinct from plansDirty, which means "scenario RESULTS are stale".)
-
-   KNOWN INCONSISTENCY (accepted this pass): scenario names/levers still
-   auto-save eagerly via saveScenarios() on every scenario action — they do
-   NOT wait for SAVE and do NOT arm the SAVE button. SAVE also rewrites them
-   so a manual save always captures the full current input state. */
+   Valid edits persist through the household store immediately. Scenario
+   names/levers persist through their household-scoped key in the same edit.
+   planSaveDirty is retained only while an automatic save needs recovery.
+   (Distinct from plansDirty, which means "scenario RESULTS are stale".) */
 let planSaveDirty=false;
 let saveFailed=false;
-// SAVE writes the live plan into its household record (see saveActiveHousehold).
-function savePlan(){ return saveActiveHousehold(); }
-function syncSaveBtn(state){
-  const b=$('#save-btn'); if(!b) return;
-  if(state==='confirm'){ b.disabled=true; b.textContent='Saved \u2713'; b.classList.remove('save-btn--dirty','save-btn--failed'); syncHeaderCluster(); return; }
-  if(saveFailed){ b.disabled=false; b.textContent='Retry save'; b.classList.add('save-btn--failed'); b.classList.remove('save-btn--dirty'); syncHeaderCluster(); return; }
-  b.disabled=!planSaveDirty;
-  b.textContent=planSaveDirty?'Save':'Saved';
-  b.classList.toggle('save-btn--dirty', planSaveDirty);
-  b.classList.remove('save-btn--failed');
-  syncHeaderCluster();
+function autoSavePlan(){
+  planSaveDirty=true;
+  const ok=saveActiveHousehold() && saveScenarios();
+  saveFailed=!ok;
+  planSaveDirty=!ok;
+  return ok;
+}
+function syncPlanEditStatus(message){
+  syncHeaderStatus(saveFailed
+    ? 'Automatic save failed · storage blocked or full'
+    : message);
 }
 function deriveHeaderClusterState(text){
   const msg = text ?? ($('#status')?.textContent || '');
@@ -999,10 +993,9 @@ function liveCommas(el){
 uiState.baseSnapshot=defaultLevers();   // base lever values; used to preserve deltas
 
 // Re-seed scenarios from the current base, keeping each scenario's adjustment.
-// Every plan edit funnels through here — the one hook that arms SAVE.
+// Every plan edit funnels through here, then persists the plan and scenarios.
 function reseedScenarios({ markDirty = true } = {}){
   if(!guardPlanMutation()) return;
-  if(markDirty){ planSaveDirty=true; saveFailed=false; syncSaveBtn(); }
   const nb=defaultLevers();
   const LINKED=['retireAge','ssAge','spend','savings','pensionAge'];   // base-linked levers
   scenarios.forEach(s=>{
@@ -1022,6 +1015,7 @@ function reseedScenarios({ markDirty = true } = {}){
     syncPension(s.lev);   // auto-linked pension follows the (possibly new) retire age
   });
   uiState.baseSnapshot=nb;
+  if(markDirty) autoSavePlan();
 }
 
 /* ── Derived totals (pure aggregation of typed inputs, NOT engine output) ──
@@ -1035,7 +1029,7 @@ let acctSel = null;   // type currently armed in the add picker
 function commitPlanEdit(){
   if(!guardPlanMutation()) return;
   reseedScenarios(); uiState.sharedPaths=null; uiState.plansDirty=true; renderInputs();
-  syncHeaderStatus('Plan edited · open Scenarios');
+  syncPlanEditStatus('Saved automatically · open Scenarios');
 }
 
 function remapGoalOverridesForRemoval(index){
@@ -1091,7 +1085,7 @@ const goalsHorizon=createGoalsHorizonController({
     reseedScenarios();
     uiState.sharedPaths=null;
     uiState.plansDirty=true;
-    syncHeaderStatus('Plan edited · open Scenarios');
+    syncPlanEditStatus('Saved automatically · open Scenarios');
   },
   commit:commitPlanEdit,
   insertGoal:insertGoalAt,
@@ -1137,7 +1131,7 @@ const householdWizardCommitBoundary = createHouseholdWizardCommitBoundary({
     uiState.plansDirty = true;
     renderInputs();
     syncHousehold();
-    syncHeaderStatus('Plan edited · save when ready');
+    syncPlanEditStatus('Saved automatically · open Scenarios');
   },
 });
 /* Wizard state: Family · Net Worth · Tax · Summary. */
@@ -1153,7 +1147,7 @@ const householdWizardCommitBoundary = createHouseholdWizardCommitBoundary({
 function hhLoadRecord(status){
   if(isHouseholdStorageBlocked()){ guardPlanMutation(); return; }
   const readOnly = isHouseholdStorageReadOnly();
-  planSaveDirty = false; saveFailed = false; syncSaveBtn();
+  planSaveDirty = false; saveFailed = false;
   if(!readOnly) reseedScenarios({ markDirty: false });
   householdWizardController.resetForPlan();
   uiState.plansDirty = true; uiState.sharedPaths = null;
@@ -1176,8 +1170,7 @@ function loadDemoHousehold(){
   }
   switchHousehold('demo');
 }
-// Create a brand-new blank household in memory. Manual Save is the durable
-// boundary for the new record.
+// Create and immediately persist a brand-new blank household.
 function newHousehold(){
   if(!guardPlanMutation()) return;
   if(!canChangeActiveHousehold()) return;
@@ -1189,11 +1182,10 @@ function newHousehold(){
   uiState.scenarios = demoScenarios();
   uiState.baseSnapshot = defaultLevers();
   hhLoadRecord('New household created');
-  planSaveDirty = true;
-  syncSaveBtn();
-  syncHeaderStatus('New household created · save when ready');
+  autoSavePlan();
+  syncPlanEditStatus('New household created · saved automatically');
 }
-// Switch to another saved household only when the current record is saved.
+// Switching is blocked only when the latest automatic save failed.
 function switchHousehold(id){
   if(isHouseholdStorageBlocked()){ guardPlanMutation(); return; }
   if(!householdsDb[id] || id === activeHouseholdId) return;
@@ -1660,7 +1652,7 @@ $('#np-content').addEventListener('click', e => {
     reseedScenarios(); 
   uiState.sharedPaths = null; uiState.plansDirty = true;
     renderInputs();
-    syncHeaderStatus('Plan edited · open Scenarios');
+    syncPlanEditStatus('Saved automatically · open Scenarios');
     return;
   }
   // "+ add …" — push a default row onto the backing array, then re-render.
@@ -1736,7 +1728,7 @@ $('#np-content').addEventListener('change', e => {
         invalidateWizardTaxCompletion(plan);
       }
   reseedScenarios(); uiState.sharedPaths=null; uiState.plansDirty=true; renderInputs();
-      syncHeaderStatus('Plan edited · open Scenarios');
+      syncPlanEditStatus('Saved automatically · open Scenarios');
       return;
     }
     let v;
@@ -1770,7 +1762,7 @@ $('#np-content').addEventListener('change', e => {
     uiState.sharedPaths = null;
     uiState.plansDirty = true;
     renderInputs();
-    syncHeaderStatus('Plan edited · open Scenarios');
+    syncPlanEditStatus('Saved automatically · open Scenarios');
     return;
   }
   // Extra-account balance edit
@@ -2018,7 +2010,7 @@ function runAll(){
             baseTaxYear,
             scenarioId: s.name,
             filingStatus: p.meta?.filingStatus,
-            current1040Intake: buildCurrent1040Intake(p).intake,
+            current1040Intake: buildReadyCurrent1040Intake(p),
           };
           // One converged federal run now supplies probability, paths, taxes,
           // withdrawals, and balances together. A failed convergence is a
@@ -2354,21 +2346,6 @@ $$('#np-subnav .stab').forEach(b => b.onclick = () => {
   renderInputs();
 });
 $('#run-btn').onclick=() => { if(canRunEngine()) runAll(); else renderBlockedRecoverySurfaces(); };
-// Manual SAVE: persist the FULL current input state (plan snapshot + the
-// scenario levers, which also self-save eagerly). Confirmation is real —
-// a failed storage write shows a retry state, never a fake "saved".
-let saveConfirmTimer=null;
-$('#save-btn').onclick=()=>{
-  if(!guardPlanMutation()) return;
-  const ok=savePlan();
-  saveScenarios();
-  if(!ok){ saveFailed=true; syncSaveBtn(); syncHeaderStatus('Save failed \u00b7 storage blocked or full'); return; }
-  saveFailed=false; planSaveDirty=false;
-  syncSaveBtn('confirm');
-  syncHeaderStatus('Plan saved');
-  clearTimeout(saveConfirmTimer);
-  saveConfirmTimer=setTimeout(syncSaveBtn, 1400);
-};
 
 $('#path-mode').onchange=e=>{
   if(isHouseholdStorageBlocked()){
@@ -2952,145 +2929,3 @@ if(canRunEngine()){
 document.body.classList.toggle('scn-active', document.querySelector('.page.on')?.dataset.page==='scenarios');
 syncHeaderCluster();
 syncRecoveryControls();
-
-// ── STICKY NOTES OVERLAY ─────────────────────────────────────────────────────
-(function(){
-  const STORE_KEY = 'px_sticky_notes_v1';
-  let active = false;
-  let notes = [];
-  let dragging = null, dragOX = 0, dragOY = 0;
-
-  function save(){ try{ localStorage.setItem(STORE_KEY, JSON.stringify(notes)); }catch{} }
-  function load(){ try{ const d=localStorage.getItem(STORE_KEY); if(d) notes=JSON.parse(d); }catch{} }
-
-  function makeNoteEl(note){
-    const el = document.createElement('div');
-    el.className = 'sn-note';
-    el.dataset.id = note.id;
-    el.style.cssText = `left:${note.x}px;top:${note.y}px`;
-    el.innerHTML = `<div class="sn-handle"><span class="sn-num">${note.num}</span><button class="sn-del" title="Remove">×</button></div><textarea class="sn-text" placeholder="Type note…">${note.text}</textarea>`;
-    // drag via handle
-    const handle = el.querySelector('.sn-handle');
-    handle.addEventListener('mousedown', e => {
-      if(e.target.classList.contains('sn-del')) return;
-      dragging = el;
-      const r = el.getBoundingClientRect();
-      dragOX = e.clientX - r.left;
-      dragOY = e.clientY - r.top;
-      el.style.zIndex = 10001;
-      e.preventDefault();
-    });
-    // delete
-    el.querySelector('.sn-del').addEventListener('click', () => {
-      notes = notes.filter(n => n.id !== note.id);
-      save();
-      el.remove();
-    });
-    // text update
-    el.querySelector('.sn-text').addEventListener('input', e => {
-      const n = notes.find(n => n.id === note.id);
-      if(n){ n.text = e.target.value; save(); }
-    });
-    return el;
-  }
-
-  function placeNote(x, y){
-    // keep the (now wider) note fully on screen wherever it's dropped
-    const W = 360;
-    x = Math.max(8, Math.min(x, window.innerWidth - W - 8));
-    y = Math.max(8, Math.min(y, window.innerHeight - 120));
-    const num = notes.length ? Math.max(...notes.map(n=>n.num)) + 1 : 1;
-    const note = { id: Date.now(), num, x, y, text: '' };
-    notes.push(note);
-    save();
-    const el = makeNoteEl(note);
-    document.body.appendChild(el);
-    el.querySelector('.sn-text').focus();
-  }
-
-  function setActive(on){
-    active = on;
-    document.body.classList.toggle('sn-mode', on);
-    btn.classList.toggle('sn-btn-on', on);
-    btn.title = on ? 'Exit notes mode (click anywhere to add a note)' : 'Add sticky notes';
-    overlay.style.display = on ? 'block' : 'none';
-  }
-
-  // overlay intercepts clicks for note placement
-  const overlay = document.createElement('div');
-  overlay.className = 'sn-overlay';
-  overlay.addEventListener('click', e => {
-    placeNote(e.clientX - 12, e.clientY - 12);
-  });
-  document.body.appendChild(overlay);
-
-  // drag on document
-  document.addEventListener('mousemove', e => {
-    if(!dragging) return;
-    const n = notes.find(n => n.id === +dragging.dataset.id);
-    const x = e.clientX - dragOX, y = e.clientY - dragOY;
-    dragging.style.left = x + 'px';
-    dragging.style.top  = y + 'px';
-    if(n){ n.x = x; n.y = y; }
-  });
-  document.addEventListener('mouseup', () => {
-    if(dragging){ save(); dragging.style.zIndex=''; dragging=null; }
-  });
-
-  // toggle button
-  const btn = document.createElement('button');
-  btn.className = 'sn-btn';
-  btn.textContent = '✎';
-  btn.title = 'Add sticky notes';
-  btn.addEventListener('click', () => setActive(!active));
-  document.body.appendChild(btn);
-
-  // clear button (only visible in active mode)
-  const clearBtn = document.createElement('button');
-  clearBtn.className = 'sn-clear';
-  clearBtn.textContent = 'Clear all';
-  clearBtn.title = 'Remove all sticky notes';
-  clearBtn.addEventListener('click', e => {
-    e.stopPropagation();
-    notes = [];
-    save();
-    document.querySelectorAll('.sn-note').forEach(el => el.remove());
-  });
-  document.body.appendChild(clearBtn);
-
-  // copy button — the "send to you" path: gathers every note into clean,
-  // numbered text and drops it on the clipboard so it can be pasted straight
-  // into chat. Static site, no backend — clipboard is the handoff.
-  const copyBtn = document.createElement('button');
-  copyBtn.className = 'sn-copy';
-  copyBtn.textContent = 'Copy notes';
-  copyBtn.title = 'Copy all notes to clipboard (paste them to send)';
-  copyBtn.addEventListener('click', async e => {
-    e.stopPropagation();
-    const filled = [...notes].sort((a,b)=>a.num-b.num).filter(n => n.text.trim());
-    if(!filled.length){
-      copyBtn.textContent = 'No notes yet';
-      setTimeout(() => { copyBtn.textContent = 'Copy notes'; }, 1400);
-      return;
-    }
-    const text = filled.map(n => `${n.num}. ${n.text.trim()}`).join('\n\n');
-    try{
-      await navigator.clipboard.writeText(text);
-    }catch{
-      // fallback for older / non-secure contexts
-      const ta = document.createElement('textarea');
-      ta.value = text; ta.style.position='fixed'; ta.style.opacity='0';
-      document.body.appendChild(ta); ta.select();
-      try{ document.execCommand('copy'); }catch{}
-      ta.remove();
-    }
-    copyBtn.textContent = `Copied ${filled.length} note${filled.length>1?'s':''}!`;
-    copyBtn.classList.add('sn-copied');
-    setTimeout(() => { copyBtn.textContent = 'Copy notes'; copyBtn.classList.remove('sn-copied'); }, 1600);
-  });
-  document.body.appendChild(copyBtn);
-
-  // restore persisted notes
-  load();
-  notes.forEach(n => document.body.appendChild(makeNoteEl(n)));
-})();

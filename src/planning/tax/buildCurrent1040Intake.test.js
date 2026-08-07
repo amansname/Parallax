@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildCurrent1040Intake,
+  buildReadyCurrent1040Intake,
   hasCurrent1040PlanningEnvelope,
 } from './buildCurrent1040Intake.js';
 
@@ -91,6 +92,22 @@ test('canonical planning route is opt-in and keeps an explicit supported year', 
   delete subject.incomeTax.current1040.taxYear;
   assert.ok(codes(buildCurrent1040Intake(subject))
     .includes('CURRENT_1040_TAX_YEAR_REQUIRED'));
+});
+
+test('planning attachment uses canonical current-return facts only when ready', () => {
+  const ready = plan();
+  assert.deepEqual(
+    buildReadyCurrent1040Intake(ready),
+    buildCurrent1040Intake(ready).intake,
+  );
+
+  const incomplete = plan();
+  incomplete.incomeTax.current1040.incomeSourcesComplete = false;
+  assert.equal(buildReadyCurrent1040Intake(incomplete), null);
+
+  const legacy = plan();
+  delete legacy.incomeTax.current1040;
+  assert.equal(buildReadyCurrent1040Intake(legacy), null);
 });
 
 test('explicit deduction authority and zero-valued supplied facts survive unchanged', () => {

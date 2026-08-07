@@ -1452,9 +1452,3 @@
     grid-template-columns: 1fr 1fr;
   }
 }
-
-/* Household footer already owns its action path. */
-body:has(.page[data-page="household"].on) .sn-btn,
-body:has(.page[data-page="household"].on) .sn-clear {
-  display: none;
-}

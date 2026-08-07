@@ -22,9 +22,14 @@ test('resolveGoalSpan uses the later spouse retirement on the primary timeline',
   assert.deepEqual(resolveGoalSpan(plan), { currentAge:64, retirementAge:69, planEndAge:95, axisMin:62, axisMax:96 });
 });
 
-test('resolveGoalSpan follows the later survivor on the primary timeline', () => {
+test('resolveGoalSpan uses the latest entered planning age without translating it', () => {
   const plan={ household:{ primary:{ currentAge:64, retirementAge:66, planEndAge:95 }, spouse:{ currentAge:60, retirementAge:68, planEndAge:100 } } };
-  assert.deepEqual(resolveGoalSpan(plan), { currentAge:64, retirementAge:72, planEndAge:104, axisMin:62, axisMax:105 });
+  assert.deepEqual(resolveGoalSpan(plan), { currentAge:64, retirementAge:72, planEndAge:100, axisMin:62, axisMax:101 });
+});
+
+test('matching age-90 planning inputs keep the Goals horizon at age 90', () => {
+  const plan={ household:{ primary:{ currentAge:62, retirementAge:66, planEndAge:90 }, spouse:{ currentAge:59, retirementAge:63, planEndAge:90 } } };
+  assert.equal(resolveGoalSpan(plan).planEndAge, 90);
 });
 
 test('goal ranges preserve a household horizon beyond age 100', () => {

@@ -904,28 +904,6 @@ body{
   .bs-row{grid-template-columns:max-content minmax(20px,1fr) minmax(104px,max-content)}
 }
 
-/* ── STICKY NOTES ── */
-.sn-btn{position:fixed;bottom:24px;right:24px;z-index:9998;width:44px;height:44px;border-radius:50%;border:none;background:var(--accent);color:var(--btn-ink);font-size:20px;line-height:1;cursor:pointer;box-shadow:0 4px 18px -4px rgba(0,0,0,.6);transition:background .2s,transform .15s}
-.sn-btn:hover{background:var(--accent-bright);transform:scale(1.08)}
-.sn-btn.sn-btn-on{background:#e0c060;box-shadow:0 0 0 3px rgba(224,192,96,.35),0 4px 18px -4px rgba(0,0,0,.6)}
-.sn-overlay{display:none;position:fixed;inset:0;z-index:9990;cursor:crosshair}
-/* Roomy enough to actually draft in: wide, tall, with a comfortable type size
-   and a user-draggable resize grip so a long note can grow as needed. */
-.sn-note{position:fixed;z-index:10000;width:360px;max-width:calc(100vw - 32px);display:flex;flex-direction:column;border-radius:5px;box-shadow:0 8px 30px -6px rgba(0,0,0,.7),0 0 0 1px rgba(255,255,255,.1);background:#f5e97a;overflow:hidden;font-family:var(--font-sans)}
-.sn-handle{display:flex;align-items:center;gap:6px;padding:7px 10px;background:#e6d848;cursor:grab;user-select:none}
-.sn-handle:active{cursor:grabbing}
-.sn-num{font-size:14px;font-weight:700;color:#4a3e00;min-width:18px}
-.sn-del{margin-left:auto;background:none;border:none;font-size:17px;line-height:1;color:#7a6600;cursor:pointer;padding:0 3px;opacity:.6}
-.sn-del:hover{opacity:1;color:#c00}
-.sn-text{border:none;outline:none;resize:vertical;background:#f5e97a;color:#2a2000;font-family:var(--font-sans);font-size:14px;line-height:1.55;padding:12px;min-height:180px;width:100%;box-sizing:border-box}
-.sn-clear,.sn-copy{position:fixed;bottom:24px;z-index:9998;display:none;padding:9px 15px;border:1px solid var(--rule);background:rgba(30,20,10,.85);color:var(--ink-mute);font-family:var(--font-sans);font-size:14px;letter-spacing:.1em;border-radius:3px;cursor:pointer}
-.sn-clear{right:84px}
-.sn-copy{right:180px}
-.sn-clear:hover,.sn-copy:hover{color:var(--ink);border-color:var(--rule-bright)}
-.sn-copy.sn-copied{color:var(--btn-ink);background:var(--accent);border-color:var(--accent)}
-.sn-mode .sn-clear,.sn-mode .sn-copy{display:block}
-
-
 /* Shared app-shell layout. Visual roles are defined once in the root contract. */
 body .page[data-page="net-worth"],
 body .page[data-page="sequencing"]{

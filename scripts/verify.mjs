@@ -882,7 +882,7 @@ try {
     }));
     if(m.lanes !== before + 1 || !m.rail || m.name !== 'Travel' || m.amount !== '10,000')
       throw new Error(`Travel starter did not create the expected editable lane (${JSON.stringify(m)})`);
-    if(!/Plan edited/.test(m.status)) throw new Error(`goal add did not arm plan status: "${m.status}"`);
+    if(!/Saved automatically/.test(m.status)) throw new Error(`goal add did not confirm automatic save: "${m.status}"`);
 
     await page.click('.gh-name-input');
     await page.keyboard.down('Control'); await page.keyboard.press('A'); await page.keyboard.up('Control');
@@ -939,14 +939,19 @@ try {
     }));
     if(m.lanes !== beforeDuplicate || !/Undo/.test(m.toast)) throw new Error(`delete/toast failed (${JSON.stringify(m)})`);
     await page.click('[data-action="undo"]'); await sleep(350);
-    if(await page.evaluate(() => document.querySelectorAll('.gh-lane').length) !== beforeDuplicate + 1)
+    const restoredLaneCount = await page.evaluate(() => document.querySelectorAll('.gh-lane').length);
+    if(restoredLaneCount !== beforeDuplicate + 1)
       throw new Error('undo did not restore the deleted goal');
-    await page.click('#save-btn'); await sleep(250);
+    await page.waitForFunction(expected => {
+      const id = localStorage.getItem('parallax.activeHouseholdId');
+      const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+      return Array.isArray(db?.[id]?.goals) && db[id].goals.length === expected;
+    }, { timeout: 10000 }, restoredLaneCount);
   });
 
   await step('goals Horizon: drag preserves a lane span and reaches Scenarios', async () => {
-    const sleep = ms => new Promise(r => setTimeout(r, ms));
-    await page.click('.htab[data-sub-target="goals"]'); await sleep(300);
+    await page.click('.htab[data-sub-target="goals"]');
+    await page.waitForSelector('.gh-page', { visible: true, timeout: 8000 });
     const target = await page.evaluate(() => {
       const chip = [...document.querySelectorAll('.gh-chip')]
         .find(el => el.querySelector('.gh-chip__name')?.textContent.includes('European summers'));
@@ -959,40 +964,63 @@ try {
     await page.mouse.down();
     await page.mouse.move(target.x-100,target.y,{steps:8});
     await page.mouse.up();
-    await sleep(450);
+    await page.waitForFunction(previousTitle => {
+      const chip = [...document.querySelectorAll('.gh-chip')]
+        .find(el => el.querySelector('.gh-chip__name')?.textContent.includes('European summers'));
+      return chip?.title && chip.title !== previousTitle;
+    }, { timeout: 8000 }, target.title);
     const after = await page.evaluate(() => [...document.querySelectorAll('.gh-chip')]
       .find(el => el.querySelector('.gh-chip__name')?.textContent.includes('European summers'))?.title || '');
     if(after === target.title || !/Every year, ages/.test(after))
       throw new Error(`goal drag did not shift the recurring range ("${target.title}" -> "${after}")`);
 
     const laneCount = await page.evaluate(() => document.querySelectorAll('.gh-lane').length);
-    await page.click('button[data-page="scenarios"]'); await sleep(900);
-    await page.click('#scn-seg-compare'); await sleep(350);
-    const active = await page.evaluate(() => {
+    await page.click('button[data-page="scenarios"]');
+    await page.waitForSelector('#scn-view', { visible: true, timeout: 8000 });
+    await page.click('#scn-seg-compare');
+    await page.waitForFunction(expected => {
+      const toggle = document.querySelector('#scn-view [data-goals-toggle]');
+      const names = document.querySelectorAll('#scn-view .goal-detail__name');
+      const inputs = document.querySelectorAll('#scn-view .cmp-goal-in');
+      const medians = [...document.querySelectorAll('#scn-view .scol__median b')]
+        .map(element => element.textContent.trim());
+      return toggle?.getAttribute('aria-expanded') === 'true'
+        && names.length === expected
+        && inputs.length >= expected
+        && medians.length > 0
+        && medians.every(value => /^\$[\d,.]+[KMB]?$/.test(value));
+    }, { timeout: 10000 }, laneCount);
+    const scenarioGoals = await page.evaluate(() => {
       const text = document.querySelector('#scn-view .goal-pill, #scn-view .goal-note')?.textContent || '';
-      return +(text.match(/(\d+)\s*active/)?.[1] || -1);
+      return {
+        active: +(text.match(/(\d+)\s*active/)?.[1] || -1),
+        expanded: document.querySelector('#scn-view [data-goals-toggle]')?.getAttribute('aria-expanded'),
+        details: [...document.querySelectorAll('#scn-view .goal-detail__name')]
+          .map(element => element.textContent.trim()),
+        medians: [...document.querySelectorAll('#scn-view .scol__median b')]
+          .map(element => element.textContent.trim()),
+      };
     });
-    if(active !== laneCount) throw new Error(`Goals Horizon inventory did not reach Scenarios (${laneCount} lanes / ${active} active)`);
+    if(scenarioGoals.active !== laneCount
+        || scenarioGoals.details.length !== laneCount
+        || scenarioGoals.medians.some(value => !/^\$[\d,.]+[KMB]?$/.test(value))){
+      throw new Error(`Goals Horizon details did not reach Scenarios (${laneCount} lanes / ${JSON.stringify(scenarioGoals)})`);
+    }
   });
 
   await step('goals Horizon: blank household stays blank and derives starter timing from its plan', async () => {
-    const saveIfNeeded = async () => {
-      const needsSave = await page.$eval('#save-btn', button => !button.disabled);
-      if(!needsSave) return;
-      await page.click('#save-btn');
-      await page.waitForFunction(() => {
-        const button = document.querySelector('#save-btn');
-        return button?.disabled === true && /^Saved/.test(button.textContent.trim());
-      }, { timeout: 8000 });
-    };
     await goToWizardStep(page, 'family');
-    await saveIfNeeded();
     const beforeNew = await page.$eval(
       '[data-hh-wizard-root]',
       element => Number(element.dataset.renderRevision),
     );
     await page.evaluate(() => document.querySelector('#hh-new').click());
     await waitForWizard(page, { afterRevision: beforeNew });
+    await page.waitForFunction(() => {
+      const id = localStorage.getItem('parallax.activeHouseholdId');
+      const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+      return id && id !== 'demo' && Boolean(db?.[id]);
+    }, { timeout: 10000 });
     await page.click('.htab[data-sub-target="goals"]');
     await page.waitForSelector('.gh-page', { visible: true, timeout: 8000 });
     let m = await page.evaluate(() => ({
@@ -1014,7 +1042,6 @@ try {
       throw new Error(`blank-household starter did not derive from its 65 retirement age (${JSON.stringify(m)})`);
 
     await goToWizardStep(page, 'family');
-    await saveIfNeeded();
     const beforeDemo = await page.$eval(
       '[data-hh-wizard-root]',
       element => Number(element.dataset.renderRevision),
@@ -1126,7 +1153,7 @@ try {
     await page.screenshot({ path: join(OUT, '03b-scenarios-focus.png'), fullPage: true });
   });
 
-  await step('later-surviving co-client sets the visible plan horizon', async () => {
+  await step('entered planning ages cap Goals and Focus results', async () => {
     await page.evaluate(() => {
       const key = 'parallax.households.v1';
       const db = JSON.parse(localStorage.getItem(key) || '{}');
@@ -1162,8 +1189,8 @@ try {
       terminalTick: [...document.querySelectorAll('.gh-tick')].at(-1)?.textContent.trim() || '',
       axisMax: document.querySelector('.gh-lanes')?.getAttribute('data-axis-max') || '',
     }));
-    if(horizon.terminalTick !== '104' || horizon.axisMax !== '105'){
-      throw new Error(`later survivor did not set the Goals horizon: ${JSON.stringify(horizon)}`);
+    if(horizon.terminalTick !== '100' || horizon.axisMax !== '101'){
+      throw new Error(`entered planning age did not cap the Goals horizon: ${JSON.stringify(horizon)}`);
     }
     await page.click('#run-btn');
     await page.waitForFunction(
@@ -1181,8 +1208,8 @@ try {
       '#scn-view .focus .viability__text',
       element => element.textContent.trim(),
     );
-    if(viability !== 'Funds last to age 104'){
-      throw new Error(`later survivor did not reach the Focus result: "${viability}"`);
+    if(viability !== 'Funds last to age 100'){
+      throw new Error(`entered planning age did not cap the Focus result: "${viability}"`);
     }
   });
 
@@ -1753,7 +1780,7 @@ try {
     if(!ctl.loadDemoBtn || ctl.retired) throw new Error(`minimal Load Demo menu contract failed: ${JSON.stringify(ctl)}`);
   });
 
-  await step('persistence: saved demo values and New Household survive reload', async () => {
+  await step('persistence: auto-saved demo values and New Household survive reload', async () => {
     const setFamilyField = async (field, value) => {
       const beforeRevision = await page.$eval(
         '[data-hh-wizard-root]',
@@ -1775,10 +1802,8 @@ try {
     await goToWizardStep(page, 'family');
     await setFamilyField('primaryName', 'Saved Client');
     await setFamilyField('client.socialSecurityAge', '70');
-    // Persist the demo's scenarios first (so its scoped key exists), then create
-    // a new blank household from the menu control (clicked programmatically —
-    // it lives in the tucked ⋯ popover).
-    await page.click('#save-btn');
+    // The storage wait below is the automatic-save assertion. No explicit save
+    // action is available before reload or household switching.
     await page.waitForFunction(() => {
       const demo = JSON.parse(
         localStorage.getItem('parallax.households.v1') || 'null',
@@ -1792,20 +1817,18 @@ try {
     if(savedDemo?.meta?.primaryName !== 'Saved Client' || savedDemo?.income?.socialSecurity?.primary?.claimAge !== 70)
       throw new Error(`saved demo values were overwritten on reload: ${JSON.stringify(savedDemo)}`);
     await page.evaluate(() => document.querySelector('#hh-new').click());
-    await page.waitForFunction(() =>
-      /New household created/.test(document.querySelector('#status')?.textContent || '')
-      && document.querySelector('#save-btn')?.disabled === false,
-    { timeout: 10000 });
+    await page.waitForFunction(() => {
+      const id = document.querySelector('#hh-switch')?.value;
+      const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+      return /New household created/.test(document.querySelector('#status')?.textContent || '')
+        && id && id !== 'demo'
+        && localStorage.getItem('parallax.activeHouseholdId') === id
+        && Boolean(db?.[id]);
+    }, { timeout: 10000 });
     const pendingCustomId = await page.$eval('#hh-switch', element => element.value);
     if(!pendingCustomId || pendingCustomId === 'demo'){
       throw new Error(`New Household did not become the working record (id="${pendingCustomId}")`);
     }
-    await page.click('#save-btn');
-    await page.waitForFunction(id => {
-      const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
-      return localStorage.getItem('parallax.activeHouseholdId') === id
-        && Boolean(db?.[id]);
-    }, { timeout: 10000 }, pendingCustomId);
     const created = await page.evaluate(() => ({
       active: localStorage.getItem('parallax.activeHouseholdId'),
       db: JSON.parse(localStorage.getItem('parallax.households.v1') || 'null'),
@@ -1816,6 +1839,13 @@ try {
     if(!created.db[customId] || created.db[customId].meta.isDemo !== false) throw new Error('new household record is not marked isDemo=false');
     if(created.db[customId].income.socialSecurity.primary.claimAge !== 67)
       throw new Error(`new household primary claim age must default to 67: ${JSON.stringify(created.db[customId].income.socialSecurity)}`);
+    const removedGlobalControls = await page.evaluate(() => ({
+      save: Boolean(document.querySelector('#save-btn')),
+      sticky: Boolean(document.querySelector('.sn-btn, .sn-note, .sn-overlay')),
+    }));
+    if(removedGlobalControls.save || removedGlobalControls.sticky){
+      throw new Error(`removed global controls still rendered: ${JSON.stringify(removedGlobalControls)}`);
+    }
 
     // Reload: the custom household must remain active (demo must NOT overwrite it).
     await stableReload({ waitUntil: 'networkidle2', timeout: 20000 });
@@ -1958,7 +1988,7 @@ try {
         return { selector, exists: !!el, disabled: !!el?.disabled };
       };
       const controls = [
-        disabled('#save-btn'), disabled('#run-btn'), disabled('#hh-menu-btn'), disabled('#hh-switch'),
+        disabled('#run-btn'), disabled('#hh-menu-btn'), disabled('#hh-switch'),
         disabled('#hh-new'), disabled('#hh-load-demo'), disabled('#scn-add'), disabled('#scn-solve'),
       ];
       if(includeSequencing) controls.push(disabled('#path-mode'), disabled('#seq-select'));
@@ -2113,14 +2143,14 @@ try {
     await assertPinned('initial load');
 
     const globalControls = await page.evaluate(() => ({
-      save: document.querySelector('#save-btn')?.disabled,
+      saveExists: Boolean(document.querySelector('#save-btn')),
       newHousehold: document.querySelector('#hh-new')?.disabled,
       switchDisabled: document.querySelector('#hh-switch')?.disabled,
       loadDemoDisabled: document.querySelector('#hh-load-demo')?.disabled,
       householdStepCount: document.querySelectorAll('.hh-step').length,
       householdStepsDisabled: [...document.querySelectorAll('.hh-step')].some(el => el.disabled),
     }));
-    if(!globalControls.save || !globalControls.newHousehold) throw new Error(`read-only Save/New must be disabled: ${JSON.stringify(globalControls)}`);
+    if(globalControls.saveExists || !globalControls.newHousehold) throw new Error(`read-only must omit Save and disable New: ${JSON.stringify(globalControls)}`);
     if(!globalControls.householdStepCount || globalControls.switchDisabled || globalControls.loadDemoDisabled || globalControls.householdStepsDisabled){
       throw new Error(`read-only navigation must stay enabled: ${JSON.stringify(globalControls)}`);
     }
