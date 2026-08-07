@@ -379,3 +379,61 @@ final result: passed
 - In-app browser console: no errors or warnings.
 
 final result: passed
+
+---
+
+# Withdrawal Planner Design QA
+
+## Comparison target
+
+- Source visual truth: `C:\Users\amans\Downloads\tax wd.png`.
+- Browser-rendered implementation:
+  - `C:\Dev\Parallax\.worktrees\withdrawal-planner-design\verify-out\design-qa-1536x958.png`
+  - `C:\Dev\Parallax\.worktrees\withdrawal-planner-design\verify-out\design-qa-640x900.png`
+  - `C:\Dev\Parallax\.worktrees\withdrawal-planner-design\verify-out\design-qa-390x844.png`
+- Direct comparison viewport: 1536 x 958 CSS pixels at device scale factor 1.
+- Comparison state: blank Demo Household, zero withdrawals, dark theme, Withdrawal Planner active, and canonical Single filing status.
+
+## Full-view comparison evidence
+
+- The source and final implementation were reviewed together at the same 1536 x 958 resolution after the final spacing correction.
+- The implementation matches the source's 36px page gutter, 360px control column, 22px main gap, 1082px threshold card, four equal threshold columns, restrained charcoal surfaces, warm hairlines, muted gold accents, and full-height desktop composition.
+- The controls retain the source rhythm while applying the final product-owner order: fixed-income heading, read-only source rows, total, five withdrawal sliders, and the effective/marginal rate summary.
+- Threshold headlines, bar-edge values, footer limits, Federal tax, effective rate, and marginal rate are rendered only from engine or tax-engine results. The implementation does not reproduce the prototype's tax arithmetic.
+
+## Focused region comparison evidence
+
+- Left controls: checked income-row baselines, inline tax-caused values, slider label/value alignment, 4px tracks, 16px thumbs, 22px row rhythm, bottom divider, and rate summary against the source at native resolution.
+- Threshold card: checked header placement, four-column geometry, title tracking, headline hierarchy, bar height, tick placement, edge labels, footer baselines, border opacity, radius, and inner padding.
+- Responsive states: at 1024 x 768 the planner uses the desktop split with a two-by-two threshold grid; at 640 x 900 the controls and threshold card stack with a two-by-two threshold grid; at 390 x 844 the threshold columns stack individually. The planner has no horizontal overflow at either mobile viewport.
+
+## Findings
+
+- No actionable P0, P1, or P2 mismatch remains within the Withdrawal Planner page.
+- The production header remains intentionally authoritative. It is 56px tall and includes plan status, Save, and Run; the static source uses a simpler 66px header. The planner's internal geometry matches once measured from the content edge.
+- Source footer dollar limits reflect a different filing-status fixture. The implementation shows the current plan's engine-approved limits instead of copying those static figures.
+- The fixed-income heading now sits above its three source rows, with a separate Total row below them. All fixed-income and slider dollar values share the same measured right edge.
+- Values unavailable from the engines remain blank, including IRMAA and unavailable effective/Social Security rate details. The UI does not substitute zero or calculate a display value itself.
+- The gold pencil visible at the lower-right of browser captures is annotation chrome and is not present in the application DOM.
+- At a 390px viewport, the existing global header navigation remains horizontally scrollable. That shell behavior is unchanged by this page-scoped implementation; the Withdrawal Planner content itself does not overflow.
+
+## Comparison history
+
+1. The initial production comparison found P2 mismatches: a page-local tax override toolbar, a separate input card shell, dead lower-page space, rate headlines where the design calls for dollar figures, methodology copy, undersized range controls, and attribution values separated from their withdrawals.
+2. Those elements were removed or realigned while keeping all calculations in the engine and tax engine.
+3. The first final-size comparison found the slider stack approximately 3px too tight per row. The row gap was corrected to 22px.
+4. Narrow-viewport QA then found a page-width overflow caused by the stacked grid retaining its max-content width. The mobile grid was fixed to 100% width and rechecked at 640px and 390px with no planner overflow.
+5. The post-fix 1536 x 958 source and implementation were compared together again. No further page-level P0/P1/P2 mismatch was found.
+6. Product-owner review moved the Fixed income sources heading above the source rows and requested one separate Total row below them.
+7. The review also found the fixed-income and slider dollar columns misaligned. The reserved slider scrollbar gutter was removed; browser measurement now places all nine amount fields on the same right edge.
+
+## Verification
+
+- Focused unit and adapter tests: 43 passed, 0 failed.
+- Full unit suite: 636 passed, 0 failed.
+- Scoped browser verification passed the Tax-page Wages flow, fixed-income read-only contract, engine-returned threshold dollars and rates, rapid slider updates and approval ordering, zero-limit disabled controls, RMD limits, shared-IRA limits, persistence, and the remaining in-scope application checks.
+- A funded live household confirmed active IRA and Brokerage sliders move immediately and the IRA withdrawal updates Federal tax, Income Tax, and Tax caused together. A household with no balances correctly receives $0 engine-approved limits.
+- Responsive browser checks passed at 1536 x 958, 1024 x 768, 640 x 900, and 390 x 844.
+- In-app browser console: no errors or warnings.
+
+final result: passed

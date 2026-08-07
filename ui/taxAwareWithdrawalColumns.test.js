@@ -13,7 +13,7 @@ test('formatWithdrawalMoney renders dash for non-finite values', () => {
   assert.equal(formatWithdrawalMoney(12000), '$12,000');
 });
 
-test('threshold column dollars and rate labels use the tax-engine contract', () => {
+test('threshold headlines and bar labels use the tax-engine contract', () => {
   const cols = buildThresholdColumns({
     result: {
       ordinary: { rate: 0.22, income: 100000, roomToNext: 5000, ceiling: 105000 },
@@ -44,7 +44,9 @@ test('threshold column dollars and rate labels use the tax-engine contract', () 
   });
   assert.equal(cols.length, 4);
   assert.equal(cols[0].name, 'Income Tax');
-  assert.match(cols[0].current, /%/);
+  assert.equal(cols[0].current, '$1,234');
+  assert.equal(cols[0].footLabel, '22%');
+  assert.equal(cols[1].footLabel, 'Next $ at 15%');
   assert.ok(cols[0].marks.length >= 1);
   assert.deepEqual(cols.map(col => col.value), ['$1,234', '$2,346', '—', '$3,457']);
   assert.deepEqual(cols[1].marks.map(mark => mark.label), ['17%', '23%']);
@@ -64,6 +66,7 @@ test('threshold column dollars and rate labels use the tax-engine contract', () 
     }])),
   };
   applyThresholdColumns(refs, cols);
+  assert.equal(refs.columns.ord.rate.textContent, '$1,234');
   assert.equal(refs.columns.ord.edgeVal.textContent, '$1,234');
   assert.equal(refs.columns.ltcg.edgeVal.textContent, '$2,346');
   assert.equal(refs.columns.irmaa.edgeVal.textContent, '—');
@@ -76,7 +79,7 @@ test('slider caps use engine-approved dynamic limits without a $500,000 ceiling'
     'deferredWithdrawal', 'taxableWithdrawal',
   ];
   const refs = {
-    sliders: Object.fromEntries(keys.map(key => [key, { input: { max: '' } }])),
+    sliders: Object.fromEntries(keys.map(key => [key, { input: { max: '', disabled: false } }])),
   };
   updateSliderCaps(refs, {
     limits: {
@@ -92,6 +95,21 @@ test('slider caps use engine-approved dynamic limits without a $500,000 ceiling'
   assert.strictEqual(refs.sliders.deferredWithdrawal.input.max, '40000');
   assert.strictEqual(refs.sliders.rothWithdrawal.input.max, '750000');
   assert.strictEqual(refs.sliders.taxableWithdrawal.input.max, '1200000');
+  assert.strictEqual(refs.sliders.taxableWithdrawal.input.disabled, false);
+});
+
+test('zero engine-approved limit disables its slider', () => {
+  const keys = [
+    'rothConversion', 'rothWithdrawal', 'qcd',
+    'deferredWithdrawal', 'taxableWithdrawal',
+  ];
+  const refs = {
+    sliders: Object.fromEntries(keys.map(key => [key, { input: { max: '', disabled: false } }])),
+  };
+  updateSliderCaps(refs, {
+    limits: Object.fromEntries(keys.map(key => [key, { min: 0, max: 0 }])),
+  });
+  assert.ok(keys.every(key => refs.sliders[key].input.disabled === true));
 });
 
 test('unavailable attribution clears prior sleeve values', () => {

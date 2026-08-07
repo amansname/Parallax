@@ -85,10 +85,10 @@ export function buildThresholdColumns({ result, hoverMark }) {
   const pc = formatWithdrawalPct;
   if (!result || result.error || result.code) {
     return [
-      { id: 'ord', name: 'Income Tax', current: '—', tone: 'var(--ink-bright)', footLabel: 'Room', foot: '—', ...BLANK_GEOM },
-      { id: 'ltcg', name: 'Long-term gains', current: '—', tone: 'var(--ok)', footLabel: 'Room', foot: '—', ...BLANK_GEOM },
-      { id: 'irmaa', name: 'Medicare IRMAA', current: '—', tone: 'var(--ink-faint)', footLabel: 'None', foot: '—', ...BLANK_GEOM },
-      { id: 'ss', name: 'Social Security', current: '—', tone: 'var(--ink-bright)', footLabel: 'Room', foot: '—', ...BLANK_GEOM },
+      { id: 'ord', name: 'Income Tax', current: '—', tone: 'var(--ink-bright)', footLabel: '—', foot: '—', ...BLANK_GEOM },
+      { id: 'ltcg', name: 'Long-term gains', current: '—', tone: 'var(--ok)', footLabel: '—', foot: '—', ...BLANK_GEOM },
+      { id: 'irmaa', name: 'Medicare IRMAA', current: '—', tone: 'var(--ink-faint)', footLabel: '—', foot: '—', ...BLANK_GEOM },
+      { id: 'ss', name: 'Social Security', current: '—', tone: 'var(--ink-bright)', footLabel: '—', foot: '—', ...BLANK_GEOM },
     ];
   }
 
@@ -143,10 +143,10 @@ export function buildThresholdColumns({ result, hoverMark }) {
     {
       id: 'ord',
       name: 'Income Tax',
-      current: pc(ord.rate),
+      current: m(taxDollars.ordinaryIncomeTax),
       tone: 'var(--ink-bright)',
-      footLabel: 'Room',
-      foot: m(ord.roomToNext),
+      footLabel: pc(ord.rate),
+      foot: Number.isFinite(ord.roomToNext) ? `${m(ord.roomToNext)} to next` : '—',
       fillBg: gold,
       baseBg: dim,
       edge: 'rgba(216,192,132,.45)',
@@ -156,10 +156,14 @@ export function buildThresholdColumns({ result, hoverMark }) {
     {
       id: 'ltcg',
       name: 'Long-term gains',
-      current: pc(ltcg.rate),
+      current: m(taxDollars.preferentialIncomeTax),
       tone: 'var(--ok)',
-      footLabel: 'Room',
-      foot: m(ltcg.roomToZeroCeiling),
+      footLabel: Number.isFinite(ltcg.rate ?? lad.ltcg?.rates?.zero)
+        ? `Next $ at ${pc(ltcg.rate ?? lad.ltcg.rates.zero)}`
+        : '—',
+      foot: Number.isFinite(ltcg.roomToZeroCeiling)
+        ? `${m(ltcg.roomToZeroCeiling)} to next`
+        : '—',
       fillBg: sage,
       baseBg: dim,
       edge: 'rgba(169,193,154,.45)',
@@ -169,19 +173,19 @@ export function buildThresholdColumns({ result, hoverMark }) {
     {
       id: 'irmaa',
       name: 'Medicare IRMAA',
-      current: '—',
+      current: m(taxDollars.irmaaPremium),
       tone: 'var(--ink-faint)',
-      footLabel: 'None',
+      footLabel: '—',
       foot: '—',
       ...blank,
     },
     {
       id: 'ss',
       name: 'Social Security',
-      current: pc(ss.taxablePct),
+      current: m(taxDollars.socialSecurityIncrementalModeledFederalIncomeTax),
       tone: 'var(--ink-bright)',
-      footLabel: 'Room',
-      foot: m(ss.roomToNext),
+      footLabel: pc(ss.taxablePct),
+      foot: Number.isFinite(ss.roomToNext) ? `${m(ss.roomToNext)} to next` : '—',
       fillBg: gold,
       baseBg: dim,
       edge: 'rgba(216,192,132,.45)',

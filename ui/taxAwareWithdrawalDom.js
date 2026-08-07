@@ -2,6 +2,7 @@ import { escHtml } from './dom.js';
 import {
   buildThresholdColumns,
   formatWithdrawalMoney,
+  formatWithdrawalPct,
 } from './taxAwareWithdrawalColumns.js';
 
 const MAX_MARKS = 10;
@@ -50,11 +51,6 @@ function columnShell(id, name) {
     </div>`;
 }
 
-function segButtons(options, dataAttr) {
-  return options.map(opt => `
-    <button type="button" class="taw-seg-btn" data-${dataAttr}="${escHtml(String(opt.value))}">${escHtml(opt.label)}</button>`).join('');
-}
-
 /** One-time DOM shell; subsequent updates use cached refs only. */
 export function mountWithdrawalPlannerShell(root, { caps }) {
   const limits = caps?.limits;
@@ -75,63 +71,53 @@ export function mountWithdrawalPlannerShell(root, { caps }) {
   const slidersHtml = SLIDER_DEFS.map(({ key, label, caused }) => {
     const cap = capByKey[key];
     const causedHtml = caused
-      ? `<div class="taw-tax-caused" data-taw-caused="${caused}"><span>Tax caused</span><span data-taw-caused-val>—</span></div>`
+      ? `<span class="taw-tax-caused" data-taw-caused="${caused}">Tax caused <span data-taw-caused-val>\u2014</span></span>`
       : '';
     return `
       <div class="taw-slider-block" data-taw-slider="${key}">
         <div class="taw-slider-head">
           <span class="taw-slider-label">${escHtml(label)}</span>
-          <span class="taw-slider-val" data-taw-slider-val="${key}">$0</span>
+          <span class="taw-slider-meta">
+            ${causedHtml}
+            <span class="taw-slider-val" data-taw-slider-val="${key}">$0</span>
+          </span>
         </div>
         <input type="range" class="taw-range" min="0" max="${cap}" step="500" value="0"
           data-taw-lever="${key}" aria-label="${escHtml(label)}">
-        ${causedHtml}
       </div>`;
   }).join('');
 
   root.innerHTML = `
     <div class="taw-root" data-taw-root>
-      <div class="taw-toolbar">
-        <div class="taw-toolbar-controls">
-          <span class="taw-seg" role="group" data-taw-seg="fs">${segButtons([
-            { label: 'Single', value: 'single' },
-            { label: 'MFJ', value: 'marriedFilingJointly' },
-            { label: 'HoH', value: 'headOfHousehold' },
-            { label: 'MFS', value: 'marriedFilingSeparately' },
-          ], 'taw-fs')}</span>
-          <span class="taw-seg taw-seg-mfs" role="group" data-taw-seg="mfs" hidden>${segButtons([
-            { label: 'Lived apart', value: 'apart' },
-            { label: 'Lived together', value: 'together' },
-          ], 'taw-mfs')}</span>
-          <span class="taw-seg" role="group" data-taw-seg="year">${segButtons([
-            { label: '2025', value: 2025 },
-            { label: '2026', value: 2026 },
-          ], 'taw-year')}</span>
-        </div>
-        <div class="taw-law" data-taw-law aria-label="Tax law version">—</div>
-      </div>
       <div class="taw-grid">
         <div class="taw-left">
-          <div class="taw-card taw-card--inputs">
-            <div class="taw-income-wash">
-              <div class="taw-income-head">
-                <span>Fixed income sources</span>
-                <span data-taw-baseline-total>$0</span>
-              </div>
+          <div class="taw-card--inputs">
+            <div class="taw-income-list">
+              <div class="taw-income-heading">Fixed income sources</div>
               <div class="taw-income-row"><span>Social Security</span><span data-taw-fact-ss>$0</span></div>
               <div class="taw-income-row">
                 <span>Wages</span>
                 <span data-taw-fact-wages>$0</span>
               </div>
               <div class="taw-income-row"><span>Other income</span><span data-taw-fact-other>$0</span></div>
+              <div class="taw-income-total">
+                <span>Total</span>
+                <span data-taw-baseline-total>$0</span>
+              </div>
             </div>
             <div class="taw-divider"></div>
             <div class="taw-sliders">${slidersHtml}</div>
-            <p class="taw-att-note" data-taw-att-note></p>
+            <div class="taw-rate-summary">
+              <div><span>Effective rate</span><span data-taw-effective-rate>\u2014</span></div>
+              <div><span>Marginal rate</span><span data-taw-marginal-rate>\u2014</span></div>
+            </div>
           </div>
         </div>
         <div class="taw-card taw-card--thresholds">
-          <div class="taw-thresholds-head"><span>Thresholds</span></div>
+          <div class="taw-thresholds-head">
+            <span>Thresholds</span>
+            <span class="taw-federal-tax">Federal tax <span data-taw-federal-tax>\u2014</span></span>
+          </div>
           <div class="taw-cols">${COLUMN_IDS.map(id => columnShell(id, COLUMN_NAMES[id])).join('')}</div>
         </div>
       </div>
@@ -173,15 +159,13 @@ export function cacheWithdrawalRefs(root) {
   return {
     root,
     tawRoot: root.querySelector('[data-taw-root]'),
-    law: root.querySelector('[data-taw-law]'),
     baselineTotal: root.querySelector('[data-taw-baseline-total]'),
     factSs: root.querySelector('[data-taw-fact-ss]'),
     factOther: root.querySelector('[data-taw-fact-other]'),
     factWages: root.querySelector('[data-taw-fact-wages]'),
-    attNote: root.querySelector('[data-taw-att-note]'),
-    segFs: root.querySelector('[data-taw-seg="fs"]'),
-    segMfs: root.querySelector('[data-taw-seg="mfs"]'),
-    segYear: root.querySelector('[data-taw-seg="year"]'),
+    federalTax: root.querySelector('[data-taw-federal-tax]'),
+    effectiveRate: root.querySelector('[data-taw-effective-rate]'),
+    marginalRate: root.querySelector('[data-taw-marginal-rate]'),
     taxCaused: {
       roth: root.querySelector('[data-taw-caused="roth"] [data-taw-caused-val]'),
       traditional: root.querySelector('[data-taw-caused="traditional"] [data-taw-caused-val]'),
@@ -216,6 +200,7 @@ export function updateSliderCaps(refs, caps) {
     if (input) {
       input.min = String(min);
       input.max = String(Math.max(min, max));
+      input.disabled = Math.max(min, max) <= min;
     }
   });
 }
@@ -284,17 +269,6 @@ function attOf(attribution, bucket) {
   return typeof v === 'number' && Number.isFinite(v) ? formatWithdrawalMoney(v) : null;
 }
 
-function attributionNote(attribution) {
-  if (!attribution) {
-    return 'Tax caused: order-independent Shapley split of line 24 across the three withdrawal sleeves.';
-  }
-  if (attribution.error) return `Attribution unavailable: ${attribution.error}`;
-  if (!attribution.byBucket) {
-    return 'Tax caused: order-independent Shapley split of line 24 across the three withdrawal sleeves.';
-  }
-  return `Tax caused = exact three-bucket Shapley split of Form 1040 line 24 (${formatWithdrawalMoney(attribution.incrementalTax)} incremental). Conversion and QCD held fixed in every coalition.`;
-}
-
 export function applyAttribution(refs, attribution, previous) {
   const att = attribution ?? previous;
   const setCaused = (el, bucket) => {
@@ -305,7 +279,7 @@ export function applyAttribution(refs, attribution, previous) {
   setCaused(refs.taxCaused.roth, 'roth');
   setCaused(refs.taxCaused.traditional, 'traditional');
   setCaused(refs.taxCaused.taxable, 'taxable');
-  if (refs.attNote) refs.attNote.textContent = att ? attributionNote(att) : '';
+  if (refs.attNote) refs.attNote.textContent = '';
 }
 
 export function applyIncomeFacts(refs, facts) {
@@ -320,30 +294,13 @@ export function applyIncomeFacts(refs, facts) {
   refs.factWages.textContent = formatWithdrawalMoney(facts.wages);
 }
 
-export function applyToolbarState(refs, { taxYear, facts }) {
-  refs.segFs?.querySelectorAll('[data-taw-fs]').forEach(btn => {
-    btn.classList.toggle('is-on', btn.getAttribute('data-taw-fs') === facts.filingStatus);
-  });
-  const mfs = facts.filingStatus === 'marriedFilingSeparately';
-  if (refs.segMfs) refs.segMfs.hidden = !mfs;
-  if (mfs) {
-    refs.segMfs.querySelectorAll('[data-taw-mfs]').forEach(btn => {
-      const v = btn.getAttribute('data-taw-mfs');
-      btn.classList.toggle('is-on',
-        (facts.livedWithSpouse === false && v === 'apart')
-          || (facts.livedWithSpouse === true && v === 'together'));
-    });
-  }
-  refs.segYear?.querySelectorAll('[data-taw-year]').forEach(btn => {
-    btn.classList.toggle('is-on', Number(btn.getAttribute('data-taw-year')) === taxYear);
-  });
-}
-
-export function applyResultView(refs, { result, facts, taxYear, hoverMark }) {
-  if (result?.lawVersion) refs.law.textContent = String(result.lawVersion);
-  else refs.law.textContent = '—';
+export function applyResultView(refs, { result, facts, hoverMark }) {
   applyIncomeFacts(refs, facts);
-  applyToolbarState(refs, { taxYear, facts });
+  refs.federalTax.textContent = formatWithdrawalMoney(result?.totals?.federalTax);
+  refs.effectiveRate.textContent = formatWithdrawalPct(result?.totals?.effectiveRate);
+  refs.marginalRate.textContent = formatWithdrawalPct(
+    result?.totals?.marginalRate ?? result?.ordinary?.rate
+  );
   const columns = buildThresholdColumns({ result, hoverMark });
   applyThresholdColumns(refs, columns);
 }
