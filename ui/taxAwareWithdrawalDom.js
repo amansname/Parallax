@@ -57,15 +57,19 @@ function segButtons(options, dataAttr) {
 
 /** One-time DOM shell; subsequent updates use cached refs only. */
 export function mountWithdrawalPlannerShell(root, { caps }) {
-  const capTaxable = capFor(caps.taxable);
-  const capTrad = capFor(caps.traditional);
-  const capRoth = capFor(caps.roth);
-  const capByKey = {
-    rothConversion: capTrad,
-    rothWithdrawal: capRoth,
-    qcd: capTrad,
-    deferredWithdrawal: capTrad,
-    taxableWithdrawal: capTaxable,
+  const limits = caps?.limits;
+  const capByKey = limits ? {
+    rothConversion: capFor(limits.rothConversion?.max),
+    rothWithdrawal: capFor(limits.rothWithdrawal?.max),
+    qcd: capFor(limits.qcd?.max),
+    deferredWithdrawal: capFor(limits.deferredWithdrawal?.max),
+    taxableWithdrawal: capFor(limits.taxableWithdrawal?.max),
+  } : {
+    rothConversion: capFor(caps?.traditional),
+    rothWithdrawal: capFor(caps?.roth),
+    qcd: capFor(caps?.traditional),
+    deferredWithdrawal: capFor(caps?.traditional),
+    taxableWithdrawal: capFor(caps?.taxable),
   };
 
   const slidersHtml = SLIDER_DEFS.map(({ key, label, caused }) => {
@@ -117,7 +121,7 @@ export function mountWithdrawalPlannerShell(root, { caps }) {
               <div class="taw-income-row"><span>Social Security</span><span data-taw-fact-ss>$0</span></div>
               <div class="taw-income-row">
                 <span>Wages</span>
-                <input class="taw-wages" type="text" inputmode="numeric" value="$0" data-taw-wages aria-label="Wages">
+                <span data-taw-fact-wages>$0</span>
               </div>
               <div class="taw-income-row"><span>Other income</span><span data-taw-fact-other>$0</span></div>
             </div>
@@ -138,7 +142,7 @@ export function mountWithdrawalPlannerShell(root, { caps }) {
 
 function capFor(balance) {
   if (typeof balance !== 'number' || !Number.isFinite(balance) || balance <= 0) return 0;
-  return Math.min(balance, 500000);
+  return balance;
 }
 
 export function cacheWithdrawalRefs(root) {
@@ -173,7 +177,7 @@ export function cacheWithdrawalRefs(root) {
     baselineTotal: root.querySelector('[data-taw-baseline-total]'),
     factSs: root.querySelector('[data-taw-fact-ss]'),
     factOther: root.querySelector('[data-taw-fact-other]'),
-    wagesInput: root.querySelector('[data-taw-wages]'),
+    factWages: root.querySelector('[data-taw-fact-wages]'),
     attNote: root.querySelector('[data-taw-att-note]'),
     segFs: root.querySelector('[data-taw-seg="fs"]'),
     segMfs: root.querySelector('[data-taw-seg="mfs"]'),
@@ -189,17 +193,30 @@ export function cacheWithdrawalRefs(root) {
 }
 
 export function updateSliderCaps(refs, caps) {
-  const capByKey = {
-    rothConversion: capFor(caps.traditional),
-    rothWithdrawal: capFor(caps.roth),
-    qcd: capFor(caps.traditional),
-    deferredWithdrawal: capFor(caps.traditional),
-    taxableWithdrawal: capFor(caps.taxable),
+  const limits = caps?.limits;
+  const capByKey = limits ? {
+    rothConversion: capFor(limits.rothConversion?.max),
+    rothWithdrawal: capFor(limits.rothWithdrawal?.max),
+    qcd: capFor(limits.qcd?.max),
+    deferredWithdrawal: capFor(limits.deferredWithdrawal?.max),
+    taxableWithdrawal: capFor(limits.taxableWithdrawal?.max),
+  } : {
+    rothConversion: capFor(caps?.traditional),
+    rothWithdrawal: capFor(caps?.roth),
+    qcd: capFor(caps?.traditional),
+    deferredWithdrawal: capFor(caps?.traditional),
+    taxableWithdrawal: capFor(caps?.taxable),
   };
   SLIDER_DEFS.forEach(({ key }) => {
     const max = capByKey[key];
+    const min = limits && Number.isFinite(limits[key]?.min)
+      ? Math.max(0, limits[key].min)
+      : 0;
     const input = refs.sliders[key]?.input;
-    if (input) input.max = String(max);
+    if (input) {
+      input.min = String(min);
+      input.max = String(Math.max(min, max));
+    }
   });
 }
 
@@ -283,22 +300,24 @@ export function applyAttribution(refs, attribution, previous) {
   const setCaused = (el, bucket) => {
     if (!el) return;
     const next = attOf(att, bucket);
-    if (next !== null) el.textContent = next;
+    el.textContent = next ?? '\u2014';
   };
   setCaused(refs.taxCaused.roth, 'roth');
   setCaused(refs.taxCaused.traditional, 'traditional');
   setCaused(refs.taxCaused.taxable, 'taxable');
-  if (refs.attNote && att) refs.attNote.textContent = attributionNote(att);
+  if (refs.attNote) refs.attNote.textContent = att ? attributionNote(att) : '';
 }
 
 export function applyIncomeFacts(refs, facts) {
-  const baseline = (facts.socialSecurityBenefits || 0) + (facts.wages || 0) + (facts.otherIncome || 0);
+  const otherIncome = facts.grossOtherIncome ?? facts.otherIncome;
+  const baselineParts = [facts.socialSecurityBenefits, facts.wages, otherIncome];
+  const baseline = baselineParts.every(value => (
+    typeof value === 'number' && Number.isFinite(value)
+  )) ? baselineParts.reduce((sum, value) => sum + value, 0) : null;
   refs.baselineTotal.textContent = formatWithdrawalMoney(baseline);
   refs.factSs.textContent = formatWithdrawalMoney(facts.socialSecurityBenefits);
-  refs.factOther.textContent = formatWithdrawalMoney(facts.otherIncome);
-  if (refs.wagesInput && document.activeElement !== refs.wagesInput) {
-    refs.wagesInput.value = `$${(facts.wages || 0).toLocaleString('en-US')}`;
-  }
+  refs.factOther.textContent = formatWithdrawalMoney(otherIncome);
+  refs.factWages.textContent = formatWithdrawalMoney(facts.wages);
 }
 
 export function applyToolbarState(refs, { taxYear, facts }) {
@@ -308,10 +327,11 @@ export function applyToolbarState(refs, { taxYear, facts }) {
   const mfs = facts.filingStatus === 'marriedFilingSeparately';
   if (refs.segMfs) refs.segMfs.hidden = !mfs;
   if (mfs) {
-    const apart = !facts.livedWithSpouse;
     refs.segMfs.querySelectorAll('[data-taw-mfs]').forEach(btn => {
       const v = btn.getAttribute('data-taw-mfs');
-      btn.classList.toggle('is-on', (apart && v === 'apart') || (!apart && v === 'together'));
+      btn.classList.toggle('is-on',
+        (facts.livedWithSpouse === false && v === 'apart')
+          || (facts.livedWithSpouse === true && v === 'together'));
     });
   }
   refs.segYear?.querySelectorAll('[data-taw-year]').forEach(btn => {

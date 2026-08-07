@@ -8,6 +8,7 @@ import {
   buildAnnual1040Result,
   buildDefaultTaxContext,
   runClient1040Intake,
+  runWithdrawalPlannerTaxAnalysis,
   validateClient1040Intake,
   ANNUAL_1040_MODULE_VERSION,
 } from '../annual1040.js';
@@ -38,6 +39,21 @@ function assertStableResultShape(result){
   assert.ok(Array.isArray(result.audit));
   assert.ok(result.federalSummary);
   assert.strictEqual(result.federalSummary.federalTaxLiability, result.lines.line24.value);
+  assert.ok(result.federalSummary.incomeTaxComponents);
+  const components = result.federalSummary.incomeTaxComponents;
+  if(result.lines.line16.value === null){
+    assert.deepStrictEqual(components, {
+      ordinaryIncomeTax: null,
+      preferentialIncomeTax: null,
+      totalIncomeTax: null,
+    });
+  }else{
+    assert.strictEqual(components.totalIncomeTax, result.lines.line16.value);
+    assert.strictEqual(
+      Math.round((components.ordinaryIncomeTax + components.preferentialIncomeTax) * 100) / 100,
+      result.lines.line16.value
+    );
+  }
 }
 
 for(const fixture of loadAnnualFixtures()){
@@ -150,6 +166,131 @@ test('annual1040 pipeline exports stable contract fields', () => {
     context,
     pipeline.report
   ));
+});
+
+function withdrawalFacts(overrides = {}){
+  return {
+    filingStatus: 'single',
+    taxYear: 2026,
+    income: { wages: 50_000 },
+    deductions: { useStandard: true },
+    ...overrides,
+  };
+}
+
+test('Withdrawal Planner tax comparisons refuse mismatched tax scopes', () => {
+  const analysis = runWithdrawalPlannerTaxAnalysis({
+    selectedFacts: withdrawalFacts(),
+    baselineFacts: withdrawalFacts({ passThrough: { line23: 1_000 } }),
+    withoutSocialSecurityFacts: withdrawalFacts(),
+    context: buildDefaultTaxContext({ taxYear: 2026, scenarioId: 'scope-mismatch' }),
+  });
+  assert.strictEqual(analysis.modeledFederalIncomeTax.selected, 3_820);
+  assert.strictEqual(analysis.modeledFederalIncomeTax.baseline, 4_820);
+  assert.strictEqual(analysis.modeledFederalIncomeTax.incremental, null);
+  assert.ok(analysis.comparisonIssues.some(issue => issue.code === 'TAX_SCOPE_MISMATCH'));
+});
+
+test('Withdrawal Planner tax comparisons reject different supplied values and deduction contracts', () => {
+  const context = buildDefaultTaxContext({ taxYear: 2026, scenarioId: 'fact-mismatch' });
+  const passThrough = runWithdrawalPlannerTaxAnalysis({
+    selectedFacts: withdrawalFacts({ passThrough: { line23: 1_000 } }),
+    baselineFacts: withdrawalFacts({ passThrough: { line23: 2_000 } }),
+    withoutSocialSecurityFacts: withdrawalFacts({ passThrough: { line23: 1_000 } }),
+    context,
+  });
+  assert.strictEqual(passThrough.modeledFederalIncomeTax.incremental, null);
+  assert.ok(passThrough.comparisonIssues.some(issue => (
+    issue.code === 'TAX_SCOPE_MISMATCH' && issue.comparison === 'baseline'
+  )));
+
+  const deductions = runWithdrawalPlannerTaxAnalysis({
+    selectedFacts: withdrawalFacts({
+      deductions: { method: 'itemized', source: 'supplied-line12e', line12e: 16_100 },
+    }),
+    baselineFacts: withdrawalFacts({ deductions: { useStandard: true } }),
+    withoutSocialSecurityFacts: withdrawalFacts({
+      deductions: { method: 'itemized', source: 'supplied-line12e', line12e: 16_100 },
+    }),
+    context,
+  });
+  assert.strictEqual(deductions.modeledFederalIncomeTax.incremental, null);
+  assert.ok(deductions.comparisonIssues.some(issue => (
+    issue.code === 'TAX_SCOPE_MISMATCH' && issue.comparison === 'baseline'
+  )));
+});
+
+test('Withdrawal Planner tax comparisons allow only their named counterfactual changes', () => {
+  const selectedFacts = withdrawalFacts({
+    income: {
+      wages: 50_000,
+      socialSecurityBenefits: 20_000,
+      iraDistributions: 10_000,
+      capitalGain: 5_000,
+    },
+    resolved: { taxableIra: 10_000 },
+    passThrough: { line23: 1_000 },
+  });
+  const baselineFacts = withdrawalFacts({
+    passThrough: { line23: 1_000 },
+    resolved: { taxableIra: 0 },
+    income: {
+      capitalGain: 0,
+      wages: 50_000,
+      iraDistributions: 0,
+      socialSecurityBenefits: 20_000,
+    },
+  });
+  const withoutSocialSecurityFacts = withdrawalFacts({
+    resolved: { taxableIra: 10_000 },
+    passThrough: { line23: 1_000 },
+    income: {
+      capitalGain: 5_000,
+      iraDistributions: 10_000,
+      socialSecurityBenefits: 0,
+      wages: 50_000,
+    },
+  });
+  const analysis = runWithdrawalPlannerTaxAnalysis({
+    selectedFacts,
+    baselineFacts,
+    withoutSocialSecurityFacts,
+    context: buildDefaultTaxContext({ taxYear: 2026, scenarioId: 'allowed-differences' }),
+  });
+  assert.strictEqual(typeof analysis.modeledFederalIncomeTax.incremental, 'number');
+  assert.strictEqual(
+    typeof analysis.thresholdTaxDollars.socialSecurityIncrementalModeledFederalIncomeTax,
+    'number'
+  );
+  assert.deepStrictEqual(analysis.thresholdRates, {
+    ltcg: { zero: 0, middle: 0.15, top: 0.20 },
+    socialSecurity: { lowerTier: 0.50, upperTier: 0.85 },
+  });
+  assert.deepStrictEqual(analysis.comparisonIssues, []);
+});
+
+test('Withdrawal Planner tax comparisons preserve successful runs when one comparison fails', () => {
+  const analysis = runWithdrawalPlannerTaxAnalysis({
+    selectedFacts: withdrawalFacts(),
+    baselineFacts: { ...withdrawalFacts(), filingStatus: null },
+    withoutSocialSecurityFacts: withdrawalFacts(),
+    context: buildDefaultTaxContext({ taxYear: 2026, scenarioId: 'partial-comparison' }),
+  });
+  assert.strictEqual(analysis.modeledFederalIncomeTax.selected, 3_820);
+  assert.strictEqual(analysis.modeledFederalIncomeTax.baseline, null);
+  assert.strictEqual(analysis.modeledFederalIncomeTax.incremental, null);
+  assert.ok(analysis.comparisonIssues.some(issue => issue.code === 'BASELINE_TAX_RUN_FAILED'));
+});
+
+test('Withdrawal Planner tax comparisons refuse different return identities', () => {
+  const analysis = runWithdrawalPlannerTaxAnalysis({
+    selectedFacts: withdrawalFacts(),
+    baselineFacts: withdrawalFacts({ taxYear: 2025 }),
+    withoutSocialSecurityFacts: withdrawalFacts(),
+    context: buildDefaultTaxContext({ taxYear: 2026, scenarioId: 'identity-mismatch' }),
+  });
+  assert.strictEqual(analysis.modeledFederalIncomeTax.incremental, null);
+  assert.ok(analysis.comparisonIssues.some(issue => issue.code === 'TAX_IDENTITY_MISMATCH'));
 });
 
 test('validation errors are fatal; warnings are non-fatal', () => {

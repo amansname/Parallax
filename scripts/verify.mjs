@@ -9,7 +9,7 @@ import { createServer } from 'node:http';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { join, resolve, sep } from 'node:path';
-import { generateReturnPath, resetSeed, runSimulation } from '../engine.js';
+import { generateReturnPath, resetSeed, resolveInputs, runSimulation } from '../engine.js';
 import { runMonteCarloWithFederalFunding } from '../src/planning/tax/runMonteCarloWithFederalFunding.js';
 import { createBlankTaxProfiles } from '../src/household/factEnvelope.js';
 import {
@@ -21,6 +21,7 @@ import {
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const OUT = join(ROOT, 'verify-out');
 const PORT = Number(process.env.PORT) || 8765;
+const SKIP_SEQUENCING = process.env.PARALLAX_VERIFY_SKIP_SEQUENCING === '1';
 
 function step(name, fn){
   return fn().then(
@@ -100,17 +101,25 @@ function verifyTaxBuckets(){
   const html = read(join(ROOT, 'index.html'));
   const main = read(join(ROOT, 'src', 'main.js'));
   const view = read(join(ROOT, 'ui', 'taxBuckets.js'));
+  const columns = read(join(ROOT, 'ui', 'taxAwareWithdrawalColumns.js'));
   const css = read(join(ROOT, 'styles', 'tax-buckets.css'));
 
   ok(/styles\/tax-buckets\.css\?v=1/.test(html), 'Tax Buckets stylesheet is not linked');
   ok(/styles\/tax-aware-withdrawal\.css\?v=1/.test(html), 'Tax-Aware Withdrawal stylesheet is not linked');
-  ok(/data-page="scenarios"[\s\S]*data-page="tax-buckets"[\s\S]*data-page="sequencing"/.test(html), 'Tax Buckets must sit between Scenarios and Sequencing');
+  ok(
+    SKIP_SEQUENCING
+      ? /data-page="scenarios"[\s\S]*data-page="tax-buckets"/.test(html)
+      : /data-page="scenarios"[\s\S]*data-page="tax-buckets"[\s\S]*data-page="sequencing"/.test(html),
+    SKIP_SEQUENCING ? 'Tax Buckets must follow Scenarios' : 'Tax Buckets must sit between Scenarios and Sequencing',
+  );
   ok(/<section class="page" data-page="tax-buckets">[\s\S]*id="tax-buckets-view"/.test(html), 'Tax Buckets page mount is missing');
   ok(/getPlan:\(\)=>plan/.test(main), 'Tax Buckets must read household plan without mutating it');
   ok(/createTaxAwareWithdrawalController/.test(view), 'Withdrawal planner controller is not wired');
   ok(/taxEngineAdapter/.test(read(join(ROOT, 'src', 'planning', 'taxBuckets', 'taxEngineAdapter.js'))), 'Tax engine adapter seam is missing');
   ok(/createTaxBucketsController/.test(main), 'Tax Buckets view controller is not wired');
   ok(!/(?:engine\.js|src\/tax\/|annual1040|ordinaryIncomeTax)/.test(view), 'Tax Buckets UI must not own engine or federal-tax math');
+  ok(/thresholdTaxDollars/.test(columns), 'Withdrawal Planner columns must display tax-engine dollar outputs');
+  ok(!/label:\s*['"](?:15|20|50|85)%['"]/.test(columns), 'Withdrawal Planner UI must not hardcode federal tax-rate labels');
   ok(!/replay/i.test(view), 'production Tax Buckets UI must not ship a replay control');
   ok(/#tax-buckets-view/.test(css), 'Tax Buckets page mount styling is missing');
 
@@ -267,7 +276,76 @@ try {
     if(blank.meta?.name !== 'Demo Household' || blank.meta?.isDemo !== true) throw new Error('blank demo metadata is wrong');
     if(blank.meta?.primaryName || blank.household?.spouse || blank.income?.socialSecurity?.primary?.pia !== 0 || blank.income?.socialSecurity?.primary?.claimAge !== 67)
       throw new Error(`first-run demo contains fictional values: ${JSON.stringify(blank)}`);
+  });
 
+  await step('Tax wizard: Wages flow through to Withdrawal Planner tax dollars', async () => {
+    await page.setViewport({ width:1440, height:900, deviceScaleFactor:1 });
+    await stableClick('.htab[data-page="tax-buckets"]');
+    await page.waitForFunction(() => {
+      const wages = document.querySelector('[data-taw-fact-wages]')?.textContent.trim();
+      const incomeTax = document.querySelector('[data-taw-col="ord"] .taw-col-edge span')
+        ?.textContent.trim();
+      return wages === '$0' && incomeTax === '$0';
+    }, { timeout: 15000 });
+
+    await goToWizardStep(page, 'tax');
+    const wageSelector = '[data-hh-wizard-screen="tax"] [data-tax-field="income.wages.client"]';
+    const beforeEdit = await page.evaluate(selector => {
+      const fields = [...document.querySelectorAll(selector)];
+      const root = document.querySelector('[data-hh-wizard-root]');
+      return {
+        count: fields.length,
+        value: fields[0]?.value ?? null,
+        disabled: fields[0]?.disabled ?? null,
+        revision: Number(root?.dataset.renderRevision || -1),
+      };
+    }, wageSelector);
+    if(beforeEdit.count !== 1 || beforeEdit.value !== '' || beforeEdit.disabled !== false){
+      throw new Error(`blank Tax wizard Client wages input is not editable: ${JSON.stringify(beforeEdit)}`);
+    }
+
+    await stableClick(wageSelector);
+    await page.keyboard.down('Control');
+    await page.keyboard.press('A');
+    await page.keyboard.up('Control');
+    await page.keyboard.type('50000');
+    // Moving focus through Chromium exercises the production input, change, and
+    // blur path instead of assigning a value or dispatching a synthetic event.
+    await page.keyboard.press('Tab');
+    await waitForWizard(page, {
+      step: 'tax',
+      afterRevision: beforeEdit.revision,
+    });
+    const committedWages = await page.$eval(wageSelector, input => input.value);
+    if(committedWages !== '50000'){
+      throw new Error(`Tax wizard did not commit Wages through change/blur: ${JSON.stringify({ committedWages })}`);
+    }
+
+    await stableClick('.htab[data-page="tax-buckets"]');
+    await page.waitForFunction(() => {
+      const wages = document.querySelector('[data-taw-fact-wages]')?.textContent.trim();
+      const incomeTax = document.querySelector('[data-taw-col="ord"] .taw-col-edge span')
+        ?.textContent.trim();
+      return wages === '$50,000' && incomeTax === '$3,820';
+    }, { timeout: 15000 });
+    const planner = await page.evaluate(() => ({
+      wages: document.querySelector('[data-taw-fact-wages]')?.textContent.trim() ?? null,
+      wageTag: document.querySelector('[data-taw-fact-wages]')?.tagName ?? null,
+      legacyWageInputs: document.querySelectorAll(
+        '[data-taw-wages], input[data-taw-fact-wages]',
+      ).length,
+      incomeTax: document.querySelector('[data-taw-col="ord"] .taw-col-edge span')
+        ?.textContent.trim() ?? null,
+    }));
+    if(planner.wages !== '$50,000'
+        || planner.wageTag !== 'SPAN'
+        || planner.legacyWageInputs !== 0
+        || planner.incomeTax !== '$3,820'){
+      throw new Error(`Tax wizard Wages did not reach Withdrawal Planner: ${JSON.stringify(planner)}`);
+    }
+  });
+
+  await step('seed filled demo fixture', async () => {
     await page.evaluate(() => {
       const key = 'parallax.households.v1';
       const db = JSON.parse(localStorage.getItem(key));
@@ -275,8 +353,8 @@ try {
       demo.meta.primaryName = 'Test Client';
       demo.meta.spouseName = 'Test Co-Client';
       demo.meta.filingStatus = 'marriedFilingJointly';
-      demo.household.primary = { currentAge: 64, retirementAge: 66, planEndAge: 95, birthYear: 1962 };
-      demo.household.spouse = { currentAge: 63, retirementAge: 65, birthYear: 1963 };
+      demo.household.primary = { currentAge: 64, retirementAge: 66, planEndAge: 96, birthYear: 1962 };
+      demo.household.spouse = { currentAge: 63, retirementAge: 65, planEndAge: 95, birthYear: 1963 };
       demo.portfolio.extraAccounts = [
         { type:'Traditional IRA', bucket:'traditional', owner:'client', balance:1600000 },
         { type:'Brokerage (taxable)', bucket:'taxable', owner:'spouse', balance:800000 },
@@ -322,8 +400,379 @@ try {
     if(planner.active !== 'tax-buckets') throw new Error(`Tax Buckets tab not active: ${JSON.stringify(planner)}`);
     if(planner.columns !== 4 || !planner.ord) throw new Error(`Withdrawal planner layout incomplete: ${JSON.stringify(planner)}`);
     if(planner.sliders !== 5) throw new Error(`Withdrawal planner expected five sliders: ${planner.sliders}`);
+
+    await page.waitForFunction(
+      () => document.querySelector('[data-taw-law]')?.textContent.trim() !== '\u2014',
+      { timeout: 15000 },
+    );
+    const thresholdProof = await page.evaluate(async () => {
+      const db = JSON.parse(localStorage.getItem('parallax.households.v1') || '{}');
+      const plan = db.demo;
+      const adapter = await import('/src/planning/taxBuckets/taxEngineAdapter.js');
+      const facts = await adapter.householdIncome(plan, 2026);
+      const result = await adapter.evaluateYear({
+        plan,
+        taxYear: 2026,
+        facts,
+        levers: {
+          taxableWithdrawal: 0,
+          deferredWithdrawal: 0,
+          rothConversion: 0,
+          rothWithdrawal: 0,
+          qcd: 0,
+        },
+      });
+      const money = value => typeof value === 'number' && Number.isFinite(value)
+        ? (value < 0 ? '-$' : '$') + Math.abs(Math.round(value)).toLocaleString('en-US')
+        : '\u2014';
+      const pct = value => {
+        if(typeof value !== 'number' || !Number.isFinite(value)) return '\u2014';
+        const n = Math.abs(value) <= 1 ? value * 100 : value;
+        return `${Math.round(n * 10) / 10}%`;
+      };
+      const text = selector => document.querySelector(selector)?.textContent.trim() ?? null;
+      return {
+        resultCode: result?.code ?? result?.error ?? null,
+        expected: {
+          ordinary: money(result?.thresholdTaxDollars?.ordinaryIncomeTax),
+          ltcg: money(result?.thresholdTaxDollars?.preferentialIncomeTax),
+          socialSecurity: money(result?.thresholdTaxDollars?.socialSecurityIncrementalModeledFederalIncomeTax),
+          ltcgMiddleRate: pct(result?.ladders?.ltcg?.rates?.middle),
+          socialSecurityLowerRate: pct(result?.ladders?.socialSecurity?.rates?.lowerTier),
+        },
+        actual: {
+          ordinary: text('[data-taw-col="ord"] .taw-col-edge span'),
+          ltcg: text('[data-taw-col="ltcg"] .taw-col-edge span'),
+          irmaa: text('[data-taw-col="irmaa"] .taw-col-edge span'),
+          socialSecurity: text('[data-taw-col="ss"] .taw-col-edge span'),
+          ltcgMiddleRate: text('[data-taw-mark="ltcg:0"] .taw-mark-chip'),
+          socialSecurityLowerRate: text('[data-taw-mark="ss:0"] .taw-mark-chip'),
+        },
+      };
+    });
+    if(thresholdProof.resultCode) throw new Error(`live tax-engine result unavailable: ${JSON.stringify(thresholdProof)}`);
+    if(
+      thresholdProof.actual.ordinary !== thresholdProof.expected.ordinary
+      || thresholdProof.actual.ltcg !== thresholdProof.expected.ltcg
+      || thresholdProof.actual.socialSecurity !== thresholdProof.expected.socialSecurity
+      || thresholdProof.actual.irmaa !== '\u2014'
+      || thresholdProof.actual.ltcgMiddleRate !== thresholdProof.expected.ltcgMiddleRate
+      || thresholdProof.actual.socialSecurityLowerRate !== thresholdProof.expected.socialSecurityLowerRate
+    ) {
+      throw new Error(`rendered threshold contract differs from tax engine: ${JSON.stringify(thresholdProof)}`);
+    }
+
+    await page.click('[data-taw-year="2025"]');
+    await page.waitForFunction(() => {
+      const year = document.querySelector('[data-taw-year="2025"]');
+      const edge = document.querySelector('[data-taw-col="ord"] .taw-col-edge span');
+      return year?.classList.contains('is-on') && edge?.textContent.trim() === '\u2014';
+    }, { timeout: 15000 });
+    const incomplete = await page.evaluate(() => {
+      const text = selector => document.querySelector(selector)?.textContent.trim() ?? null;
+      const columns = ['ord', 'ltcg', 'ss'].map(id => ({
+        id,
+        rate: text(`[data-taw-col="${id}"] .taw-col-rate`),
+        edge: text(`[data-taw-col="${id}"] .taw-col-edge span`),
+        foot: text(`[data-taw-col="${id}"] .taw-col-foot-val`),
+      }));
+      return {
+        baseline: text('[data-taw-baseline-total]'),
+        socialSecurity: text('[data-taw-fact-ss]'),
+        otherIncome: text('[data-taw-fact-other]'),
+        wages: text('[data-taw-fact-wages]'),
+        columns,
+      };
+    });
+    if(
+      incomplete.baseline !== '\u2014'
+      || incomplete.socialSecurity !== '\u2014'
+      || incomplete.otherIncome !== '\u2014'
+      || incomplete.wages !== '\u2014'
+      || incomplete.columns.some(column => (
+        column.rate !== '\u2014' || column.edge !== '\u2014' || column.foot !== '\u2014'
+      ))
+    ) {
+      throw new Error(`incomplete prior-year facts rendered false values: ${JSON.stringify(incomplete)}`);
+    }
+    await page.click('[data-taw-year="2026"]');
+    await page.waitForFunction(
+      () => document.querySelector('[data-taw-year="2026"]')?.classList.contains('is-on')
+        && document.querySelector('[data-taw-col="ord"] .taw-col-edge span')?.textContent.trim() !== '\u2014',
+      { timeout: 15000 },
+    );
     await page.screenshot({ path:join(OUT, '02-tax-buckets.png') });
     await page.setViewport({ width:1920, height:1080, deviceScaleFactor:3 });
+  });
+
+  await step('Tax Buckets: rapid slider approvals preserve both changes', async () => {
+    const proof = await page.evaluate(async () => {
+      const { createTaxAwareWithdrawalController } = await import('/ui/taxAwareWithdrawal.js?verify=lever-queue');
+      const host = document.createElement('div');
+      const plan = { meta: { householdId: 'lever-queue-fixture', filingStatus: 'single' } };
+      const calls = [];
+      let releaseFirst;
+      const firstGate = new Promise(resolveGate => { releaseFirst = resolveGate; });
+      let nextApprovalGate = firstGate;
+      let nextRefreshGate = null;
+      let refreshStateCalls = 0;
+      let approvalReturns = 0;
+      const waitFor = async (predicate, label) => {
+        const deadline = performance.now() + 2000;
+        while (performance.now() < deadline) {
+          if (predicate()) return;
+          await new Promise(resolveWait => setTimeout(resolveWait, 0));
+        }
+        throw new Error(`timed out waiting for ${label}`);
+      };
+      const accountState = levers => {
+        const remainingTraditional = Math.max(
+          0,
+          100000 - levers.rothConversion - levers.qcd - levers.deferredWithdrawal,
+        );
+        return {
+          valid: true,
+          limits: {
+            rothConversion: { max: levers.rothConversion + remainingTraditional },
+            rothWithdrawal: { max: 50000 },
+            qcd: { max: levers.qcd + remainingTraditional },
+            deferredWithdrawal: { max: levers.deferredWithdrawal + remainingTraditional },
+            taxableWithdrawal: { max: 50000 },
+          },
+        };
+      };
+      const adapter = {
+        withdrawalAccountState: async (_plan, levers) => {
+          const gate = nextRefreshGate;
+          if (gate) {
+            nextRefreshGate = null;
+            refreshStateCalls++;
+            await gate;
+          }
+          return accountState(levers);
+        },
+        householdIncome: async () => ({
+          available: false,
+          filingStatus: 'single',
+          socialSecurityBenefits: 12000,
+          otherIncome: null,
+          wages: 25000,
+        }),
+        evaluateYear: async () => ({ code: 'VERIFY_ONLY' }),
+        attributeSleeves: async () => null,
+        approveWithdrawalPlannerLeverChange: async (_plan, currentLevers, key, value) => {
+          calls.push({ currentLevers: { ...currentLevers }, key, value });
+          const gate = nextApprovalGate;
+          nextApprovalGate = null;
+          if (gate) await gate;
+          const nextLevers = { ...currentLevers, [key]: value };
+          approvalReturns++;
+          return { approved: true, levers: nextLevers, state: accountState(nextLevers) };
+        },
+      };
+      const controller = createTaxAwareWithdrawalController({ getPlan: () => plan, adapter });
+      controller.bind(host);
+      const conversion = host.querySelector('[data-taw-lever="rothConversion"]');
+      const distribution = host.querySelector('[data-taw-lever="deferredWithdrawal"]');
+      const wages = host.querySelector('[data-taw-fact-wages]');
+      await waitFor(
+        () => conversion.max === '100000' && wages.textContent === '$25,000',
+        'initial engine limits and available income fields',
+      );
+
+      conversion.value = '60000';
+      conversion.dispatchEvent(new Event('input', { bubbles: true }));
+      distribution.value = '40000';
+      distribution.dispatchEvent(new Event('input', { bubbles: true }));
+      await waitFor(() => calls.length === 1, 'first approval');
+      const callsBeforeRelease = calls.length;
+      releaseFirst();
+      await waitFor(() => calls.length === 2, 'second approval');
+      await waitFor(
+        () => conversion.value === '60000' && distribution.value === '40000',
+        'both approved slider values',
+      );
+
+      let releaseStaleApproval;
+      nextApprovalGate = new Promise(resolveGate => { releaseStaleApproval = resolveGate; });
+      conversion.value = '30000';
+      conversion.dispatchEvent(new Event('input', { bubbles: true }));
+      await waitFor(() => calls.length === 3, 'approval pending before refresh');
+      let releaseRefresh;
+      nextRefreshGate = new Promise(resolveGate => { releaseRefresh = resolveGate; });
+      host.querySelector('[data-taw-year="2025"]').click();
+      await waitFor(
+        () => refreshStateCalls === 1 && conversion.value === '60000',
+        'refresh invalidation of pending approval',
+      );
+      releaseStaleApproval();
+      await waitFor(() => approvalReturns === 3, 'stale approval return');
+      await new Promise(resolveWait => setTimeout(resolveWait, 0));
+      const conversionAfterStaleReturn = conversion.value;
+      const taxable = host.querySelector('[data-taw-lever="taxableWithdrawal"]');
+      taxable.value = '10000';
+      taxable.dispatchEvent(new Event('input', { bubbles: true }));
+      await new Promise(resolveWait => setTimeout(resolveWait, 0));
+      const callsWhileRefreshPending = calls.length;
+      releaseRefresh();
+      await waitFor(() => calls.length === 4, 'approval queued after refresh');
+      await waitFor(() => taxable.value === '10000', 'post-refresh approved slider value');
+
+      return {
+        callsBeforeRelease,
+        calls,
+        finalConversion: conversion.value,
+        finalDistribution: distribution.value,
+        finalDistributionMax: distribution.max,
+        partialIncome: {
+          socialSecurity: host.querySelector('[data-taw-fact-ss]').textContent,
+          otherIncome: host.querySelector('[data-taw-fact-other]').textContent,
+          wages: wages.textContent,
+        },
+        refreshRace: {
+          conversionAfterStaleReturn,
+          callsWhileRefreshPending,
+          postRefreshCall: calls[3],
+          finalTaxable: taxable.value,
+        },
+      };
+    });
+    if (proof.callsBeforeRelease !== 1) {
+      throw new Error(`approvals ran concurrently: ${JSON.stringify(proof)}`);
+    }
+    if (proof.calls[1]?.currentLevers?.rothConversion !== 60000) {
+      throw new Error(`second approval missed the first accepted change: ${JSON.stringify(proof)}`);
+    }
+    if (
+      proof.finalConversion !== '60000'
+      || proof.finalDistribution !== '40000'
+      || proof.finalDistributionMax !== '40000'
+    ) {
+      throw new Error(`approved shared-balance controls are inconsistent: ${JSON.stringify(proof)}`);
+    }
+    if (
+      proof.partialIncome.socialSecurity !== '$12,000'
+      || proof.partialIncome.otherIncome !== '—'
+      || proof.partialIncome.wages !== '$25,000'
+    ) {
+      throw new Error(`available income fields were erased by a partial result: ${JSON.stringify(proof)}`);
+    }
+    if (
+      proof.refreshRace.conversionAfterStaleReturn !== '60000'
+      || proof.refreshRace.callsWhileRefreshPending !== 3
+      || proof.refreshRace.postRefreshCall?.currentLevers?.rothConversion !== 60000
+      || proof.refreshRace.finalTaxable !== '10000'
+    ) {
+      throw new Error(`refresh and approval ordering is unsafe: ${JSON.stringify(proof)}`);
+    }
+  });
+
+  await step('Tax Buckets: production RMD floor and shared IRA limits reach the controls', async () => {
+    const proof = await page.evaluate(async () => {
+      const [engineModule, accountModule, controllerModule, adapter] = await Promise.all([
+        import('/engine.js'),
+        import('/src/household/createAccount.js'),
+        import('/ui/taxAwareWithdrawal.js?verify=production-rmd'),
+        import('/src/planning/taxBuckets/taxEngineAdapter.js'),
+      ]);
+      const plan = structuredClone(engineModule.defaultPlan);
+      plan.meta = {
+        ...plan.meta,
+        householdId: 'production-rmd-fixture',
+        filingStatus: 'single',
+        planningAsOfYear: 2026,
+      };
+      plan.household.primary = {
+        currentAge: 73,
+        retirementAge: 73,
+        planEndAge: 75,
+        birthYear: 1953,
+      };
+      plan.household.spouse = null;
+      plan.income.socialSecurity = {
+        primary: { pia: 0, claimAge: 70 },
+        spouse: null,
+      };
+      plan.income.other = [];
+      plan.savings.annual = 0;
+      plan.portfolio.accounts = {
+        taxable: { balance: 0, basisPct: 1 },
+        traditional: { balance: 0 },
+        roth: { balance: 0 },
+      };
+      plan.portfolio.extraAccounts = [
+        accountModule.createAccount('traditional_ira', {
+          owner: 'client',
+          balance: 265000,
+          valuationDate: '2025-12-31',
+        }),
+      ];
+      const host = document.createElement('div');
+      host.style.position = 'fixed';
+      host.style.left = '-10000px';
+      document.body.appendChild(host);
+      const controller = controllerModule.createTaxAwareWithdrawalController({
+        getPlan: () => plan,
+        adapter,
+      });
+      controller.bind(host);
+      const waitFor = async (predicate, label) => {
+        const deadline = performance.now() + 10000;
+        while(performance.now() < deadline){
+          if(predicate()) return;
+          await new Promise(resolveWait => setTimeout(resolveWait, 10));
+        }
+        throw new Error(`timed out waiting for ${label}`);
+      };
+      const conversion = host.querySelector('[data-taw-lever="rothConversion"]');
+      const distribution = host.querySelector('[data-taw-lever="deferredWithdrawal"]');
+      await waitFor(
+        () => distribution.min === '10000'
+          && distribution.max === '265000'
+          && distribution.value === '10000'
+          && conversion.max === '255000',
+        'initial RMD-backed limits',
+      );
+      const initial = {
+        distributionMin: distribution.min,
+        distributionMax: distribution.max,
+        distributionValue: distribution.value,
+        conversionMax: conversion.max,
+      };
+      conversion.value = '160000';
+      conversion.dispatchEvent(new Event('input', { bubbles: true }));
+      distribution.value = '160000';
+      distribution.dispatchEvent(new Event('input', { bubbles: true }));
+      await waitFor(
+        () => conversion.value === '160000'
+          && distribution.value === '105000'
+          && conversion.max === '160000'
+          && distribution.max === '105000',
+        'serialized shared-IRA approvals',
+      );
+      const final = {
+        distributionMin: distribution.min,
+        distributionMax: distribution.max,
+        distributionValue: distribution.value,
+        conversionMax: conversion.max,
+        conversionValue: conversion.value,
+      };
+      host.remove();
+      return { initial, final };
+    });
+    if(
+      proof.initial.distributionMin !== '10000'
+      || proof.initial.distributionMax !== '265000'
+      || proof.initial.distributionValue !== '10000'
+      || proof.initial.conversionMax !== '255000'
+      || proof.final.distributionMin !== '10000'
+      || proof.final.distributionMax !== '105000'
+      || proof.final.distributionValue !== '105000'
+      || proof.final.conversionMax !== '160000'
+      || proof.final.conversionValue !== '160000'
+    ) {
+      throw new Error(`rendered RMD/shared-IRA limits are wrong: ${JSON.stringify(proof)}`);
+    }
   });
 
   await step('household wizard: semantic four-step contract', async () => {
@@ -626,6 +1075,66 @@ try {
     await page.screenshot({ path: join(OUT, '03b-scenarios-focus.png'), fullPage: true });
   });
 
+  await step('later-surviving co-client sets the visible plan horizon', async () => {
+    await page.evaluate(() => {
+      const key = 'parallax.households.v1';
+      const db = JSON.parse(localStorage.getItem(key) || '{}');
+      const demo = db.demo;
+      if(!demo) return;
+      demo.meta.filingStatus = 'marriedFilingJointly';
+      demo.household.primary = {
+        currentAge: 64,
+        retirementAge: 66,
+        planEndAge: 80,
+        birthYear: 1962,
+      };
+      demo.household.spouse = {
+        currentAge: 60,
+        retirementAge: 65,
+        planEndAge: 100,
+        birthYear: 1966,
+      };
+      demo.portfolio.accounts = {
+        taxable: { balance: 50000000, basisPct: 1 },
+        traditional: { balance: 0 },
+        roth: { balance: 0 },
+      };
+      demo.portfolio.extraAccounts = [];
+      localStorage.setItem(key, JSON.stringify(db));
+      localStorage.removeItem('parallax.scenarios.demo.v1');
+    });
+    await stableReload({ waitUntil: 'networkidle2', timeout: 20000 });
+    await waitForWizard(page, { householdId: 'demo' });
+    await page.click('.htab[data-sub-target="goals"]');
+    await page.waitForSelector('.gh-page', { visible: true, timeout: 8000 });
+    const horizon = await page.evaluate(() => ({
+      terminalTick: [...document.querySelectorAll('.gh-tick')].at(-1)?.textContent.trim() || '',
+      axisMax: document.querySelector('.gh-lanes')?.getAttribute('data-axis-max') || '',
+    }));
+    if(horizon.terminalTick !== '104' || horizon.axisMax !== '105'){
+      throw new Error(`later survivor did not set the Goals horizon: ${JSON.stringify(horizon)}`);
+    }
+    await page.click('#run-btn');
+    await page.waitForFunction(
+      () => /Plan updated|Partial run/i.test(document.querySelector('#status')?.textContent || ''),
+      { timeout: 30000 },
+    );
+    await page.click('button[data-page="scenarios"]');
+    await page.waitForSelector('#scn-view', { visible: true, timeout: 8000 });
+    await page.click('#scn-seg-focus');
+    await page.waitForFunction(
+      () => !!document.querySelector('#scn-view .focus .viability__text'),
+      { timeout: 8000 },
+    );
+    const viability = await page.$eval(
+      '#scn-view .focus .viability__text',
+      element => element.textContent.trim(),
+    );
+    if(viability !== 'Funds last to age 104'){
+      throw new Error(`later survivor did not reach the Focus result: "${viability}"`);
+    }
+  });
+
   await step('cash-flow view: exact columns, rows, summary, path controls, pills', async () => {
     // Re-anchor the demo plan + scenario levers after earlier household edits.
     await page.evaluate(() => {
@@ -636,8 +1145,13 @@ try {
       demo.meta.primaryName = 'Test Client';
       demo.meta.spouseName = 'Test Co-Client';
       demo.meta.filingStatus = 'marriedFilingJointly';
-      demo.household.primary = { currentAge: 64, retirementAge: 66, planEndAge: 95, birthYear: 1962 };
-      demo.household.spouse = { currentAge: 63, retirementAge: 65, birthYear: 1963 };
+      demo.household.primary = { currentAge: 64, retirementAge: 66, planEndAge: 96, birthYear: 1962 };
+      demo.household.spouse = { currentAge: 63, retirementAge: 65, planEndAge: 95, birthYear: 1963 };
+      demo.portfolio.accounts = {
+        taxable: { balance:0, basisPct:1 },
+        traditional: { balance:0 },
+        roth: { balance:0 },
+      };
       demo.portfolio.extraAccounts = [
         { type:'Traditional IRA', bucket:'traditional', owner:'client', balance:1600000 },
         { type:'Brokerage (taxable)', bucket:'taxable', owner:'spouse', balance:800000 },
@@ -654,7 +1168,7 @@ try {
     for(let i = 0; i < 60; i++){
       await new Promise(r => setTimeout(r, 500));
       const status = await page.evaluate(() => document.querySelector('#status')?.textContent || '');
-      if(/Complete/i.test(status)) break;
+      if(/Plan updated|Partial run/i.test(status)) break;
     }
 
     await page.click('button[data-page="scenarios"]');
@@ -724,8 +1238,8 @@ try {
     if(!/^\$[\d,]+/.test(m.accumTax)) throw new Error(`accumulation-year Tax cell is not populated: "${m.accumTax}"`);
     if(m.cols.some(c => ['Withdraw', 'One-time', 'Return $', 'Starting value', 'Inflows', 'Outflows', 'Annual return', 'Ending value'].includes(c))) throw new Error(`old cash-flow columns still present: ${JSON.stringify(m.cols)}`);
     if(m.pills.length < 2) throw new Error(`scenario pills missing: ${JSON.stringify(m.pills)}`);
-    if(!m.pathControls) throw new Error('path-replay controls not relocated into #scn-cf-path-controls');
-    if(m.mode !== 'typical') throw new Error(`path replay default mode not typical (${m.mode})`);
+    if(!SKIP_SEQUENCING && !m.pathControls) throw new Error('path-replay controls not relocated into #scn-cf-path-controls');
+    if(!SKIP_SEQUENCING && m.mode !== 'typical') throw new Error(`path replay default mode not typical (${m.mode})`);
     for(const label of ['Median Ending', 'Peak Withdrawal']){
       if(!m.stats.includes(label)) throw new Error(`cash-flow summary stat missing: ${label} (${JSON.stringify(m.stats)})`);
     }
@@ -772,61 +1286,63 @@ try {
     await new Promise(r => setTimeout(r, 350));
     await waitCashRows(page, 10);
 
-    // Path replay: named modes only. The advanced Path # / Seed inputs were
-    // removed from the header — assert they stay gone. (#path-mode is the
-    // production node relocated into the Cash Flow header — same element, same
-    // bindings.)
-    const advanced = await page.evaluate(() => ({
-      chooseOpt: [...document.querySelectorAll('#path-mode option')].some(o => o.value === 'choose'),
-      indexInput: !!document.querySelector('#path-index'),
-      seedInput: !!document.querySelector('#path-seed'),
-    }));
-    if(advanced.chooseOpt || advanced.indexInput || advanced.seedInput) throw new Error(`removed path #/seed controls still present: ${JSON.stringify(advanced)}`);
-    const availableModes = await page.evaluate(() => [...document.querySelectorAll('#path-mode option')].map(o => o.value));
-    for(const mode of ['stressed', 'favorable']){
-      if(!availableModes.includes(mode)) throw new Error(`${mode} option missing from path-mode select`);
-      await page.select('#path-mode', mode);
-      await new Promise(r => setTimeout(r, 400));
-      if(await waitCashRows(page, 10) < 10) throw new Error(`${mode} path emptied the cash-flow table`);
-      const federalPath = await page.evaluate(() => {
+    if(!SKIP_SEQUENCING){
+      // Path replay: named modes only. The advanced Path # / Seed inputs were
+      // removed from the header — assert they stay gone. (#path-mode is the
+      // production node relocated into the Cash Flow header — same element, same
+      // bindings.)
+      const advanced = await page.evaluate(() => ({
+        chooseOpt: [...document.querySelectorAll('#path-mode option')].some(o => o.value === 'choose'),
+        indexInput: !!document.querySelector('#path-index'),
+        seedInput: !!document.querySelector('#path-seed'),
+      }));
+      if(advanced.chooseOpt || advanced.indexInput || advanced.seedInput) throw new Error(`removed path #/seed controls still present: ${JSON.stringify(advanced)}`);
+      const availableModes = await page.evaluate(() => [...document.querySelectorAll('#path-mode option')].map(o => o.value));
+      for(const mode of ['stressed', 'favorable']){
+        if(!availableModes.includes(mode)) throw new Error(`${mode} option missing from path-mode select`);
+        await page.select('#path-mode', mode);
+        await new Promise(r => setTimeout(r, 400));
+        if(await waitCashRows(page, 10) < 10) throw new Error(`${mode} path emptied the cash-flow table`);
+        const federalPath = await page.evaluate(() => {
+          const th = document.querySelector('#scn-view .cf-table__head .cf-th[data-tax-source]');
+          const compare = document.querySelector('#scn-view [data-tax-compare]');
+          const disclosure = document.querySelector('#scn-view [data-tax-disclosure]');
+          return {
+            mode: document.querySelector('#path-mode')?.value || '',
+            header: th ? {
+              label: th.textContent.trim(),
+              source: th.dataset.taxSource || '',
+              scope: th.dataset.taxScope || '',
+            } : null,
+            compare: compare ? {
+              path: compare.dataset.taxPath || '',
+              federalTotal: Number(compare.dataset.federalTotal),
+              enginePathTotal: Number(compare.dataset.enginePathTotal),
+              delta: Number(compare.dataset.delta),
+            } : null,
+            disclosure: disclosure ? {
+              state: disclosure.dataset.taxState || '',
+              scope: disclosure.querySelector('[data-tax-scope-disclosure]')?.textContent.trim() || '',
+            } : null,
+          };
+        });
+        if(federalPath.mode !== mode) throw new Error(`${mode} path mode did not stay selected: ${JSON.stringify(federalPath)}`);
+        if(federalPath.header?.label !== 'Tax' || federalPath.header?.source !== 'federal-converged-row' || federalPath.header?.scope !== 'MODELED_FEDERAL_LINE_24') throw new Error(`${mode} path tax scope is not converged federal: ${JSON.stringify(federalPath)}`);
+        if(federalPath.compare) throw new Error(`${mode} path still shows an obsolete sidecar comparison: ${JSON.stringify(federalPath)}`);
+        if(federalPath.disclosure?.state !== 'federal-converged-row' || !/retirement rows funded and converged, working years reporting-only/i.test(federalPath.disclosure?.scope || '')) throw new Error(`${mode} converged federal scope disclosure missing: ${JSON.stringify(federalPath)}`);
+        await new Promise(r => setTimeout(r, 700));
+        await page.screenshot({ path: join(OUT, `04-cashflow-${mode}.png`), fullPage: true });
+      }
+      await page.select('#path-mode', 'typical');
+      await new Promise(r => setTimeout(r, 300));
+      const restoredTaxHeader = await page.evaluate(() => {
         const th = document.querySelector('#scn-view .cf-table__head .cf-th[data-tax-source]');
-        const compare = document.querySelector('#scn-view [data-tax-compare]');
-        const disclosure = document.querySelector('#scn-view [data-tax-disclosure]');
-        return {
-          mode: document.querySelector('#path-mode')?.value || '',
-          header: th ? {
-            label: th.textContent.trim(),
-            source: th.dataset.taxSource || '',
-            scope: th.dataset.taxScope || '',
-          } : null,
-          compare: compare ? {
-            path: compare.dataset.taxPath || '',
-            federalTotal: Number(compare.dataset.federalTotal),
-            enginePathTotal: Number(compare.dataset.enginePathTotal),
-            delta: Number(compare.dataset.delta),
-          } : null,
-          disclosure: disclosure ? {
-            state: disclosure.dataset.taxState || '',
-            scope: disclosure.querySelector('[data-tax-scope-disclosure]')?.textContent.trim() || '',
-          } : null,
-        };
+        return th ? { label: th.textContent.trim(), source: th.dataset.taxSource || '' } : null;
       });
-      if(federalPath.mode !== mode) throw new Error(`${mode} path mode did not stay selected: ${JSON.stringify(federalPath)}`);
-      if(federalPath.header?.label !== 'Tax' || federalPath.header?.source !== 'federal-converged-row' || federalPath.header?.scope !== 'MODELED_FEDERAL_LINE_24') throw new Error(`${mode} path tax scope is not converged federal: ${JSON.stringify(federalPath)}`);
-      if(federalPath.compare) throw new Error(`${mode} path still shows an obsolete sidecar comparison: ${JSON.stringify(federalPath)}`);
-      if(federalPath.disclosure?.state !== 'federal-converged-row' || !/retirement rows funded and converged, working years reporting-only/i.test(federalPath.disclosure?.scope || '')) throw new Error(`${mode} converged federal scope disclosure missing: ${JSON.stringify(federalPath)}`);
-      await new Promise(r => setTimeout(r, 700));
-      await page.screenshot({ path: join(OUT, `04-cashflow-${mode}.png`), fullPage: true });
+      if(restoredTaxHeader?.label !== 'Tax' || restoredTaxHeader?.source !== 'federal-converged-row') throw new Error(`typical path tax scope did not restore: ${JSON.stringify(restoredTaxHeader)}`);
+      if(await page.evaluate(() => !!document.querySelector('#scn-view [data-tax-compare]'))) throw new Error('obsolete federal-vs-engine summary restored on typical path');
+      if(!await page.evaluate(() => /retirement rows funded and converged, working years reporting-only/i.test(document.querySelector('#scn-view [data-tax-scope-disclosure]')?.textContent || ''))) throw new Error('readable phase-scoped federal disclosure did not restore on typical path');
     }
-    await page.select('#path-mode', 'typical');
-    await new Promise(r => setTimeout(r, 300));
-    const restoredTaxHeader = await page.evaluate(() => {
-      const th = document.querySelector('#scn-view .cf-table__head .cf-th[data-tax-source]');
-      return th ? { label: th.textContent.trim(), source: th.dataset.taxSource || '' } : null;
-    });
-    if(restoredTaxHeader?.label !== 'Tax' || restoredTaxHeader?.source !== 'federal-converged-row') throw new Error(`typical path tax scope did not restore: ${JSON.stringify(restoredTaxHeader)}`);
-    if(await page.evaluate(() => !!document.querySelector('#scn-view [data-tax-compare]'))) throw new Error('obsolete federal-vs-engine summary restored on typical path');
-    if(!await page.evaluate(() => /retirement rows funded and converged, working years reporting-only/i.test(document.querySelector('#scn-view [data-tax-scope-disclosure]')?.textContent || ''))) throw new Error('readable phase-scoped federal disclosure did not restore on typical path');
 
     // Exercise warning and attach-failure states directly through the production
     // Cash Flow renderer. This avoids changing real scenario or Household state.
@@ -868,29 +1384,31 @@ try {
     await page.screenshot({ path: join(OUT, '04-cashflow.png'), fullPage: true });
   });
 
-  await step('sequencing renders all chips on', async () => {
-    await page.click('button[data-page="sequencing"]');
-    await new Promise(r => setTimeout(r, 600));
-    await page.evaluate(() => document.querySelectorAll('.seq-chip').forEach(c => { if(!c.classList.contains('on')) c.click(); }));
-    await new Promise(r => setTimeout(r, 600));
-    const ok = await page.evaluate(() => document.querySelectorAll('#seq-svg path').length > 4);
-    if(!ok) throw new Error('sequencing chart missing paths');
-    const el = await page.$('.seq-chart');
-    await el.screenshot({ path: join(OUT, '05-sequencing.png') });
-  });
+  if(!SKIP_SEQUENCING){
+    await step('sequencing renders all chips on', async () => {
+      await page.click('button[data-page="sequencing"]');
+      await new Promise(r => setTimeout(r, 600));
+      await page.evaluate(() => document.querySelectorAll('.seq-chip').forEach(c => { if(!c.classList.contains('on')) c.click(); }));
+      await new Promise(r => setTimeout(r, 600));
+      const ok = await page.evaluate(() => document.querySelectorAll('#seq-svg path').length > 4);
+      if(!ok) throw new Error('sequencing chart missing paths');
+      const el = await page.$('.seq-chart');
+      await el.screenshot({ path: join(OUT, '05-sequencing.png') });
+    });
 
-  await step('sequencing excludes deferred Playback', async () => {
-    const playbackSelectors = await page.evaluate(() => ({
-      panel: Boolean(document.querySelector('#playback-panel')),
-      verdict: Boolean(document.querySelector('#pb-verdict')),
-      yearPicker: Boolean(document.querySelector('[data-pb-year]')),
-      detail: Boolean(document.querySelector('#pb-detail-btn')),
-    }));
-    if(Object.values(playbackSelectors).some(Boolean)){
-      throw new Error(`deferred Playback rendered unexpectedly: ${JSON.stringify(playbackSelectors)}`);
-    }
-    await page.screenshot({ path: join(OUT, '06-sequencing-full.png'), fullPage: true });
-  });
+    await step('sequencing excludes deferred Playback', async () => {
+      const playbackSelectors = await page.evaluate(() => ({
+        panel: Boolean(document.querySelector('#playback-panel')),
+        verdict: Boolean(document.querySelector('#pb-verdict')),
+        yearPicker: Boolean(document.querySelector('[data-pb-year]')),
+        detail: Boolean(document.querySelector('#pb-detail-btn')),
+      }));
+      if(Object.values(playbackSelectors).some(Boolean)){
+        throw new Error(`deferred Playback rendered unexpectedly: ${JSON.stringify(playbackSelectors)}`);
+      }
+      await page.screenshot({ path: join(OUT, '06-sequencing-full.png'), fullPage: true });
+    });
+  }
 
   // Objective theme contract: the page BACKGROUND (not just foreground tokens) must be
   // the shared charcoal/champagne --page-bg on Scenarios, Goals, Sequencing, AND the
@@ -933,7 +1451,7 @@ try {
     const [ar,ag,ab] = (hdr.tabAfterBg.match(/\d+/g)||[]).map(Number);
     if(!(ar > 180 && ag > 130 && ab < 140)) throw new Error(`Active tab underline must be champagne: ${hdr.tabAfterBg}`);
   });
-  await step('theme: Goals + Sequencing + Household all sit on the shared charcoal background', async () => {
+  await step('theme: product pages sit on the shared charcoal background', async () => {
     const CHARCOAL = '11, 13, 17';  // #0b0d11 — shared --page-bg gradient floor (scenarios + household)
     const NAVY = '17, 30, 49';      // #111E31 — retired Scenarios navy base, must be gone
     const BRONZE = '154, 102, 56';  // the retired Household warm background — must be gone
@@ -953,13 +1471,18 @@ try {
     if(!await page.evaluate(() => !!document.querySelector('#np-content .gh-card'))) throw new Error('Goals view did not mount .gh-card');
     const goalsBg = await bgOf('.page[data-page="net-worth"]');
 
-    await page.click('button[data-page="sequencing"]'); await sleep(450);
-    const seqBg = await bgOf('.page[data-page="sequencing"]');
+    let seqBg = null;
+    if(!SKIP_SEQUENCING){
+      await page.click('button[data-page="sequencing"]'); await sleep(450);
+      seqBg = await bgOf('.page[data-page="sequencing"]');
+    }
 
     await page.click('.htab[data-page="household"]'); await sleep(500);
     const hhBg = await bgOf('.page[data-page="household"]');
 
-    for(const [name, bg] of [['goals', goalsBg], ['sequencing', seqBg], ['household', hhBg]]){
+    const surfaces = [['goals', goalsBg], ['household', hhBg]];
+    if(seqBg !== null) surfaces.splice(1, 0, ['sequencing', seqBg]);
+    for(const [name, bg] of surfaces){
       if(!bg.includes(CHARCOAL)) throw new Error(`${name} page is NOT on the shared charcoal background: ${bg}`);
       if(bg.includes(NAVY)) throw new Error(`${name} page still shows the retired navy background: ${bg}`);
       if(bg.includes(BRONZE)) throw new Error(`${name} page still shows the retired Household bronze background: ${bg}`);
@@ -1034,7 +1557,7 @@ try {
       const currentYear = new Date().getFullYear();
       plan.meta = { ...(plan.meta || {}), primaryName: 'Probability Fixture', spouseName: '', filingStatus: 'single' };
       plan.household = {
-        primary: { currentAge: 65, retirementAge: 65, planEndAge: 66, birthYear: currentYear - 65 },
+        primary: { currentAge: 65, retirementAge: 65, planEndAge: 65, birthYear: currentYear - 65 },
         spouse: null,
         children: [],
       };
@@ -1079,7 +1602,8 @@ try {
     });
 
     resetSeed(20260609);
-    const returnPaths = Array.from({ length: 40 }, () => generateReturnPath(1));
+    const horizonYears = resolveInputs(controlledPlan, {}).horizonYears;
+    const returnPaths = Array.from({ length: 40 }, () => generateReturnPath(horizonYears));
     const shortcut = runSimulation(controlledPlan, {}, returnPaths);
     const funded = runMonteCarloWithFederalFunding(shortcut, controlledPlan, {}, {
       filingStatus: 'single',
@@ -1093,7 +1617,7 @@ try {
     await sleep(1200);
     await page.waitForSelector('#run-btn:not([disabled])', { timeout: 10000 });
     await page.click('#run-btn');
-    await page.waitForFunction(() => /Complete/i.test(document.querySelector('#status')?.textContent || ''), { timeout: 30000 });
+    await page.waitForFunction(() => /Plan updated|Partial run/i.test(document.querySelector('#status')?.textContent || ''), { timeout: 30000 });
     await page.click('button[data-page="scenarios"]');
     await sleep(600);
     await page.click('#scn-seg-compare');
@@ -1377,29 +1901,31 @@ try {
     );
     if(blockedWizardEditor) throw new Error('blocked Household surface exposed wizard inputs');
 
-    const blockedControls = await page.evaluate(() => {
+    const blockedControls = await page.evaluate(includeSequencing => {
       const disabled = selector => {
         const el = document.querySelector(selector);
         return { selector, exists: !!el, disabled: !!el?.disabled };
       };
-      return [
+      const controls = [
         disabled('#save-btn'), disabled('#run-btn'), disabled('#hh-menu-btn'), disabled('#hh-switch'),
         disabled('#hh-new'), disabled('#hh-load-demo'), disabled('#scn-add'), disabled('#scn-solve'),
-        disabled('#path-mode'), disabled('#seq-select'),
       ];
-    });
+      if(includeSequencing) controls.push(disabled('#path-mode'), disabled('#seq-select'));
+      return controls;
+    }, !SKIP_SEQUENCING);
     const missingBlockedControls = blockedControls.filter(x => !x.exists || !x.disabled);
     if(missingBlockedControls.length) throw new Error(`blocked mutation controls must exist and be disabled: ${JSON.stringify(missingBlockedControls)}`);
 
     // Every product surface may still be navigated for recovery context, but no
     // default-plan input or prior financial result may leak into a blocked view.
-    for(const selector of [
+    const recoverySurfaces = [
       '.htab[data-page="household"]',
       '.htab[data-sub-target="goals"]',
       '.htab[data-page="scenarios"]',
       '.htab[data-page="tax-buckets"]',
-      '.htab[data-page="sequencing"]',
-    ]){
+    ];
+    if(!SKIP_SEQUENCING) recoverySurfaces.push('.htab[data-page="sequencing"]');
+    for(const selector of recoverySurfaces){
       await stableClick(selector);
       await sleep(400);
       const exposed = await page.evaluate(() => {

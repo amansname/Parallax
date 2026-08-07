@@ -18,14 +18,14 @@ function plan(){
       state: 'VA',
     },
     household: {
-      primary: { currentAge: 55, retirementAge: 62, employmentStatus: 'employed' },
-      spouse: { currentAge: 55, retirementAge: 62, employmentStatus: 'employed' },
+      primary: { currentAge: 55, retirementAge: 62, planEndAge: 94, employmentStatus: 'employed' },
+      spouse: { currentAge: 55, retirementAge: 64, planEndAge: 101, employmentStatus: 'employed' },
       dependentsCount: 0,
     },
     income: {
       socialSecurity: {
-        primary: { claimAge: 67 },
-        spouse: { claimAge: 67 },
+        primary: { pia: 31200, claimAge: 67 },
+        spouse: { pia: 24600, claimAge: 68 },
       },
     },
     incomeTax: {
@@ -82,6 +82,8 @@ function plan(){
 }
 
 function wizard({
+  accountFormOpen = false,
+  accountDraft = {},
   taxView = 'simplified',
   optionalMenuOpen = false,
   showScheduleSE = false,
@@ -89,6 +91,8 @@ function wizard({
   planningWages = false,
   planningWagesOverridden = false,
   taxReady = true,
+  partialIncome = false,
+  partialTax = false,
 } = {}){
   const value = plan();
   if(grossOnlyDistributions){
@@ -106,8 +110,8 @@ function wizard({
     }];
   }
   const uiState = {
-    accountFormOpen: false,
-    accountDraft: {},
+    accountFormOpen,
+    accountDraft,
     taxView,
     optionalTaxItems: new Set(),
     optionalMenuOpen,
@@ -123,6 +127,14 @@ function wizard({
       planningIncome: {
         hasActivePlanningSocialSecurity: false,
         hasNonzeroShortTermCapitalGain: false,
+        wagesByOwner: {
+          client: {
+            rowIds: planningWages ? ['income-wages-1'] : [],
+            value: 125000,
+            present: planningWages,
+          },
+          spouse: { rowIds: [], value: 0, present: false },
+        },
         groups: {
           wages: {
             id: 'wages',
@@ -153,9 +165,19 @@ function wizard({
           taxTotalScope: 'FULL_1040',
           reasonCodes: [],
         })
-      : ({
+      : partialTax
+        ? ({
+            status: 'partial',
+            calculationScope: 'available-inputs',
+            totalIncome: partialIncome ? 125000 : null,
+            federalTaxLiability: 18734,
+            effectiveRate: 0.172,
+            taxTotalScope: 'FULL_1040',
+            reasonCodes: [],
+          })
+        : ({
           status: 'needs_facts',
-          totalIncome: null,
+          totalIncome: partialIncome ? 125000 : null,
           federalTaxLiability: null,
           taxTotalScope: 'NOT_CALCULABLE',
           reasonCodes: ['CURRENT_1040_LINE9_DEFERRED'],
@@ -179,23 +201,46 @@ test('Family is compact and omits MFS and survivor controls', () => {
   assert.match(html, /Married filing jointly/);
   assert.match(html, /data-hh-action="remove-spouse"/);
   assert.match(html, /Remove co-client/);
+  assert.match(html, /data-wizard-field="client\.socialSecurityBenefit"/);
+  assert.match(html, /data-wizard-field="spouse\.socialSecurityBenefit"/);
+  assert.match(html, /data-wizard-field="client\.planEndAge"/);
+  assert.match(html, /data-wizard-field="spouse\.planEndAge"/);
+  assert.match(html, /Annual Social Security at full retirement age/);
+  assert.match(html, /value="31,200"/);
+  assert.match(html, /value="24,600"/);
   assert.doesNotMatch(html, /Married filing separately/);
   assert.doesNotMatch(html, /Survivor assumption/i);
 });
 
-test('Net Worth uses stable account identity and derived tax treatment', () => {
+test('Net Worth presents account type, owner, and balance without a redundant account-name column', () => {
   const html = wizard().render('net-worth');
   assert.match(html, /data-account-id="acct-1"/);
   assert.match(html, /data-derived-treatment="acct-1"/);
-  assert.match(html, /data-account-field="displayName"/);
+  assert.match(html, />Account type</);
+  assert.match(html, />Account owner</);
+  assert.match(html, />Balance</);
+  assert.doesNotMatch(html, /data-account-field="displayName"/);
   assert.doesNotMatch(html, /data-account-field="taxTreatment"/);
+  assert.doesNotMatch(html, />Joint brokerage</);
+  assert.match(html, /<option value="joint" selected>Joint<\/option>/);
+  assert.match(html, /value="1,450,000"\s+data-hh-field="account\.acct-1\.balance"/);
+  assert.match(html, /value="980,000"\s+placeholder="Cost basis"/);
+});
+
+test('Net Worth formats an in-progress account balance with grouping separators', () => {
+  const html = wizard({
+    accountFormOpen: true,
+    accountDraft: { balance: '250000' },
+  }).render('net-worth');
+  assert.match(html, /value="250,000"\s+data-account-draft="balance"/);
 });
 
 test('Tax preserves the approved 1040 order and removes ledger-only columns', () => {
   const html = wizard().render('tax');
   assert.match(html, /Long-term capital gain or loss/);
   assert.match(html, /data-tax-field="scheduleD\.netLongTermGainOrLoss"/);
-  assert.match(html, /data-tax-field="income\.wages"/);
+  assert.match(html, /data-tax-field="income\.wages\.client"/);
+  assert.match(html, /data-tax-field="income\.wages\.spouse"/);
   assert.doesNotMatch(html, />Line</);
   assert.doesNotMatch(html, />Treatment</);
   assert.doesNotMatch(html, /IRA deduction from MAGI/i);
@@ -260,27 +305,15 @@ test('Simplified Tax reveals taxable companions when gross distributions are ent
   assert.match(html, /data-tax-field="income\.taxablePensions"/);
 });
 
-test('Tax shows planning-row provenance and requires an explicit current-year override', () => {
+test('Tax edits member wages directly without source or override controls', () => {
   const rowSourced = wizard({ planningWages: true }).render('tax');
-  assert.match(rowSourced, /From planning income/);
-  assert.match(rowSourced, /data-hh-action="override-income-group"/);
-  assert.match(rowSourced, /data-income-group="wages"/);
   assert.match(
     rowSourced,
-    /data-tax-field="income\.wages"[\s\S]*disabled aria-disabled="true"/,
+    /value="125000"[\s\S]*data-tax-field="income\.wages\.client"/,
   );
-  assert.match(rowSourced, /value="125000"/);
-
-  const overridden = wizard({
-    planningWages: true,
-    planningWagesOverridden: true,
-  }).render('tax');
-  assert.match(overridden, /Current-year amount/);
-  assert.match(overridden, /data-hh-action="revert-income-group"/);
-  assert.doesNotMatch(
-    overridden,
-    /data-tax-field="income\.wages"[\s\S]*disabled aria-disabled="true"/,
-  );
+  assert.doesNotMatch(rowSourced, /From planning income|Use current-year amount/);
+  assert.doesNotMatch(rowSourced, /data-income-group="wages"/);
+  assert.doesNotMatch(rowSourced, /income\.wages\.client"[\s\S]*disabled/);
 });
 
 test('Tax page omits confirmation checkbox markup', () => {
@@ -303,6 +336,22 @@ test('Summary remains minimal and omits the rejected status and unlock sections'
   assert.match(html, /Portfolio by tax treatment/);
   assert.doesNotMatch(html, /Intake status/i);
   assert.doesNotMatch(html, /What this intake unlocks/i);
+});
+
+test('Summary shows available-input income and tax without incompleteness flags', () => {
+  const html = wizard({
+    taxReady: false,
+    partialIncome: true,
+    partialTax: true,
+  }).render('summary');
+  assert.match(html, /data-summary-income-status="partial"/);
+  assert.match(html, /\$125,000/);
+  assert.match(html, /data-summary-tax-status="partial"/);
+  assert.match(html, /data-summary-tax-scope="available-inputs"/);
+  assert.match(html, /Modeled federal tax[\s\S]*\$18,734/);
+  assert.doesNotMatch(html, /more facts needed/i);
+  assert.doesNotMatch(html, /additional tax facts/i);
+  assert.doesNotMatch(html, /needs additional facts/i);
 });
 
 test('Summary Enter planning is available even when tax summary is not calculable', () => {

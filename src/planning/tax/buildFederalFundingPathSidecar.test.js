@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { defaultPlan, runSimulation } from '../../../engine.js';
+import { defaultPlan, resolveInputs, runSimulation } from '../../../engine.js';
 import { createAccount } from '../../household/createAccount.js';
 import { createBlankTaxProfiles } from '../../household/factEnvelope.js';
 import { buildCurrentTaxBucketSnapshot } from '../taxBuckets/buildCurrentTaxBucketSnapshot.js';
@@ -55,9 +55,10 @@ function fixturePlan(){
   return plan;
 }
 
-function returnPaths(){
+function returnPaths(plan){
+  const horizonYears = resolveInputs(plan, {}).horizonYears;
   return Array.from({ length: 20 }, (_, simIndex) =>
-    Array.from({ length: 5 }, (_, yearIndex) => ({
+    Array.from({ length: horizonYears }, (_, yearIndex) => ({
       y: 2025 + yearIndex,
       proxyReturn: simIndex === 0 ? -0.01 : 0,
     }))
@@ -110,7 +111,7 @@ function compactExpected(row, counterfactualContext){
 
 function buildFixture(){
   const plan = fixturePlan();
-  const paths = returnPaths();
+  const paths = returnPaths(plan);
   const shortcut = runSimulation(plan, {}, paths);
   const federal = runSimulation(plan, {}, paths, {
     taxPolicy: (_row, context) => context.shortcutTax + 10000,
@@ -189,7 +190,9 @@ test('sidecar preserves compact converged federal-funded bucket paths', () => {
   }
 
   const phases = sidecar.paths.p50.rows.map(row => row.phase);
-  assert.deepEqual(phases, ['accumulation', 'accumulation', 'retirement', 'depleted', 'depleted']);
+  assert.deepEqual(phases, [
+    'accumulation', 'accumulation', 'retirement', 'depleted', 'depleted', 'depleted',
+  ]);
   assert.equal(sidecar.paths.p50.rows[0].convergedFederalTax, null);
   assert.ok(sidecar.paths.p50.rows[2].convergedFederalTax > 0);
   assert.equal(sidecar.paths.p50.rows[2].convergence.status, 'converged');
@@ -231,7 +234,7 @@ test('sidecar carries the reconciled immutable Household tax-fact contract', () 
   employer.id = 'current-401k';
   plan.portfolio.extraAccounts = [brokerage, employer];
 
-  const paths = returnPaths();
+  const paths = returnPaths(plan);
   const shortcut = runSimulation(plan, {}, paths);
   const federal = runSimulation(plan, {}, paths, {
     taxPolicy: (_row, context) => context.shortcutTax + 10000,
@@ -301,7 +304,7 @@ test('mismatched params and cloned return paths fail closed', () => {
 test('zero delta preserves funding while lower federal tax reduces the final-funded draw', () => {
   const plan = fixturePlan();
   plan.expenses.living = 100000;
-  const paths = returnPaths();
+  const paths = returnPaths(plan);
   const shortcut = runSimulation(plan, {}, paths);
   const unchanged = runSimulation(plan, {}, paths, {
     taxPolicy: (_row, context) => context.shortcutTax,
@@ -417,7 +420,7 @@ test('mismatched scope plan, invalid phase, and invalid market source fail close
 test('household issues block sidecar readiness without hiding scope differences', () => {
   const plan = fixturePlan();
   plan.portfolio.accounts.taxable.balance = 100;
-  const paths = returnPaths();
+  const paths = returnPaths(plan);
   const shortcut = runSimulation(plan, {}, paths);
   const federal = runSimulation(plan, {}, paths, {
     taxPolicy: (_row, context) => context.shortcutTax + 10000,

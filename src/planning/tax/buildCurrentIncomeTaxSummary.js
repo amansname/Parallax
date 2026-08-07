@@ -1,5 +1,6 @@
 import { buildDefaultTaxContext, runClient1040Intake } from '../../tax/annual1040.js';
 import { CAPITAL_GAINS_THRESHOLDS, ORDINARY_BRACKETS } from '../../tax/core/constants.js';
+import { ssAdjust } from '../../../engine.js';
 import {
   enteredAdjustmentTotal,
   enteredCreditTotal,
@@ -47,9 +48,12 @@ function currentIncome(plan){
   const primaryAge = plan.household?.primary?.currentAge ?? 0;
   const spouseAge = plan.household?.spouse?.currentAge ?? primaryAge;
   const ss = plan.income?.socialSecurity || {};
-  const primarySs = ss.primary && primaryAge >= (ss.primary.claimAge ?? 67) ? Number(ss.primary.pia) || 0 : 0;
+  const primarySs = ss.primary && primaryAge >= (ss.primary.claimAge ?? 67)
+    ? ssAdjust(Number(ss.primary.pia) || 0, ss.primary.claimAge ?? 67)
+    : 0;
   const spouseSs = plan.household?.spouse && ss.spouse && spouseAge >= (ss.spouse.claimAge ?? 67)
-    ? Number(ss.spouse.pia) || 0 : 0;
+    ? ssAdjust(Number(ss.spouse.pia) || 0, ss.spouse.claimAge ?? 67)
+    : 0;
   if(primarySs + spouseSs > 0) income.socialSecurityBenefits = primarySs + spouseSs;
 
   const pension = plan.income?.pension || {};

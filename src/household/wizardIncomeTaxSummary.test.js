@@ -27,10 +27,11 @@ function fact(value){
 
 function blankWizardPlan({
   filingStatus = 'single',
+  clientBirthDate = '1960-06-15',
   spouseBirthDate = '1961-01-01',
 } = {}){
   const taxProfiles = createBlankTaxProfiles();
-  taxProfiles.client.birthDate = fact('1960-06-15');
+  taxProfiles.client.birthDate = fact(clientBirthDate);
   taxProfiles.spouse.birthDate = fact(
     filingStatus === 'marriedFilingJointly' ? spouseBirthDate : null,
   );
@@ -69,17 +70,74 @@ test('blank Tax summary estimates on clone without mutating saved plan', () => {
   assert.deepEqual(saved.incomeTax.current1040, snapshot);
 });
 
-test('missing taxable IRA facts return needs_facts without persisting completion', () => {
+test('missing taxable IRA facts preserve other known income without inventing tax', () => {
   const saved = blankWizardPlan();
   ensureWizardCurrent1040(saved);
+  saved.incomeTax.current1040.income.wages = 125000;
   saved.incomeTax.current1040.income.iraDistributions = 20000;
+  const snapshot = structuredClone(saved.incomeTax.current1040);
 
   const summary = buildWizardIncomeTaxSummary(saved);
 
   assert.equal(summary.status, 'needs_facts');
   assert.match(summary.message, /taxable IRA/i);
-  assert.equal(saved.incomeTax.current1040.incomeSourcesComplete, false);
-  assert.equal(Object.hasOwn(saved.incomeTax.current1040.income, 'taxableIra'), false);
+  assert.equal(summary.totalIncome, 125000);
+  assert.equal(summary.federalTaxLiability, null);
+  assert.deepEqual(saved.incomeTax.current1040, snapshot);
+});
+
+test('known income survives a non-income tax gap without mutating saved facts', () => {
+  const saved = blankWizardPlan({ clientBirthDate: null });
+  ensureWizardCurrent1040(saved);
+  saved.incomeTax.current1040.income.wages = 125000;
+  const snapshot = structuredClone(saved.incomeTax.current1040);
+
+  const summary = buildWizardIncomeTaxSummary(saved);
+
+  assert.equal(summary.status, 'partial');
+  assert.equal(summary.calculationScope, 'available-inputs');
+  assert.equal(summary.totalIncome, 125000);
+  assert.equal(summary.deductionUsed, 16100);
+  assert.equal(summary.deductionSource, 'supplied-line12e');
+  assert.equal(summary.federalTaxLiability, 18734);
+  assert.deepEqual(saved.incomeTax.current1040, snapshot);
+});
+
+test('blank income remains unavailable instead of becoming a modeled zero', () => {
+  const saved = blankWizardPlan({ clientBirthDate: null });
+  ensureWizardCurrent1040(saved);
+
+  const summary = buildWizardIncomeTaxSummary(saved);
+
+  assert.equal(summary.status, 'needs_facts');
+  assert.equal(summary.totalIncome, null);
+  assert.equal(summary.federalTaxLiability, null);
+});
+
+test('planning income reaches the available-input tax calculation', () => {
+  const saved = blankWizardPlan({ clientBirthDate: null });
+  saved.income.other.push({
+    id: 'planning_wages',
+    typeId: 'wages',
+    owner: 'client',
+    label: 'Salary',
+    amount: 75000,
+    startAge: 0,
+    endAge: 999,
+    realGrowth: 0,
+    taxablePct: 1,
+  });
+  ensureWizardCurrent1040(saved);
+  const snapshot = structuredClone(saved);
+
+  const summary = buildWizardIncomeTaxSummary(saved);
+
+  assert.equal(summary.status, 'partial');
+  assert.equal(summary.calculationScope, 'available-inputs');
+  assert.equal(summary.totalIncome, 75000);
+  assert.equal(typeof summary.federalTaxLiability, 'number');
+  assert.ok(summary.federalTaxLiability > 0);
+  assert.deepEqual(saved, snapshot);
 });
 
 test('MFJ without spouse DOB keeps taxpayers.spouse and reports DOB issue only', () => {
@@ -99,6 +157,7 @@ test('MFJ without spouse DOB keeps taxpayers.spouse and reports DOB issue only',
   assert.equal(summary.status, 'needs_facts');
   assert.match(summary.message, /taxpayers\.spouse\.birthDate/);
   assert.doesNotMatch(summary.message, /Confirm that current1040 income/i);
+  assert.equal(summary.totalIncome, null);
 });
 
 test('buildCurrent1040Intake still requires incomeSourcesComplete on saved envelope', () => {

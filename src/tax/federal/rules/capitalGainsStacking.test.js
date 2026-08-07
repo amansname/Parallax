@@ -20,6 +20,7 @@ test('preferential income inside the 0% band produces no capital gains tax', () 
     qualifiedDividends: 0,
   }, ctx());
   assert.strictEqual(result.preferentialIncomeTax, 0);
+  assert.deepStrictEqual(result.ratesUsed, { zero: 0, middle: 0.15, top: 0.20 });
 });
 
 test('single filer straddles the 0% and 15% capital gains bands', () => {
@@ -66,7 +67,7 @@ test('audit is serializable and carries the data source', () => {
 });
 
 test('metadata and audits route verified primary authority for 2025 and 2026', () => {
-  assert.strictEqual(meta.ruleVersion, '1.0.1');
+  assert.strictEqual(meta.ruleVersion, '1.0.2');
   assert.deepStrictEqual(meta.supportedTaxYears, [2025, 2026]);
   assert.deepStrictEqual(
     meta.supportedLawVersions,

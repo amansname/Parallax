@@ -88,16 +88,23 @@ function buildTaxLines(input, context, form1040, ordinaryTaxableIncome, preferen
       );
     const line23 = resolveSchedule2Line23(input, scheduleSETotals);
     return {
-      ...form1040,
-      line16: deferredLine('line16'),
-      line17,
-      line18: deferredLine('line18'),
-      line19,
-      line20,
-      line21,
-      line22: deferredLine('line22'),
-      line23,
-      line24: deferredLine('line24'),
+      form1040: {
+        ...form1040,
+        line16: deferredLine('line16'),
+        line17,
+        line18: deferredLine('line18'),
+        line19,
+        line20,
+        line21,
+        line22: deferredLine('line22'),
+        line23,
+        line24: deferredLine('line24'),
+      },
+      incomeTaxComponents: {
+        ordinaryIncomeTax: null,
+        preferentialIncomeTax: null,
+        totalIncomeTax: null,
+      },
     };
   }
   const ordinaryInput = {
@@ -108,12 +115,21 @@ function buildTaxLines(input, context, form1040, ordinaryTaxableIncome, preferen
   audits.push(ordinary.audit);
 
   let line16Tax = ordinary.result.ordinaryTax;
+  let preferentialIncomeTax = 0;
   let line16RuleId = 'FED_ORDINARY_INCOME_TAX';
   let line16AuditIndex = audits.length - 1;
 
   if(preferentialIncome > 0){
-    const { netLongTermCapitalGains, qualifiedDividends } =
+    const resolvedPreferential =
       resolvePreferentialComponents(input, scheduleDClassificationResult);
+    const qualifiedDividends = Math.min(
+      preferentialIncome,
+      Math.max(0, resolvedPreferential.qualifiedDividends)
+    );
+    const netLongTermCapitalGains = Math.min(
+      Math.max(0, preferentialIncome - qualifiedDividends),
+      Math.max(0, resolvedPreferential.netLongTermCapitalGains)
+    );
     const capitalGains = capitalGainsStacking.calculate({
       filingStatus: input.filingStatus,
       ordinaryTaxableIncome,
@@ -121,7 +137,8 @@ function buildTaxLines(input, context, form1040, ordinaryTaxableIncome, preferen
       qualifiedDividends,
     }, context);
     audits.push(capitalGains.audit);
-    line16Tax = round2(line16Tax + capitalGains.result.preferentialIncomeTax);
+    preferentialIncomeTax = capitalGains.result.preferentialIncomeTax;
+    line16Tax = round2(line16Tax + preferentialIncomeTax);
     line16RuleId = 'FED_ORDINARY_INCOME_TAX+FED_CAPITAL_GAINS_STACKING';
   }
 
@@ -142,16 +159,23 @@ function buildTaxLines(input, context, form1040, ordinaryTaxableIncome, preferen
   const line24 = calculatedLine('line24', round2(lineAmount(line22) + lineAmount(line23)));
 
   return {
-    ...form1040,
-    line16,
-    line17,
-    line18,
-    line19,
-    line20,
-    line21,
-    line22,
-    line23,
-    line24,
+    form1040: {
+      ...form1040,
+      line16,
+      line17,
+      line18,
+      line19,
+      line20,
+      line21,
+      line22,
+      line23,
+      line24,
+    },
+    incomeTaxComponents: {
+      ordinaryIncomeTax: ordinary.result.ordinaryTax,
+      preferentialIncomeTax,
+      totalIncomeTax: line16Tax,
+    },
   };
 }
 
@@ -166,7 +190,7 @@ export function composeAnnualFederalTax(input, context){
   } =
     buildForm1040IncomeSpine(input, context);
 
-  const form1040 = buildTaxLines(
+  const taxLines = buildTaxLines(
     input,
     context,
     incomeSpine,
@@ -176,6 +200,7 @@ export function composeAnnualFederalTax(input, context){
     scheduleDClassification,
     scheduleSETotals
   );
+  const form1040 = taxLines.form1040;
 
   const totalFederalTax = form1040.line24.value;
   const taxTotalScope = resolveTaxTotalScope(form1040);
@@ -193,6 +218,7 @@ export function composeAnnualFederalTax(input, context){
       form1040,
       totalFederalTax,
       taxTotalScope,
+      incomeTaxComponents: taxLines.incomeTaxComponents,
       preferentialIncome,
       readiness: {
         unresolvedTaxableIncomeLines,

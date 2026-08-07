@@ -103,7 +103,10 @@ test('getWizardAccountTypes exposes the approved grouped account choices in orde
     'Roth IRA', 'Roth 401(k)', 'Roth 403(b)', 'Roth 457', 'Roth TSP', 'HSA',
   ]);
   const joint = getWizardAccountTypes().filter(type => type.owners.includes('joint')).map(type => type.typeId);
-  assert.deepEqual(joint, ['checking', 'savings', 'money_market', 'certificate_of_deposit', 'joint_brokerage']);
+  assert.deepEqual(joint, [
+    'checking', 'savings', 'money_market', 'certificate_of_deposit',
+    'brokerage_taxable', 'joint_brokerage',
+  ]);
 });
 
 test('createFact preserves explicit status and confirmed empty arrays count', () => {

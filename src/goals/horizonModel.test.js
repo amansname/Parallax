@@ -22,6 +22,23 @@ test('resolveGoalSpan uses the later spouse retirement on the primary timeline',
   assert.deepEqual(resolveGoalSpan(plan), { currentAge:64, retirementAge:69, planEndAge:95, axisMin:62, axisMax:96 });
 });
 
+test('resolveGoalSpan follows the later survivor on the primary timeline', () => {
+  const plan={ household:{ primary:{ currentAge:64, retirementAge:66, planEndAge:95 }, spouse:{ currentAge:60, retirementAge:68, planEndAge:100 } } };
+  assert.deepEqual(resolveGoalSpan(plan), { currentAge:64, retirementAge:72, planEndAge:104, axisMin:62, axisMax:105 });
+});
+
+test('goal ranges preserve a household horizon beyond age 100', () => {
+  const goal={ amount:10000, per:'yr', startAge:115, endAge:124 };
+  setGoalKind(goal,'once',124);
+  assert.deepEqual([goal.startAge,goal.endAge],[115,115]);
+  setGoalKind(goal,'rec',124);
+  assert.deepEqual([goal.startAge,goal.endAge],[115,124]);
+  setGoalRange(goal,115,124,124);
+  assert.deepEqual([goal.startAge,goal.endAge],[115,124]);
+  shiftGoal(goal,10,{dragMin:62,planEndAge:124});
+  assert.deepEqual([goal.startAge,goal.endAge],[115,124]);
+});
+
 test('legacy goals gain stable metadata without changing engine fields', () => {
   const goals=[{ name:'Trip', amount:12000, startAge:65, endAge:74, area:'travel' }];
   assert.equal(ensureGoalMetadata(goals, ()=>'goal_fixed'), true);

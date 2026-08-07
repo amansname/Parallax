@@ -6,7 +6,7 @@ export function createWithdrawalPlannerUiState(initialFilingStatus = null) {
     hoverMark: null,
     facts: Object.freeze({
       filingStatus: initialFilingStatus,
-      livedWithSpouse: false,
+      livedWithSpouse: null,
       socialSecurityBenefits: 0,
       wages: 0,
       otherIncome: 0,

@@ -8,8 +8,8 @@
 const PATHS = {
   annual1040: '../../tax/annual1040.js',
   constants: '../../tax/core/constants.js',
-  accounts: '../../household/resolvePortfolioAccounts.js',
   attribution: '../tax/attributeWithdrawalTaxByBucket.js',
+  current1040: '../tax/buildCurrent1040Intake.js',
   engine: '../../../engine.js',
 };
 
@@ -20,13 +20,14 @@ async function load() {
   if (mods) return mods;
   if (loadError) throw loadError;
   try {
-    const [annual1040, constants, accounts, attribution] = await Promise.all([
+    const [annual1040, constants, attribution, current1040, engine] = await Promise.all([
       import(PATHS.annual1040),
       import(PATHS.constants),
-      import(PATHS.accounts),
       import(PATHS.attribution),
+      import(PATHS.current1040),
+      import(PATHS.engine),
     ]);
-    mods = { annual1040, constants, accounts, attribution };
+    mods = { annual1040, constants, attribution, current1040, engine };
     return mods;
   } catch (e) {
     loadError = e;
@@ -49,32 +50,188 @@ export function supportedYears() {
 
 export async function sleeveBalances(plan) {
   if (!plan) return { taxable: null, traditional: null, roth: null };
-  try {
-    const { accounts } = await load();
-    const fold = accounts.resolvePortfolioAccounts(plan);
-    const s = fold?.engineBuckets;
-    const read = k => (typeof s?.[k]?.balance === 'number' ? s[k].balance : null);
-    return { taxable: read('taxable'), traditional: read('traditional'), roth: read('roth') };
-  } catch (e) {
-    const a = plan?.portfolio?.accounts;
-    const read = k => (typeof a?.[k]?.balance === 'number' ? a[k].balance : null);
-    return { taxable: read('taxable'), traditional: read('traditional'), roth: read('roth') };
-  }
+  const state = await withdrawalAccountState(plan);
+  return state?.balances ?? { taxable: null, traditional: null, roth: null };
 }
 
-export async function householdIncome(plan, taxYear) {
-  const out = { filingStatus: null, socialSecurityBenefits: null, otherIncome: null, age: null };
+export async function withdrawalAccountState(plan, levers = {}, facts = {}) {
+  if (!plan) return null;
+  const { engine } = await load();
+  return engine.resolveWithdrawalPlannerAccountState(plan, levers, {
+    traditionalTotal: Math.max(0, num(facts?.iraDistributions) ?? 0),
+    rmdEligibleCash: Math.max(0, num(facts?.iraCashDistributions) ?? 0),
+    traditionalByOwner: facts?.iraDistributionsByOwner ?? null,
+    rmdEligibleCashByOwner: facts?.iraCashDistributionsByOwner ?? null,
+    taxYear: Number.isInteger(facts?.taxYear)
+      ? facts.taxYear
+      : (Number.isInteger(plan?.meta?.planningAsOfYear)
+        ? plan.meta.planningAsOfYear
+        : 2026),
+  });
+}
+
+export async function approveWithdrawalPlannerLeverChange(
+  plan,
+  currentLevers,
+  changedLever,
+  requestedValue,
+  facts = {}
+) {
+  const { engine } = await load();
+  return engine.approveWithdrawalPlannerLeverChange(
+    plan,
+    currentLevers,
+    changedLever,
+    requestedValue,
+    {
+      traditionalTotal: Math.max(0, num(facts?.iraDistributions) ?? 0),
+      rmdEligibleCash: Math.max(0, num(facts?.iraCashDistributions) ?? 0),
+      traditionalByOwner: facts?.iraDistributionsByOwner ?? null,
+      rmdEligibleCashByOwner: facts?.iraCashDistributionsByOwner ?? null,
+      taxYear: Number.isInteger(facts?.taxYear)
+        ? facts.taxYear
+        : (Number.isInteger(plan?.meta?.planningAsOfYear)
+          ? plan.meta.planningAsOfYear
+          : 2026),
+    }
+  );
+}
+
+export async function householdIncome(plan, taxYear, options = {}) {
+  const baseYear = options.baseYear
+    ?? (Number.isInteger(plan?.meta?.planningAsOfYear)
+      ? plan.meta.planningAsOfYear
+      : 2026);
+  const out = {
+    available: false,
+    filingStatus: null,
+    socialSecurityBenefits: null,
+    otherIncome: null,
+    taxableOtherIncome: null,
+    pensionAmount: null,
+    age: null,
+    ages: null,
+    people: null,
+    survivor: false,
+    survivingOwner: null,
+    taxYear: Number(taxYear),
+  };
   if (!plan) return out;
   out.filingStatus = plan?.meta?.filingStatus ?? null;
+  if (Number(taxYear) < Number(baseYear)) return out;
   try {
-    const eng = await import(PATHS.engine);
-    const ri = eng.resolveInputs(plan, {});
-    const age = ri.currentAge + (taxYear - new Date().getFullYear());
-    const running = s => s && typeof s.startAge === 'number'
-      && age >= s.startAge && (s.endAge == null || age <= s.endAge);
-    out.age = age;
-    out.socialSecurityBenefits = (ri.ss || []).reduce((t, s) => t + (running(s) ? (s.amount || 0) : 0), 0);
-    out.otherIncome = (ri.otherIncome || []).reduce((t, s) => t + (running(s) ? (s.amount || 0) : 0), 0);
+    const { current1040, engine } = await load();
+    const resolved = engine.resolveInputs(plan, {});
+    const income = { ...engine.householdIncomeAtYear(resolved, taxYear - baseYear) };
+    const matchingCurrent1040 = Number(plan?.incomeTax?.current1040?.taxYear)
+      === Number(taxYear)
+      ? current1040.buildCurrent1040Intake(plan).intake?.income
+      : null;
+    if (matchingCurrent1040 && typeof matchingCurrent1040 === 'object') {
+      for (const field of [
+        'taxableInterest',
+        'taxExemptInterest',
+        'otherIncome',
+      ]) {
+        const value = matchingCurrent1040[field];
+        if (typeof value === 'number' && Number.isFinite(value)) income[field] = value;
+      }
+      if (typeof matchingCurrent1040.ordinaryDividends === 'number'
+          && Number.isFinite(matchingCurrent1040.ordinaryDividends)
+          && typeof matchingCurrent1040.qualifiedDividends === 'number'
+          && Number.isFinite(matchingCurrent1040.qualifiedDividends)) {
+        income.ordinaryDividends = matchingCurrent1040.ordinaryDividends;
+        income.qualifiedDividends = matchingCurrent1040.qualifiedDividends;
+      }
+      const socialSecurityMode = matchingCurrent1040.socialSecurity?.mode;
+      if (socialSecurityMode === 'calculate-taxable-benefits'
+          && typeof matchingCurrent1040.socialSecurityBenefits === 'number'
+          && Number.isFinite(matchingCurrent1040.socialSecurityBenefits)) {
+        income.socialSecurityBenefits = matchingCurrent1040.socialSecurityBenefits;
+      } else if (socialSecurityMode === 'supplied-form1040-lines'
+          && typeof matchingCurrent1040.socialSecurityBenefits === 'number'
+          && Number.isFinite(matchingCurrent1040.socialSecurityBenefits)
+          && typeof matchingCurrent1040.taxableSS === 'number'
+          && Number.isFinite(matchingCurrent1040.taxableSS)) {
+        income.socialSecurityBenefits = matchingCurrent1040.socialSecurityBenefits;
+        income.taxableSS = matchingCurrent1040.taxableSS;
+      }
+      if (typeof matchingCurrent1040.pensionAmount === 'number'
+          && Number.isFinite(matchingCurrent1040.pensionAmount)
+          && typeof matchingCurrent1040.taxablePensions === 'number'
+          && Number.isFinite(matchingCurrent1040.taxablePensions)) {
+        income.pensionAmount = matchingCurrent1040.pensionAmount;
+        income.taxablePensions = matchingCurrent1040.taxablePensions;
+      }
+      const currentIraCash = num(matchingCurrent1040.iraDistributions);
+      const currentTaxableIra = num(matchingCurrent1040.taxableIra);
+      const currentRothConversion = num(matchingCurrent1040.rothConversion);
+      if (currentIraCash !== null && currentIraCash >= 0
+          && currentTaxableIra !== null && currentTaxableIra >= 0
+          && currentRothConversion !== null && currentRothConversion >= 0) {
+        const currentTraditionalTotal = currentIraCash + currentRothConversion;
+        income.iraDistributions = currentTraditionalTotal;
+        income.iraCashDistributions = currentIraCash;
+        income.taxableIra = currentTaxableIra + currentRothConversion;
+        income.rothConversion = currentRothConversion;
+
+        const existingTraditionalByOwner = income.iraDistributionsByOwner;
+        const existingCashByOwner = income.iraCashDistributionsByOwner;
+        const existingOwnerFactsMatch = existingTraditionalByOwner
+          && existingCashByOwner
+          && ['client', 'spouse'].every(owner => (
+            num(existingTraditionalByOwner[owner]) !== null
+              && num(existingCashByOwner[owner]) !== null
+          ))
+          && Math.abs(
+            existingTraditionalByOwner.client
+              + existingTraditionalByOwner.spouse
+              - currentTraditionalTotal
+          ) <= 0.01
+          && Math.abs(
+            existingCashByOwner.client
+              + existingCashByOwner.spouse
+              - currentIraCash
+          ) <= 0.01;
+        if (income.filingStatus === 'single'
+            || income.filingStatus === 'headOfHousehold') {
+          const owner = income.survivingOwner === 'spouse' ? 'spouse' : 'client';
+          income.iraDistributionsByOwner = { client: 0, spouse: 0 };
+          income.iraCashDistributionsByOwner = { client: 0, spouse: 0 };
+          income.iraDistributionsByOwner[owner] = currentTraditionalTotal;
+          income.iraCashDistributionsByOwner[owner] = currentIraCash;
+        } else if (!existingOwnerFactsMatch) {
+          delete income.iraDistributionsByOwner;
+          delete income.iraCashDistributionsByOwner;
+        }
+      }
+      if (typeof matchingCurrent1040.otherIncome === 'number'
+          && Number.isFinite(matchingCurrent1040.otherIncome)) {
+        income.taxableOtherIncome = matchingCurrent1040.otherIncome;
+      }
+      const grossOtherFields = [
+        'taxableInterest',
+        'taxExemptInterest',
+        'ordinaryDividends',
+        'iraDistributions',
+        'pensionAmount',
+        'otherIncome',
+      ];
+      income.grossOtherIncome = grossOtherFields.every(field => (
+        typeof matchingCurrent1040[field] === 'number'
+          && Number.isFinite(matchingCurrent1040[field])
+      ))
+        ? grossOtherFields.reduce(
+            (sum, field) => sum + matchingCurrent1040[field],
+            0,
+          )
+        : null;
+    }
+    return {
+      ...income,
+      available: income.available !== false,
+      taxYear: Number(taxYear),
+    };
   } catch (e) { /* plan cannot resolve */ }
   return out;
 }
@@ -99,42 +256,254 @@ function bandFrom(brackets, income) {
   return { floor: null, ceiling: null, rate: null, nextRate: null };
 }
 
-function toYearFacts({ facts, levers, gainFraction, taxYear }) {
+function confirmedBirthDate(plan, owner) {
+  const fact = plan?.taxProfiles?.[owner]?.birthDate;
+  return fact?.status === 'confirmed'
+    && typeof fact.value === 'string'
+    && fact.value.trim()
+    ? fact.value
+    : null;
+}
+
+function baseAndAgeTaxFacts(plan, facts, taxYear) {
+  const current1040 = plan?.incomeTax?.current1040;
+  const filingStatus = facts.filingStatus;
+  const expectedModeledTaxpayer = filingStatus === 'marriedFilingJointly'
+    ? 'jointReturn'
+    : (filingStatus === 'single' || filingStatus === 'headOfHousehold'
+      ? 'client'
+      : null);
+  const currentYearMatches = Number(current1040?.taxYear) === Number(taxYear);
+  const survivorMatches = facts.survivingOwner == null
+    || current1040?.survivingOwner === facts.survivingOwner;
+  const currentIdentityMatches = Boolean(
+    current1040
+      && currentYearMatches
+      && plan?.meta?.filingStatus === filingStatus
+      && current1040?.returnScope?.modeledTaxpayer === expectedModeledTaxpayer
+      && survivorMatches
+  );
+  const coverageIssues = current1040 && currentYearMatches && !currentIdentityMatches
+    ? [{ code: 'CURRENT_1040_DEDUCTION_IDENTITY_MISMATCH' }]
+    : [];
+  const currentDeductions = currentIdentityMatches
+    && current1040?.deductions
+    && typeof current1040.deductions === 'object'
+    ? current1040.deductions
+    : null;
+  const passThrough = currentIdentityMatches
+    && current1040?.passThrough
+    && typeof current1040.passThrough === 'object'
+    ? { ...current1040.passThrough }
+    : null;
+  const standardCompanions = {};
+  if (currentDeductions
+      && Object.prototype.hasOwnProperty.call(currentDeductions, 'qbi')) {
+    standardCompanions.qbi = currentDeductions.qbi;
+  }
+  if (currentDeductions?.schedule1A
+      && typeof currentDeductions.schedule1A === 'object') {
+    standardCompanions.schedule1A = { ...currentDeductions.schedule1A };
+  }
+  const usesSuppliedDeduction = currentDeductions?.source === 'supplied-line12e';
+  const usesItemizedDeduction = currentDeductions?.method === 'itemized'
+    || currentDeductions?.useStandard === false
+    || currentDeductions?.itemizedAmount !== undefined;
+  if (usesSuppliedDeduction || usesItemizedDeduction) {
+    return {
+      deductions: { ...currentDeductions },
+      returnScope: { ...current1040.returnScope },
+      taxpayers: current1040.taxpayers
+        ? structuredClone(current1040.taxpayers)
+        : null,
+      passThrough,
+      coverage: {
+        source: 'household-current-1040',
+        complete: true,
+        missingBirthDateOwners: [],
+        appliedScope: usesSuppliedDeduction ? 'supplied-line12e' : 'itemized',
+        issues: coverageIssues,
+      },
+    };
+  }
+
+  const source = currentDeductions
+    ? 'household-current-1040'
+    : 'planner-standard-default';
+  let requiredOwners = [];
+  if (filingStatus === 'marriedFilingJointly') {
+    requiredOwners = ['client', 'spouse'];
+  } else if (filingStatus === 'single' || filingStatus === 'headOfHousehold') {
+    requiredOwners = [facts.survivingOwner === 'spouse' ? 'spouse' : 'client'];
+  }
+  const birthDates = Object.fromEntries(
+    requiredOwners.map(owner => [owner, confirmedBirthDate(plan, owner)])
+  );
+  const missingBirthDateOwners = requiredOwners
+    .filter(owner => !birthDates[owner]);
+  const complete = requiredOwners.length > 0
+    && missingBirthDateOwners.length === 0;
+  if (!complete) {
+    return {
+      deductions: { useStandard: true, ...standardCompanions },
+      returnScope: null,
+      taxpayers: null,
+      passThrough,
+      coverage: {
+        source,
+        complete: false,
+        missingBirthDateOwners,
+        appliedScope: 'base-only',
+        issues: coverageIssues,
+      },
+    };
+  }
+  if (filingStatus === 'marriedFilingJointly') {
+    return {
+      deductions: {
+        source: 'calculated', method: 'standard', standardScope: 'base-and-age',
+        ...standardCompanions,
+      },
+      returnScope: { modeledTaxpayer: 'jointReturn' },
+      taxpayers: {
+        client: { birthDate: birthDates.client },
+        spouse: { birthDate: birthDates.spouse },
+      },
+      passThrough,
+      coverage: {
+        source,
+        complete: true,
+        missingBirthDateOwners: [],
+        appliedScope: 'base-and-age',
+        issues: coverageIssues,
+      },
+    };
+  }
+  const sourceOwner = requiredOwners[0];
+  return {
+    deductions: {
+      source: 'calculated', method: 'standard', standardScope: 'base-and-age',
+      ...standardCompanions,
+    },
+    returnScope: { modeledTaxpayer: 'client' },
+    taxpayers: { client: { birthDate: birthDates[sourceOwner] } },
+    passThrough,
+    coverage: {
+      source,
+      complete: true,
+      missingBirthDateOwners: [],
+      appliedScope: 'base-and-age',
+      issues: coverageIssues,
+    },
+  };
+}
+
+function toYearFacts({ facts, levers, gainFraction, taxYear, deductionContract }) {
   const income = {};
   const put = (k, v) => { if (num(v) !== null && v !== 0) income[k] = v; };
   put('wages', facts.wages);
   put('taxableInterest', facts.taxableInterest);
+  put('taxExemptInterest', facts.taxExemptInterest);
   put('ordinaryDividends', facts.ordinaryDividends);
   put('qualifiedDividends', facts.qualifiedDividends);
   put('socialSecurityBenefits', facts.socialSecurityBenefits);
-  put('otherIncome', facts.otherIncome);
+  put('pensionAmount', facts.pensionAmount);
+  put('otherIncome', num(facts.taxableOtherIncome) === null
+    ? facts.otherIncome
+    : facts.taxableOtherIncome);
 
-  const iraGross = Math.max(0, (levers.deferredWithdrawal || 0) + (levers.rothConversion || 0));
+  const fixedIraGross = Math.max(0, num(facts.iraDistributions) ?? 0);
+  const plannerIraGross = Math.max(
+    0,
+    (levers.deferredWithdrawal || 0) + (levers.rothConversion || 0)
+  );
+  const iraGross = fixedIraGross + plannerIraGross;
   put('iraDistributions', iraGross);
 
+  let capitalGain = num(facts.capitalGain);
+  const hasCapitalGainContract = capitalGain !== null || num(gainFraction) !== null;
   if ((levers.taxableWithdrawal || 0) > 0 && num(gainFraction) !== null) {
-    put('capitalGain', levers.taxableWithdrawal * gainFraction);
+    capitalGain = (capitalGain ?? 0) + levers.taxableWithdrawal * gainFraction;
   }
 
   const resolved = {};
-  if (iraGross > 0) resolved.taxableIra = iraGross;
+  if (iraGross > 0) {
+    const fixedTaxableIra = num(facts.taxableIra) ?? 0;
+    resolved.taxableIra = fixedTaxableIra + plannerIraGross;
+  }
+  if (num(facts.pensionAmount) !== null || num(facts.taxablePensions) !== null) {
+    resolved.taxablePensions = num(facts.taxablePensions) ?? 0;
+  }
+  if (num(facts.taxableSS) !== null) resolved.taxableSS = facts.taxableSS;
 
   const out = {
     filingStatus: facts.filingStatus,
     taxYear,
     income,
-    deductions: { useStandard: true },
+    deductions: deductionContract.deductions,
   };
-  if (facts.filingStatus === 'marriedFilingSeparately') {
-    out.socialSecurityWorksheet = { livedWithSpouse: facts.livedWithSpouse === true };
+  if (hasCapitalGainContract) {
+    out.scheduleD = {
+      mode: 'manual-net-long-term',
+      netLongTermGainOrLoss: capitalGain ?? 0,
+    };
+  }
+  if (deductionContract.returnScope) {
+    out.returnScope = deductionContract.returnScope;
+  }
+  if (deductionContract.taxpayers) {
+    out.taxpayers = deductionContract.taxpayers;
+  }
+  if (deductionContract.passThrough) {
+    out.passThrough = { ...deductionContract.passThrough };
+  }
+  if (facts.filingStatus === 'marriedFilingSeparately'
+      && typeof facts.livedWithSpouse === 'boolean') {
+    out.socialSecurityWorksheet = { livedWithSpouse: facts.livedWithSpouse };
   }
   if (Object.keys(resolved).length) out.resolved = resolved;
   return out;
 }
 
 export async function evaluateYear({ plan, taxYear, facts, levers }) {
-  const { annual1040, constants } = await load();
+  const { annual1040, constants, engine } = await load();
   if (!facts || !facts.filingStatus) return null;
+
+  let accountState = null;
+  const accountIssues = [];
+  try {
+    accountState = engine.resolveWithdrawalPlannerAccountState(plan, levers, {
+      traditionalTotal: Math.max(0, num(facts?.iraDistributions) ?? 0),
+      rmdEligibleCash: Math.max(0, num(facts?.iraCashDistributions) ?? 0),
+      traditionalByOwner: facts?.iraDistributionsByOwner ?? null,
+      rmdEligibleCashByOwner: facts?.iraCashDistributionsByOwner ?? null,
+      taxYear,
+    });
+  } catch {
+    accountIssues.push({ code: 'WITHDRAWAL_ACCOUNT_STATE_UNAVAILABLE' });
+  }
+  const requestedAccountUse = [
+    levers?.taxableWithdrawal,
+    levers?.deferredWithdrawal,
+    levers?.rothConversion,
+    levers?.rothWithdrawal,
+    levers?.qcd,
+  ].reduce((sum, value) => sum + (num(value) ?? 0), 0);
+  if (!accountState && requestedAccountUse > 0) {
+    return {
+      code: 'WITHDRAWAL_ACCOUNT_STATE_UNAVAILABLE',
+      accountState,
+      accountIssues,
+    };
+  }
+  if (accountState && !accountState.valid) {
+    return {
+      code: 'WITHDRAWAL_ACCOUNT_LIMIT_EXCEEDED',
+      accountState,
+      accountIssues,
+    };
+  }
+  const effectiveLevers = accountState?.levers ?? levers;
 
   const basisPct = num(plan?.portfolio?.accounts?.taxable?.basisPct);
   const gainFraction = basisPct === null ? null : 1 - basisPct;
@@ -142,15 +511,110 @@ export async function evaluateYear({ plan, taxYear, facts, levers }) {
   const context = annual1040.buildDefaultTaxContext({ taxYear, runId: 'tax_aware_withdrawal', scenarioId: 'focus_year' });
   const lawVersion = context.lawVersion;
   const fs = facts.filingStatus;
+  const hasHouseholdPeople = facts.people
+    && typeof facts.people === 'object';
+  const bothHouseholdMembersAlive = hasHouseholdPeople
+    && facts.people.client?.alive === true
+    && facts.people.spouse?.alive === true;
+  const filingStatusHouseholdMismatch = hasHouseholdPeople && (
+    ((fs === 'single' || fs === 'headOfHousehold') && bothHouseholdMembersAlive)
+    || ((fs === 'marriedFilingJointly' || fs === 'marriedFilingSeparately')
+      && !bothHouseholdMembersAlive)
+  );
+  let unavailableCode = null;
+  if (facts.available === false) {
+    unavailableCode = 'HOUSEHOLD_INCOME_UNAVAILABLE';
+  } else if (filingStatusHouseholdMismatch) {
+    unavailableCode = 'FILING_STATUS_HOUSEHOLD_MISMATCH';
+  } else if (fs === 'marriedFilingSeparately' && plan?.household?.spouse) {
+    unavailableCode = 'MFS_RETURN_TAXPAYER_UNATTRIBUTED';
+  } else if ((num(facts.pensionAmount) ?? 0) > 0
+      && (!Object.prototype.hasOwnProperty.call(facts, 'taxablePensions')
+        || num(facts.taxablePensions) === null)) {
+    unavailableCode = 'TAXABLE_PENSION_PORTION_MISSING';
+  } else if ((num(facts.iraDistributions) ?? 0) > 0
+      && (!Object.prototype.hasOwnProperty.call(facts, 'taxableIra')
+        || num(facts.taxableIra) === null)) {
+    unavailableCode = 'TAXABLE_IRA_PORTION_MISSING';
+  } else if (accountState?.rmd?.status === 'unavailable') {
+    unavailableCode = accountState.rmd.issue || 'RMD_CONTRACT_UNAVAILABLE';
+  }
+  if (unavailableCode) {
+    const cash = engine.buildWithdrawalPlannerCashContract(effectiveLevers, null);
+    return {
+      code: unavailableCode,
+      lawVersion,
+      taxYear,
+      baseline: { ordinaryIncome: null, provisionalIncome: null },
+      totals: {
+        ordinaryIncome: null,
+        qualifiedIncome: null,
+        agi: null,
+        magi: null,
+        taxableIncome: null,
+        federalTax: null,
+        marginalRate: null,
+        effectiveRate: null,
+        netCash: null,
+      },
+      thresholdTaxDollars: {
+        ordinaryIncomeTax: null,
+        preferentialIncomeTax: null,
+        irmaaPremium: null,
+        socialSecurityIncrementalModeledFederalIncomeTax: null,
+      },
+      modeledFederalIncomeTax: {
+        baseline: null,
+        selected: null,
+        incremental: null,
+        taxTotalScope: null,
+      },
+      comparisonIssues: [{ code: unavailableCode }],
+      deductionCoverage: null,
+      rmd: accountState?.rmd ?? null,
+      accountState,
+      accountIssues,
+      cash,
+    };
+  }
 
-  const run = lv => annual1040.runEngineYearTax(toYearFacts({ facts, levers: lv, gainFraction, taxYear }), context);
+  const zeroLevers = {
+    taxableWithdrawal: 0,
+    deferredWithdrawal: 0,
+    rothConversion: 0,
+    rothWithdrawal: 0,
+    qcd: 0,
+  };
+  const deductionContract = baseAndAgeTaxFacts(plan, facts, taxYear);
+  const selectedFacts = toYearFacts({
+    facts, levers: effectiveLevers, gainFraction, taxYear, deductionContract,
+  });
+  const baselineFacts = toYearFacts({
+    facts, levers: zeroLevers, gainFraction, taxYear, deductionContract,
+  });
+  const withoutSocialSecurityFacts = toYearFacts({
+    facts: { ...facts, socialSecurityBenefits: 0 },
+    levers: effectiveLevers,
+    gainFraction,
+    taxYear,
+    deductionContract,
+  });
+  let analysis;
+  try {
+    analysis = annual1040.runWithdrawalPlannerTaxAnalysis({
+      selectedFacts,
+      baselineFacts,
+      withoutSocialSecurityFacts,
+      context,
+    });
+  } catch (e) {
+    return { error: String(e.message || e), accountState };
+  }
+  const main = analysis.selectedRun;
 
-  let main;
-  try { main = run(levers); } catch (e) { return { error: String(e.message || e) }; }
-
-  const res = main.annual1040Result;
-  const sum = res.federalSummary;
-  const audits = main.audits;
+  const res = main?.annual1040Result ?? {};
+  const sum = res.federalSummary ?? {};
+  const audits = main?.audits ?? [];
 
   const ordAudit = auditFor(audits, 'FED_ORDINARY_INCOME_TAX');
   const gainAudit = auditFor(audits, 'FED_CAPITAL_GAINS_STACKING');
@@ -162,10 +626,7 @@ export async function evaluateYear({ plan, taxYear, facts, levers }) {
   const cgT = constants.CAPITAL_GAINS_THRESHOLDS?.[lawVersion]?.[fs] || {};
   const preferential = num(sum.preferentialIncome);
 
-  let zero = null;
-  try {
-    zero = run({ taxableWithdrawal: 0, deferredWithdrawal: 0, rothConversion: 0, rothWithdrawal: 0, qcd: 0 });
-  } catch (e) { zero = null; }
+  const zero = analysis.baselineRun;
   const zeroOrd = num(auditFor(zero?.audits, 'FED_ORDINARY_INCOME_TAX')?.inputsUsed?.taxableOrdinaryIncome);
   const zeroSsSteps = auditFor(zero?.audits, 'FED_TAXABLE_SOCIAL_SECURITY')?.calculationSteps || [];
   const zeroStep = line => {
@@ -174,9 +635,12 @@ export async function evaluateYear({ plan, taxYear, facts, levers }) {
   };
   const zeroProvisional = zeroStep('worksheetIncome') ?? zeroStep('combinedIncomeBeforeAdjustments');
 
-  const gross = (levers.taxableWithdrawal || 0) + (levers.deferredWithdrawal || 0) + (levers.rothWithdrawal || 0);
+  const cash = engine.buildWithdrawalPlannerCashContract(
+    effectiveLevers,
+    analysis.modeledFederalIncomeTax.incremental
+  );
 
-  const form = main.result?.form1040 || {};
+  const form = main?.result?.form1040 || {};
   const ssBenefit = num(form.line6a?.value) ?? num(facts.socialSecurityBenefits);
   const ssTaxable = num(form.line6b?.value);
   const ssSteps = ssAudit?.calculationSteps || [];
@@ -186,7 +650,11 @@ export async function evaluateYear({ plan, taxYear, facts, levers }) {
   };
   const ssProvisional = stepAmount('worksheetIncome') ?? stepAmount('combinedIncomeBeforeAdjustments');
   const ssKey = fs === 'marriedFilingSeparately'
-    ? (ssAudit?.inputsUsed?.livedWithSpouse ? 'marriedFilingSeparatelyLivedTogether' : 'marriedFilingSeparatelyLivedApart')
+    ? (typeof facts.livedWithSpouse === 'boolean'
+      ? (facts.livedWithSpouse
+        ? 'marriedFilingSeparatelyLivedTogether'
+        : 'marriedFilingSeparatelyLivedApart')
+      : null)
     : fs;
   const ssT = constants.SOCIAL_SECURITY_TAXATION_THRESHOLDS?.[lawVersion]?.[ssKey] || {};
   const ssTier1 = num(ssT.baseAmount);
@@ -197,7 +665,7 @@ export async function evaluateYear({ plan, taxYear, facts, levers }) {
 
   return {
     lawVersion,
-    taxYear: res.taxYear,
+    taxYear: res.taxYear ?? taxYear,
     baseline: { ordinaryIncome: zeroOrd, provisionalIncome: zeroProvisional },
     totals: {
       ordinaryIncome: taxableOrdinary,
@@ -208,7 +676,7 @@ export async function evaluateYear({ plan, taxYear, facts, levers }) {
       federalTax: num(sum.federalTaxLiability),
       marginalRate: num(sum.marginalRate),
       effectiveRate: num(sum.effectiveRate),
-      netCash: sub(gross, num(sum.federalTaxLiability)),
+      netCash: cash.netAfterIncrementalModeledFederalIncomeTax,
     },
     ordinary: {
       rate: num(sum.marginalRate) ?? band.rate, ceiling: band.ceiling,
@@ -234,37 +702,89 @@ export async function evaluateYear({ plan, taxYear, facts, levers }) {
     },
     irmaa: { scope: NOT_MODELED.irmaa },
     niit: { scope: NOT_MODELED.niit },
-    rmd: { required: null, satisfied: null, remaining: null, age: null },
+    rmd: accountState?.rmd
+      ? {
+        ...accountState.rmd,
+        satisfied: accountState.rmd.required === null
+          || accountState.rmd.remaining === null
+          ? null
+          : accountState.rmd.required - accountState.rmd.remaining,
+      }
+      : null,
     ladders: {
       ordinary: (Array.isArray(brackets) ? brackets : []).map(b => ({
         rate: b.rate, upTo: Number.isFinite(b.upTo) ? b.upTo : null,
       })),
-      ltcg: { zeroRateMax: num(cgT.zeroRateMax), fifteenRateMax: num(cgT.fifteenRateMax) },
-      socialSecurity: { tier1: ssTier1, tier2: ssTier2 },
+      ltcg: {
+        zeroRateMax: num(cgT.zeroRateMax),
+        fifteenRateMax: num(cgT.fifteenRateMax),
+        rates: analysis.thresholdRates?.ltcg ?? null,
+      },
+      socialSecurity: {
+        tier1: ssTier1,
+        tier2: ssTier2,
+        rates: analysis.thresholdRates?.socialSecurity ?? null,
+      },
       irmaa: null,
     },
     coverage: {
       unsupportedIntentional: res.unsupportedIntentional || [],
       warnings: res.warnings || [],
     },
+    comparisonIssues: analysis.comparisonIssues,
+    deductionCoverage: deductionContract.coverage,
+    accountState,
+    accountIssues,
+    thresholdTaxDollars: analysis.thresholdTaxDollars,
+    modeledFederalIncomeTax: analysis.modeledFederalIncomeTax,
+    cash,
   };
 }
 
 export async function attributeSleeves({ plan, taxYear, facts, levers }) {
-  const { annual1040, attribution } = await load();
+  const { annual1040, attribution, engine } = await load();
   if (!facts || !facts.filingStatus) return null;
+  let accountState = null;
+  try {
+    accountState = engine.resolveWithdrawalPlannerAccountState(plan, levers, {
+      traditionalTotal: Math.max(0, num(facts?.iraDistributions) ?? 0),
+      rmdEligibleCash: Math.max(0, num(facts?.iraCashDistributions) ?? 0),
+      traditionalByOwner: facts?.iraDistributionsByOwner ?? null,
+      rmdEligibleCashByOwner: facts?.iraCashDistributionsByOwner ?? null,
+      taxYear,
+    });
+  } catch {
+    return { code: 'WITHDRAWAL_ACCOUNT_STATE_UNAVAILABLE', accountState: null };
+  }
+  if (!accountState.valid) {
+    return {
+      code: 'WITHDRAWAL_ACCOUNT_LIMIT_EXCEEDED',
+      accountState,
+    };
+  }
+  if (accountState.rmd?.status === 'unavailable') {
+    return {
+      code: accountState.rmd.issue || 'RMD_CONTRACT_UNAVAILABLE',
+      accountState,
+    };
+  }
+  const effectiveLevers = accountState.levers;
 
   const basisPct = num(plan?.portfolio?.accounts?.taxable?.basisPct);
   const gainFraction = basisPct === null ? null : 1 - basisPct;
   const context = annual1040.buildDefaultTaxContext({
     taxYear, runId: 'tax_aware_withdrawal', scenarioId: 'sleeve_attribution',
   });
+  const deductionContract = baseAndAgeTaxFacts(plan, facts, taxYear);
 
-  const held = { rothConversion: levers.rothConversion || 0, qcd: levers.qcd || 0 };
+  const held = {
+    rothConversion: effectiveLevers.rothConversion || 0,
+    qcd: effectiveLevers.qcd || 0,
+  };
   const amounts = {
-    taxable: Math.max(0, levers.taxableWithdrawal || 0),
-    traditional: Math.max(0, levers.deferredWithdrawal || 0),
-    roth: Math.max(0, levers.rothWithdrawal || 0),
+    taxable: Math.max(0, effectiveLevers.taxableWithdrawal || 0),
+    traditional: Math.max(0, effectiveLevers.deferredWithdrawal || 0),
+    roth: Math.max(0, effectiveLevers.rothWithdrawal || 0),
   };
 
   const taxFor = buckets => {
@@ -274,8 +794,13 @@ export async function attributeSleeves({ plan, taxYear, facts, levers }) {
       deferredWithdrawal: buckets.includes('traditional') ? amounts.traditional : 0,
       rothWithdrawal: buckets.includes('roth') ? amounts.roth : 0,
     };
-    const out = annual1040.runEngineYearTax(toYearFacts({ facts, levers: lv, gainFraction, taxYear }), context);
-    return num(out?.annual1040Result?.federalSummary?.federalTaxLiability) ?? 0;
+    const out = annual1040.runEngineYearTax(
+      toYearFacts({ facts, levers: lv, gainFraction, taxYear, deductionContract }),
+      context
+    );
+    const tax = num(out?.annual1040Result?.federalSummary?.federalTaxLiability);
+    if (tax === null) throw new Error('Modeled federal tax is unavailable for this coalition');
+    return tax;
   };
 
   try {

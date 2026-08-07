@@ -579,12 +579,6 @@ async function verifyFamilyPropagation(page){
   await clickWizardAction(page, '[data-hh-action="add-account"]');
   await setWizardValue(
     page,
-    '[data-account-draft="displayName"]',
-    'Co-client Roth',
-    { expectRevision: false, eventType: 'input' },
-  );
-  await setWizardValue(
-    page,
     '[data-account-draft="typeId"]',
     'roth_ira',
     { expectRevision: false, eventType: 'input' },
@@ -710,6 +704,14 @@ async function verifyFamilyPropagation(page){
     '[data-wizard-field="spouse.birthDate"]',
     '1961-01-01',
   );
+  await setWizardValue(page, '[data-wizard-field="client.retirementAge"]', '68');
+  await setWizardValue(page, '[data-wizard-field="spouse.retirementAge"]', '70');
+  await setWizardValue(page, '[data-wizard-field="client.socialSecurityAge"]', '67');
+  await setWizardValue(page, '[data-wizard-field="spouse.socialSecurityAge"]', '69');
+  await setWizardValue(page, '[data-wizard-field="client.socialSecurityBenefit"]', '32000');
+  await setWizardValue(page, '[data-wizard-field="spouse.socialSecurityBenefit"]', '22000');
+  await setWizardValue(page, '[data-wizard-field="client.planEndAge"]', '94');
+  await setWizardValue(page, '[data-wizard-field="spouse.planEndAge"]', '101');
   await goToWizardStep(page, 'tax');
   const filing = await page.evaluate(() =>
     document.querySelector('.hh-tax-static strong')?.textContent.trim() || '');
@@ -724,11 +726,22 @@ async function verifyAccountFlow(page){
   await clickWizardAction(page, '[data-hh-action="add-account"]', {
     expectRevision: true,
   });
-  await setWizardValue(
-    page,
-    '[data-account-draft="displayName"]',
-    'Verifier brokerage',
-    { expectRevision: false, eventType: 'input' },
+  const accountFields = await page.evaluate(() => ({
+    name: document.querySelectorAll('[data-account-draft="displayName"]').length,
+    type: document.querySelectorAll('[data-account-draft="typeId"]').length,
+    owner: document.querySelectorAll('[data-account-draft="owner"]').length,
+    balance: document.querySelectorAll('[data-account-draft="balance"]').length,
+    jointType: !!document.querySelector('[data-account-draft="typeId"] option[value="joint_brokerage"]'),
+    jointOwner: !!document.querySelector('[data-account-draft="owner"] option[value="joint"]'),
+  }));
+  requireCondition(
+    accountFields.name === 0
+      && accountFields.type === 1
+      && accountFields.owner === 1
+      && accountFields.balance === 1
+      && accountFields.jointType === false
+      && accountFields.jointOwner === true,
+    `Net Worth must expose only type, owner, and balance: ${JSON.stringify(accountFields)}`,
   );
   await setWizardValue(
     page,
@@ -748,6 +761,14 @@ async function verifyAccountFlow(page){
     '250000',
     { expectRevision: false, eventType: 'input' },
   );
+  const formattedDraftBalance = await page.$eval(
+    '[data-account-draft="balance"]',
+    input => input.value,
+  );
+  requireCondition(
+    formattedDraftBalance === '250,000',
+    `Account draft balance did not format with commas: "${formattedDraftBalance}"`,
+  );
   await clickWizardAction(page, '[data-hh-action="save-account"]');
   const account = await page.evaluate(() => {
     const row = document.querySelector('.hh-account-row');
@@ -762,7 +783,7 @@ async function verifyAccountFlow(page){
     account.count === 1
       && account.id
       && account.treatment === 'Taxable'
-      && account.balance === '250000',
+      && account.balance === '250,000',
     `Account add/derived treatment failed: ${JSON.stringify(account)}`,
   );
   await setWizardValue(
@@ -789,24 +810,26 @@ async function verifyAccountFlow(page){
 
 async function verifyPlanningSourceAndTaxFlow(page){
   await goToWizardStep(page, 'tax');
-  const initialSource = await page.evaluate(() => {
-    const row = document.querySelector('[data-income-source-group="wages"]');
-    const input = row?.querySelector('[data-tax-field="income.wages"]');
+  const initialWages = await page.evaluate(() => {
+    const client = document.querySelector('[data-tax-field="income.wages.client"]');
+    const spouse = document.querySelector('[data-tax-field="income.wages.spouse"]');
     return {
-      text: row?.textContent || '',
-      value: input?.value || '',
-      disabled: input?.disabled === true,
-      overrideButtons: row?.querySelectorAll(
-        '[data-hh-action="override-income-group"]',
-      ).length || 0,
+      client: client?.value || '',
+      spouse: spouse?.value || '',
+      clientDisabled: client?.disabled === true,
+      spouseDisabled: spouse?.disabled === true,
+      sourceButtons: document.querySelectorAll(
+        '[data-income-group="wages"]',
+      ).length,
     };
   });
   requireCondition(
-    initialSource.disabled
-      && initialSource.value === '75000'
-      && initialSource.overrideButtons === 1
-      && /From planning income/.test(initialSource.text),
-    `Planning-income source was not authoritative: ${JSON.stringify(initialSource)}`,
+    initialWages.client === '75000'
+      && initialWages.spouse === ''
+      && !initialWages.clientDisabled
+      && !initialWages.spouseDisabled
+      && initialWages.sourceButtons === 0,
+    `Member wage inputs were not independent: ${JSON.stringify(initialWages)}`,
   );
 
   await goToWizardStep(page, 'summary');
@@ -842,27 +865,8 @@ async function verifyPlanningSourceAndTaxFlow(page){
   );
 
   await goToWizardStep(page, 'tax');
-
-  await clickWizardAction(
-    page,
-    '[data-hh-action="override-income-group"][data-income-group="wages"]',
-  );
-  await setWizardValue(page, '[data-tax-field="income.wages"]', '81000');
-  const override = await page.evaluate(() => {
-    const row = document.querySelector('[data-income-source-group="wages"]');
-    const input = row?.querySelector('[data-tax-field="income.wages"]');
-    return {
-      text: row?.textContent || '',
-      value: input?.value || '',
-      disabled: input?.disabled === true,
-    };
-  });
-  requireCondition(
-    !override.disabled
-      && override.value === '81000'
-      && /Current-year amount/.test(override.text),
-    `Current-year override was not explicit: ${JSON.stringify(override)}`,
-  );
+  await setWizardValue(page, '[data-tax-field="income.wages.client"]', '81000');
+  await setWizardValue(page, '[data-tax-field="income.wages.spouse"]', '39000');
 
   await clickWizardAction(
     page,
@@ -871,14 +875,16 @@ async function verifyPlanningSourceAndTaxFlow(page){
   const detailed = await page.evaluate(() => ({
     view: document.querySelector('[data-hh-wizard-screen="tax"]')
       ?.dataset.taxView || '',
-    wages: document.querySelector('[data-tax-field="income.wages"]')?.value || '',
+    clientWages: document.querySelector('[data-tax-field="income.wages.client"]')?.value || '',
+    spouseWages: document.querySelector('[data-tax-field="income.wages.spouse"]')?.value || '',
     pressed: document.querySelector(
       '[data-hh-action="set-tax-view"][data-tax-view="detailed"]',
     )?.getAttribute('aria-pressed') || '',
   }));
   requireCondition(
     detailed.view === 'detailed'
-      && detailed.wages === '81000'
+      && detailed.clientWages === '81000'
+      && detailed.spouseWages === '39000'
       && detailed.pressed === 'true',
     `Detailed Tax view lost state: ${JSON.stringify(detailed)}`,
   );
@@ -961,63 +967,75 @@ async function saveAndWait(page){
   }, { timeout: 8000 });
 }
 
-async function verifySaveReloadAndOverride(page){
+async function verifySaveReloadAndMemberWages(page){
   await saveAndWait(page);
   await reloadWizard(page);
   await goToWizardStep(page, 'tax');
-  const savedOverride = await page.evaluate(() => {
-    const row = document.querySelector('[data-income-source-group="wages"]');
+  const savedWages = await page.evaluate(() => {
+    const client = document.querySelector('[data-tax-field="income.wages.client"]');
+    const spouse = document.querySelector('[data-tax-field="income.wages.spouse"]');
+    const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+    const active = localStorage.getItem('parallax.activeHouseholdId');
+    const saved = db?.[active];
+    const rows = (saved?.income?.other || [])
+      .filter(row => row?.typeId === 'wages' || row?.typeId === 'bonus')
+      .map(row => ({ owner: row.owner, amount: row.amount }));
     return {
-      value: row?.querySelector('[data-tax-field="income.wages"]')?.value || '',
-      disabled: row?.querySelector('[data-tax-field="income.wages"]')
-        ?.disabled === true,
-      revert: row?.querySelectorAll(
-        '[data-hh-action="revert-income-group"]',
-      ).length || 0,
+      client: client?.value || '',
+      spouse: spouse?.value || '',
+      clientDisabled: client?.disabled === true,
+      spouseDisabled: spouse?.disabled === true,
+      sourceButtons: document.querySelectorAll('[data-income-group="wages"]').length,
+      rows,
+      peopleFacts: {
+        client: {
+          retirementAge: saved?.household?.primary?.retirementAge,
+          socialSecurityAge: saved?.income?.socialSecurity?.primary?.claimAge,
+          socialSecurityBenefit: saved?.income?.socialSecurity?.primary?.pia,
+          planEndAge: saved?.household?.primary?.planEndAge,
+        },
+        spouse: {
+          retirementAge: saved?.household?.spouse?.retirementAge,
+          socialSecurityAge: saved?.income?.socialSecurity?.spouse?.claimAge,
+          socialSecurityBenefit: saved?.income?.socialSecurity?.spouse?.pia,
+          planEndAge: saved?.household?.spouse?.planEndAge,
+        },
+      },
+      storedAggregate: Object.prototype.hasOwnProperty.call(
+        saved?.incomeTax?.current1040?.income || {},
+        'wages',
+      ),
     };
   });
   requireCondition(
-    savedOverride.value === '81000'
-      && !savedOverride.disabled
-      && savedOverride.revert === 1,
-    `Save/reload lost Tax override: ${JSON.stringify(savedOverride)}`,
+    savedWages.client === '81000'
+      && savedWages.spouse === '39000'
+      && !savedWages.clientDisabled
+      && !savedWages.spouseDisabled
+      && savedWages.sourceButtons === 0,
+    `Save/reload lost member wages: ${JSON.stringify(savedWages)}`,
   );
-
-  await clickWizardAction(
-    page,
-    '[data-hh-action="revert-income-group"][data-income-group="wages"]',
-  );
-  const reverted = await page.evaluate(() => {
-    const row = document.querySelector('[data-income-source-group="wages"]');
-    return {
-      value: row?.querySelector('[data-tax-field="income.wages"]')?.value || '',
-      disabled: row?.querySelector('[data-tax-field="income.wages"]')
-        ?.disabled === true,
-    };
-  });
   requireCondition(
-    reverted.value === '75000' && reverted.disabled,
-    `Planning-income revert failed: ${JSON.stringify(reverted)}`,
-  );
-  await saveAndWait(page);
-  await reloadWizard(page);
-  await goToWizardStep(page, 'tax');
-  const persistedRevert = await page.evaluate(() => {
-    const row = document.querySelector('[data-income-source-group="wages"]');
-    return {
-      value: row?.querySelector('[data-tax-field="income.wages"]')?.value || '',
-      disabled: row?.querySelector('[data-tax-field="income.wages"]')
-        ?.disabled === true,
-      override: row?.querySelectorAll(
-        '[data-hh-action="override-income-group"]',
-      ).length || 0,
-    };
-  });
-  requireCondition(
-    persistedRevert.value === '75000'
-      && persistedRevert.disabled
-      && persistedRevert.override === 1,
-    `Save/reload lost planning-income revert: ${JSON.stringify(persistedRevert)}`,
+    JSON.stringify(savedWages.rows) === JSON.stringify([
+      { owner: 'client', amount: 81000 },
+      { owner: 'spouse', amount: 39000 },
+    ])
+      && JSON.stringify(savedWages.peopleFacts) === JSON.stringify({
+        client: {
+          retirementAge: 68,
+          socialSecurityAge: 67,
+          socialSecurityBenefit: 32000,
+          planEndAge: 94,
+        },
+        spouse: {
+          retirementAge: 70,
+          socialSecurityAge: 69,
+          socialSecurityBenefit: 22000,
+          planEndAge: 101,
+        },
+      })
+      && savedWages.storedAggregate === false,
+    `Saved wages did not use the member-owned contract: ${JSON.stringify(savedWages)}`,
   );
 }
 
@@ -1256,7 +1274,7 @@ export async function runWizardBrowserContract(
     await verifyFamilyPropagation(page);
     await verifyAccountFlow(page);
     await verifyPlanningSourceAndTaxFlow(page);
-    await verifySaveReloadAndOverride(page);
+    await verifySaveReloadAndMemberWages(page);
     await verifyDuplicateRepair(page);
 
     const viewports = [

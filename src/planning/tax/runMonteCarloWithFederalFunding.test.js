@@ -11,7 +11,7 @@ import {
 function controlledFixture(){
   const plan = structuredClone(defaultPlan);
   plan.meta.filingStatus = 'single';
-  plan.household.primary = { currentAge: 65, retirementAge: 65, planEndAge: 66 };
+  plan.household.primary = { currentAge: 65, retirementAge: 65, planEndAge: 65 };
   plan.household.spouse = null;
   plan.portfolio.accounts = {
     taxable: { balance: 0, basisPct: 1 },

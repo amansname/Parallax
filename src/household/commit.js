@@ -122,6 +122,7 @@ export function bindHouseholdEditor({
     }
     const draft = event.target.closest('[data-account-draft]');
     if(draft){
+      if(draft.dataset.accountDraft === 'balance') liveCommas(draft);
       transientState.accountDraft = {
         ...transientState.accountDraft,
         [draft.dataset.accountDraft]: draft.value,

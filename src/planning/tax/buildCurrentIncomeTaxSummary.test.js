@@ -153,6 +153,19 @@ test('active Social Security uses the taxable-benefits worksheet, including tax-
   assert.ok(summary.adjustedGrossIncome < summary.totalIncome);
 });
 
+test('legacy Social Security fallback uses the engine claim-age adjustment', () => {
+  const summary = buildCurrentIncomeTaxSummary(plan({
+    household: { primary: { currentAge: 70, retirementAge: 65, planEndAge: 95 } },
+    income: {
+      other: [],
+      socialSecurity: { primary: { pia: 30000, claimAge: 62 } },
+    },
+  }));
+
+  assert.equal(summary.status, 'ready');
+  assert.equal(summary.totalIncome, 21000);
+});
+
 test('unsupported deduction and self-employment facts fail closed instead of fabricating tax', () => {
   const medical = buildCurrentIncomeTaxSummary(plan({
     incomeTax: { adjustments: [], deductions: [{ typeId:'medical', amount:5000 }] },

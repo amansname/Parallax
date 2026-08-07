@@ -109,6 +109,10 @@ export function readWizardPlanningIncome(
   const owners = activeReturnOwners(plan, current);
   let hasActivePlanningSocialSecurity = false;
   let hasNonzeroShortTermCapitalGain = false;
+  const wagesByOwner = {
+    client: { rowIds: [], value: 0 },
+    spouse: { rowIds: [], value: 0 },
+  };
 
   for(const raw of plan.income?.other || []){
     if(!isSourceActiveNow(plan, raw)) continue;
@@ -129,6 +133,10 @@ export function readWizardPlanningIncome(
 
     if(source.typeId === 'wages' || source.typeId === 'bonus'){
       addPlanningValue(group, 'wages', source.amount);
+      if(source.owner === 'client' || source.owner === 'spouse'){
+        wagesByOwner[source.owner].rowIds.push(raw.id || null);
+        wagesByOwner[source.owner].value += source.amount;
+      }
     }else if(source.typeId === 'interest'){
       const taxablePct = validFraction(raw.taxablePct, 1);
       if(taxablePct === null){
@@ -199,8 +207,31 @@ export function readWizardPlanningIncome(
     Object.freeze(group.values);
     Object.freeze(group);
   }
+  const planningAsOfYear = Number.isInteger(plan.meta?.planningAsOfYear)
+    ? plan.meta.planningAsOfYear
+    : current?.taxYear;
+  if(Number(current?.taxYear) !== Number(planningAsOfYear)){
+    for(const owner of ['client', 'spouse']){
+      const wage = wagesByOwner[owner];
+      wage.rowIds = [];
+      wage.value = 0;
+      if(current?.wagesByOwner
+          && hasOwn(current.wagesByOwner, owner)
+          && Number.isFinite(current.wagesByOwner[owner])){
+        wage.rowIds.push(`current1040:${owner}`);
+        wage.value = current.wagesByOwner[owner];
+      }
+    }
+  }
+  for(const owner of ['client', 'spouse']){
+    const wage = wagesByOwner[owner];
+    wage.present = wage.rowIds.length > 0;
+    Object.freeze(wage.rowIds);
+    Object.freeze(wage);
+  }
   return Object.freeze({
     groups: Object.freeze(groups),
+    wagesByOwner: Object.freeze(wagesByOwner),
     hasActivePlanningSocialSecurity,
     hasNonzeroShortTermCapitalGain,
   });

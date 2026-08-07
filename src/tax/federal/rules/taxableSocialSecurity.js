@@ -2,6 +2,7 @@
 
 import {
   FILING_STATUSES,
+  SOCIAL_SECURITY_TAXATION_RATES,
   SOCIAL_SECURITY_TAXATION_SOURCE,
   SOCIAL_SECURITY_TAXATION_THRESHOLDS,
 } from '../../core/constants.js';
@@ -12,7 +13,7 @@ import { TaxDataError, TaxInputError } from '../../core/errors.js';
 
 export const meta = {
   ruleId: 'FED_TAXABLE_SOCIAL_SECURITY',
-  ruleVersion: '1.2.0',
+  ruleVersion: '1.2.1',
   supportedTaxYears: [2025, 2026],
   supportedLawVersions: ['2025_FINAL', '2026_FINAL'],
   jurisdiction: 'federal',
@@ -26,7 +27,7 @@ export const meta = {
     'filingStatus', 'socialSecurityBenefits', 'otherIncome', 'taxExemptInterest',
     'excludedIncomeAddBacks', 'adjustments', 'livedWithSpouse',
   ],
-  outputs: ['taxableBenefits', 'nontaxableBenefits', 'taxablePct', 'worksheetIncome'],
+  outputs: ['taxableBenefits', 'nontaxableBenefits', 'taxablePct', 'worksheetIncome', 'ratesUsed'],
   limitations: [
     'Does not calculate ordinary income tax',
     'Does not solve circular interactions with Traditional IRA deductions',
@@ -79,7 +80,9 @@ export function calculate(input, context){
   validateAgainstSchema(context, CONTEXT_SCHEMA, 'context');
 
   const { thresholds, dataSourceId, thresholdKey } = resolveThresholds(context, input);
-  const halfBenefits = round2(input.socialSecurityBenefits * 0.50);
+  const halfBenefits = round2(
+    input.socialSecurityBenefits * SOCIAL_SECURITY_TAXATION_RATES.lowerTier
+  );
   const combinedIncomeBeforeAdjustments = round2(
     halfBenefits + input.otherIncome + input.taxExemptInterest + input.excludedIncomeAddBacks
   );
@@ -87,7 +90,9 @@ export function calculate(input, context){
   let worksheetIncome = round2(combinedIncomeBeforeAdjustments - input.adjustments);
   if(worksheetIncome <= 0) worksheetIncome = 0;
 
-  const maxTaxableBenefits = round2(input.socialSecurityBenefits * 0.85);
+  const maxTaxableBenefits = round2(
+    input.socialSecurityBenefits * SOCIAL_SECURITY_TAXATION_RATES.upperTier
+  );
   let taxableBeforeCap = 0;
   const calculationSteps = [
     { line: 'halfBenefits', amount: halfBenefits },
@@ -96,13 +101,20 @@ export function calculate(input, context){
   ];
 
   if(input.filingStatus === 'marriedFilingSeparately' && input.livedWithSpouse){
-    taxableBeforeCap = round2(worksheetIncome * 0.85);
+    taxableBeforeCap = round2(
+      worksheetIncome * SOCIAL_SECURITY_TAXATION_RATES.upperTier
+    );
   } else if(worksheetIncome > thresholds.baseAmount){
     const excessOverBase = round2(worksheetIncome - thresholds.baseAmount);
     const excessOverAdditionalAmount = round2(Math.max(0, excessOverBase - thresholds.additionalAmount));
     const amountInFiftyPctBand = round2(Math.min(excessOverBase, thresholds.additionalAmount));
-    const limitedFiftyPctAmount = round2(Math.min(halfBenefits, round2(amountInFiftyPctBand * 0.50)));
-    const eightyFivePctAmount = round2(excessOverAdditionalAmount * 0.85);
+    const limitedFiftyPctAmount = round2(Math.min(
+      halfBenefits,
+      round2(amountInFiftyPctBand * SOCIAL_SECURITY_TAXATION_RATES.lowerTier)
+    ));
+    const eightyFivePctAmount = round2(
+      excessOverAdditionalAmount * SOCIAL_SECURITY_TAXATION_RATES.upperTier
+    );
     taxableBeforeCap = round2(limitedFiftyPctAmount + eightyFivePctAmount);
     calculationSteps.push(
       { line: 'excessOverBase', amount: excessOverBase },
@@ -125,6 +137,7 @@ export function calculate(input, context){
     baseAmount: thresholds.baseAmount,
     additionalAmount: thresholds.additionalAmount,
     thresholdKey,
+    ratesUsed: SOCIAL_SECURITY_TAXATION_RATES,
   };
 
   const audit = {

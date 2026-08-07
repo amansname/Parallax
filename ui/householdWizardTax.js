@@ -21,6 +21,8 @@ export function renderHouseholdWizardTax(ctx){
   const scheduleSE = current.scheduleSE?.[0] || {};
   const detailed = taxView === 'detailed';
   const planningGroups = planningIncome?.groups || {};
+  const wagesByOwner = planningIncome?.wagesByOwner || {};
+  const hasSpouse = Boolean(plan.household?.spouse);
 
   const groupState = groupId => planningGroups[groupId] || {
     rowIds: [],
@@ -84,6 +86,16 @@ export function renderHouseholdWizardTax(ctx){
       ${signed ? 'data-signed="true"' : ''}
       ${disabled ? 'disabled aria-disabled="true"' : ''}>
   `;
+
+  const wageValue = owner => {
+    const member = wagesByOwner[owner];
+    if(member?.present) return member.value;
+    if(owner === 'client' && !hasSpouse
+        && Object.prototype.hasOwnProperty.call(income, 'wages')){
+      return income.wages;
+    }
+    return undefined;
+  };
 
   const incomeRow = (
     label,
@@ -215,10 +227,10 @@ export function renderHouseholdWizardTax(ctx){
         </div>
         <div class="hh-tax-table">
           <div class="hh-tax-table-head"><span>Income type</span><span>Amount</span></div>
-          ${incomeRow('Wages', 'income.wages', income.wages, {
-            groupId: 'wages',
-            showSource: true,
-          })}
+          ${incomeRow('Client wages', 'income.wages.client', wageValue('client'))}
+          ${hasSpouse
+            ? incomeRow('Co-client wages', 'income.wages.spouse', wageValue('spouse'))
+            : ''}
           ${incomeRow('Tax-exempt interest', 'income.taxExemptInterest', income.taxExemptInterest, {
             groupId: 'interest',
             showSource: true,

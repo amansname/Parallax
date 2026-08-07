@@ -11,6 +11,7 @@ import {
   hasOwn,
   wizardTaxError,
 } from './wizardIntakeSupport.js';
+import { newWizardRowId } from './householdRecordSchema.js';
 
 const INCOME_FIELDS = new Set([
   'wages',
@@ -155,6 +156,78 @@ function setIncomeField(plan, current, field, value){
   if(field === 'taxableSS' && parsed !== undefined){
     current.income.socialSecurity = { mode: 'supplied-form1040-lines' };
   }
+}
+
+function setMemberWages(plan, current, owner, value){
+  if(owner !== 'client' && owner !== 'spouse'){
+    throw new Error('Unsupported wage owner');
+  }
+  if(owner === 'spouse' && !plan.household?.spouse){
+    throw new Error('Co-client wages require a co-client');
+  }
+  const parsed = parseWizardNumber(value);
+  const planningAsOfYear = Number.isInteger(plan.meta?.planningAsOfYear)
+    ? plan.meta.planningAsOfYear
+    : current.taxYear;
+  if(Number(current.taxYear) !== Number(planningAsOfYear)){
+    const byOwner = current.wagesByOwner
+      && typeof current.wagesByOwner === 'object'
+      && !Array.isArray(current.wagesByOwner)
+      ? current.wagesByOwner
+      : {};
+    setOrDelete(byOwner, owner, parsed);
+    if(Object.keys(byOwner).length > 0) current.wagesByOwner = byOwner;
+    else delete current.wagesByOwner;
+    const values = Object.values(byOwner).filter(Number.isFinite);
+    setOrDelete(
+      current.income,
+      'wages',
+      values.length > 0 ? values.reduce((sum, amount) => sum + amount, 0) : undefined,
+    );
+    const overrides = new Set(
+      Array.isArray(current.planningIncomeOverrides)
+        ? current.planningIncomeOverrides
+        : [],
+    );
+    overrides.add('wages');
+    current.planningIncomeOverrides = [...overrides];
+    current.incomeSourcesComplete = false;
+    return;
+  }
+  const rows = Array.isArray(plan.income?.other) ? plan.income.other : [];
+  plan.income.other = rows.filter(row => !(
+    row?.owner === owner && (row?.typeId === 'wages' || row?.typeId === 'bonus')
+  ));
+  if(parsed !== undefined){
+    const person = owner === 'spouse'
+      ? plan.household.spouse
+      : plan.household.primary;
+    const currentAge = Number(person?.currentAge);
+    const retirementAge = Number(person?.retirementAge);
+    const currentYearOnly = Number.isFinite(currentAge)
+      && (person?.employmentStatus === 'retired'
+        || (Number.isFinite(retirementAge) && currentAge >= retirementAge));
+    plan.income.other.push({
+      id: newWizardRowId('income'),
+      typeId: 'wages',
+      label: 'Wages or salary',
+      owner,
+      amount: parsed,
+      ...(currentYearOnly ? { startAge: currentAge, endAge: currentAge } : {}),
+      realGrowth: 0,
+      taxablePct: 1,
+    });
+  }
+  delete current.wagesByOwner;
+  delete current.income.wages;
+  if(Array.isArray(current.planningIncomeOverrides)){
+    current.planningIncomeOverrides = current.planningIncomeOverrides
+      .filter(groupId => groupId !== 'wages');
+    if(current.planningIncomeOverrides.length === 0){
+      delete current.planningIncomeOverrides;
+    }
+  }
+  current.incomeSourcesComplete = false;
 }
 
 function setSocialSecurityMode(current, mode){
@@ -426,6 +499,10 @@ export function setWizardTaxField(plan, field, value){
   }
   if(field.startsWith('scheduleSE.')){
     setScheduleSE(current, field.slice('scheduleSE.'.length), value);
+    return current;
+  }
+  if(field === 'income.wages.client' || field === 'income.wages.spouse'){
+    setMemberWages(plan, current, field.slice('income.wages.'.length), value);
     return current;
   }
   if(field.startsWith('income.')){

@@ -630,3 +630,46 @@ export function buildCurrent1040Intake(plan){
     gaps: Object.freeze(gaps),
   });
 }
+
+/**
+ * Sum only Form 1040 income amounts that are explicitly available now.
+ * Missing fields stay missing: this never materializes or assumes zeroes.
+ */
+export function buildKnownCurrent1040IncomeSubtotal(plan){
+  const built = buildCurrent1040Intake(plan);
+  const income = built.intake?.income;
+  if(!isRecord(income)) return null;
+
+  const values = [];
+  const addKnown = field => {
+    if(!hasOwn(income, field)) return;
+    const value = income[field];
+    if(typeof value === 'number' && Number.isFinite(value)) values.push(value);
+  };
+  for(const field of [
+    'wages',
+    'taxableInterest',
+    'ordinaryDividends',
+    'taxableIra',
+    'rothConversion',
+    'taxablePensions',
+    'taxableSS',
+    'otherIncome',
+  ]){
+    addKnown(field);
+  }
+
+  const scheduleD = built.intake?.scheduleD;
+  const scheduleDAmount = scheduleD?.mode === 'supplied-form1040-line7'
+    ? scheduleD.amount
+    : scheduleD?.netLongTermGainOrLoss;
+  if(typeof scheduleDAmount === 'number'
+      && Number.isFinite(scheduleDAmount)
+      && scheduleDAmount >= 0){
+    values.push(scheduleDAmount);
+  }
+
+  return values.length > 0
+    ? values.reduce((sum, value) => sum + value, 0)
+    : null;
+}

@@ -80,6 +80,74 @@ test('family DOB is one atomic edit across profile, plan age, and canonical taxp
   assert.equal(boundary.revision, 1);
 });
 
+test('family preserves each person\'s Social Security amount and live-to age', () => {
+  let current = applyHouseholdWizardEdit(plan(), {
+    scope: 'family',
+    field: 'filingStatus',
+    value: 'marriedFilingJointly',
+  });
+  current = applyHouseholdWizardEdit(current, {
+    scope: 'family',
+    field: 'client.socialSecurityBenefit',
+    value: '31,200',
+  });
+  current = applyHouseholdWizardEdit(current, {
+    scope: 'family',
+    field: 'spouse.socialSecurityBenefit',
+    value: '24,600',
+  });
+  current = applyHouseholdWizardEdit(current, {
+    scope: 'family',
+    field: 'client.planEndAge',
+    value: 94,
+  });
+  current = applyHouseholdWizardEdit(current, {
+    scope: 'family',
+    field: 'spouse.planEndAge',
+    value: 101,
+  });
+
+  assert.equal(current.income.socialSecurity.primary.pia, 31200);
+  assert.equal(current.income.socialSecurity.spouse.pia, 24600);
+  assert.equal(current.household.primary.planEndAge, 94);
+  assert.equal(current.household.spouse.planEndAge, 101);
+});
+
+test('family rejects a live-to age before that person\'s current age', () => {
+  const subject = plan();
+  assert.throws(
+    () => applyHouseholdWizardEdit(subject, {
+      scope: 'family',
+      field: 'client.planEndAge',
+      value: 59,
+    }),
+    /cannot precede current age/,
+  );
+});
+
+test('family rejects a negative Social Security amount without changing the plan', () => {
+  const subject = plan();
+  const before = structuredClone(subject);
+  assert.throws(
+    () => applyHouseholdWizardEdit(subject, {
+      scope: 'family',
+      field: 'client.socialSecurityBenefit',
+      value: -1,
+    }),
+    /zero or a positive amount/,
+  );
+  assert.deepEqual(subject, before);
+});
+
+test('clearing Social Security keeps the amount unknown instead of inventing zero', () => {
+  const current = applyHouseholdWizardEdit(plan(), {
+    scope: 'family',
+    field: 'client.socialSecurityBenefit',
+    value: '',
+  });
+  assert.equal(current.income.socialSecurity.primary.pia, null);
+});
+
 test('invalid edits leave the live plan untouched and emit no commit transition', () => {
   const current = plan();
   const before = structuredClone(current);
@@ -308,19 +376,20 @@ test('account updates and removals resolve the stable ID after reorder', () => {
   assert.deepEqual(removed.portfolio.extraAccounts.map(account => account.id), [first.id]);
 });
 
-test('account type derives tax treatment and displayName remains independent', () => {
+test('taxable brokerage accepts joint ownership while legacy joint brokerage remains editable', () => {
   const subject = plan();
   let edited = applyHouseholdWizardEdit(subject, {
     scope: 'account',
     action: 'add',
-    typeId: 'joint_brokerage',
+    typeId: 'brokerage_taxable',
     displayName: 'Joint brokerage',
-    owner: 'client',
+    owner: 'joint',
     balance: 1450000,
   }, { timestamp: '2026-07-29T12:00:00.000Z' });
 
   const account = edited.portfolio.extraAccounts[0];
   assert.equal(account.displayName, 'Joint brokerage');
+  assert.equal(account.typeId, 'brokerage_taxable');
   assert.equal(account.owner, 'joint');
   assert.equal(account.bucket, 'taxable');
 
@@ -334,6 +403,53 @@ test('account type derives tax treatment and displayName remains independent', (
   assert.equal(edited.portfolio.extraAccounts[0].displayName, 'Joint brokerage');
   assert.equal(edited.portfolio.extraAccounts[0].bucket, 'roth');
   assert.equal(edited.portfolio.extraAccounts[0].owner, 'client');
+
+  const legacy = createAccount('joint_brokerage', {
+    displayName: 'Existing joint brokerage',
+    owner: 'joint',
+    balance: 250000,
+  });
+  edited.portfolio.extraAccounts = [legacy];
+  edited = applyHouseholdWizardEdit(edited, {
+    scope: 'account',
+    action: 'update',
+    accountId: legacy.id,
+    field: 'owner',
+    value: 'client',
+  }, { timestamp: '2026-07-29T12:00:00.000Z' });
+  assert.equal(edited.portfolio.extraAccounts[0].typeId, 'brokerage_taxable');
+  assert.equal(edited.portfolio.extraAccounts[0].owner, 'client');
+  assert.equal(edited.portfolio.extraAccounts[0].balance, 250000);
+});
+
+test('account money edits accept comma-formatted display values without storing strings', () => {
+  let edited = applyHouseholdWizardEdit(plan(), {
+    scope: 'account',
+    action: 'add',
+    typeId: 'brokerage_taxable',
+    owner: 'joint',
+    balance: '1,234,567',
+  }, { timestamp: '2026-07-29T12:00:00.000Z' });
+  const account = edited.portfolio.extraAccounts[0];
+  assert.equal(account.balance, 1234567);
+
+  edited = applyHouseholdWizardEdit(edited, {
+    scope: 'account',
+    action: 'update',
+    accountId: account.id,
+    field: 'basis',
+    value: '765,432',
+  }, { timestamp: '2026-07-29T12:00:00.000Z' });
+  assert.equal(edited.portfolio.extraAccounts[0].basis.amount, 765432);
+
+  edited = applyHouseholdWizardEdit(edited, {
+    scope: 'account',
+    action: 'update',
+    accountId: account.id,
+    field: 'balance',
+    value: '2,000,000',
+  }, { timestamp: '2026-07-29T12:00:00.000Z' });
+  assert.equal(edited.portfolio.extraAccounts[0].balance, 2000000);
 });
 
 test('tax edits route only through canonical current1040 and preserve explicit zero', () => {

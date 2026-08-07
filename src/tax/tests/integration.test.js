@@ -63,6 +63,20 @@ test('supplied line3a on full spine runs capital gains stacking (1040 line-for-l
   ]);
 });
 
+test('standard deduction limits the qualified-dividend dollars sent to preferential stacking', () => {
+  const input = client1040IntakeToComposerInput({
+    filingStatus: 'single',
+    income: { ordinaryDividends: 100000, qualifiedDividends: 100000 },
+    deductions: { useStandard: true },
+  });
+  const { result } = composeAnnualFederalTax(input, ctx());
+
+  assert.strictEqual(result.form1040.line15.value, 83900);
+  assert.strictEqual(result.incomeTaxComponents.ordinaryIncomeTax, 0);
+  assert.strictEqual(result.incomeTaxComponents.preferentialIncomeTax, 5167.50);
+  assert.strictEqual(result.form1040.line16.value, 5167.50);
+});
+
 test('supplied line7a on full spine runs capital gains stacking (1040 line-for-line)', () => {
   const input = client1040IntakeToComposerInput({
     filingStatus: 'single',

@@ -11,15 +11,15 @@ export function soloRowText(key, baseV, newV, { levCfg, defaultLevers }){
   return { name: cfg.name, from, to, delta, unchanged: newV===baseV };
 }
 
-export function goalParamsHtml(goalType, baseLev, defPct, { goals, currentAge }){
+export function goalParamsHtml(goalType, baseLev, defPct, { goals, currentAge, planEndAge = 99 }){
   const g = goals[goalType];
   const cur = currentAge;
   const money = (id,lbl,val,suf='') => `<label class="sf-field"><span class="sf-lbl">${lbl}</span><span class="sf-box-wrap"><span class="sf-prefix">$</span><input class="sf-box sf-money" id="${id}" type="text" inputmode="numeric" value="${val.toLocaleString('en-US')}">${suf?`<span class="sf-suffix">${suf}</span>`:''}</span></label>`;
   const age = (id,lbl,val,min=55,max=99) => `<label class="sf-field"><span class="sf-lbl">${lbl}</span><span class="sf-box-wrap"><input class="sf-box" id="${id}" type="number" min="${min}" max="${max}" value="${val}"></span></label>`;
   let h = '';
   if(goalType==='retire')    h += age('sf-p-age','By age', baseLev.retireAge, 55, 72);
-  if(goalType==='purchase'){ h += money('sf-p-amount','Amount', 300000); h += age('sf-p-age','At age', Math.min(72, baseLev.retireAge+2), cur, 95); }
-  if(goalType==='gift'){     h += money('sf-p-amount','Each year', 25000, '/yr'); h += age('sf-p-toage','Through age', 85, cur, 99); }
+  if(goalType==='purchase'){ h += money('sf-p-amount','Amount', 300000); h += age('sf-p-age','At age', Math.min(72, baseLev.retireAge+2), cur, planEndAge); }
+  if(goalType==='gift'){     h += money('sf-p-amount','Each year', 25000, '/yr'); h += age('sf-p-toage','Through age', Math.min(85,planEndAge), cur, planEndAge); }
   if(goalType==='legacy')    h += money('sf-p-amount','At least', 1000000);
   const barLbl = g.bar==='chance' ? 'Chance' : 'Confidence';
   const barDef = g.bar==='chance' ? 85 : defPct;
@@ -70,7 +70,7 @@ export function renderComboField(C, { comboShort }){
 }
 
 export function solvePanelHTML({
-  solverFormOpen, scenarios, defaultLevers, goals, currentAge,
+  solverFormOpen, scenarios, defaultLevers, goals, currentAge, planEndAge,
   solverResults, solverSearching, comboOpen, comboSearching, comboResults,
   levCfg, comboShort, escHtml,
 }){
@@ -90,7 +90,7 @@ export function solvePanelHTML({
         <form class="sf-form" id="solver-form">
           <label class="sf-field"><span class="sf-lbl">Goal</span>
             <select class="sf-select" id="sf-goal">${goalOpts}</select></label>
-          <span id="sf-params" class="sf-params">${goalParamsHtml('retire', baseLev, defPct, { goals, currentAge })}</span>
+          <span id="sf-params" class="sf-params">${goalParamsHtml('retire', baseLev, defPct, { goals, currentAge, planEndAge })}</span>
           <button type="submit" class="sf-go">Solve →</button>
         </form>
       </div>`;

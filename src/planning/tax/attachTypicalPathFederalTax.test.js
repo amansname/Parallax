@@ -62,6 +62,32 @@ test('buildPlanMetaFromEngineParams requires filing status and optional override
   assert.deepStrictEqual(rowPlanMeta({ year: 99 }), { taxYear: 2026 });
 });
 
+test('row tax metadata applies current-return facts only to the matching calendar year', () => {
+  const current1040Intake = {
+    taxYear: 2026,
+    income: { wages: 90_000 },
+    deductions: { method: 'itemized', source: 'supplied-line12e', line12e: 40_000 },
+    taxpayers: { client: { birthDate: '1960-01-01' } },
+    returnScope: { modeledTaxpayer: 'client' },
+  };
+  const rowPlanMeta = buildRowPlanMetaFromOptions({
+    baseTaxYear: 2026,
+    current1040Intake,
+  });
+
+  assert.deepStrictEqual(rowPlanMeta({ year: 1 }), {
+    taxYear: 2026,
+    current1040Income: { wages: 90_000 },
+    deductions: current1040Intake.deductions,
+    adjustments: undefined,
+    taxpayers: current1040Intake.taxpayers,
+    returnScope: current1040Intake.returnScope,
+    passThrough: undefined,
+    currentNetLongTermGainOrLoss: undefined,
+  });
+  assert.deepStrictEqual(rowPlanMeta({ year: 2 }), { taxYear: 2026 });
+});
+
 test('buildPlanMetaFromEngineParams uses household filing status without an MFJ default', () => {
   for(const filingStatus of [
     'single',
@@ -85,7 +111,7 @@ test('buildPlanMetaFromEngineParams uses household filing status without an MFJ 
 });
 
 test('attachTypicalPathFederalTax returns slim summary without mutating analysis', () => {
-  const horizon = defaultPlan.household.primary.planEndAge - defaultPlan.household.primary.currentAge;
+  const horizon = resolveInputs(defaultPlan, {}).horizonYears;
   const paths = Array.from({ length: 12 }, () => generateReturnPath(horizon));
   const analysis = runSimulation(defaultPlan, {}, paths);
 
@@ -268,7 +294,9 @@ test('planner integration preserves MFJ and single status through line 8 and lin
 test('SS-heavy planner path calculates line 6b and attaches without throwing', () => {
   const plan = cloneDefaultPlan();
   plan.household.primary = { currentAge: 67, retirementAge: 67, planEndAge: 75 };
-  plan.household.spouse = { currentAge: 67, retirementAge: 67 };
+  plan.household.spouse = { currentAge: 67, retirementAge: 67, planEndAge: 75 };
+  plan.portfolio.accounts.taxable.balance += plan.portfolio.accounts.traditional.balance;
+  plan.portfolio.accounts.traditional.balance = 0;
   removeNonTestIncomeAndOutflows(plan);
   plan.income.socialSecurity = {
     primary: { pia: 70000, claimAge: 67 },
@@ -332,10 +360,24 @@ test('RMD and taxable-withdrawal planner facts match sidecar intake and attached
 
   assert.ok(Math.abs(row.taxableGainFraction - impliedGainFraction) < 1e-9);
   assert.strictEqual(direct.facts.income.iraDistributions, iraGross);
-  assert.strictEqual(direct.facts.income.capitalGain, expectedCapitalGain);
+  assert.strictEqual(
+    direct.facts.scheduleD.netLongTermGainOrLoss,
+    expectedCapitalGain
+  );
   assert.strictEqual(direct.input.supplied.line4a, iraGross);
   assert.strictEqual(direct.input.supplied.line4b, iraGross);
-  assert.strictEqual(direct.input.supplied.line7a, expectedCapitalGain);
+  assert.strictEqual(
+    direct.input.scheduleD.netLongTermGainOrLoss,
+    expectedCapitalGain
+  );
+  assert.strictEqual(
+    direct.result.form1040.line7a.value,
+    Math.round((expectedCapitalGain + Number.EPSILON) * 100) / 100
+  );
+  assert.strictEqual(
+    direct.result.form1040.line7a.ruleId,
+    'FED_SCHEDULE_D_CLASSIFICATION'
+  );
   assert.ok(direct.result.form1040.line24.value > 0);
   assert.ok(attachedYear, 'expected RMD/taxable row in attached summary');
   assert.strictEqual(attachedYear.federalTaxLiability, direct.result.form1040.line24.value);
@@ -346,6 +388,8 @@ test('survivor filing-status transition integration', () => {
   plan.meta.filingStatus = 'marriedFilingJointly';
   plan.household.primary = { currentAge: 65, retirementAge: 65, planEndAge: 92 };
   plan.household.spouse = { currentAge: 64, retirementAge: 64, planEndAge: 68 };
+  plan.portfolio.accounts.taxable.balance += plan.portfolio.accounts.traditional.balance;
+  plan.portfolio.accounts.traditional.balance = 0;
   plan.income.socialSecurity = {
     primary: { pia: 30000, claimAge: 65 },
     spouse: { pia: 20000, claimAge: 64 },
@@ -354,8 +398,8 @@ test('survivor filing-status transition integration', () => {
   plan.goals = [];
   plan.liabilities = [];
   const { analysis, path } = historicalAnalysis(plan);
-  const before = path.rows.find(row => row.age === 68);
-  const after = path.rows.find(row => row.age === 69);
+  const before = path.rows.find(row => row.age === 69);
+  const after = path.rows.find(row => row.age === 70);
   assert.strictEqual(before.filingStatus, 'marriedFilingJointly');
   assert.strictEqual(before.survivor, false);
   assert.strictEqual(after.filingStatus, 'single');
@@ -366,6 +410,6 @@ test('survivor filing-status transition integration', () => {
     filingStatus: 'marriedFilingJointly',
     baseTaxYear: 2026,
   });
-  assert.strictEqual(summary.years.find(year => year.age === 68).filingStatus, 'marriedFilingJointly');
-  assert.strictEqual(summary.years.find(year => year.age === 69).filingStatus, 'single');
+  assert.strictEqual(summary.years.find(year => year.age === 69).filingStatus, 'marriedFilingJointly');
+  assert.strictEqual(summary.years.find(year => year.age === 70).filingStatus, 'single');
 });

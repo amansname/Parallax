@@ -25,15 +25,18 @@ export function resolveGoalSpan(plan){
   const primary = household.primary || {};
   const currentAge = Number.isFinite(+primary.currentAge) ? +primary.currentAge : 62;
   let retireAge = Number.isFinite(+primary.retirementAge) ? +primary.retirementAge : 65;
+  let planEndAge = Number.isFinite(+primary.planEndAge) ? +primary.planEndAge : 95;
   const spouse = household.spouse;
   if(spouse && Number.isFinite(+spouse.currentAge) && Number.isFinite(+spouse.retirementAge)){
     retireAge = Math.max(retireAge, currentAge + (+spouse.retirementAge - +spouse.currentAge));
   }
-  const planEndAge = Number.isFinite(+primary.planEndAge) ? +primary.planEndAge : 95;
-  const endAge = clamp(Math.round(planEndAge), 50, 100);
+  if(spouse && Number.isFinite(+spouse.currentAge) && Number.isFinite(+spouse.planEndAge)){
+    planEndAge = Math.max(planEndAge, currentAge + (+spouse.planEndAge - +spouse.currentAge));
+  }
+  const endAge = Math.max(50, Math.round(planEndAge));
   const retirementAge = clamp(Math.round(retireAge), 50, endAge);
   return {
-    currentAge: clamp(Math.round(currentAge), 50, 100),
+    currentAge: Math.max(50, Math.round(currentAge)),
     retirementAge,
     planEndAge: endAge,
     axisMin: 62,
@@ -109,7 +112,7 @@ export function setGoalPer(goal, nextPer){
 }
 
 export function setGoalKind(goal, kind, planEndAge){
-  const end = clamp(Math.round(+planEndAge || 95), 50, 100);
+  const end = Math.max(50, Math.round(+planEndAge || 95));
   const start = clamp(Math.round(+goal.startAge || 65), 50, end);
   goal.startAge = start;
   if(kind === 'once'){
@@ -122,7 +125,7 @@ export function setGoalKind(goal, kind, planEndAge){
 }
 
 export function setGoalRange(goal, startAge, endAge, planEndAge, changedEdge = 'start'){
-  const max = clamp(Math.round(+planEndAge || 95), 50, 100);
+  const max = Math.max(50, Math.round(+planEndAge || 95));
   let start = clamp(Math.round(+startAge || 50), 50, max);
   let end = clamp(Math.round(+endAge || start), 50, max);
   if(start > end){
@@ -135,7 +138,7 @@ export function setGoalRange(goal, startAge, endAge, planEndAge, changedEdge = '
 }
 
 export function shiftGoal(goal, deltaYears, { dragMin = 62, planEndAge = 95 } = {}){
-  const max = clamp(Math.round(+planEndAge || 95), dragMin, 100);
+  const max = Math.max(dragMin, Math.round(+planEndAge || 95));
   const delta = Math.round(+deltaYears || 0);
   if(isOneTimeGoal(goal)){
     const age = clamp(Math.round(+goal.startAge || dragMin) + delta, dragMin, max);
