@@ -1637,6 +1637,10 @@ function resolveInputs(plan, ov){
   if(hasLivingAnnual && (!Number.isFinite(ov.livingAnnual) || ov.livingAnnual < 0)){
     throw new TypeError('livingAnnual must be a finite non-negative number');
   }
+  const hasSavingsAnnual = Object.prototype.hasOwnProperty.call(ov, 'savingsAnnual');
+  if(hasSavingsAnnual && (!Number.isFinite(ov.savingsAnnual) || ov.savingsAnnual < 0)){
+    throw new TypeError('savingsAnnual must be a finite non-negative number');
+  }
   const spendMult = (1 - Math.max(0, Math.min(0.5, ov.spendCut || 0))) * (1 + Math.max(0, ov.spendBump || 0));
 
   // Initial shock: applied to the equity portion of each account proportionally.
@@ -1776,7 +1780,9 @@ function resolveInputs(plan, ov){
   // ── Accumulation, pension, and LTC resolution (all no-op at plan defaults) ──
   const curAge        = timeline.people.client.currentAge;
   const retirementAge = timeline.householdRetirementAgeOnPrimaryTimeline ?? curAge;
-  const savingsAnnual = Math.max(0, ((plan.savings && plan.savings.annual) || 0) * (1 + (ov.savingsBump || 0)));
+  const savingsAnnual = hasSavingsAnnual
+    ? ov.savingsAnnual
+    : Math.max(0, ((plan.savings && plan.savings.annual) || 0) * (1 + (ov.savingsBump || 0)));
   // Contribution split — where accumulation savings land across the three sleeves.
   // Default 100% pre-tax (Traditional) so existing plans are byte-identical. Lets
   // high earners model Roth (backdoor) and post-tax brokerage contributions. The
@@ -1801,6 +1807,19 @@ function resolveInputs(plan, ov){
   const traditionalRmdStartAge = traditionalRmdOwner
     ? timeline.people[traditionalRmdOwner]?.rmdStartAge ?? null
     : null;
+  const traditionalRmdSurvivorOwner = traditionalRmdOwner === 'client'
+    ? 'spouse'
+    : traditionalRmdOwner === 'spouse'
+      ? 'client'
+      : null;
+  const spousalRolloverAvailable = plan?.meta?.filingStatus === 'marriedFilingJointly'
+    && Boolean(spousePlan)
+    && Boolean(traditionalRmdSurvivorOwner)
+    && Number.isFinite(timeline.people[traditionalRmdSurvivorOwner]?.rmdStartAge)
+    && traditionalAccountRulesKnown
+    && traditionalRmdAccountAttributionKnown
+    && traditionalFocusRulesKnown
+    && !traditionalContainsEmployerPlan;
   const pen           = plan.income.pension || {};
   // Chosen collection age. The UI computes this (retirement-linked or custom) and
   // passes it as an absolute override; fall back to the plan's startAge (+ legacy
@@ -1999,6 +2018,7 @@ function resolveInputs(plan, ov){
         && traditionalRmdStartAge !== null,
       owner: traditionalRmdOwner,
       startAge: traditionalRmdStartAge,
+      spousalRolloverAvailable,
       containsEmployerPlan: traditionalContainsEmployerPlan,
       focusRulesAvailable: traditionalFocusRulesKnown,
       planningAsOfYear,
@@ -2174,20 +2194,34 @@ function requiredMinimumDistribution(p, primaryAge, traditionalBalance){
       issue: contract?.issue ?? 'TRADITIONAL_ACCOUNT_OWNER_UNAVAILABLE',
     };
   }
-  const person = householdTaxStatusAtAge(p, primaryAge).people?.[contract.owner];
+  const householdState = householdTaxStatusAtAge(p, primaryAge);
+  let owner = contract.owner;
+  let person = householdState.people?.[owner];
   if(!person?.alive){
-    return {
-      required: null,
-      available: false,
-      owner: contract.owner,
-      issue: 'TRADITIONAL_ACCOUNT_OWNER_LIFECYCLE_UNAVAILABLE',
-    };
+    const survivorOwner = householdState.survivingOwner;
+    const survivor = householdState.people?.[survivorOwner];
+    if(contract.spousalRolloverAvailable
+        && survivor?.alive === true
+        && survivor.rmdStartAge !== null){
+      owner = survivorOwner;
+      person = survivor;
+    }else{
+      return {
+        required: null,
+        available: false,
+        owner: contract.owner,
+        issue: 'TRADITIONAL_ACCOUNT_OWNER_LIFECYCLE_UNAVAILABLE',
+      };
+    }
   }
-  if(person.age < contract.startAge){
+  const startAge = owner === contract.owner
+    ? contract.startAge
+    : person.rmdStartAge;
+  if(person.age < startAge){
     return {
       required: 0,
       available: true,
-      owner: contract.owner,
+      owner,
       issue: null,
     };
   }
@@ -2195,14 +2229,14 @@ function requiredMinimumDistribution(p, primaryAge, traditionalBalance){
     return {
       required: null,
       available: false,
-      owner: contract.owner,
+      owner,
       issue: 'EMPLOYER_PLAN_RMD_RULE_UNAVAILABLE',
     };
   }
   return {
     required: traditionalBalance / rmdDivisor(person.age),
     available: true,
-    owner: contract.owner,
+    owner,
     issue: null,
   };
 }

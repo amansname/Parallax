@@ -893,6 +893,42 @@ test('livingAnnual models positive scenario spending over a zero-dollar base', (
   assert.equal(result.rows[0].taxFundingConvergence.taxSavingsReinvested, 0);
 });
 
+test('savingsAnnual models positive scenario savings over a zero-dollar base', () => {
+  const p = structuredClone(defaultPlan);
+  p.household.primary = { currentAge: 60, retirementAge: 62, planEndAge: 62 };
+  p.household.spouse = null;
+  p.portfolio.accounts = {
+    taxable: { balance: 0, basisPct: 1 },
+    traditional: { balance: 0 },
+    roth: { balance: 0 },
+  };
+  p.portfolio.extraAccounts = [];
+  p.savings.annual = 0;
+  p.expenses = {
+    living: 0, housing: 0, debt: 0, healthcare: 0,
+    healthcareRealGrowth: 0, extra: [],
+  };
+  p.goals = [];
+  p.liabilities = [];
+  p.properties = [];
+  p.ltc = { amount: 0, onsetAge: 99 };
+
+  const params = resolveInputs(p, {
+    savingsAnnual: 24_000,
+    savingsSplit: { taxable: 1 },
+  });
+  const result = runSinglePath(params, [
+    { y: 2026, proxyReturn: 0 },
+    { y: 2027, proxyReturn: 0 },
+    { y: 2028, proxyReturn: 0 },
+  ]);
+
+  assert.equal(params.savingsAnnual, 24_000);
+  assert.deepEqual(params.savingsSplit, { traditional: 0, roth: 0, taxable: 1 });
+  assert.equal(result.rows[1].accountBalances.taxable, 48_000);
+  assert.equal(result.rows[1].taxableEndingBasis, 48_000);
+});
+
 test('federal funding rejects non-finite spending inputs before convergence', () => {
   const p = structuredClone(defaultPlan);
   p.household.primary = { currentAge: 65, retirementAge: 65, planEndAge: 66 };
@@ -914,6 +950,10 @@ test('federal funding rejects non-finite spending inputs before convergence', ()
     assert.throws(
       () => resolveInputs(p, { livingAnnual: value }),
       /livingAnnual must be a finite non-negative number/
+    );
+    assert.throws(
+      () => resolveInputs(p, { savingsAnnual: value }),
+      /savingsAnnual must be a finite non-negative number/
     );
   }
 
@@ -1896,7 +1936,7 @@ test('a working-owner employer plan does not receive an invented RMD', () => {
   );
 });
 
-test('full-plan results fail closed for multi-owner and post-death RMD uncertainty', () => {
+test('full-plan results fail closed for multi-owner RMD uncertainty', () => {
   const multiOwner = structuredClone(defaultPlan);
   multiOwner.meta.filingStatus = 'marriedFilingJointly';
   multiOwner.household.primary = { currentAge: 73, retirementAge: 73, planEndAge: 75 };
@@ -1925,19 +1965,46 @@ test('full-plan results fail closed for multi-owner and post-death RMD uncertain
     resolveWithdrawalPlannerAccountState(multiOwner).limits.deferredWithdrawal.max,
     265_000
   );
+});
 
-  const ownerDies = structuredClone(multiOwner);
-  ownerDies.household.primary = { currentAge: 73, retirementAge: 73, planEndAge: 73 };
-  ownerDies.household.spouse = { currentAge: 65, retirementAge: 65, planEndAge: 67 };
-  ownerDies.portfolio.extraAccounts = [
+test('a surviving spouse receives a single-owner Traditional IRA by rollover', () => {
+  const p = structuredClone(defaultPlan);
+  p.meta.filingStatus = 'marriedFilingJointly';
+  p.meta.planningAsOfYear = 2026;
+  p.household.primary = {
+    currentAge: 73, retirementAge: 73, planEndAge: 73, birthYear: 1953,
+  };
+  p.household.spouse = {
+    currentAge: 65, retirementAge: 65, planEndAge: 80, birthYear: 1961,
+  };
+  p.income.socialSecurity = {
+    primary: { pia: 0, claimAge: 67 },
+    spouse: { pia: 0, claimAge: 67 },
+  };
+  p.income.other = [];
+  p.savings.annual = 0;
+  p.portfolio.accounts = {
+    taxable: { balance: 0, basisPct: 1 },
+    traditional: { balance: 0 },
+    roth: { balance: 0 },
+  };
+  p.portfolio.extraAccounts = [
     createAccount('traditional_ira', { owner: 'client', balance: 265_000 }),
   ];
-  assert.throws(
-    () => runHistoricalPath(ownerDies, 1995, 'taxable-first'),
-    error => error?.code === 'HOUSEHOLD_RMD_UNAVAILABLE'
-      && error.rmdIssue === 'TRADITIONAL_ACCOUNT_OWNER_LIFECYCLE_UNAVAILABLE'
-      && error.age === 74
-  );
+  p.expenses = {
+    living: 0, housing: 0, debt: 0, healthcare: 0,
+    healthcareRealGrowth: 0, extra: [],
+  };
+
+  const result = runHistoricalPath(p, 1995, 'taxable-first');
+  const firstSurvivorRow = result.rows.find(row => row.age === 74);
+  const survivorRmdRow = result.rows.find(row => row.people.spouse.age === 75);
+
+  assert.strictEqual(firstSurvivorRow.rmdOwner, 'spouse');
+  assert.strictEqual(firstSurvivorRow.rmdRequired, 0);
+  assert.strictEqual(survivorRmdRow.rmdOwner, 'spouse');
+  assert.ok(survivorRmdRow.rmdRequired > 0);
+  assert.strictEqual(survivorRmdRow.rmdAvailable, true);
 });
 
 test('negative longevity is rejected instead of creating an empty successful plan', () => {

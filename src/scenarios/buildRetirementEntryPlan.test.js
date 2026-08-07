@@ -19,8 +19,8 @@ function account(typeId, id, balance, basisAmount = null){
 
 test('retirement entry preserves the projected bucket mix and taxable basis', () => {
   const plan = structuredClone(defaultPlan);
-  plan.household.primary = { currentAge: 60, retirementAge: 65, planEndAge: 95 };
-  plan.household.spouse = { currentAge: 58, retirementAge: 67, planEndAge: 95 };
+  plan.household.primary = { currentAge: 60, retirementAge: 65, planEndAge: 95, birthYear: 1966 };
+  plan.household.spouse = { currentAge: 58, retirementAge: 67, planEndAge: 95, birthYear: 1968 };
   plan.portfolio.accounts = {
     taxable: { balance: 0, basisPct: 1 },
     traditional: { balance: 0 },
@@ -69,7 +69,8 @@ test('retirement entry preserves the projected bucket mix and taxable basis', ()
     currentAge: 60,
     retirementAge: 65,
   });
-  const resolved = resolveInputs(result, {}).accounts;
+  const inputs = resolveInputs(result, {});
+  const resolved = inputs.accounts;
 
   assert.deepEqual(plan, before, 'the source Household plan must remain unchanged');
   assert.deepEqual(entryAccounts, {
@@ -83,12 +84,16 @@ test('retirement entry preserves the projected bucket mix and taxable basis', ()
     result.portfolio.extraAccounts.map(({ id, balance }) => ({ id, balance })),
     [
       { id: 'brokerage', balance: 0 },
-      { id: 'ira', balance: 0 },
+      { id: 'ira', balance: 1000 },
       { id: 'roth-401k', balance: 0 },
       { id: 'inherited', balance: 75 },
     ]
   );
   assert.equal(result.portfolio.extraAccounts[0].basis.amount, 0);
+  assert.equal(result.portfolio.accounts.traditional.balance, 0);
+  assert.equal(inputs.rmdContract.owner, 'client');
+  assert.equal(inputs.rmdContract.available, true);
+  assert.equal(result.meta.planningAsOfYear, 2031);
   assert.equal(result.household.primary.currentAge, 65);
   assert.equal(result.household.primary.retirementAge, 65);
   assert.equal(result.household.spouse.currentAge, 63);

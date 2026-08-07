@@ -1153,6 +1153,91 @@ try {
     await page.screenshot({ path: join(OUT, '03b-scenarios-focus.png'), fullPage: true });
   });
 
+  await step('scenarios zero-base savings changes a fourth column and survives reload', async () => {
+    await page.click('#scn-seg-compare');
+    await page.click('#scn-add');
+    await page.waitForFunction(() => {
+      const columns = [...document.querySelectorAll('#scn-view .scol')];
+      const probabilities = columns.map(column => column.querySelector('.scol__prob')?.textContent.trim() || '');
+      return columns.length === 4
+        && probabilities.every(value => /\d/.test(value))
+        && /Plan updated/i.test(document.querySelector('#status')?.textContent || '');
+    }, { timeout: 30000 });
+
+    const edited = await page.evaluate(() => {
+      const inputs = [...document.querySelectorAll('#scn-view .cmp-lev-in[data-key="savings"]')];
+      const input = inputs.at(-1);
+      if(!input) return false;
+      input.value = '45,000';
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
+    });
+    if(!edited) throw new Error('fourth scenario savings input was not available');
+    await page.waitForFunction(
+      () => /Run to update/i.test(document.querySelector('#status')?.textContent || ''),
+      { timeout: 8000 },
+    );
+    await page.click('#run-btn');
+    await page.waitForFunction(() => {
+      const probabilities = [...document.querySelectorAll('#scn-view .scol__prob')]
+        .map(element => element.textContent.trim());
+      return probabilities.length === 4
+        && probabilities.every(value => /\d/.test(value))
+        && /Plan updated/i.test(document.querySelector('#status')?.textContent || '');
+    }, { timeout: 30000 });
+
+    const beforeReload = await page.evaluate(() => {
+      const medians = [...document.querySelectorAll('#scn-view .scol__median b')]
+        .map(element => element.textContent.trim());
+      const savings = [...document.querySelectorAll('#scn-view .cmp-lev-in[data-key="savings"]')]
+        .map(input => input.value.replace(/[^0-9.]/g, ''));
+      const spending = [...document.querySelectorAll('#scn-view .cmp-lev-in[data-key="spend"]')]
+        .map(input => input.value.replace(/[^0-9.]/g, ''));
+      const saved = JSON.parse(localStorage.getItem('parallax.scenarios.demo.v1') || '[]');
+      return {
+        medians,
+        savings,
+        spending,
+        savedSavings: saved.find(scenario => scenario.name === 'Scenario D')?.lev?.savings,
+      };
+    });
+    if(beforeReload.medians.length !== 4
+        || beforeReload.medians.some(value => !/^\$[\d,.]+[KMB]?$/.test(value))
+        || beforeReload.medians[3] === beforeReload.medians[0]
+        || beforeReload.savings[3] !== '45000'
+        || beforeReload.spending[3] !== beforeReload.spending[0]
+        || beforeReload.savedSavings !== 45000){
+      throw new Error(`zero-base savings did not reach the fourth scenario: ${JSON.stringify(beforeReload)}`);
+    }
+
+    await stableReload({ waitUntil: 'networkidle2', timeout: 20000 });
+    await waitForWizard(page, { householdId: 'demo' });
+    await page.click('button[data-page="scenarios"]');
+    await page.waitForFunction(() => {
+      const probabilities = [...document.querySelectorAll('#scn-view .scol__prob')]
+        .map(element => element.textContent.trim());
+      const savings = [...document.querySelectorAll('#scn-view .cmp-lev-in[data-key="savings"]')]
+        .map(input => input.value.replace(/[^0-9.]/g, ''));
+      return probabilities.length === 4
+        && probabilities.every(value => /\d/.test(value))
+        && savings[3] === '45000';
+    }, { timeout: 30000 });
+    const afterReload = await page.evaluate(() => ({
+        medians: [...document.querySelectorAll('#scn-view .scol__median b')]
+          .map(element => element.textContent.trim()),
+        spending: [...document.querySelectorAll('#scn-view .cmp-lev-in[data-key="spend"]')]
+          .map(input => input.value.replace(/[^0-9.]/g, '')),
+        errors: [...document.querySelectorAll('#scn-view .scol__prob')]
+          .filter(element => !/\d/.test(element.textContent || '')).length,
+      }));
+    if(afterReload.errors !== 0
+        || JSON.stringify(afterReload.medians) !== JSON.stringify(beforeReload.medians)
+        || JSON.stringify(afterReload.spending) !== JSON.stringify(beforeReload.spending)){
+      throw new Error(`saved scenarios changed or blanked after reload: ${JSON.stringify({ beforeReload, afterReload })}`);
+    }
+    await page.screenshot({ path: join(OUT, '03c-scenarios-savings-reloaded.png'), fullPage: true });
+  });
+
   await step('entered planning ages cap Goals and Focus results', async () => {
     await page.evaluate(() => {
       const key = 'parallax.households.v1';
@@ -1465,11 +1550,25 @@ try {
   if(!SKIP_SEQUENCING){
     await step('sequencing renders all chips on', async () => {
       await page.click('button[data-page="sequencing"]');
-      await new Promise(r => setTimeout(r, 600));
+      await page.waitForFunction(
+        () => document.querySelector('.page.on')?.dataset.page === 'sequencing',
+        { timeout: 8000 },
+      );
       await page.evaluate(() => document.querySelectorAll('.seq-chip').forEach(c => { if(!c.classList.contains('on')) c.click(); }));
-      await new Promise(r => setTimeout(r, 600));
-      const ok = await page.evaluate(() => document.querySelectorAll('#seq-svg path').length > 4);
-      if(!ok) throw new Error('sequencing chart missing paths');
+      try{
+        await page.waitForFunction(
+          () => document.querySelectorAll('#seq-svg path').length > 4,
+          { timeout: 15000 },
+        );
+      }catch(error){
+        const state = await page.evaluate(() => ({
+          paths: document.querySelectorAll('#seq-svg path').length,
+          chips: document.querySelectorAll('.seq-chip').length,
+          activeChips: document.querySelectorAll('.seq-chip.on').length,
+          prints: document.querySelectorAll('.seq-print').length,
+        }));
+        throw new Error(`${error.message}; state=${JSON.stringify(state)}; browser=${JSON.stringify(errs.slice(-5))}`);
+      }
       const el = await page.$('.seq-chart');
       await el.screenshot({ path: join(OUT, '05-sequencing.png') });
     });
