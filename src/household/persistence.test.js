@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { ACCOUNT_SCHEMA_VERSION } from './accountTypes.js';
 import { createBlankTaxProfiles } from './factEnvelope.js';
+import { SPENDING_SCHEMA_VERSION } from './migrateSpendingToGoals.js';
 import { HOUSEHOLD_RECORD_SCHEMA_VERSION } from './householdRecordSchema.js';
 import {
   ACTIVE_KEY,
@@ -22,6 +23,7 @@ function createBlankHousehold(id){
     name: 'New Household',
     accountSchemaVersion: ACCOUNT_SCHEMA_VERSION,
     householdRecordSchemaVersion: HOUSEHOLD_RECORD_SCHEMA_VERSION,
+    spendingSchemaVersion: SPENDING_SCHEMA_VERSION,
   };
   p.income.other = [];
   p.incomeTax = { adjustments: [], deductions: [], credits: [] };
