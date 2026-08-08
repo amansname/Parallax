@@ -1134,7 +1134,7 @@ try {
     }, { timeout: 10000 }, { selector, originalAge });
   });
 
-  await step('goals Horizon: blank household stays blank and derives starter timing from its plan', async () => {
+  await step('goals Horizon: new household shows system goals and derives starter timing from its plan', async () => {
     await goToWizardStep(page, 'family');
     const beforeNew = await page.$eval(
       '[data-hh-wizard-root]',
@@ -1151,11 +1151,18 @@ try {
     await page.waitForSelector('.gh-page', { visible: true, timeout: 8000 });
     let m = await page.evaluate(() => ({
       lanes: document.querySelectorAll('.gh-lane').length,
-      empty: document.querySelector('.gh-empty')?.textContent || '',
+      names: [...document.querySelectorAll('.gh-chip__name')]
+        .map(element => element.textContent.trim()),
+      amounts: [...document.querySelectorAll('.gh-chip__amount')]
+        .map(element => element.textContent.trim()),
       lifetime: /Lifetime/i.test(document.querySelector('.gh-page')?.textContent || ''),
     }));
-    if(m.lanes !== 0 || !/Nothing on the horizon yet/.test(m.empty) || m.lifetime)
-      throw new Error(`blank Goals Horizon state wrong (${JSON.stringify(m)})`);
+    if(m.lanes !== 2
+        || JSON.stringify(m.names) !== JSON.stringify(['Essentials', 'Healthcare'])
+        || JSON.stringify(m.amounts) !== JSON.stringify(['$0 / yr', '$6k / yr'])
+        || m.lifetime){
+      throw new Error(`new-household Goals Horizon system goals are wrong (${JSON.stringify(m)})`);
+    }
     await page.click('.gh-add-toggle');
     await page.click('.gh-starter[data-add-category="home"]');
     await page.waitForSelector('.gh-lane', { visible: true, timeout: 8000 });
@@ -1164,8 +1171,8 @@ try {
       name: document.querySelector('.gh-name-input')?.value,
       age: document.querySelector('[data-field="once-age"]')?.value,
     }));
-    if(m.lanes !== 1 || m.name !== 'Home improvements' || m.age !== '68')
-      throw new Error(`blank-household starter did not derive from its 65 retirement age (${JSON.stringify(m)})`);
+    if(m.lanes !== 3 || m.name !== 'Home improvements' || m.age !== '68')
+      throw new Error(`new-household starter did not derive from its 65 retirement age (${JSON.stringify(m)})`);
 
     await goToWizardStep(page, 'family');
     const beforeDemo = await page.$eval(
