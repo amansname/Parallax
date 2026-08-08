@@ -92,6 +92,9 @@ export function runMonteCarloWithFederalFunding(
     taxPolicy,
     fundTaxPolicyDelta: true,
   });
+  // The projection stopped on an unresolvable input. Pass the structured reason
+  // straight through — there is nothing to fund and no percentage to report.
+  if(federalAnalysis.projectionStatus === 'unavailable') return federalAnalysis;
   const federalFunding = buildFederalFundingPathSidecar(
     shortcutAnalysis,
     federalAnalysis,
@@ -129,6 +132,9 @@ export function runFederalFundingSimulation(
     taxPolicy,
     fundTaxPolicyDelta: true,
   });
+  // The projection stopped on an unresolvable input. Pass the structured reason
+  // straight through — there is nothing to fund and no percentage to report.
+  if(federalAnalysis.projectionStatus === 'unavailable') return federalAnalysis;
   const federalFunding = buildFederalFundingPathSidecar(
     federalAnalysis,
     federalAnalysis,

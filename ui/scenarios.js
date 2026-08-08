@@ -38,6 +38,17 @@ export function ring(size, r, sw, tone, pct, inner) {
 
 export function num(n, d) { return (n == null) ? '—' : Number(n).toFixed(d == null ? 1 : d); }
 
+// A scenario with no probability must say WHY. A bare dash is what made this
+// class of failure take a day to diagnose — the engine knew the reason the
+// whole time and nothing carried it to the screen.
+export function scenarioIssue(s, variant, esc) {
+  if (!s || !s.error || s.prob != null) return '';
+  return '<div class="scn-issue scn-issue--' + (variant || 'col') + '" role="status">'
+    + '<span class="scn-issue__mark" aria-hidden="true">!</span>'
+    + '<span class="scn-issue__text">' + esc(s.error) + '</span>'
+    + '</div>';
+}
+
 export function deltaVsBaseline(scn, baseline) {
     if (!baseline || scn.id === baseline.id || scn.prob == null || baseline.prob == null) return null;
     return (scn.prob - baseline.prob);   // presentation subtraction, not a re-simulation
@@ -63,7 +74,7 @@ export function renderCompare(scns, baseline, { plan, goalsExpandedState, esc, d
               '<div class="scol__prob">' + s.probStr + '<span class="pct">%</span></div>' +
               '<div class="scol__median">Median <b>' + s.median + '</b></div>' +
             '</div>' +
-          '</div>' + tag +
+          '</div>' + scenarioIssue(s, 'col', esc) + tag +
         '</div>'
       );
     }).join('');
@@ -204,7 +215,8 @@ export function renderFocus(scns, baseline, focusedId, showRange, {
   }) {
     const f = scns.find((s) => s.id === focusedId) || scns[0];
     const v = stressVerdict(f.stress);
-    const heroRing = ring(152, 67, 3.5, f.tone, f.prob, '<span class="hero__numeral">' + f.probStr + '<span class="pct">%</span></span>');
+    const heroRing = ring(152, 67, 3.5, f.tone, f.prob, '<span class="hero__numeral">' + f.probStr + '<span class="pct">%</span></span>')
+      + scenarioIssue(f, 'hero', esc);
 
     const assum = f.levers.map((l) => (
       '<div>' +
@@ -247,7 +259,7 @@ export function renderFocus(scns, baseline, focusedId, showRange, {
           '<div class="rail-card__metric">' + ring(40, 16, 2.5, s.tone, s.prob, '') +
             '<div style="flex:1;"><div class="rail-card__prob">' + s.probStr + '<span class="pct">%</span></div></div>' +
             '<div style="text-align:right;"><div class="rail-card__median-l">Median</div><div class="rail-card__median">' + s.median + '</div></div>' +
-          '</div>' +
+          '</div>' + scenarioIssue(s, 'rail', esc) +
         '</button>'
       );
     }).join('');

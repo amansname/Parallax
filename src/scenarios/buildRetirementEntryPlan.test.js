@@ -78,8 +78,14 @@ test('retirement entry preserves the projected bucket mix and taxable basis', ()
     traditional: { balance: 1000 },
     roth: { balance: 100 },
   });
-  assert.deepEqual(resolved, entryAccounts,
-    'the historical clone must start from the modeled retirement engine state');
+  // The resolved traditional sleeve now also carries per-owner buckets, so
+  // compare the balance contract rather than whole-object identity.
+  assert.deepEqual({
+    taxable: resolved.taxable,
+    traditional: { balance: resolved.traditional.balance },
+    roth: resolved.roth,
+  }, entryAccounts,
+  'the historical clone must start from the modeled retirement engine state');
   assert.deepEqual(
     result.portfolio.extraAccounts.map(({ id, balance }) => ({ id, balance })),
     [
