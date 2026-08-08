@@ -14,7 +14,12 @@ import {
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const OUT = process.env.VERIFY_OUT || join(ROOT, 'verify-out');
-const PORT = process.env.PORT || 8825;
+const PORT = 8825;
+const requestedPort = Number(process.env.PORT || PORT);
+if (requestedPort !== PORT) {
+  console.error(`Parallax browser capture is fixed at http://127.0.0.1:${PORT}/.`);
+  process.exit(1);
+}
 
 if (!existsSync(OUT)) mkdirSync(OUT, { recursive: true });
 

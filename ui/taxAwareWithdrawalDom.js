@@ -128,7 +128,7 @@ export function mountWithdrawalPlannerShell(root, { caps }) {
 
 function capFor(balance) {
   if (typeof balance !== 'number' || !Number.isFinite(balance) || balance <= 0) return 0;
-  return balance;
+  return Math.min(balance, 500_000);
 }
 
 export function cacheWithdrawalRefs(root) {
