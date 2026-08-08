@@ -142,6 +142,13 @@ const workflow = requireText('.github/workflows/test.yml', [
   'PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome',
   'actions/upload-artifact@v4',
 ]);
+const workflowConfig = parseDocument(workflow).toJS();
+const requiredPullRequestTypes = ['opened', 'synchronize', 'reopened', 'edited'];
+const configuredPullRequestTypes = workflowConfig?.on?.pull_request?.types;
+if(!Array.isArray(configuredPullRequestTypes)
+  || requiredPullRequestTypes.some(type => !configuredPullRequestTypes.includes(type))){
+  failures.push('.github/workflows/test.yml must rerun pull_request governance for opened, synchronize, reopened, and edited events');
+}
 for(const forbidden of ['continue-on-error', '|| true', '&& true']){
   if(workflow.includes(forbidden)){
     failures.push(`required workflow must not contain ${forbidden}`);

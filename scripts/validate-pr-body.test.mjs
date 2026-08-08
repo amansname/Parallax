@@ -22,10 +22,13 @@ const headings = [
   'Truthful completion gate',
 ];
 
-function validBody(){
+const BASE_SHA = '1111111111111111111111111111111111111111';
+const HEAD_SHA = '2222222222222222222222222222222222222222';
+
+function validBody({ baseSha = BASE_SHA, headSha = HEAD_SHA } = {}){
   return headings.map(heading => {
     if(heading === 'Exact reproduction'){
-      return `## ${heading}\nBase: 1111111111111111111111111111111111111111\nBranch: 2222222222222222222222222222222222222222`;
+      return `## ${heading}\n- Base commit SHA: ${baseSha}\n- Branch commit SHA: ${headSha}`;
     }
     if(heading === 'Acceptance matrix'){
       return `## ${heading}\n| Reported symptom | Exact reproduction | Pre-fix failure | Production change | Regression assertion | Post-fix proof |\n|---|---|---|---|---|---|\n| Governance gap | Base inspection | Missing guard | Validator | Reject missing evidence | Validator accepts full evidence |`;
@@ -38,6 +41,17 @@ function validBody(){
     }
     return `## ${heading}\nRecorded evidence`;
   }).join('\n\n');
+}
+
+function validEvent(body = validBody()){
+  return {
+    action: 'edited',
+    pull_request: {
+      body,
+      base: { sha: BASE_SHA },
+      head: { sha: HEAD_SHA },
+    },
+  };
 }
 
 test('accepts a PR body with all required evidence fields', () => {
@@ -60,4 +74,27 @@ test('skips non-pull-request event payloads', () => {
     skipped: true,
     failures: [],
   });
+});
+
+test('rejects stale evidence that does not name the event base and head SHAs', () => {
+  const historicalBody = validBody({
+    baseSha: '3333333333333333333333333333333333333333',
+    headSha: '4444444444444444444444444444444444444444',
+  });
+  const failures = validatePullRequestEvent(validEvent(historicalBody)).failures.join('\n');
+  assert.match(failures, /current base SHA/);
+  assert.match(failures, /current head SHA/);
+});
+
+test('rejects required headings hidden in H3, HTML comments, or fenced examples', () => {
+  const spoofedBodies = [
+    validBody().replace(/^## /gm, '### '),
+    `<!--\n${validBody()}\n-->`,
+    `\`\`\`markdown\n${validBody()}\n\`\`\``,
+  ];
+
+  for(const body of spoofedBodies){
+    const failures = validatePullRequestEvent(validEvent(body)).failures.join('\n');
+    assert.match(failures, /missing required PR section/);
+  }
 });

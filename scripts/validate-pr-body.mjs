@@ -24,17 +24,77 @@ const REQUIRED_SECTIONS = [
 
 const COMPLETION_SENTENCE = 'Every behavior described as fixed was reproduced on the base branch and directly verified on this branch.';
 
-function visibleText(value){
-  return value.replace(/<!--[\s\S]*?-->/g, '').trim();
+function stripHtmlComments(source){
+  let cursor = 0;
+  let visible = '';
+  while(cursor < source.length){
+    const start = source.indexOf('<!--', cursor);
+    if(start < 0){
+      visible += source.slice(cursor);
+      break;
+    }
+    visible += source.slice(cursor, start);
+    const end = source.indexOf('-->', start + 4);
+    const hiddenEnd = end < 0 ? source.length : end + 3;
+    visible += source.slice(start, hiddenEnd).replace(/[^\r\n]/g, '');
+    cursor = hiddenEnd;
+  }
+  return visible;
 }
 
-function sectionContent(body, heading){
-  const marker = `## ${heading}`;
-  const start = body.indexOf(marker);
-  if(start < 0) return null;
-  const contentStart = start + marker.length;
-  const next = body.indexOf('\n## ', contentStart);
-  return visibleText(body.slice(contentStart, next < 0 ? body.length : next));
+function parseLevelTwoSections(body){
+  const sections = new Map();
+  let currentLines = null;
+  let fence = null;
+
+  for(const line of stripHtmlComments(body).split(/\r?\n/)){
+    if(fence){
+      if(currentLines) currentLines.push(line);
+      const closingFence = line.match(/^ {0,3}(`+|~+)[ \t]*$/);
+      if(closingFence
+        && closingFence[1][0] === fence.character
+        && closingFence[1].length >= fence.length){
+        fence = null;
+      }
+      continue;
+    }
+
+    const openingFence = line.match(/^ {0,3}(`{3,}|~{3,})/);
+    if(openingFence){
+      if(currentLines) currentLines.push(line);
+      fence = {
+        character: openingFence[1][0],
+        length: openingFence[1].length,
+      };
+      continue;
+    }
+
+    const headingMatch = line.match(/^ {0,3}##(?!#)[ \t]+(.+?)[ \t]*$/);
+    if(headingMatch){
+      const heading = headingMatch[1].replace(/[ \t]+#+[ \t]*$/, '').trim();
+      currentLines = [];
+      const matches = sections.get(heading) || [];
+      matches.push(currentLines);
+      sections.set(heading, matches);
+      continue;
+    }
+
+    if(currentLines) currentLines.push(line);
+  }
+
+  return sections;
+}
+
+function sectionContent(sections, heading){
+  const matches = sections.get(heading);
+  if(!matches) return null;
+  return matches[0].join('\n').trim();
+}
+
+function labeledSha(content, label){
+  if(!content) return null;
+  const match = content.match(new RegExp(`^[ \\t]*-[ \\t]*${label}:[ \\t]*([0-9a-f]{40})[ \\t]*$`, 'im'));
+  return match?.[1]?.toLowerCase() || null;
 }
 
 function validateAcceptanceMatrix(content){
@@ -50,27 +110,40 @@ function validateAcceptanceMatrix(content){
   ));
 }
 
-export function validatePullRequestBody(body){
+export function validatePullRequestBody(body, expectedShas = {}){
   const failures = [];
   if(typeof body !== 'string' || !body.trim()) return ['pull request body is empty'];
+  const sections = parseLevelTwoSections(body);
 
   for(const heading of REQUIRED_SECTIONS){
-    const content = sectionContent(body, heading);
+    const matches = sections.get(heading);
+    const content = sectionContent(sections, heading);
     if(content === null) failures.push(`missing required PR section: ${heading}`);
+    else if(matches.length !== 1) failures.push(`required PR section appears more than once: ${heading}`);
     else if(!content) failures.push(`required PR section has no evidence: ${heading}`);
   }
 
-  const acceptance = sectionContent(body, 'Acceptance matrix');
+  const acceptance = sectionContent(sections, 'Acceptance matrix');
   if(!validateAcceptanceMatrix(acceptance)){
     failures.push('Acceptance matrix needs at least one fully populated six-column evidence row');
   }
 
-  const shas = [...body.matchAll(/\b[0-9a-f]{40}\b/gi)].map(match => match[0].toLowerCase());
-  if(new Set(shas).size < 2){
-    failures.push('PR evidence must include distinct full base and branch commit SHAs');
+  const exactReproduction = sectionContent(sections, 'Exact reproduction');
+  const documentedBaseSha = labeledSha(exactReproduction, 'Base commit SHA');
+  const documentedHeadSha = labeledSha(exactReproduction, 'Branch commit SHA');
+  if(!documentedBaseSha) failures.push('Exact reproduction must name the full Base commit SHA');
+  if(!documentedHeadSha) failures.push('Exact reproduction must name the full Branch commit SHA');
+  if(documentedBaseSha && documentedHeadSha && documentedBaseSha === documentedHeadSha){
+    failures.push('PR evidence must include distinct base and branch commit SHAs');
+  }
+  if(expectedShas.baseSha && documentedBaseSha !== expectedShas.baseSha.toLowerCase()){
+    failures.push('Exact reproduction Base commit SHA must equal the current base SHA');
+  }
+  if(expectedShas.headSha && documentedHeadSha !== expectedShas.headSha.toLowerCase()){
+    failures.push('Exact reproduction Branch commit SHA must equal the current head SHA');
   }
 
-  const commands = sectionContent(body, 'Exact commands and results') || '';
+  const commands = sectionContent(sections, 'Exact commands and results') || '';
   for(const command of ['npm run governance:check', 'npm test', 'npm run verify', 'git diff --check']){
     if(!commands.includes(command)) failures.push(`Exact commands and results is missing: ${command}`);
   }
@@ -92,7 +165,10 @@ export function validatePullRequestEvent(event){
   }
   return {
     skipped: false,
-    failures: validatePullRequestBody(event.pull_request?.body || ''),
+    failures: validatePullRequestBody(event.pull_request?.body || '', {
+      baseSha: event.pull_request?.base?.sha || '',
+      headSha: event.pull_request?.head?.sha || '',
+    }),
   };
 }
 
