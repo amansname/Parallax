@@ -2984,3 +2984,66 @@ test('the live Scenarios entry point completes for a two-owner household', async
   assert.notStrictEqual(res.projectionStatus, 'unavailable');
   assert.ok(Number.isFinite(res.successRate));
 });
+
+test('a heavy-withdrawal projection cannot corrupt a later untouched one', () => {
+  // allocateTraditionalDistribution returns a shared frozen object on its
+  // no-draw fast path, and applyTraditionalMidyearWithdrawal compares against
+  // it by identity. If a refactor ever mutated that object, one plan's
+  // withdrawals would leak into every later plan's no-draw years — silently,
+  // and everywhere at once. Guarded behaviorally so no test-only export is
+  // needed: run a draw-heavy plan first, then confirm a quiet plan is bit-for-
+  // bit identical to running it on its own.
+  const quiet = () => {
+    const q = mfjTwoOwnerPlan();          // no expenses, so no traditional draw
+    q.household.primary = { currentAge: 55, retirementAge: 60, planEndAge: 70, birthYear: 1971 };
+    q.household.spouse  = { currentAge: 55, retirementAge: 60, planEndAge: 70, birthYear: 1971 };
+    return q;
+  };
+  const pathFor = (plan) => {
+    const r = resolveInputs(plan, {});
+    resetSeed();
+    return runSinglePath(r, generateReturnPath(r.horizonYears, r.portfolio));
+  };
+
+  const alone = pathFor(quiet());
+  pathFor(agedTwoOwnerPlan(76, 74, 400000));   // draw-heavy run in between
+  const after = pathFor(quiet());
+
+  assert.strictEqual(after.terminalBalance, alone.terminalBalance,
+    'a prior plan with heavy withdrawals must not change this one');
+  assert.deepStrictEqual(
+    after.rows.map(r => r.accountBalances && r.accountBalances.traditional),
+    alone.rows.map(r => r.accountBalances && r.accountBalances.traditional),
+    'every year of the traditional sleeve must match'
+  );
+});
+
+test('projection assumptions are surfaced, not held privately', () => {
+  // A prorated contribution owner is an assumption the projection had to make.
+  // It has to reach the caller — a number that quietly depends on a guess is
+  // the failure mode this whole change exists to remove.
+  const p = mfjTwoOwnerPlan();
+  p.household.primary = { currentAge: 50, retirementAge: 60, planEndAge: 70, birthYear: 1976 };
+  p.household.spouse  = { currentAge: 50, retirementAge: 60, planEndAge: 70, birthYear: 1976 };
+  p.savings = { annual: 45000, split: { traditional: 1, roth: 0, taxable: 0 } };
+
+  const r = resolveInputs(p, {});
+  resetSeed();
+  const sim = runSinglePath(r, generateReturnPath(r.horizonYears, r.portfolio));
+  assert.ok(Array.isArray(sim.assumptions), 'each path reports its assumptions');
+  assert.ok(sim.assumptions.includes('TRADITIONAL_CONTRIBUTION_OWNER_PRORATED'),
+    'the prorated contribution owner is recorded');
+
+  resetSeed();
+  const analysis = runSimulation(p, {}, [generateReturnPath(r.horizonYears, r.portfolio)]);
+  assert.ok(analysis.assumptions.includes('TRADITIONAL_CONTRIBUTION_OWNER_PRORATED'),
+    'and reaches the analysis the UI consumes');
+
+  // An explicit per-owner split is determinate, so it carries no assumption.
+  const explicit = structuredClone(p);
+  explicit.savings.split.byOwner = { client: 1, spouse: 0 };
+  resetSeed();
+  const clean = runSinglePath(resolveInputs(explicit, {}), generateReturnPath(25));
+  assert.ok(!clean.assumptions.includes('TRADITIONAL_CONTRIBUTION_OWNER_PRORATED'),
+    'an explicit allocation is a fact, not an assumption');
+});

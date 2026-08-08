@@ -2165,7 +2165,13 @@ function emptyTraditionalOwnerBuckets(){
 // Shared read-only zero buckets. resolveOpeningRmd returns "nothing due" on the
 // large majority of the ~40,000 year-evaluations in a 1,000-path run, and
 // allocating a fresh object each time is pure overhead on a loop the audit
-// already flags as blocking the UI thread (PX-AUD-028).
+// already flags as blocking the UI thread (PX-AUD-028 — the durable fix is to
+// move the projection off the UI thread, which is tracked separately).
+//
+// MUST NOT be mutated: it is shared across every caller, and
+// applyTraditionalMidyearWithdrawal compares against it by identity to take its
+// no-draw fast path. Frozen so a future refactor fails loudly in strict mode
+// rather than silently corrupting every projection; locked by a unit test.
 const ZERO_TRADITIONAL_OWNER_BUCKETS = Object.freeze({ client: 0, spouse: 0, unattributed: 0 });
 
 // 72 is the pre-SECURE-2.0 floor: used only to ask "could anyone owe yet?", never
@@ -2263,7 +2269,11 @@ function allocateTraditionalDistribution({ traditional, grossAmount, requiredByO
       const ordered = TRADITIONAL_OWNER_KEYS.filter(owner => available[owner] > 0);
       ordered.forEach((owner, index) => {
         const isLast = index === ordered.length - 1;
-        // Last bucket absorbs the rounding residual so the parts sum exactly.
+        // Last bucket takes "whatever is left" rather than its own computed
+        // share, so floating-point error in the earlier shares cannot leave a
+        // residual. Without this the per-owner parts drift from the gross by
+        // fractions of a cent, and that gap compounds across 40 years into a
+        // real discrepancy against the sleeve total.
         const take = isLast
           ? Math.min(available[owner], remaining - assigned)
           : Math.min(available[owner], (available[owner] / pool) * remaining);
@@ -3805,7 +3815,11 @@ function runSinglePath(p, returnPath, options = {}){
     : 0;
   return { rows, failed, cagr, terminalBalance: totalBalance(),
            minBalance, maxDrawdown, depletionAge, first10Cagr, balanceAt10,
-           balanceAtRet10, lifetimeTax };
+           balanceAtRet10, lifetimeTax,
+           // Modeling assumptions this path had to make. Surfaced rather than
+           // held privately — a projection that quietly assumes something is
+           // exactly the failure mode this change exists to remove.
+           assumptions: [...projectionAssumptions] };
 }
 
 
@@ -3963,6 +3977,9 @@ function analyzeResults(sims, p){
     paths, terminal, envelope,
     sims,
     successRate: (survived / ns) * 100,
+    // Union of the modeling assumptions any path had to make, so a caller can
+    // show what a number depends on instead of presenting it as unqualified.
+    assumptions: [...new Set(sims.flatMap(s => s.assumptions || []))],
     survived, total: ns,
     medianCagr: byCagr[Math.floor(ns * 0.50)].cagr,
     horizonYears: p.horizonYears,
