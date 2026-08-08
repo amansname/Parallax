@@ -601,3 +601,40 @@
   .page[data-page="scenarios"] .cf-row,
   .page[data-page="scenarios"] .cf-table__head { padding-left: 18px; padding-right: 18px; }
 }
+
+/* ── Scenario unavailable state ──────────────────────────────────────────────
+   A scenario with no probability states its reason instead of showing a bare
+   dash. The engine always knew why; this is what carries it to the screen. */
+.page[data-page="scenarios"] .scn-issue {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px solid rgba(214, 168, 106, 0.34);
+  border-radius: 7px;
+  background: rgba(214, 168, 106, 0.08);
+  text-align: left;
+}
+.page[data-page="scenarios"] .scn-issue__mark {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 1px solid rgba(214, 168, 106, 0.5);
+  color: var(--marginal);
+  font-size: 10px;
+  line-height: 13px;
+  text-align: center;
+  font-weight: 600;
+}
+.page[data-page="scenarios"] .scn-issue__text {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--marginal);
+}
+.page[data-page="scenarios"] .scn-issue--hero {
+  max-width: 340px;
+  margin: 14px auto 0;
+}
+.page[data-page="scenarios"] .scn-issue--rail .scn-issue__text { font-size: 11px; }

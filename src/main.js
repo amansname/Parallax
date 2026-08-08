@@ -1976,12 +1976,43 @@ function computeHistoricalStress(s, p, ov){
   }).filter(Boolean);
   return results;
 }
+// Plain-language reasons for the structured issue codes the engine reports.
+// The engine knows exactly why it could not finish; flattening that to one
+// generic sentence is what made this class of failure undiagnosable.
+const PROJECTION_ISSUE_MESSAGES = {
+  TRADITIONAL_ACCOUNT_OWNER_UNAVAILABLE:
+    'Pre-tax money is not assigned to a person — open Net Worth and set the owner on each retirement account',
+  TRADITIONAL_ACCOUNT_OWNER_LIFECYCLE_UNAVAILABLE:
+    'A retirement account outlives its owner and cannot roll to the surviving spouse — check account ownership and plan-end ages',
+  TRADITIONAL_ACCOUNT_RMD_RULE_UNAVAILABLE:
+    'A retirement account type has no supported RMD rule yet',
+  EMPLOYER_PLAN_RMD_RULE_UNAVAILABLE:
+    'An employer plan needs a retirement date before its RMD can be calculated',
+  EMPLOYER_PLAN_RMD_ACCOUNT_ATTRIBUTION_UNAVAILABLE:
+    'Multiple employer plans for one person cannot be aggregated for RMDs — see Net Worth',
+  RMD_BIRTH_COHORT_UNAVAILABLE:
+    'A birth date is missing, so the RMD starting age cannot be determined — check Family',
+  RMD_PRIOR_YEAR_END_BALANCE_UNAVAILABLE:
+    'A prior year-end balance is missing for an RMD calculation',
+};
+
+function scenarioProjectionIssueMessage(result){
+  const base = PROJECTION_ISSUE_MESSAGES[result?.issue]
+    || 'calculation inputs need review';
+  return result?.issueAge != null ? `${base} (from age ${result.issueAge})` : base;
+}
+
 function scenarioRunFailureMessage(error){
   if(error?.code === 'TAX_POLICY_FUNDING_DID_NOT_CONVERGE'){
     return 'federal tax funding did not settle';
   }
   if(/filing status|filingStatus/i.test(error?.message || '')){
     return 'Household filing status needs review';
+  }
+  // A typed engine issue still carries its reason even when it arrives as a throw.
+  if(error?.rmdIssue || error?.code){
+    const mapped = PROJECTION_ISSUE_MESSAGES[error.rmdIssue || error.code];
+    if(mapped) return mapped;
   }
   return 'calculation inputs need review';
 }
@@ -2034,12 +2065,23 @@ function runAll(){
           // One converged federal run now supplies probability, paths, taxes,
           // withdrawals, and balances together. A failed convergence is a
           // failed scenario; never fall back to a hybrid shortcut display.
-          s.res = runFederalFundingSimulation(
+          const result = runFederalFundingSimulation(
             p,
             ov,
             sharedPaths,
             taxOptions
           );
+          // The engine now fails CLOSED instead of throwing, so the catch below
+          // no longer fires for these. Without this branch s.runError would stay
+          // null and the column would silently show a bare dash again.
+          if(result.projectionStatus === 'unavailable'){
+            s.res = result;                 // keep diagnostic rows
+            s.runError = scenarioProjectionIssueMessage(result);
+            failed++;
+            console.error('Scenario unavailable:', s.name, result.issue, 'age', result.issueAge);
+            return;
+          }
+          s.res = result;
           s.runError = null;
           // Historical Stress (Focus rail): engine-derived per-scenario eras.
           // Isolated so a stress hiccup never blanks the scenario's main result.
@@ -2415,6 +2457,9 @@ $('#path-mode').onchange=e=>{
     id:        (s) => String(scenarios.indexOf(s)),
     name:      (s) => s.name,
     prob:      (s) => s.res && s.res.successRate,
+    // Why this scenario has no probability. Without exposing it the view has no
+    // way to say anything beyond a dash.
+    error:     (s) => s.runError || null,
     median:    (s) => { const e = s.res && s.res.envelope; return (e && e.length) ? e[e.length - 1].p50 : null; },
     range:     (s) => {
       const t = s.res && s.res.terminal; if(!t) return null;
@@ -2686,6 +2731,7 @@ $('#path-mode').onchange=e=>{
     return {
       id: PROD.id(s), name: PROD.name(s), prob: prob,
       probStr: (prob == null ? '—' : scenarioNum(prob, 1)),
+      error: PROD.error(s),
       tone: toneForProb(prob), median: median == null ? '—' : fmtMoney(median),
       isBaseline: PROD.isBaseline(s), levers: PROD.levers(s), goals: PROD.goals(s),
       range: PROD.range(s), viability: PROD.viability(s), stress: PROD.stress(s), raw: s,
