@@ -1,0 +1,11 @@
+{
+  "fixtureVersion": 1,
+  "fixtureKind": "clean",
+  "anonymized": true,
+  "description": "A browser origin with no Parallax localStorage before first application load.",
+  "storage": {},
+  "expected": {
+    "loadExactlyAsStored": true,
+    "applicationMayBootstrapAfterLoad": true
+  }
+}
