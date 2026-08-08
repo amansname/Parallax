@@ -410,7 +410,7 @@ final result: passed
 ## Findings
 
 - No actionable P0, P1, or P2 mismatch remains within the Withdrawal Planner page.
-- The production header remains intentionally authoritative. It is 56px tall and includes plan status, Save, and Run; the static source uses a simpler 66px header. The planner's internal geometry matches once measured from the content edge.
+- The production header remains intentionally authoritative. It is 56px tall and includes plan status and Run; the static source uses a simpler 66px header. The planner's internal geometry matches once measured from the content edge.
 - Source footer dollar limits reflect a different filing-status fixture. The implementation shows the current plan's engine-approved limits instead of copying those static figures.
 - The fixed-income heading now sits above its three source rows, with a separate Total row below them. All fixed-income and slider dollar values share the same measured right edge.
 - Values unavailable from the engines remain blank, including IRMAA and unavailable effective/Social Security rate details. The UI does not substitute zero or calculate a display value itself.
@@ -426,13 +426,14 @@ final result: passed
 5. The post-fix 1536 x 958 source and implementation were compared together again. No further page-level P0/P1/P2 mismatch was found.
 6. Product-owner review moved the Fixed income sources heading above the source rows and requested one separate Total row below them.
 7. The review also found the fixed-income and slider dollar columns misaligned. The reserved slider scrollbar gutter was removed; browser measurement now places all nine amount fields on the same right edge.
+8. Fresh end-to-end verification found that live comma formatting could prevent a Tax-page money field from committing on blur. The shared Household input boundary now preserves live formatting and commits the formatted value once, so saved wages and account balances reach the planner after navigation and reload.
 
 ## Verification
 
-- Focused unit and adapter tests: 43 passed, 0 failed.
-- Full unit suite: 636 passed, 0 failed.
-- Scoped browser verification passed the Tax-page Wages flow, fixed-income read-only contract, engine-returned threshold dollars and rates, rapid slider updates and approval ordering, zero-limit disabled controls, RMD limits, shared-IRA limits, persistence, and the remaining in-scope application checks.
-- A funded live household confirmed active IRA and Brokerage sliders move immediately and the IRA withdrawal updates Federal tax, Income Tax, and Tax caused together. A household with no balances correctly receives $0 engine-approved limits.
+- Focused unit and adapter tests: 76 passed, 0 failed.
+- Full unit suite: 662 passed, 0 failed.
+- The project verifier passed the Tax-page Wages flow and every Withdrawal Planner check before stopping later on an unrelated Goals blank-household baseline failure.
+- A funded live household confirmed that `$80,000` of saved wages survives reload. Moving the IRA slider from `$0` to `$50,000` changed Federal tax and the Income Tax column from `$8,770` to `$19,934`, with Tax caused of `$11,164`.
 - Responsive browser checks passed at 1536 x 958, 1024 x 768, 640 x 900, and 390 x 844.
 - In-app browser console: no errors or warnings.
 
