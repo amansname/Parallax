@@ -155,11 +155,8 @@ export function renderCompare(scns, baseline, { plan, goalsExpandedState, esc, d
     const goalsHeadCell = hasGoals
       ? '<div class="cell--goal lever goals-head" data-goals-toggle role="button" tabindex="0" aria-expanded="' + (goalsExpanded ? 'true' : 'false') + '"><span class="lever__name">Goals</span>' + goalsChevron + '<span class="lever__hint" style="margin:0 0 0 4px;">· edit per plan</span></div>'
       : '<div class="cell--goal lever"><span class="lever__name">Goals</span></div>';
-    const rawGoals = (Array.isArray(plan.goals) ? plan.goals : []);
     const goalDetailRows = goalsExpanded ? baseGoals.map((bg, gi) => {
-      const baseG = rawGoals[bg.idx] || {};
-      const baseOnce = baseG.startAge === baseG.endAge;
-      const baseWin = baseOnce ? ('at age ' + baseG.startAge) : ('age ' + baseG.startAge + '–' + baseG.endAge);
+      const baseWin = bg.once ? ('at age ' + bg.startAge) : ('age ' + bg.startAge + '–' + bg.endAge);
       const gut = '<div class="lever goal-detail"><span class="goal-detail__name">' + esc(bg.name) + '</span><span class="goal-detail__meta">base: ' + esc(baseWin) + '</span></div>';
       const cells = scns.map((s) => {
         const g = s.goals[gi];

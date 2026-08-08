@@ -73,7 +73,7 @@ test('threshold headlines and bar labels use the tax-engine contract', () => {
   assert.equal(refs.columns.ss.edgeVal.textContent, '$3,457');
 });
 
-test('slider caps use engine-approved dynamic limits without a $500,000 ceiling', () => {
+test('slider caps use the smaller of engine-approved limits and the $500,000 display ceiling', () => {
   const keys = [
     'rothConversion', 'rothWithdrawal', 'qcd',
     'deferredWithdrawal', 'taxableWithdrawal',
@@ -93,8 +93,8 @@ test('slider caps use engine-approved dynamic limits without a $500,000 ceiling'
   assert.strictEqual(refs.sliders.rothConversion.input.max, '70000');
   assert.strictEqual(refs.sliders.qcd.input.max, '10000');
   assert.strictEqual(refs.sliders.deferredWithdrawal.input.max, '40000');
-  assert.strictEqual(refs.sliders.rothWithdrawal.input.max, '750000');
-  assert.strictEqual(refs.sliders.taxableWithdrawal.input.max, '1200000');
+  assert.strictEqual(refs.sliders.rothWithdrawal.input.max, '500000');
+  assert.strictEqual(refs.sliders.taxableWithdrawal.input.max, '500000');
   assert.strictEqual(refs.sliders.taxableWithdrawal.input.disabled, false);
 });
 

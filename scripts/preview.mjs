@@ -3,8 +3,15 @@ import { createServer } from "node:http";
 import { extname, join, normalize, resolve, sep } from "node:path";
 
 const root = process.cwd();
-const host = process.env.HOST || "127.0.0.1";
-const port = Number(process.env.PORT || 8825);
+const host = "127.0.0.1";
+const port = 8825;
+const requestedHost = process.env.HOST || host;
+const requestedPort = Number(process.env.PORT || port);
+
+if (requestedHost !== host || requestedPort !== port) {
+  console.error(`Parallax manual preview is fixed at http://${host}:${port}/ so saved browser data stays on one origin.`);
+  process.exit(1);
+}
 
 const types = new Map([
   [".css", "text/css; charset=utf-8"],

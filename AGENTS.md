@@ -76,6 +76,35 @@ observable-state verification.
 
 ---
 
+## High-risk UI contracts
+
+- Feature-based development is mandatory: use one feature or fix per branch,
+  isolated worktree, and pull request. Start from a verified current
+  `origin/main`; keep unrelated cleanup and defects out of scope. Each UI
+  feature owns focused tests and visible browser acceptance evidence. Land
+  prerequisite repairs separately and reference them instead of combining
+  feature scopes.
+- Withdrawal Planner controls must cap each displayed maximum at the smaller of
+  the engine-approved available amount and `$500,000`; a zero approved amount
+  disables the control. UI code must never expand an engine-approved limit.
+- A goal with `startsAtRetirement: true` must resolve its displayed and edited
+  start age from the effective retirement age of the scenario being rendered.
+  A missing raw `startAge` must never reach visible text, input values, or
+  baseline comparisons.
+- Any change touching either contract must update its focused Node assertion and
+  its observable live-DOM assertion in `scripts/verify.mjs`. Attribute-only or
+  fixture-only checks are not sufficient evidence.
+- Manual preview must use the single canonical origin
+  `http://127.0.0.1:8825/`. If that port is occupied, stop the old preview; do
+  not select another host or port, because browser storage is origin-scoped.
+  All local serving, capture, and browser-verification commands must use that
+  same origin. Automated browsers must still clear their isolated storage.
+- A deployed HTTPS site has its own origin even when it runs the same code.
+  GitHub/live equivalence must therefore be proven from the same committed code
+  and deterministic fixtures; never infer shared browser data across hostnames.
+
+---
+
 ## Cursor Cloud specific instructions
 
 Parallax is a static, single-page web app: `index.html` (markup) loads `src/main.js`, which wires the UI to `engine.js`. Styled by `styles/*.css`. Helpers in `ui/*.js`, orchestration in `src/`, tax in `src/tax/`. No backend or database.
@@ -84,7 +113,7 @@ Standard commands live in `package.json` and `README.md`:
 
 - `npm test` — Node test suite (engine + tax rules). Fast, no browser needed.
 - `node scripts/verify.mjs` — full visual verification: runs `npm test`, serves the repo, drives headless Chrome through `index.html`, writes screenshots to `verify-out/`. **Required before claiming UI work is done.**
-- `node scripts/preview.mjs` — dev server at `http://127.0.0.1:8825/` (`PORT`/`HOST`). Must use HTTP, not `file://`.
+- `node scripts/preview.mjs` — canonical manual dev server at `http://127.0.0.1:8825/`. Alternate `PORT`/`HOST` values are rejected so saved browser data remains on one origin. Must use HTTP, not `file://`.
 
 Non-obvious caveats:
 

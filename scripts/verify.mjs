@@ -20,7 +20,12 @@ import {
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const OUT = join(ROOT, 'verify-out');
-const PORT = Number(process.env.PORT) || 8765;
+const PORT = 8825;
+const requestedPort = Number(process.env.PORT || PORT);
+if (requestedPort !== PORT) {
+  console.error(`Parallax browser verification is fixed at http://127.0.0.1:${PORT}/.`);
+  process.exit(1);
+}
 const SKIP_SEQUENCING = process.env.PARALLAX_VERIFY_SKIP_SEQUENCING === '1';
 
 function step(name, fn){
@@ -375,7 +380,14 @@ try {
         { typeId:'wages', owner:'client', label:'Client wages', amount:120000, startAge:64, endAge:65, realGrowth:0, taxablePct:1 },
         { typeId:'wages', owner:'spouse', label:'Co-client wages', amount:60000, startAge:63, endAge:64, realGrowth:0, taxablePct:1 },
       ];
-      demo.goals = [{ name:'Travel & leisure', amount:30000, startAge:66, endAge:81 }];
+      demo.meta.spendingSchemaVersion = 1;
+      demo.goals = [
+        { id:'system:essentials', system:'essentials', name:'Essentials', amount:38000,
+          startsAtRetirement:true, endAge:999, realGrowth:0, flexesWithSpending:true },
+        { id:'system:healthcare', system:'healthcare', name:'Healthcare', amount:18000,
+          startsAtRetirement:true, endAge:999, realGrowth:0.02 },
+        { name:'Travel & leisure', amount:30000, startAge:66, endAge:81 },
+      ];
       // Filled demo uses legacy-shaped accounts and ID-less wizard rows; strip
       // both schema stamps so their one-time migrations run together.
       delete demo.meta.accountSchemaVersion;
@@ -386,7 +398,7 @@ try {
     await waitForWizard(page, { householdId: 'demo' });
   });
 
-  await step('Tax Buckets: withdrawal planner loads on tab', async () => {
+  await step('Tax Buckets: withdrawal planner loads with display ceilings and live tax output', async () => {
     await page.setViewport({ width:1440, height:900, deviceScaleFactor:1 });
     await stableClick('.htab[data-page="tax-buckets"]');
     await page.waitForFunction(() => {
@@ -399,14 +411,25 @@ try {
       columns: document.querySelectorAll('[data-taw-col]').length,
       sliders: document.querySelectorAll('.taw-range').length,
       enabledSliders: document.querySelectorAll('.taw-range:not(:disabled)').length,
-      sliderCaps: Array.from(document.querySelectorAll('.taw-range'), input => Number(input.max)),
+      sliderCaps: Object.fromEntries(Array.from(
+        document.querySelectorAll('.taw-range'),
+        input => [input.dataset.tawLever, Number(input.max)],
+      )),
       ord: !!document.querySelector('[data-taw-col="ord"]'),
     }));
     if(planner.active !== 'tax-buckets') throw new Error(`Tax Buckets tab not active: ${JSON.stringify(planner)}`);
     if(planner.columns !== 4 || !planner.ord) throw new Error(`Withdrawal planner layout incomplete: ${JSON.stringify(planner)}`);
     if(planner.sliders !== 5) throw new Error(`Withdrawal planner expected five sliders: ${planner.sliders}`);
-    if(planner.enabledSliders !== 5 || planner.sliderCaps.some(cap => !(cap > 0))){
+    if(planner.enabledSliders !== 5 || Object.values(planner.sliderCaps).some(cap => !(cap > 0))){
       throw new Error(`funded Withdrawal Planner sliders are not enabled: ${JSON.stringify(planner)}`);
+    }
+    if(
+      planner.sliderCaps.rothConversion !== 500000
+      || planner.sliderCaps.deferredWithdrawal !== 500000
+      || planner.sliderCaps.taxableWithdrawal !== 500000
+      || planner.sliderCaps.rothWithdrawal !== 400000
+    ) {
+      throw new Error(`Withdrawal Planner display ceilings are wrong: ${JSON.stringify(planner.sliderCaps)}`);
     }
 
     await page.waitForFunction(
@@ -533,6 +556,22 @@ try {
       '[data-taw-federal-tax]',
       element => element.textContent.trim(),
     );
+    await page.$eval('[data-taw-lever="rothConversion"]', input => {
+      input.value = input.max;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await page.waitForFunction(() => (
+      document.querySelector('[data-taw-slider-val="rothConversion"]')?.textContent.trim() === '$500,000'
+      && document.querySelector('[data-taw-lever="rothConversion"]')?.value === '500000'
+    ), { timeout: 15000 });
+    await page.$eval('[data-taw-lever="rothConversion"]', input => {
+      input.value = '0';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await page.waitForFunction(baseline => (
+      document.querySelector('[data-taw-slider-val="rothConversion"]')?.textContent.trim() === '$0'
+      && document.querySelector('[data-taw-federal-tax]')?.textContent.trim() === baseline
+    ), { timeout: 15000 }, baselinePlannerTax);
     await page.$eval('[data-taw-lever="deferredWithdrawal"]', input => {
       input.value = '50000';
       input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -975,8 +1014,8 @@ try {
       throw new Error(`goal drag did not shift the recurring range ("${target.title}" -> "${after}")`);
 
     const laneCount = await page.evaluate(() => document.querySelectorAll('.gh-lane').length);
-    await page.click('button[data-page="scenarios"]');
-    await page.waitForSelector('#scn-view', { visible: true, timeout: 8000 });
+    await stableClick('button[data-page="scenarios"]');
+    await page.waitForSelector('#scn-view', { visible: true, timeout: 15000 });
     await page.click('#scn-seg-compare');
     await page.waitForFunction(expected => {
       const toggle = document.querySelector('#scn-view [data-goals-toggle]');
@@ -1006,6 +1045,93 @@ try {
         || scenarioGoals.medians.some(value => !/^\$[\d,.]+[KMB]?$/.test(value))){
       throw new Error(`Goals Horizon details did not reach Scenarios (${laneCount} lanes / ${JSON.stringify(scenarioGoals)})`);
     }
+  });
+
+  await step('scenarios: retirement-relative goal ages resolve and round-trip', async () => {
+    const contract = await page.evaluate(() => {
+      const retirementAges = {};
+      document.querySelectorAll(
+        '#scn-view .cmp-step-btn[data-lever-key="retireAge"][data-dir="1"][data-scn-id]',
+      ).forEach(button => {
+        const text = button.closest('.cmp-lev-row')?.querySelector('.cmp-lev-val')?.textContent || '';
+        retirementAges[button.dataset.scnId] = Number(text.match(/\d+/)?.[0]);
+      });
+      const scenarioCount = Object.keys(retirementAges).length;
+      const rows = [...document.querySelectorAll('#scn-view .goal-detail__name')]
+        .filter(element => ['Essentials', 'Healthcare'].includes(element.textContent.trim()))
+        .map(nameElement => {
+          const gutter = nameElement.closest('.goal-detail');
+          const cells = [];
+          let cell = gutter?.nextElementSibling;
+          while(cell?.classList.contains('cell--goal-detail') && cells.length < scenarioCount){
+            const input = cell.querySelector('[data-goal-field="startAge"]');
+            cells.push({
+              scnId: input?.dataset.scnId ?? null,
+              goalIdx: input?.dataset.goalIdx ?? null,
+              value: input?.value ?? null,
+              overridden: cell.classList.contains('is-overridden'),
+            });
+            cell = cell.nextElementSibling;
+          }
+          return {
+            name: nameElement.textContent.trim(),
+            baseMeta: gutter?.querySelector('.goal-detail__meta')?.textContent.trim() ?? null,
+            cells,
+          };
+        });
+      const inputsContainUndefined = [...document.querySelectorAll('#scn-view input')]
+        .some(input => input.value === 'undefined');
+      return {
+        retirementAges,
+        rows,
+        containsUndefined: document.querySelector('#scn-view')?.textContent.includes('undefined')
+          || inputsContainUndefined,
+      };
+    });
+    const scenarioCount = Object.keys(contract.retirementAges).length;
+    if(contract.containsUndefined || scenarioCount < 2 || contract.rows.length !== 2){
+      throw new Error(`retirement-relative goal contract is incomplete: ${JSON.stringify(contract)}`);
+    }
+    contract.rows.forEach(row => {
+      if(row.cells.length !== scenarioCount
+          || !row.baseMeta?.includes(`age ${row.cells[0].value}`)
+          || row.cells.some(cell => Number(cell.value) !== contract.retirementAges[cell.scnId])){
+        throw new Error(`retirement-relative goal ages are unresolved: ${JSON.stringify(contract)}`);
+      }
+    });
+
+    const targetRow = contract.rows.find(row => row.name === 'Healthcare') || contract.rows[0];
+    const target = targetRow.cells.find((cell, index) => index > 0 && !cell.overridden);
+    if(!target) throw new Error(`retirement-relative edit target is missing: ${JSON.stringify(contract)}`);
+    const originalAge = Number(target.value);
+    const editedAge = originalAge + 1;
+    const selector = `#scn-view .cmp-goal-in[data-scn-id="${target.scnId}"][data-goal-idx="${target.goalIdx}"][data-goal-field="startAge"]`;
+
+    await page.focus(selector);
+    await page.keyboard.down('Control');
+    await page.keyboard.press('A');
+    await page.keyboard.up('Control');
+    await page.keyboard.type(String(editedAge));
+    await page.keyboard.press('Tab');
+    await page.waitForFunction(({ selector, editedAge }) => {
+      const input = document.querySelector(selector);
+      return input?.value === String(editedAge)
+        && input.closest('.cell--goal-detail')?.classList.contains('is-overridden');
+    }, { timeout: 10000 }, { selector, editedAge });
+
+    await page.focus(selector);
+    await page.keyboard.down('Control');
+    await page.keyboard.press('A');
+    await page.keyboard.up('Control');
+    await page.keyboard.type(String(originalAge));
+    await page.keyboard.press('Tab');
+    await page.waitForFunction(({ selector, originalAge }) => {
+      const input = document.querySelector(selector);
+      const cell = input?.closest('.cell--goal-detail');
+      return input?.value === String(originalAge)
+        && !cell?.classList.contains('is-overridden')
+        && !cell?.querySelector('.cmp-goal-edited');
+    }, { timeout: 10000 }, { selector, originalAge });
   });
 
   await step('goals Horizon: blank household stays blank and derives starter timing from its plan', async () => {

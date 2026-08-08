@@ -2595,10 +2595,11 @@ $('#path-mode').onchange=e=>{
   // Effective goal (base value with this scenario's override applied) — the Goals
   // page defines the base inventory; each scenario carries amount/startAge/endAge
   // overrides only. `idx` is the goal's index in the base inventory (the override key).
-  function effGoal(baseGoal, ov) {
+  function effGoal(baseGoal, ov, retirementAge) {
     return {
       amount:   (ov && ov.amount   != null) ? ov.amount   : (baseGoal.amount || 0),
-      startAge: (ov && ov.startAge != null) ? ov.startAge : baseGoal.startAge,
+      startAge: (ov && ov.startAge != null) ? ov.startAge
+        : (baseGoal.startsAtRetirement === true ? retirementAge : baseGoal.startAge),
       endAge:   (ov && ov.endAge   != null) ? ov.endAge   : baseGoal.endAge,
     };
   }
@@ -2614,13 +2615,16 @@ $('#path-mode').onchange=e=>{
     const ovMap = (s && s.lev && s.lev.goalOv) || {};
     const baseScn = scenarios.find((x) => x.base);
     const baseOvMap = (baseScn && baseScn.lev && baseScn.lev.goalOv) || {};
+    const planRetirementAge = plan.household.primary.retirementAge;
+    const scenarioRetirementAge = Number.isFinite(s?.lev?.retireAge) ? s.lev.retireAge : planRetirementAge;
+    const baselineRetirementAge = Number.isFinite(baseScn?.lev?.retireAge) ? baseScn.lev.retireAge : planRetirementAge;
     return goalRowsBase().map(({ g, i }) => {
-      const e = effGoal(g, ovMap[i]);
+      const e = effGoal(g, ovMap[i], scenarioRetirementAge);
       const once = (e.startAge === e.endAge);
       const ov = ovMap[i];
       const overridden = !!(ov && (ov.amount != null || ov.startAge != null || ov.endAge != null));
       // Δ vs the baseline scenario's effective values for this goal.
-      const be = effGoal(g, baseOvMap[i]);
+      const be = effGoal(g, baseOvMap[i], baselineRetirementAge);
       const aDelta = (e.amount || 0) - (be.amount || 0);
       const sameAsBase = (e.amount === be.amount && e.startAge === be.startAge && e.endAge === be.endAge);
       return {
@@ -2697,6 +2701,8 @@ $('#path-mode').onchange=e=>{
     const field = inp.dataset.goalField;
     const sc = scenarios[ci]; if (!sc || !sc.lev) return;
     const base = (Array.isArray(plan.goals) ? plan.goals : [])[idx]; if (!base) return;
+    const retirementAge = Number.isFinite(sc.lev.retireAge) ? sc.lev.retireAge : plan.household.primary.retirementAge;
+    const resolvedBase = effGoal(base, null, retirementAge);
     const raw = parseFloat(String(inp.value).replace(/[^0-9.]/g, ''));
     if (!isFinite(raw) || raw < 0) return;
     const lo = plan.household.primary.currentAge, hi = resolveGoalSpan(plan).planEndAge;
@@ -2709,18 +2715,18 @@ $('#path-mode').onchange=e=>{
       ov.startAge = v; ov.endAge = v;
     } else if (field === 'startAge') {
       let v = Math.max(lo, Math.min(hi, Math.round(raw)));
-      const curEnd = (ov.endAge != null) ? ov.endAge : base.endAge;
+      const curEnd = (ov.endAge != null) ? ov.endAge : resolvedBase.endAge;
       if (v > curEnd) v = curEnd;
       ov.startAge = v;
     } else if (field === 'endAge') {
       let v = Math.max(lo, Math.min(hi, Math.round(raw)));
-      const curStart = (ov.startAge != null) ? ov.startAge : base.startAge;
+      const curStart = (ov.startAge != null) ? ov.startAge : resolvedBase.startAge;
       if (v < curStart) v = curStart;
       ov.endAge = v;
     }
     // Minimize the override: drop any field that matches the base, and drop the
     // whole entry (and map) when nothing differs — keeps deltas/"same as base" honest.
-    ['amount', 'startAge', 'endAge'].forEach((f) => { if (ov[f] != null && ov[f] === base[f]) delete ov[f]; });
+    ['amount', 'startAge', 'endAge'].forEach((f) => { if (ov[f] != null && ov[f] === resolvedBase[f]) delete ov[f]; });
     if (ov.amount == null && ov.startAge == null && ov.endAge == null) delete sc.lev.goalOv[idx];
     if (sc.lev.goalOv && Object.keys(sc.lev.goalOv).length === 0) delete sc.lev.goalOv;
     saveScenarios();
