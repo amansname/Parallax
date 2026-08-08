@@ -5,6 +5,14 @@ export function investableTotal(plan){
   return resolvePortfolioAccounts(plan).totalBalance;
 }
 
+// Essential spending is the pre-loaded Essentials + Healthcare goals. Both are
+// goals now — plan.expenses is retired.
+export function systemGoalTotal(plan){
+  return (Array.isArray(plan?.goals) ? plan.goals : [])
+    .filter(g => g?.system)
+    .reduce((sum, g) => sum + (Number(g.amount) || 0), 0);
+}
+
 export function realAssetsTotal(plan){ return (plan.properties||[]).reduce((s,a)=>s+(a.value||0),0); }
 
 export function hhAllAccounts(plan){
@@ -97,7 +105,7 @@ export function renderWizBlueprint(plan){
         ${line('Social Security', hhMoney(((ss.primary&&ss.primary.pia)||0)+((ss.spouse&&ss.spouse.pia)||0))+'/yr')}
         ${penAmt ? line('Pension @ '+pen.startAge, hhMoney(penAmt)+'/yr') : ''}
         ${otherSum ? line('Other income', hhMoney(otherSum)+'/yr') : ''}
-        ${line('Essential spend', hhMoney((plan.expenses.living||0)+(plan.expenses.healthcare||0))+'/yr')}
+        ${line('Essential spend', hhMoney(systemGoalTotal(plan))+'/yr')}
         ${line('Saving until then', hhMoney((plan.savings&&plan.savings.annual)||0)+'/yr')}
       </div>
     </div>
@@ -108,7 +116,7 @@ export function renderWizRail(plan, hhStep){
   if(hhStep === 5) return '';
   const ss = plan.income.socialSecurity || {};
   const ssTotal = ((ss.primary&&ss.primary.pia)||0) + ((ss.spouse&&ss.spouse.pia)||0);
-  const ess = (plan.expenses.living||0) + (plan.expenses.healthcare||0);
+  const ess = systemGoalTotal(plan);
   const row = (k,v,cls) => `<div class="hh-prail__row"><span class="hh-prail__k">${k}</span><b class="hh-prail__v ${cls||''}">${v}</b></div>`;
   const rows = [];
   if(hhStep !== 2){

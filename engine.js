@@ -5,6 +5,7 @@ import {
 } from './src/household/resolveTaxableStartingBasis.js';
 import { getAccountTypeById } from './src/household/accountTypes.js';
 import { normalizedIncomeSource } from './src/household/incomeTaxModel.js';
+import { goalsFromLegacyExpenses } from './src/household/migrateSpendingToGoals.js';
 
 /* ============================================================================
    PARALLAX ENGINE  —  the heart of the model. Treat as SACRED.
@@ -2106,18 +2107,67 @@ function resolveInputs(plan, ov){
     assetSale,   // resolved net-proceeds object, or null when no sale override
     healthcareMult: 1 + (ov.healthcareAdj || 0),
     healthcareRealGrowth: Math.max(0, plan.expenses.healthcareRealGrowth ?? 0.02),
-    // Goals — normalized to an array of flat-real timed entries. A legacy
+    // Goals — normalized to an array of timed entries. A legacy
     // { vacation, property, gifts } object is converted to always-on entries.
-    goals: (Array.isArray(plan.goals)
-              ? plan.goals
-              : Object.keys(plan.goals || {}).map(k => ({ name:k, amount:plan.goals[k], startAge:0, endAge:999 })))
-      .map(g => ({
-        name:     g.name || '',
-        amount:   Math.max(0, g.amount || 0),
-        startAge: (g.startAge != null ? g.startAge : 0),
-        endAge:   (g.endAge   != null ? g.endAge   : 999),
-        fundFromPortfolioBeforeRetirement: g.fundFromPortfolioBeforeRetirement === true,
-      })),
+    //
+    // Two fields carry what used to live in plan.expenses:
+    //   realGrowth        annual growth ABOVE general inflation, compounding
+    //                     from the goal's start age. 0 = flat real dollars,
+    //                     which is every ordinary goal. Healthcare uses 0.02.
+    //   startsAtRetirement  bind the start age to the household's retirement
+    //                     age instead of a fixed number. Resolved here, so it
+    //                     follows the retireAge lever per scenario rather than
+    //                     silently desyncing when a scenario retires earlier.
+    goals: [
+      ...(Array.isArray(plan.goals)
+            ? plan.goals
+            : Object.keys(plan.goals || {}).map(k => ({ name:k, amount:plan.goals[k], startAge:0, endAge:999 }))),
+      // A plan saved before spending moved onto the Goals page still carries
+      // plan.expenses. Fold it in here rather than trusting that the
+      // persistence migration ran — an un-migrated plan must never silently
+      // lose the spending the engine used to charge it.
+      ...(plan.meta?.spendingSchemaVersion ? [] : (goalsFromLegacyExpenses(plan) || [])),
+    ]
+      // The absolute essentials override is a zero-base seam: it has to work on
+      // a household whose essentials are still $0, which is precisely when no
+      // Essentials goal exists yet. Give it something to land on.
+      .concat(
+        hasLivingAnnual
+          && !(Array.isArray(plan.goals) && plan.goals.some(g => g?.system === 'essentials'))
+          && !((goalsFromLegacyExpenses(plan) || []).some(g => g.system === 'essentials'))
+          ? [{ id: 'system:essentials', system: 'essentials', name: 'Essentials',
+               amount: 0, startsAtRetirement: true, endAge: 999,
+               realGrowth: 0, flexesWithSpending: true }]
+          : []
+      )
+      .map(g => {
+        const entered = Math.max(0, g.amount || 0);
+        // The spending lever scales DISCRETIONARY spending only. Healthcare was
+        // explicitly exempt before this moved onto goals ("not discretionary
+        // lifestyle spending"), and plan.goals never flexed at all — so the
+        // flag defaults off and only the migrated expense channels carry it.
+        const flexes = g.flexesWithSpending === true;
+        // Absolute essentials override: a zero-base seam, so a real dollar
+        // target isn't expressed as an impossible percentage of $0. Replaces
+        // the amount rather than scaling it, exactly as livingAnnual did.
+        const amount = (g.system === 'essentials' && hasLivingAnnual)
+          ? ov.livingAnnual
+          : (flexes ? entered * spendMult : entered);
+        return {
+          name:     g.name || '',
+          id:       g.id,
+          system:   g.system,
+          amount,
+          startAge: g.startsAtRetirement === true
+                      ? retirementAge
+                      : (g.startAge != null ? g.startAge : 0),
+          endAge:   (g.endAge   != null ? g.endAge   : 999),
+          realGrowth: Math.max(0, g.realGrowth || 0),
+          startsAtRetirement: g.startsAtRetirement === true,
+          flexesWithSpending: flexes,
+          fundFromPortfolioBeforeRetirement: g.fundFromPortfolioBeforeRetirement === true,
+        };
+      }),
     // Tax rates split: ordinary income (for traditional withdrawals and SS),
     // and long-term capital gains (for taxable account gains).
     // The taxMult override scales both rates proportionally for stress testing.
@@ -2720,6 +2770,22 @@ function evaluateRmdByOwner(contract, householdState, {
     priorYearEndTotal,
     priorYearEndComplete,
   };
+}
+
+/**
+ * A goal's cost in THIS year, in today's dollars.
+ *
+ * Most goals are flat real: the same purchasing power every year they run, so
+ * realGrowth is 0 and this returns the entered amount. Healthcare is the case
+ * that isn't — it rises faster than general inflation, so it compounds above
+ * CPI from its own start age. Same curve the engine previously applied to
+ * plan.expenses.healthcare, now a property of the goal rather than a hardcoded
+ * special case in the year loop.
+ */
+function goalAmountAtAge(goal, age){
+  if(!(goal.realGrowth > 0)) return goal.amount;
+  const yearsRunning = Math.max(0, age - goal.startAge);
+  return goal.amount * Math.pow(1 + goal.realGrowth, yearsRunning);
 }
 
 function externalIncomeAtAge(p, age){
@@ -3406,7 +3472,7 @@ function runSinglePath(p, returnPath, options = {}){
       let goalsA = 0;
       for(const g of p.goals){
         if(g.fundFromPortfolioBeforeRetirement && age >= g.startAge && age <= g.endAge){
-          goalsA += g.amount;
+          goalsA += goalAmountAtAge(g, age);
         }
       }
       const outlayA = lumpA + goalsA;
@@ -3470,15 +3536,24 @@ function runSinglePath(p, returnPath, options = {}){
 
     const { ssInc, oiInc, oiTaxable, penInc, taxIncome } = externalIncomeAtAge(p, age);
     const ltcCost = (p.ltc && age >= p.ltc.onsetAge) ? p.ltc.amount : 0;
-    let extraExp = 0;
-    for(const e of p.expenses.extra){ if(age >= e.startAge && age <= e.endAge) extraExp += e.amount; }
-    const yearsRetired = Math.max(0, age - p.retirementAge);
-    const healthcareCost = p.expenses.healthcare * p.healthcareMult
-                           * Math.pow(1 + p.healthcareRealGrowth, yearsRetired);
-    const expenses = p.expenses.living + p.expenses.housing + p.expenses.debt
-                     + healthcareCost + extraExp + ltcCost;
+    // All spending is entered on the Goals page and read from p.goals only.
+    // plan.expenses is retired — living/housing/debt/healthcare/extra are goals
+    // now (migrateSpendingToGoals.js), so summing them here too would
+    // double-count. LTC is unrelated: it lives on plan.ltc with its own
+    // onset-age model.
+    //
+    // The split below is presentational, not a second channel: the pre-loaded
+    // Essentials and Healthcare goals report as `expenses` so Cash Flow keeps a
+    // meaningful ESSENTIAL column, and everything else reports as `goals`.
     let goalsY = 0;
-    for(const g of p.goals){ if(age >= g.startAge && age <= g.endAge) goalsY += g.amount; }
+    let essentialsY = 0;
+    for(const g of p.goals){
+      if(age < g.startAge || age > g.endAge) continue;
+      const amount = goalAmountAtAge(g, age);
+      if(g.system) essentialsY += amount;
+      else goalsY += amount;
+    }
+    const expenses = essentialsY + ltcCost;
     // Recurring liabilities active at this age, each eroded in real terms from
     // its OWN start age (a fixed mortgage started years ago is already cheaper).
     const liabCost = p.liabilities.reduce((s, L) =>
@@ -3501,12 +3576,12 @@ function runSinglePath(p, returnPath, options = {}){
     const gap = (expenses + goalsY + liabCost + lumpY) - netInc;
 
     if(taxPolicy && fundTaxPolicyDelta){
+      // Validates what actually feeds the calculation. The old plan.expenses
+      // fields are deliberately absent: they no longer reach the engine, so
+      // rejecting a plan over junk in a retired field would block a run for a
+      // value nothing reads.
       assertFiniteFederalFundingInputs(age, {
-        living: p.expenses.living,
-        housing: p.expenses.housing,
-        debt: p.expenses.debt,
-        healthcareCost,
-        extraExp,
+        essentials: essentialsY,
         ltcCost,
         expenses,
         goalsY,

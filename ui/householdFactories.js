@@ -2,6 +2,12 @@ import { ACCOUNT_SCHEMA_VERSION } from '../src/household/accountTypes.js';
 import { createBlankTaxProfiles } from '../src/household/factEnvelope.js';
 import { createIncomeTaxInputs } from '../src/household/incomeTaxModel.js';
 import { HOUSEHOLD_RECORD_SCHEMA_VERSION } from '../src/household/householdRecordSchema.js';
+import {
+  SPENDING_SCHEMA_VERSION,
+  makeEssentialsGoal,
+  makeHealthcareGoal,
+  healthcarePreloadFor,
+} from '../src/household/migrateSpendingToGoals.js';
 
 const clonePristinePlan = pristinePlan => JSON.parse(JSON.stringify(pristinePlan));
 
@@ -38,10 +44,15 @@ export function createBlankHousehold(pristinePlan, householdId, currentYear){
   p.taxProfiles = createBlankTaxProfiles();
   p.properties  = [];
   p.liabilities = [];
+  // Spending is entered on the Goals page. These stay zeroed so nothing can
+  // reach the engine through the retired channel.
   p.expenses.living              = 0;
+  p.expenses.housing             = 0;
+  p.expenses.debt                = 0;
   p.expenses.healthcare          = 0;
   p.expenses.healthcareRealGrowth = 0.02;
   p.expenses.extra = [];
+  p.meta.spendingSchemaVersion = SPENDING_SCHEMA_VERSION;
   p.savings.annual        = 0;
   p.income.workingIncome  = 0;
   p.income.socialSecurity.primary = { pia: null, claimAge: 67 };
@@ -49,7 +60,13 @@ export function createBlankHousehold(pristinePlan, householdId, currentYear){
   p.income.pension = { benefitByAge: {}, base: 0, startAge: 65, colaPct: 0 };
   p.income.other   = [];
   p.incomeTax = createIncomeTaxInputs();
-  p.goals = [];
+  // Every household starts with the two spending goals it will always have.
+  // Essentials opens at $0 for the advisor to fill in; Healthcare preloads a
+  // per-person figure and escalates above general inflation.
+  p.goals = [
+    makeEssentialsGoal(0),
+    makeHealthcareGoal(healthcarePreloadFor(p)),
+  ];
   p.simulation.iterations = 1000;
   return p;
 }

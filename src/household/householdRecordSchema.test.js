@@ -54,7 +54,10 @@ test('removes only exact historical GPC wage clones and archives every removed r
   assert.equal(migrated.plan.income.other.length, 2);
   assert.equal(migrated.plan.income.other[0].amount, 215000);
   assert.equal(migrated.plan.income.other[1].typeId, 'interest');
-  assert.deepEqual(migrated.repairs, [{
+  // Filter to the repair under test — migration emits other receipts too
+  // (spending moving onto the Goals page), and this test is about wage clones.
+  const wageRepairs = migrated.repairs.filter(r => r.code === 'LEGACY_GPC_DUPLICATE_WAGE_REMOVED');
+  assert.deepEqual(wageRepairs, [{
     code: 'LEGACY_GPC_DUPLICATE_WAGE_REMOVED',
     owner: 'client',
     keptLegacyIndex: 0,
@@ -98,7 +101,11 @@ test('preserves legitimate lookalikes, non-wages, and ID-bearing rows', () => {
 
   assert.equal(migrated.plan.income.other.length, rows.length);
   assert.equal(migrated.plan.meta.legacyRepairArchive, undefined);
-  assert.deepEqual(migrated.repairs, []);
+  // No WAGE repair — the spending-to-goals receipt is a separate concern.
+  assert.deepEqual(
+    migrated.repairs.filter(r => r.code === 'LEGACY_GPC_DUPLICATE_WAGE_REMOVED'),
+    []
+  );
 });
 
 test('duplicate repair and stable-ID backfill are idempotent and a current-schema ID gap fails closed', () => {
