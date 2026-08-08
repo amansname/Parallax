@@ -136,6 +136,23 @@ export function bindHouseholdEditor({
     }
   });
 
+  root.addEventListener('focusin', event => {
+    const control = event.target.closest?.(
+      '.hh-tax-amount, [data-account-field="balance"], [data-account-field="basis"]',
+    );
+    if(control && control.dataset.householdCommittedValue === undefined){
+      control.dataset.householdCommittedValue = control.value;
+    }
+  });
+
+  root.addEventListener('focusout', event => {
+    const control = event.target.closest?.(
+      '.hh-tax-amount, [data-account-field="balance"], [data-account-field="basis"]',
+    );
+    if(!control || control.dataset.householdCommittedValue === control.value) return;
+    control.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+
   root.addEventListener('change', event => {
     const family = event.target.closest('[data-wizard-scope="family"][data-wizard-field]');
     if(family){
@@ -160,24 +177,26 @@ export function bindHouseholdEditor({
 
     const account = event.target.closest('[data-account-field][data-account-id]');
     if(account){
-      commit({
+      const applied = commit({
         scope: 'account',
         action: 'update',
         accountId: account.dataset.accountId,
         field: account.dataset.accountField,
         value: valueFromControl(account),
       }, account);
+      if(applied) account.dataset.householdCommittedValue = account.value;
       return;
     }
 
     const tax = event.target.closest('[data-tax-field]');
     if(tax){
-      commit({
+      const applied = commit({
         scope: 'tax',
         action: 'set',
         field: tax.dataset.taxField,
         value: valueFromControl(tax),
       }, tax);
+      if(applied) tax.dataset.householdCommittedValue = tax.value;
     }
   });
 
