@@ -265,11 +265,22 @@ const MAX_SCENARIOS=5;
 /* The three scenario columns. Each holds lever values + its last engine result.
    lever values are the ACTUAL planning values (age, $, etc.), not slider ticks. */
 const RISK_LABELS={1:'30 / 70',2:'45 / 55',3:'60 / 40',4:'75 / 25',5:'90 / 10'};
+// Essentials is a pre-loaded goal now, not a plan.expenses field. One reader so
+// the Scenarios lever, the Summary metric and the wizard cannot drift apart.
+function essentialsGoalAmount(p){
+  const goal = (Array.isArray(p?.goals) ? p.goals : []).find(g => g?.system === 'essentials');
+  return Number(goal?.amount) || 0;
+}
+function healthcareGoalAmount(p){
+  const goal = (Array.isArray(p?.goals) ? p.goals : []).find(g => g?.system === 'healthcare');
+  return Number(goal?.amount) || 0;
+}
+
 function defaultLevers(){
   const L={
     retireAge:  plan.household.primary.retirementAge,
     ssAge:      plan.income.socialSecurity.primary.claimAge,
-    spend:      plan.expenses.living,
+    spend:      essentialsGoalAmount(plan),
     eventAmt:   0, eventAge: 70,
     risk:       plan.portfolio.riskProfile,
     savings:    plan.savings.annual,
@@ -846,24 +857,16 @@ function leversToOverrides(L){
   // retire delay in that case (a positive delay would wrongly re-open accumulation).
   if(!hhAlreadyRetired() && L.retireAge !== baseRetire) ov.retireDelay = L.retireAge - baseRetire;
   if(L.ssAge !== baseSs)         ov.ssDelayYears = L.ssAge - baseSs;
-  // spend vs plan.expenses.living. The engine takes INCREASES via spendBump and
-  // CUTS via spendCut — a negative spendBump is ignored (engine clamps it to 0).
-  // So we MUST split by direction or lowering the spend lever silently no-ops.
-  const baseSpend = Number(plan.expenses.living);
+  // Essentials is an absolute dollar figure, so the scenario sets it directly
+  // rather than as a percentage swing off the base. A percentage would also
+  // drag every other discretionary goal along with it, which is not what an
+  // "Essentials" input should mean — and it has no meaning at all from a $0
+  // base, which is where every new household starts.
   const scenarioSpend = Number(L.spend);
-  if(!Number.isFinite(baseSpend) || baseSpend < 0
-    || !Number.isFinite(scenarioSpend) || scenarioSpend < 0){
+  if(!Number.isFinite(scenarioSpend) || scenarioSpend < 0){
     throw new TypeError('Scenario spending must be a finite non-negative number');
   }
-  if(baseSpend > 0){
-    const spendFrac = (scenarioSpend - baseSpend)/baseSpend;
-    if(spendFrac > 0)      ov.spendBump = spendFrac;
-    else if(spendFrac < 0) ov.spendCut  = -spendFrac;   // engine caps the cut at 50%
-  }else if(scenarioSpend > 0){
-    // A percentage change has no meaning from a $0 base. Preserve the scenario's
-    // entered dollar truth through the engine's narrow absolute fallback.
-    ov.livingAnnual = scenarioSpend;
-  }
+  ov.livingAnnual = scenarioSpend;
   if(L.eventAmt>0){ ov.lumpSum = L.eventAmt; ov.lumpSumYear = Math.max(0, L.eventAge - plan.household.primary.currentAge); }
   const baseSavings = Number(plan.savings.annual);
   const scenarioSavings = Number(L.savings);
@@ -971,12 +974,11 @@ const HYBRID = {
       ], dynamic:'pension' },
       { head:'Variable', section:{ arr:'income.other', kind:'income', nameKey:'label', ph:'Source', add:'+ add a variable income source' } },
     ]},
+    // Spending is entered on the Goals page. This column used to bind
+    // expenses.living / expenses.healthcare directly, which are retired — an
+    // editor for fields the engine no longer reads is worse than no editor.
     right: { head:'Expenses', groups:[
-      { head:'Essential', items:[
-        {path:'expenses.living',     name:'Lifestyle',  type:'money', meta:()=>'Housing, utilities, food, transport'},
-        {path:'expenses.healthcare', name:'Healthcare', type:'money', meta:()=>'Premiums + out-of-pocket'},
-        {path:'expenses.healthcareRealGrowth', name:'Healthcare inflation', type:'pct', meta:()=>'Annual growth above CPI (default 2%)'},
-      ] },
+      { head:'Essential', note:'Essentials and Healthcare are goals — edit them on the Goals page.', items:[] },
     ]},
   },
 };
@@ -1276,7 +1278,7 @@ function renderGutter(pageKey){
         <div class="big-num">${fmtMoney(investableTotal(plan))}</div>
       <hr class="gut-rule"/>
       <div class="row"><span>Savings / yr</span><b>${fmtMoney(plan.savings.annual||0)}</b></div>
-      <div class="row"><span>Spending / mo</span><b>${fmtMoney(Math.round((plan.expenses.living||0)/12))}</b></div>
+      <div class="row"><span>Spending / mo</span><b>${fmtMoney(Math.round(essentialsGoalAmount(plan)/12))}</b></div>
       <div class="row"><span>Goals / yr</span><b>${fmtMoney(goalsAnnual)}</b></div>
     </div>`;
   }
@@ -1380,7 +1382,8 @@ function renderField(f, klass){
    the window: a one-time goal is a single-year window, startAge===endAge.) */
 const ROW_KINDS = {
   income:    { arr:'income.other',   mk:()=>({ ...createIncomeSource(plan, 'wages', 'client'), label:'' }) },
-  expense:   { arr:'expenses.extra', mk:()=>({ label:'', amount:0, startAge:65, endAge:80 }) },
+  // 'expense' is retired — a time-bounded expense IS a recurring goal, so
+  // goalRec covers it. Keeping it would append rows to an array nothing reads.
   liability: { arr:'liabilities',    mk:()=>({ label:'', amount:0, startAge:65, endAge:75, colaPct:0 }) },
   goalRec:   { arr:'goals',          mk:()=>{ const span=resolveGoalSpan(plan); return { name:'', amount:0, startAge:span.retirementAge, endAge:span.planEndAge }; } },
   goalOnce:  { arr:'goals',          mk:()=>({ name:'',  amount:0, startAge:70, endAge:70 }) },
@@ -1503,8 +1506,13 @@ function snapshotMetrics(){
   const pen = plan.income.pension||{};
   const penAmt = (pen.benefitByAge && pen.startAge!=null) ? (pen.benefitByAge[pen.startAge]||0) : 0;
   const guaranteed = ssP + ssS + penAmt;
-  const essentials = (plan.expenses.living||0) + (plan.expenses.healthcare||0);
-  const goals = (Array.isArray(plan.goals) ? plan.goals : []).reduce((s,g)=>s+(g.amount||0),0);
+  // Essentials and Healthcare are the two pre-loaded system goals; everything
+  // else on the Goals page is discretionary. Splitting here keeps the
+  // "% of essential spending covered by guaranteed income" metric meaningful.
+  const essentials = essentialsGoalAmount(plan) + healthcareGoalAmount(plan);
+  const goals = (Array.isArray(plan.goals) ? plan.goals : [])
+    .filter(g => !g?.system)
+    .reduce((s,g)=>s+(g.amount||0),0);
   const totalSpend = essentials + goals;
   const floorPct = essentials>0 ? guaranteed/essentials : 0;
   const fromPortfolioEssential = Math.max(0, essentials - guaranteed);
@@ -1844,7 +1852,7 @@ const LEVCFG=[
   // shorthand. Step values stay round so the slider snaps cleanly.
   // Spending is stored ANNUAL (the engine's unit) but shown/edited MONTHLY —
   // clients know their monthly number off-hand. edit:'monthly' wires the box.
-  {key:'spend',     name:'Lifestyle Spending',min:80000,max:360000,step:1200, edit:'monthly', fmt:v=>['$'+Math.round(v/12).toLocaleString('en-US'),'/mo']},
+  {key:'spend',     name:'Essentials',min:80000,max:360000,step:1200, edit:'monthly', fmt:v=>['$'+Math.round(v/12).toLocaleString('en-US'),'/mo']},
   // One-time event carries BOTH an amount and an age; edit:'event' renders the
   // two type-in boxes (amount + age) alongside the amount slider.
   {key:'eventAmt',  name:'One-Time Event', min:0,max:500000,step:5000, edit:'event', fmt:(v,L)=>['$'+(v||0).toLocaleString('en-US'),'@ '+L.eventAge]},

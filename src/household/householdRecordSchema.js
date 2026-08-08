@@ -1,3 +1,5 @@
+import { migrateSpendingToGoals } from './migrateSpendingToGoals.js';
+
 export const HOUSEHOLD_RECORD_SCHEMA_VERSION = 1;
 
 const ROW_COLLECTIONS = Object.freeze([
@@ -217,6 +219,17 @@ export function migrateHouseholdRecordSchema(plan, householdId = plan?.meta?.hou
     if(typeof account.displayName === 'string') continue;
     if(priorVersion != null) continue;
     account.displayName = '';
+    changed = true;
+  }
+
+  // Spending moved onto the Goals page. Convert plan.expenses into goals so a
+  // saved household carries one spending channel, not two. Idempotent, and the
+  // engine folds legacy expenses in independently, so a plan that somehow
+  // reaches the engine unmigrated still charges the same spending.
+  const spending = migrateSpendingToGoals(migrated);
+  if(spending.changed){
+    Object.assign(migrated, spending.plan);
+    repairs.push({ code: 'SPENDING_MIGRATED_TO_GOALS' });
     changed = true;
   }
 

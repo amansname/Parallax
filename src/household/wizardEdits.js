@@ -1,6 +1,7 @@
 import { getAccountTypeById } from './accountTypes.js';
 import { createAccount, hasSpouseOwnedAccounts } from './createAccount.js';
 import { createBlankTaxProfiles, createFact } from './factEnvelope.js';
+import { syncHealthcareGoalToHousehold } from './migrateSpendingToGoals.js';
 import { validateCurrentSchemaHousehold } from './migrateAccounts.js';
 import { validateHouseholdRecordSchema } from './householdRecordSchema.js';
 import {
@@ -91,6 +92,9 @@ function ensureSpouse(plan){
   if(!plan.income.socialSecurity.spouse){
     plan.income.socialSecurity.spouse = { pia: null, claimAge: 67 };
   }
+  // Healthcare is priced per person, so adding a co-client raises the preload —
+  // unless the advisor has already entered their own figure, which stands.
+  syncHealthcareGoalToHousehold(plan);
   return plan.household.spouse;
 }
 
@@ -180,6 +184,7 @@ function removeSpouse(plan, command){
   plan.meta.filingStatus = 'single';
   plan.income.socialSecurity.spouse = null;
   plan.taxProfiles.spouse = createBlankTaxProfiles().spouse;
+  syncHealthcareGoalToHousehold(plan);
   removeSpouseCurrent1040Facts(plan);
   ensureWizardCurrent1040(plan);
   syncWizardTaxpayerFacts(plan);

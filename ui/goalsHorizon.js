@@ -173,9 +173,11 @@ function renderRail(goal,index,span,disabled){
       </section>
     </div>
     <footer class="gh-rail__footer">
-      <button class="gh-delete" type="button" data-action="delete"${disabledAttr(disabled)}>Delete goal</button>
+      ${goal.system
+        ? '<span class="gh-rail__system-note">Always part of the plan</span>'
+        : `<button class="gh-delete" type="button" data-action="delete"${disabledAttr(disabled)}>Delete goal</button>`}
       <span class="gh-rail__footer-spacer"></span>
-      <button class="gh-ghost" type="button" data-action="duplicate"${disabledAttr(disabled)}>Duplicate</button>
+      ${goal.system ? '' : `<button class="gh-ghost" type="button" data-action="duplicate"${disabledAttr(disabled)}>Duplicate</button>`}
       <button class="gh-done" type="button" data-action="done">Done</button>
     </footer>
   </aside>`;
@@ -373,6 +375,10 @@ export function createGoalsHorizonController(deps){
       setTimeout(()=>{ state.flashId=null; },1500);
       return;
     }else if(action==='delete'){
+      // Essentials and Healthcare are the household's baseline spending, not
+      // discretionary goals. The button is hidden for them; this guards the
+      // path anyway so a stale DOM or a keyboard route cannot remove one.
+      if(goals()[index]?.system) return;
       const removed=deps.removeGoal(index);
       state.selectedId=null;
       state.toast={...removed,index};

@@ -6,6 +6,21 @@ function expenseRow(deps, label, path, removable = false){
   return `<div class="hh-sg-row"><span>${label}</span><span class="hh-sg-row__end">${deps.field(path, 'money')}${removable ? `<button class="row-x" data-rmpath="${path.replace(/\.amount$/, '')}" title="Remove spending category">×</button>` : ''}</span></div>`;
 }
 
+/* Essentials and Healthcare: always present, always start at retirement, and
+   not removable — they are the household's baseline spending rather than a
+   discretionary goal. Healthcare shows its escalation so the figure isn't
+   mistaken for a flat one. */
+function systemGoalRow(deps, goal, index){
+  const base = `goals.${index}`;
+  const note = goal.realGrowth > 0
+    ? `<span class="hh-sg-note">from retirement · +${(goal.realGrowth * 100).toFixed(0)}% a year above inflation</span>`
+    : '<span class="hh-sg-note">from retirement · today’s dollars</span>';
+  return `<div class="hh-sg-row">
+    <span class="hh-sg-row__copy"><b>${escHtml(goal.name)}</b>${note}</span>
+    <span class="hh-sg-row__end">${deps.field(`${base}.amount`, 'money')}</span>
+  </div>`;
+}
+
 function goalRow(deps, goal, index){
   const base = `goals.${index}`;
   const beforeRetirement = goal.fundFromPortfolioBeforeRetirement === true;
@@ -24,26 +39,28 @@ function addControl(state, key, label){
 }
 
 export function renderHouseholdSpendingGoals(plan, deps, state){
-  const extras = plan.expenses?.extra || [];
-  const goals = Array.isArray(plan.goals) ? plan.goals : [];
-  const spendingTotal = (plan.expenses?.living || 0) + (plan.expenses?.healthcare || 0)
-    + (plan.expenses?.housing || 0) + (plan.expenses?.debt || 0)
-    + extras.reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
-  const goalsTotal = goals.reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
+  // Every expense is a goal. The two pre-loaded system goals (Essentials,
+  // Healthcare) are shown as recurring spending; everything else is a goal the
+  // advisor added. plan.expenses is retired and no longer rendered.
+  const allGoals = Array.isArray(plan.goals) ? plan.goals : [];
+  const systemGoals = allGoals
+    .map((goal, index) => ({ goal, index }))
+    .filter(({ goal }) => goal?.system);
+  const goals = allGoals
+    .map((goal, index) => ({ goal, index }))
+    .filter(({ goal }) => !goal?.system);
+  const sum = rows => rows.reduce((s, { goal }) => s + (Number(goal.amount) || 0), 0);
+  const spendingTotal = sum(systemGoals);
+  const goalsTotal = sum(goals);
   return `<div class="hh-step-pane hh-sg">
     <h2 class="hh-step-title hh-it__title">Spending &amp; Goals</h2>
     <p class="hh-it__intro">Retirement lifestyle and planned goals. Working-year budgeting stays outside the analysis.</p>
     <div class="hh-it-grid">
       <section><div class="hh-it-section-head"><span>RETIREMENT SPENDING</span><strong>${money(spendingTotal)} /yr</strong></div>
-        ${expenseRow(deps, 'Living', 'expenses.living')}
-        ${expenseRow(deps, 'Healthcare', 'expenses.healthcare')}
-        ${plan.expenses?.housing != null ? expenseRow(deps, 'Housing', 'expenses.housing') : ''}
-        ${plan.expenses?.debt != null ? expenseRow(deps, 'Debt payments', 'expenses.debt') : ''}
-        ${extras.map((row, index) => `<div class="hh-sg-row"><input class="hh-sg-name" data-path="expenses.extra.${index}.label" data-type="text" value="${escHtml(row.label || 'Category')}"><span class="hh-sg-row__end">${deps.field(`expenses.extra.${index}.amount`, 'money')}<button class="row-x" data-rmpath="expenses.extra.${index}" title="Remove category">×</button></span></div>`).join('')}
-        ${addControl(state, 'spending', 'category')}
+        ${systemGoals.map(({ goal, index }) => systemGoalRow(deps, goal, index)).join('')}
       </section>
       <section><div class="hh-it-section-head"><span>GOALS</span><strong>${money(goalsTotal)}</strong></div>
-        ${goals.map((goal, index) => goalRow(deps, goal, index)).join('') || '<p class="hh-it-empty">No goals entered.</p>'}
+        ${goals.map(({ goal, index }) => goalRow(deps, goal, index)).join('') || '<p class="hh-it-empty">No goals entered.</p>'}
         ${addControl(state, 'goal', 'goal')}
         <p class="hh-sg-doctrine">Before both clients retire, goals are assumed paid from working income unless the portfolio option is explicitly selected.</p>
       </section>
