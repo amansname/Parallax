@@ -34,11 +34,11 @@ const ACCEPTANCE_HEADERS = [
 ];
 
 function visibleTokenText(token){
-  if(!token || token.type === 'html' || token.type === 'space') return '';
+  if(!token || token.type === 'html' || token.type === 'space' || token.type === 'image') return '';
   if(token.type === 'code') return token.text || '';
   if(token.type === 'table'){
     return [...(token.header || []), ...(token.rows || []).flat()]
-      .map(cell => cell.text || '')
+      .map(visibleTokenText)
       .join(' ');
   }
   if(Array.isArray(token.items)) return token.items.map(visibleTokenText).join(' ');

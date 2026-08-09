@@ -228,3 +228,24 @@ test('rejects visually blank symbols, fillers, and hieroglyphs across tables and
     assert.match(failures, /required PR section has no evidence: Root cause/);
   }
 });
+
+test('rejects image alt text as section, table, or command evidence', () => {
+  const image = '![Recorded evidence](https://example.com/transparent.gif)';
+  const evidenceRow = '| Governance gap | Base inspection | Missing guard | Validator | Reject missing evidence | Validator accepts full evidence |';
+  const imageRow = `| ${image} | ${image} | ${image} | ${image} | ${image} | ${image} |`;
+  const rootCause = '## Root cause\nRecorded evidence';
+  let spoofedBody = validBody({ bareCommands: true })
+    .replace(evidenceRow, imageRow)
+    .replace(rootCause, `## Root cause\n${image}`);
+
+  for(const command of ['npm run governance:check', 'npm test', 'npm run verify', 'git diff --check']){
+    spoofedBody = spoofedBody.replace(command, `${command} ${image}`);
+  }
+
+  const failures = validatePullRequestEvent(validEvent(spoofedBody)).failures.join('\n');
+  assert.match(failures, /fully populated/);
+  assert.match(failures, /required PR section has no evidence: Root cause/);
+  for(const command of ['npm run governance:check', 'npm test', 'npm run verify', 'git diff --check']){
+    assert.ok(failures.includes(`must record a concrete result for: ${command}`));
+  }
+});
