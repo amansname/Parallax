@@ -1,0 +1,18 @@
+{
+  "fixtureVersion": 1,
+  "fixtureKind": "legacy",
+  "anonymized": true,
+  "description": "An anonymized legacy global scenario record captured as exact localStorage strings.",
+  "storage": {
+    "parallax.activeHouseholdId": "demo",
+    "parallax.scenarios.v2": "[{\"name\":\"Baseline\",\"base\":true,\"lev\":{}},{\"name\":\"Anonymized legacy scenario\",\"base\":false,\"lev\":{\"spendMult\":0.9}}]"
+  },
+  "expected": {
+    "loadExactlyAsStored": true,
+    "deleteOrReseedBeforeApplicationLoad": false,
+    "sourceKeys": [
+      "parallax.activeHouseholdId",
+      "parallax.scenarios.v2"
+    ]
+  }
+}

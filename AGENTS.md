@@ -1,140 +1,122 @@
-# AGENTS.md
+# Parallax repository instructions
 
-## Architecture (read first)
+These instructions govern every contributor and coding agent. Read
+[PRINCIPLES.md](PRINCIPLES.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md),
+and [docs/EXECUTION-PROTOCOL.md](docs/EXECUTION-PROTOCOL.md) before changing
+the repository. Follow the full lifecycle in
+[docs/CODEX_WORKFLOW.md](docs/CODEX_WORKFLOW.md) and the independent-review
+procedure in [docs/CODE_REVIEW.md](docs/CODE_REVIEW.md).
 
-**Before any feature or refactor, read `docs/ARCHITECTURE.md` and `PRINCIPLES.md`.**
+## Repository map and boundaries
 
-Parallax is a static ES-module app. **No new monoliths.**
+Parallax is a static ES-module application with no build step or backend.
 
-| File | Role |
-|------|------|
-| `index.html` | Markup only (~250 lines). One script: `src/main.js`. **Do not add JS here.** |
-| `src/main.js` | Boot, `runAll`, listeners. **Keep thin** — extract new logic to `ui/*` or `src/household/` / `src/scenarios/`. |
-| `src/state.js` | Mutable UI state (scenarios, replay, solver flags). No render/DOM. |
-| `ui/*.js` | View modules (household, goals, scenarios, cashflow, sequencing, solver, …). Display only. |
-| `engine.js` | Simulation truth. Test-guarded. Only place for wealth/path/bucket math. |
-| `src/tax/` | Federal 1040 engine. Never imports `engine.js`. |
-| `src/planning/tax/` | Glue: engine rows → tax input; typical-path attach. |
+| Path | Authority |
+|---|---|
+| `index.html` | Markup and mount points only. It loads only `src/main.js`. |
+| `src/main.js` | Thin boot, `runAll`, and event wiring. Extract feature logic if a change would add about 50 lines. |
+| `src/state.js` | Mutable UI state and persistence effects; no rendering. |
+| `ui/*.js` | Display and DOM modules; no financial calculations. |
+| `engine.js` | Sole source of truth for simulation, wealth, paths, withdrawals, and bucket math. |
+| `src/tax/` | Federal tax truth; never imports `engine.js`. |
+| `src/planning/` | Adapters and orchestration between engine, tax, and views; no substitute tax math. |
+| `src/household/` | Household schemas, persistence, migrations, and wizard contracts. |
+| `src/scenarios/` | Scenario inputs and scenario-to-engine orchestration. |
+| `scripts/verify.mjs` | Required full live-browser compatibility gate at the canonical origin. |
 
-**Decision tree:** see `docs/ARCHITECTURE.md` § "Where new work goes".
+`engine.js` is the sole financial source of truth. UI code must not invent or
+duplicate tax, RMD, withdrawal, inflation, goal, or cash-flow calculations.
+Do not add JavaScript to `index.html`, grow a new monolith, or add a dependency
+without explicit agreement.
 
-**If ~50+ lines would land in `src/main.js`:** extract a module in the same change.
+## Commands
 
----
+Run commands from the repository root.
 
-## Execution protocol (mandatory)
-
-Read [docs/EXECUTION-PROTOCOL.md](docs/EXECUTION-PROTOCOL.md) before making
-changes. Its safety, coordination, editing, browser-automation, and evidence
-rules apply to every workstream.
-
-Non-negotiable guardrails:
-
-1. **Authority and pause:** governing platform and security policy always wins.
-   Default to read-only until the task principal authorizes changes. A direct
-   user pause or stop supersedes delegated instructions. Cancel safely when
-   possible, stop background work, preserve the resulting state, and wait. A
-   delegated resume is valid only when it carries a newer user instruction with
-   verifiable provenance.
-2. **Isolation:** record the repo, branch, worktree, starting commit, and dirty
-   paths before editing. Never reset, restore, clean, stash, rebase, overwrite,
-   or absorb work without target-specific authorization and recovery evidence.
-   Use one writer per file; parallel writers may share a worktree only with
-   declared disjoint scopes and recorded baselines.
-3. **Safe edits:** line numbers are for inspection only. Never splice source by
-   positional line indexes. Use a uniquely anchored contextual patch for small
-   edits and a suitable parser or AST/CST transform for structural data or
-   broad code changes. Verify the focused diff after every logical change.
-4. **HTML and DOM:** never parse HTML structure with regular expressions. Use a
-   standards-based parser or the live DOM, assert the expected node count, and
-   fail loudly on missing or ambiguous targets.
-5. **Deterministic waits:** fixed sleeps are not readiness evidence. Wait for a
-   specific visible state, value, event, response, or application-ready signal.
-   A bounded settling delay is allowed only after deterministic readiness and
-   must be identified as such.
-6. **Tool capability:** read the active tool schema or documentation and run a
-   harmless capability probe when the wrapper surface remains uncertain. Do
-   not guess APIs. Stop and inspect after an unsupported call.
-7. **Failure discipline:** diagnose failures as product, test, fixture,
-   environment, or stale-expectation problems. Do not weaken assertions, add
-   sleeps, or broaden selectors merely to obtain a pass.
-8. **Completion evidence:** report the exact changed/new files, commands and
-   results, diff and staging status, limitations, and unauthorized actions not
-   taken. UI work still requires the browser verification defined below.
-9. **Exceptions:** a deviation requires a stated reason, bounded scope,
-   compensating verification, and explicit approval. Convenience is not an
-   exception.
-
-The sole adoption-time transition is the pre-existing legacy behavior in
-`scripts/verify.mjs` recorded in `docs/EXECUTION-PROTOCOL.md` section 8. It is
-bounded to checks already present at base commit
-`7634c47b5846d70caccb0e2c0dcbaa6635954592`, is compatibility evidence rather
-than authoritative DOM or readiness evidence, and does not permit new or
-expanded regex-structure checks or fixed-sleep readiness. A UI flow touched
-after adoption must replace the relevant legacy check with parser/live-DOM and
-observable-state verification.
-
----
-
-## High-risk UI contracts
-
-- Feature-based development is mandatory: use one feature or fix per branch,
-  isolated worktree, and pull request. Start from a verified current
-  `origin/main`; keep unrelated cleanup and defects out of scope. Each UI
-  feature owns focused tests and visible browser acceptance evidence. Land
-  prerequisite repairs separately and reference them instead of combining
-  feature scopes.
-- Withdrawal Planner controls must cap each displayed maximum at the smaller of
-  the engine-approved available amount and `$500,000`; a zero approved amount
-  disables the control. UI code must never expand an engine-approved limit.
-- A goal with `startsAtRetirement: true` must resolve its displayed and edited
-  start age from the effective retirement age of the scenario being rendered.
-  A missing raw `startAge` must never reach visible text, input values, or
-  baseline comparisons.
-- Any change touching either contract must update its focused Node assertion and
-  its observable live-DOM assertion in `scripts/verify.mjs`. Attribute-only or
-  fixture-only checks are not sufficient evidence.
-- Manual preview must use the single canonical origin
-  `http://127.0.0.1:8825/`. If that port is occupied, stop the old preview; do
-  not select another host or port, because browser storage is origin-scoped.
-  All local serving, capture, and browser-verification commands must use that
-  same origin. Automated browsers must still clear their isolated storage.
-- A deployed HTTPS site has its own origin even when it runs the same code.
-  GitHub/live equivalence must therefore be proven from the same committed code
-  and deterministic fixtures; never infer shared browser data across hostnames.
-
----
-
-## Cursor Cloud specific instructions
-
-Parallax is a static, single-page web app: `index.html` (markup) loads `src/main.js`, which wires the UI to `engine.js`. Styled by `styles/*.css`. Helpers in `ui/*.js`, orchestration in `src/`, tax in `src/tax/`. No backend or database.
-
-Standard commands live in `package.json` and `README.md`:
-
-- `npm test` — Node test suite (engine + tax rules). Fast, no browser needed.
-- `node scripts/verify.mjs` — full visual verification: runs `npm test`, serves the repo, drives headless Chrome through `index.html`, writes screenshots to `verify-out/`. **Required before claiming UI work is done.**
-- `node scripts/preview.mjs` — canonical manual dev server at `http://127.0.0.1:8825/`. Alternate `PORT`/`HOST` values are rejected so saved browser data remains on one origin. Must use HTTP, not `file://`.
-
-Non-obvious caveats:
-
-- `scripts/verify.mjs` scans `index.html` for markup and `index.html` + `src/**/*.js` + `ui/**/*.js` for JS symbols.
-- `verify.mjs` Chrome discovery: `PUPPETEER_EXECUTABLE_PATH` or hard-coded paths — not puppeteer cache auto-discovery.
-- `npm ci` postinstall downloads Chrome for Puppeteer.
-- No lint step configured.
-- `localStorage` persists scenarios/households; `verify.mjs` clears it for deterministic runs. Clear site data if manual testing looks wrong.
-- `verify.mjs` remains a required legacy compatibility gate during the bounded
-  transition above, but passing it alone is not completion evidence for a
-  touched UI flow.
-
----
-
-## Session handoff (paste when context is heavy)
-
+```text
+npm ci                         install the locked development dependencies
+npm test                       full unit suite
+npm run verify                 full browser verifier and screenshots
+npm run governance:check       repository-governance and static checks
+npm run preview                manual preview at http://127.0.0.1:8825/
 ```
-PARALLAX — read docs/ARCHITECTURE.md. index.html = markup only. main.js = thin boot.
-Truth: engine.js (sim), src/tax/ (federal). Views: ui/*. No math in UI. No tax in engine.
-Execution: read docs/EXECUTION-PROTOCOL.md. No positional writes, regex DOM parsing,
-fixed-sleep readiness, guessed tool APIs, or overlapping writers. Within governing
-policy, an authenticated instruction from the task principal controls pause and resume.
-npm test for engine/tax; + verify.mjs for UI. Extract from main.js if >50 lines.
-```
+
+There is no build, lint, or formatter command. Do not claim one ran. The app
+must be served over HTTP. Port 8825 is the only local origin: if it is occupied,
+identify and stop the stale Parallax preview instead of selecting another port.
+
+## Working rules
+
+- Begin read-only. Before editing, record the repository root, worktree,
+  branch, base and current commit SHAs, remotes, and dirty paths. Preserve user
+  work. Use one feature or fix per branch, isolated worktree, and pull request.
+- Reproduce every reported symptom through its actual visible-input and saved-
+  state path before editing. Record the exact command, fixture kind (clean or
+  persisted/legacy), and observed failure.
+- Create an acceptance-matrix row for every reported symptom. A regression
+  test must fail on the base commit for the reported reason and pass on the
+  branch. A test-only change improves coverage; it is not a product fix.
+- Implement the smallest production change that reaches the responsible code
+  path. Scope expansion requires an explanation and material expansion requires
+  user approval.
+- Never weaken an assertion, delete or sanitize the triggering state, add a
+  timing sleep, suppress an exit code, or change an expectation merely to make
+  a check green. An expectation or fixture change needs a documented product-
+  contract reason.
+- Browser defects require live-browser assertions of the user-visible outcome.
+  Control values, labels, element existence, slider maxima, and screenshots do
+  not prove that dependent financial outputs changed.
+- Persisted-state and migration regressions load anonymized state exactly as
+  saved. A migration test must not delete or reseed the state under test. Keep
+  clean-state and legacy-state fixtures separate.
+- Report unavailable results, missing facts, errors, and reason codes directly.
+  Do not accept blank columns, generic dashes, invented zeros, swallowed errors,
+  or stale fallbacks as evidence of correctness.
+- Use deterministic readiness signals and live DOM or a standards-based parser.
+  The bounded legacy exceptions in `scripts/verify.mjs` remain governed by
+  `docs/EXECUTION-PROTOCOL.md` section 8 and may not be expanded.
+
+## Risk and required evidence
+
+Financial engine, federal tax, RMD, withdrawal, persistence, migration, Goals,
+Scenarios, and Cash Flow changes are high risk. They require focused tests,
+applicable cross-surface invariants, `npm test`, `npm run verify`, and an
+independent review against `main`. Persistence and migration work also requires
+both clean-state and exact legacy-state evidence. Docs, templates, and CI-only
+changes require `npm run governance:check`, `git diff --check`, link/command
+validation, and the full required CI suite before merge.
+
+Protected product contracts include the Withdrawal Planner's smaller-of-engine-
+limit-and-$500,000 display ceiling and scenario-relative resolution of a
+`startsAtRetirement: true` goal's start age. Their complete preservation and
+test requirements live in `docs/CODEX_WORKFLOW.md`.
+
+## Definition of done and PR evidence
+
+Work is done only when every acceptance row is complete; the base failure and
+branch result are recorded; targeted and full required checks succeed; the full
+diff is reviewed against `main`; no production behavior outside scope changed;
+and a separate reviewer completed `docs/CODE_REVIEW.md`. A deployment is only
+availability evidence, never behavioral proof.
+
+Every PR must include base and branch SHAs, exact reproduction, root cause,
+production files changed, fail-before/pass-after evidence, exact commands and
+actual results, fixture provenance, financial invariants, known failures, proof
+gaps, scope exclusions, rollback notes, and independent-review status. Do not
+use “fixed,” “complete,” “passing,” or “merge-ready” while any required check or
+acceptance row is unresolved. State limitations and unverified behavior plainly.
+
+## Code Review Rules
+
+- Review against `main` and the original reported symptoms, acceptance matrix,
+  and PR claims—not only the latest commit or conversation.
+- Confirm the production change reaches the responsible engine/controller/view
+  path and that suspicious untouched paths were examined.
+- For financial UI work, verify applicable cross-surface invariants and visible
+  financial outcomes using exact persisted-state conditions.
+- Reject swallowed errors, generic unavailable states without actionable reason,
+  fixture sanitization, shared faulty dependencies presented as independent
+  evidence, test-only “fixes,” and deployment presented as correctness.
+- Perform the first review read-only, report severity plus file/line evidence,
+  and require re-review after fixes. The authoring session cannot self-certify;
+  use a separate `/review` against `main` or `@codex review`.

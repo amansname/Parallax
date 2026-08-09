@@ -95,7 +95,8 @@ Extract **when you touch an area**, not as a standalone refactor sprint.
 | `engine.js` | `npm test` |
 | `src/tax/*` | `npm test` |
 | `ui/*`, `src/main.js`, `index.html` markup | `npm test` + `node scripts/verify.mjs` |
-| Docs only | neither |
+| Governance, workflow, templates, or CI | `npm run governance:check` + full required CI before merge |
+| Other docs only | `npm run governance:check` when linked from governing docs; otherwise link and command checks by impact |
 
 `verify.mjs`: HTML structure checks scan `index.html` only; JS symbol checks scan `index.html` + `src/**/*.js` + `ui/**/*.js`.
 

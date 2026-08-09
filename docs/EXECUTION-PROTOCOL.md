@@ -1,9 +1,8 @@
 # Parallax Execution Protocol
 
 - **Version:** 1.0
-- **Status:** Proposed in this branch; becomes active when merged into the
-  repository's governing branch
-- **Effective:** Upon merge
+- **Status:** Active repository policy
+- **Effective:** 2026-08-08
 - **Scope:** All repository work performed by people, agents, automation, and
   coordinated task runners.
 

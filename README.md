@@ -39,17 +39,22 @@ explain a client decision:
 - `assets/` — the logo.
 - `PRINCIPLES.md` — doctrine.
 - `docs/ARCHITECTURE.md` — **where code goes; anti-monolith rules; all agents read this.**
+- `docs/CODEX_WORKFLOW.md` — required engineering, regression, evidence, and merge lifecycle.
+- `docs/CODE_REVIEW.md` — independent review procedure against `main`.
 
 ## Commands
 
 ```bash
 npm ci                    # install dev dependencies (puppeteer)
+npm run governance:check # validate governing docs, PR/CI contracts, links, and persisted fixtures
 npm test                  # engine tests
-node scripts/verify.mjs   # visual verification + screenshots
+npm run verify            # full browser verification + screenshots
+npm run preview           # canonical manual preview at http://127.0.0.1:8825/
 ```
 
 ## Shipping
 
 GitHub Pages serves `main` from the repository root; `index.html` is the live
-entry file. Run `npm test` before trusting model changes and
-`node scripts/verify.mjs` before claiming UI work is complete.
+entry file. Required CI exposes separate Governance safeguards, Unit tests, and
+Full browser verification checks. Follow `docs/CODEX_WORKFLOW.md`; a deployment
+is availability evidence and does not prove behavior.
