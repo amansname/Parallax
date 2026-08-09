@@ -136,7 +136,14 @@ test('rejects completion and acceptance evidence hidden in indented code', () =>
 
 test('rejects required evidence wrapped in an HTML pre block', () => {
   const failures = validatePullRequestEvent(validEvent(`<pre>\n${validBody()}\n</pre>`)).failures.join('\n');
-  assert.match(failures, /HTML code block/);
+  assert.match(failures, /raw HTML block/);
+});
+
+test('rejects required evidence wrapped in other raw HTML blocks', () => {
+  for(const tag of ['textarea', 'script', 'style']){
+    const failures = validatePullRequestEvent(validEvent(`<${tag}>\n${validBody()}\n</${tag}>`)).failures.join('\n');
+    assert.match(failures, /raw HTML block/);
+  }
 });
 
 test('rejects the unit-test counts placeholder from the PR template', () => {
