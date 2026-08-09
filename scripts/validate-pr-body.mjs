@@ -54,7 +54,7 @@ function visibleEvidenceText(token){
     })
     .replace(/&[a-z][a-z0-9]+;/gi, '')
     .normalize('NFKC')
-    .replace(/[\p{Cc}\p{Cf}\p{Z}\p{Default_Ignorable_Code_Point}]/gu, '');
+    .replace(/[\p{Cf}\p{Default_Ignorable_Code_Point}\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/gu, '');
 }
 
 function parseLevelTwoSections(tokens){
@@ -84,7 +84,7 @@ function sectionTokens(sections, heading){
 function sectionContent(sections, heading){
   const tokens = sectionTokens(sections, heading);
   if(!tokens) return null;
-  return tokens.map(visibleTokenText).join('\n').trim();
+  return tokens.map(visibleEvidenceText).join('\n').trim();
 }
 
 function labeledSha(tokens, label){
@@ -109,7 +109,7 @@ function validateAcceptanceMatrix(tokens){
     && token.header.every((cell, index) => visibleTokenText(cell).trim() === ACCEPTANCE_HEADERS[index])
     && token.rows?.some(row => (
       row.length === ACCEPTANCE_HEADERS.length
-      && row.every(cell => visibleEvidenceText(cell).length > 0)
+      && row.every(cell => visibleEvidenceText(cell).trim().length > 0)
     ))
   ));
 }

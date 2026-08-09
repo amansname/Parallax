@@ -201,3 +201,11 @@ test('rejects literal and referenced default-ignorable acceptance cells', () => 
     assert.match(failures, /fully populated/);
   }
 });
+
+test('rejects required sections containing only default-ignorable evidence', () => {
+  const rootCause = '## Root cause\nRecorded evidence';
+  for(const invisible of ['\u034f', '&#x034F;']){
+    const failures = validatePullRequestEvent(validEvent(validBody().replace(rootCause, `## Root cause\n${invisible}`))).failures.join('\n');
+    assert.match(failures, /required PR section has no evidence: Root cause/);
+  }
+});
