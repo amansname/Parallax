@@ -122,3 +122,14 @@ test('rejects an acceptance row hidden in a fenced example', () => {
   const failures = validatePullRequestEvent(validEvent(spoofedBody)).failures.join('\n');
   assert.match(failures, /fully populated/);
 });
+
+test('rejects completion and acceptance evidence hidden in indented code', () => {
+  const acceptanceRow = '| Governance gap | Base inspection | Missing guard | Validator | Reject missing evidence | Validator accepts full evidence |';
+  const checkedGate = '- [x] Every behavior described as fixed was reproduced on the base branch and directly verified on this branch.';
+  const spoofedBody = validBody()
+    .replace(acceptanceRow, `    ${acceptanceRow}`)
+    .replace(checkedGate, `- [ ] Every behavior described as fixed was reproduced on the base branch and directly verified on this branch.\n\n    ${checkedGate}`);
+  const failures = validatePullRequestEvent(validEvent(spoofedBody)).failures.join('\n');
+  assert.match(failures, /fully populated/);
+  assert.match(failures, /completion checkbox/);
+});

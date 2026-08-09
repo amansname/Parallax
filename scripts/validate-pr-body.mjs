@@ -66,6 +66,8 @@ function visibleMarkdownLines(source){
       continue;
     }
 
+    if(/^(?: {4}| {0,3}\t)/.test(line)) continue;
+
     visible.push(line);
   }
 
