@@ -42,6 +42,36 @@ function stripHtmlComments(source){
   return visible;
 }
 
+function visibleMarkdownLines(source){
+  const visible = [];
+  let fence = null;
+
+  for(const line of stripHtmlComments(source).split(/\r?\n/)){
+    if(fence){
+      const closingFence = line.match(/^ {0,3}(`+|~+)[ \t]*$/);
+      if(closingFence
+        && closingFence[1][0] === fence.character
+        && closingFence[1].length >= fence.length){
+        fence = null;
+      }
+      continue;
+    }
+
+    const openingFence = line.match(/^ {0,3}(`{3,}|~{3,})/);
+    if(openingFence){
+      fence = {
+        character: openingFence[1][0],
+        length: openingFence[1].length,
+      };
+      continue;
+    }
+
+    visible.push(line);
+  }
+
+  return visible;
+}
+
 function parseLevelTwoSections(body){
   const sections = new Map();
   let currentLines = null;
@@ -99,7 +129,7 @@ function labeledSha(content, label){
 
 function validateAcceptanceMatrix(content){
   if(!content) return false;
-  const rows = content.split(/\r?\n/)
+  const rows = visibleMarkdownLines(content)
     .map(line => line.trim())
     .filter(line => line.startsWith('|') && line.endsWith('|'))
     .map(line => line.slice(1, -1).split('|').map(cell => cell.trim()));
@@ -151,8 +181,9 @@ export function validatePullRequestBody(body, expectedShas = {}){
     failures.push('Exact commands and results still contains a template placeholder');
   }
 
-  const checked = new RegExp(`- \\[x\\] ${COMPLETION_SENTENCE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i');
-  if(!checked.test(body)){
+  const completion = sectionContent(sections, 'Truthful completion gate') || '';
+  const checked = new RegExp(`^[ \\t]*- \\[x\\] ${COMPLETION_SENTENCE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[ \\t]*$`, 'i');
+  if(!visibleMarkdownLines(completion).some(line => checked.test(line))){
     failures.push('truthful completion checkbox must be checked before required PR evidence can pass');
   }
 

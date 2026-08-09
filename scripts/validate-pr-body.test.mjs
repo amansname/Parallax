@@ -98,3 +98,27 @@ test('rejects required headings hidden in H3, HTML comments, or fenced examples'
     assert.match(failures, /missing required PR section/);
   }
 });
+
+test('rejects a completion gate hidden in an HTML comment or fenced example', () => {
+  const checkedGate = '- [x] Every behavior described as fixed was reproduced on the base branch and directly verified on this branch.';
+  const uncheckedBody = validBody().replace('- [x] Every behavior', '- [ ] Every behavior');
+  const spoofedBodies = [
+    `${uncheckedBody}\n\n<!-- ${checkedGate} -->`,
+    `${uncheckedBody}\n\n\`\`\`markdown\n${checkedGate}\n\`\`\``,
+  ];
+
+  for(const body of spoofedBodies){
+    const failures = validatePullRequestEvent(validEvent(body)).failures.join('\n');
+    assert.match(failures, /completion checkbox/);
+  }
+});
+
+test('rejects an acceptance row hidden in a fenced example', () => {
+  const acceptanceRow = '| Governance gap | Base inspection | Missing guard | Validator | Reject missing evidence | Validator accepts full evidence |';
+  const spoofedBody = validBody().replace(
+    acceptanceRow,
+    `\`\`\`markdown\n${acceptanceRow}\n\`\`\``,
+  );
+  const failures = validatePullRequestEvent(validEvent(spoofedBody)).failures.join('\n');
+  assert.match(failures, /fully populated/);
+});
