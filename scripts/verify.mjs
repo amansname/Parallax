@@ -1889,7 +1889,7 @@ try {
         other: [],
       };
       plan.expenses = {
-        living: 300000,
+        living: 0,
         housing: 0,
         debt: 0,
         healthcare: 0,
@@ -1898,7 +1898,16 @@ try {
       };
       plan.liabilities = [];
       plan.properties = [];
-      plan.goals = [];
+      plan.goals = [{
+        id: 'system:essentials',
+        system: 'essentials',
+        name: 'Essentials',
+        amount: 300000,
+        startsAtRetirement: true,
+        endAge: 999,
+        realGrowth: 0,
+        flexesWithSpending: true,
+      }];
       plan.ltc = { amount: 0, onsetAge: 85 };
       plan.taxes = { ordinary: 22, capitalGains: 15 };
       plan.simulation = { ...(plan.simulation || {}), iterations: 40 };
