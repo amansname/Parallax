@@ -145,6 +145,14 @@ function validateAcceptanceMatrix(content){
 export function validatePullRequestBody(body, expectedShas = {}){
   const failures = [];
   if(typeof body !== 'string' || !body.trim()) return ['pull request body is empty'];
+  const visibleBody = stripHtmlComments(body).toLowerCase();
+  for(let start = visibleBody.indexOf('<pre'); start >= 0; start = visibleBody.indexOf('<pre', start + 4)){
+    const boundary = visibleBody[start + 4];
+    if(boundary === '>' || boundary === '/' || boundary === ' ' || boundary === '\t' || boundary === '\r' || boundary === '\n'){
+      failures.push('PR evidence must not be hidden in an HTML code block');
+      break;
+    }
+  }
   const sections = parseLevelTwoSections(body);
 
   for(const heading of REQUIRED_SECTIONS){
@@ -179,7 +187,7 @@ export function validatePullRequestBody(body, expectedShas = {}){
   for(const command of ['npm run governance:check', 'npm test', 'npm run verify', 'git diff --check']){
     if(!commands.includes(command)) failures.push(`Exact commands and results is missing: ${command}`);
   }
-  if(/actual result/i.test(commands)){
+  if(/#[ \t]*actual(?:[ \t]+counts[ \t]+and)?[ \t]+result\b/i.test(commands)){
     failures.push('Exact commands and results still contains a template placeholder');
   }
 

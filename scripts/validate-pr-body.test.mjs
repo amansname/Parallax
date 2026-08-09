@@ -133,3 +133,17 @@ test('rejects completion and acceptance evidence hidden in indented code', () =>
   assert.match(failures, /fully populated/);
   assert.match(failures, /completion checkbox/);
 });
+
+test('rejects required evidence wrapped in an HTML pre block', () => {
+  const failures = validatePullRequestEvent(validEvent(`<pre>\n${validBody()}\n</pre>`)).failures.join('\n');
+  assert.match(failures, /HTML code block/);
+});
+
+test('rejects the unit-test counts placeholder from the PR template', () => {
+  const placeholderBody = validBody().replace(
+    'npm test',
+    'npm test # actual counts and result\n',
+  );
+  const failures = validatePullRequestEvent(validEvent(placeholderBody)).failures.join('\n');
+  assert.match(failures, /template placeholder/);
+});
