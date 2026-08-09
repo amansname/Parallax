@@ -95,10 +95,10 @@ function validateAcceptanceMatrix(tokens){
   return tokens.some(token => (
     token.type === 'table'
     && token.header?.length === ACCEPTANCE_HEADERS.length
-    && token.header.every((cell, index) => cell.text.trim() === ACCEPTANCE_HEADERS[index])
+    && token.header.every((cell, index) => visibleTokenText(cell).trim() === ACCEPTANCE_HEADERS[index])
     && token.rows?.some(row => (
       row.length === ACCEPTANCE_HEADERS.length
-      && row.every(cell => cell.text.trim().length > 0)
+      && row.every(cell => visibleTokenText(cell).trim().length > 0)
     ))
   ));
 }

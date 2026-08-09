@@ -168,3 +168,10 @@ test('rejects a pipe-delimited row that is not a rendered GFM table', () => {
   const failures = validatePullRequestEvent(validEvent(validBody().replace(table, rowOnly))).failures.join('\n');
   assert.match(failures, /fully populated/);
 });
+
+test('rejects an acceptance row whose cells render as blank HTML comments', () => {
+  const evidenceRow = '| Governance gap | Base inspection | Missing guard | Validator | Reject missing evidence | Validator accepts full evidence |';
+  const commentOnlyRow = '| <!-- omitted --> | <!-- omitted --> | <!-- omitted --> | <!-- omitted --> | <!-- omitted --> | <!-- omitted --> |';
+  const failures = validatePullRequestEvent(validEvent(validBody().replace(evidenceRow, commentOnlyRow))).failures.join('\n');
+  assert.match(failures, /fully populated/);
+});
