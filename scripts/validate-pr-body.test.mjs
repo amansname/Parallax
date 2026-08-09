@@ -192,3 +192,12 @@ test('rejects acceptance cells made only from invisible character references', (
   const failures = validatePullRequestEvent(validEvent(validBody().replace(evidenceRow, invisibleRow))).failures.join('\n');
   assert.match(failures, /fully populated/);
 });
+
+test('rejects literal and referenced default-ignorable acceptance cells', () => {
+  const evidenceRow = '| Governance gap | Base inspection | Missing guard | Validator | Reject missing evidence | Validator accepts full evidence |';
+  for(const invisible of ['\u034f', '&#x034F;']){
+    const invisibleRow = `| ${invisible} | ${invisible} | ${invisible} | ${invisible} | ${invisible} | ${invisible} |`;
+    const failures = validatePullRequestEvent(validEvent(validBody().replace(evidenceRow, invisibleRow))).failures.join('\n');
+    assert.match(failures, /fully populated/);
+  }
+});

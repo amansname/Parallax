@@ -54,7 +54,7 @@ function visibleEvidenceText(token){
     })
     .replace(/&[a-z][a-z0-9]+;/gi, '')
     .normalize('NFKC')
-    .replace(/[\p{Cc}\p{Cf}\p{Z}]/gu, '');
+    .replace(/[\p{Cc}\p{Cf}\p{Z}\p{Default_Ignorable_Code_Point}]/gu, '');
 }
 
 function parseLevelTwoSections(tokens){
