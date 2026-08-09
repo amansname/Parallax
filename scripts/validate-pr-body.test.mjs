@@ -209,3 +209,16 @@ test('rejects required sections containing only default-ignorable evidence', () 
     assert.match(failures, /required PR section has no evidence: Root cause/);
   }
 });
+
+test('rejects visually blank symbols and fillers across tables and sections', () => {
+  const evidenceRow = '| Governance gap | Base inspection | Missing guard | Validator | Reject missing evidence | Validator accepts full evidence |';
+  const rootCause = '## Root cause\nRecorded evidence';
+  for(const invisible of ['\u2800', '&#x2800;', '\u3164', '&#x3164;', '\uffa0', '&#xFFA0;']){
+    const invisibleRow = `| ${invisible} | ${invisible} | ${invisible} | ${invisible} | ${invisible} | ${invisible} |`;
+    const failures = validatePullRequestEvent(validEvent(validBody()
+      .replace(evidenceRow, invisibleRow)
+      .replace(rootCause, `## Root cause\n${invisible}`))).failures.join('\n');
+    assert.match(failures, /fully populated/);
+    assert.match(failures, /required PR section has no evidence: Root cause/);
+  }
+});

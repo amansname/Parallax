@@ -54,7 +54,11 @@ function visibleEvidenceText(token){
     })
     .replace(/&[a-z][a-z0-9]+;/gi, '')
     .normalize('NFKC')
-    .replace(/[\p{Cf}\p{Default_Ignorable_Code_Point}\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/gu, '');
+    .replace(/[\p{Cf}\p{Default_Ignorable_Code_Point}\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u2800\u3164\uffa0]/gu, '');
+}
+
+function hasSubstantiveEvidence(text){
+  return /[\p{L}\p{N}]/u.test(text);
 }
 
 function parseLevelTwoSections(tokens){
@@ -109,7 +113,7 @@ function validateAcceptanceMatrix(tokens){
     && token.header.every((cell, index) => visibleTokenText(cell).trim() === ACCEPTANCE_HEADERS[index])
     && token.rows?.some(row => (
       row.length === ACCEPTANCE_HEADERS.length
-      && row.every(cell => visibleEvidenceText(cell).trim().length > 0)
+      && row.every(cell => hasSubstantiveEvidence(visibleEvidenceText(cell)))
     ))
   ));
 }
@@ -132,7 +136,7 @@ export function validatePullRequestBody(body, expectedShas = {}){
     const content = sectionContent(sections, heading);
     if(content === null) failures.push(`missing required PR section: ${heading}`);
     else if(matches.length !== 1) failures.push(`required PR section appears more than once: ${heading}`);
-    else if(!content) failures.push(`required PR section has no evidence: ${heading}`);
+    else if(!hasSubstantiveEvidence(content)) failures.push(`required PR section has no evidence: ${heading}`);
   }
 
   const acceptance = sectionTokens(sections, 'Acceptance matrix');
