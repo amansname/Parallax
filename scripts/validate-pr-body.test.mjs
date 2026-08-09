@@ -25,7 +25,7 @@ const headings = [
 const BASE_SHA = '1111111111111111111111111111111111111111';
 const HEAD_SHA = '2222222222222222222222222222222222222222';
 
-function validBody({ baseSha = BASE_SHA, headSha = HEAD_SHA } = {}){
+function validBody({ baseSha = BASE_SHA, headSha = HEAD_SHA, bareCommands = false } = {}){
   return headings.map(heading => {
     if(heading === 'Exact reproduction'){
       return `## ${heading}\n- Base commit SHA: ${baseSha}\n- Branch commit SHA: ${headSha}`;
@@ -34,6 +34,9 @@ function validBody({ baseSha = BASE_SHA, headSha = HEAD_SHA } = {}){
       return `## ${heading}\n| Reported symptom | Exact reproduction | Pre-fix failure | Production change | Regression assertion | Post-fix proof |\n|---|---|---|---|---|---|\n| Governance gap | Base inspection | Missing guard | Validator | Reject missing evidence | Validator accepts full evidence |`;
     }
     if(heading === 'Exact commands and results'){
+      if(bareCommands){
+        return `## ${heading}\nnpm run governance:check\nnpm test\nnpm run verify\ngit diff --check`;
+      }
       return `## ${heading}\nnpm run governance:check — exit 0\nnpm test — 662 passed\nnpm run verify — exact blocker recorded\ngit diff --check — exit 0`;
     }
     if(heading === 'Truthful completion gate'){
@@ -173,5 +176,19 @@ test('rejects an acceptance row whose cells render as blank HTML comments', () =
   const evidenceRow = '| Governance gap | Base inspection | Missing guard | Validator | Reject missing evidence | Validator accepts full evidence |';
   const commentOnlyRow = '| <!-- omitted --> | <!-- omitted --> | <!-- omitted --> | <!-- omitted --> | <!-- omitted --> | <!-- omitted --> |';
   const failures = validatePullRequestEvent(validEvent(validBody().replace(evidenceRow, commentOnlyRow))).failures.join('\n');
+  assert.match(failures, /fully populated/);
+});
+
+test('rejects required commands that do not record concrete results', () => {
+  const failures = validatePullRequestEvent(validEvent(validBody({ bareCommands: true }))).failures.join('\n');
+  for(const command of ['npm run governance:check', 'npm test', 'npm run verify', 'git diff --check']){
+    assert.ok(failures.includes(`must record a concrete result for: ${command}`));
+  }
+});
+
+test('rejects acceptance cells made only from invisible character references', () => {
+  const evidenceRow = '| Governance gap | Base inspection | Missing guard | Validator | Reject missing evidence | Validator accepts full evidence |';
+  const invisibleRow = '| &#8203; | &#x200B; | &ZeroWidthSpace; | &zwnj; | &NoBreak; | &nbsp; |';
+  const failures = validatePullRequestEvent(validEvent(validBody().replace(evidenceRow, invisibleRow))).failures.join('\n');
   assert.match(failures, /fully populated/);
 });

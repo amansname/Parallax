@@ -46,6 +46,17 @@ function visibleTokenText(token){
   return typeof token.text === 'string' ? token.text : '';
 }
 
+function visibleEvidenceText(token){
+  return visibleTokenText(token)
+    .replace(/&#(?:x([0-9a-f]{1,6})|(\d{1,7}));/gi, (reference, hex, decimal) => {
+      const codePoint = Number.parseInt(hex || decimal, hex ? 16 : 10);
+      return codePoint <= 0x10ffff ? String.fromCodePoint(codePoint) : '';
+    })
+    .replace(/&[a-z][a-z0-9]+;/gi, '')
+    .normalize('NFKC')
+    .replace(/[\p{Cc}\p{Cf}\p{Z}]/gu, '');
+}
+
 function parseLevelTwoSections(tokens){
   const sections = new Map();
   let currentTokens = null;
@@ -98,7 +109,7 @@ function validateAcceptanceMatrix(tokens){
     && token.header.every((cell, index) => visibleTokenText(cell).trim() === ACCEPTANCE_HEADERS[index])
     && token.rows?.some(row => (
       row.length === ACCEPTANCE_HEADERS.length
-      && row.every(cell => visibleTokenText(cell).trim().length > 0)
+      && row.every(cell => visibleEvidenceText(cell).length > 0)
     ))
   ));
 }
@@ -145,8 +156,16 @@ export function validatePullRequestBody(body, expectedShas = {}){
   }
 
   const commands = sectionContent(sections, 'Exact commands and results') || '';
+  const commandLines = commands.split(/\r?\n/);
   for(const command of ['npm run governance:check', 'npm test', 'npm run verify', 'git diff --check']){
     if(!commands.includes(command)) failures.push(`Exact commands and results is missing: ${command}`);
+    const escapedCommand = command.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const linePattern = new RegExp(`^[ \\t]*${escapedCommand}(?:[ \\t]+(.+))?$`, 'i');
+    const hasConcreteResult = commandLines.some(line => {
+      const result = line.match(linePattern)?.[1]?.trim() || '';
+      return /\b(?:exit(?:[ \\t]+code)?[ \\t]+-?\d+|\d+[ \\t]+(?:tests?[ \\t]+)?passed|\d+[ \\t]+failed|passed|failed|blocked|blocker|error|successful(?:ly)?)\b/i.test(result);
+    });
+    if(!hasConcreteResult) failures.push(`Exact commands and results must record a concrete result for: ${command}`);
   }
   if(/#[ \t]*actual(?:[ \t]+counts[ \t]+and)?[ \t]+result\b/i.test(commands)){
     failures.push('Exact commands and results still contains a template placeholder');
