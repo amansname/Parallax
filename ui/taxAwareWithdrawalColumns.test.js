@@ -8,6 +8,18 @@ import {
   updateSliderCaps,
 } from './taxAwareWithdrawalDom.js';
 
+function sliderRefs(keys) {
+  return {
+    sliders: Object.fromEntries(keys.map(key => {
+      return [key, {
+        input: {
+          max: '', min: '', disabled: false,
+        },
+      }];
+    })),
+  };
+}
+
 test('formatWithdrawalMoney renders dash for non-finite values', () => {
   assert.equal(formatWithdrawalMoney(null), '—');
   assert.equal(formatWithdrawalMoney(12000), '$12,000');
@@ -78,9 +90,7 @@ test('slider caps use the smaller of engine-approved limits and the $500,000 dis
     'rothConversion', 'rothWithdrawal', 'qcd',
     'deferredWithdrawal', 'taxableWithdrawal',
   ];
-  const refs = {
-    sliders: Object.fromEntries(keys.map(key => [key, { input: { max: '', disabled: false } }])),
-  };
+  const refs = sliderRefs(keys);
   updateSliderCaps(refs, {
     limits: {
       rothConversion: { max: 70_000 },
@@ -103,13 +113,39 @@ test('zero engine-approved limit disables its slider', () => {
     'rothConversion', 'rothWithdrawal', 'qcd',
     'deferredWithdrawal', 'taxableWithdrawal',
   ];
-  const refs = {
-    sliders: Object.fromEntries(keys.map(key => [key, { input: { max: '', disabled: false } }])),
-  };
+  const refs = sliderRefs(keys);
   updateSliderCaps(refs, {
     limits: Object.fromEntries(keys.map(key => [key, { min: 0, max: 0 }])),
   });
   assert.ok(keys.every(key => refs.sliders[key].input.disabled === true));
+});
+
+test('missing Brokerage basis keeps the control enabled at the engine-approved display cap', () => {
+  const keys = [
+    'rothConversion', 'rothWithdrawal', 'qcd',
+    'deferredWithdrawal', 'taxableWithdrawal',
+  ];
+  const refs = sliderRefs(keys);
+  updateSliderCaps(refs, {
+    limits: {
+      rothConversion: { min: 0, max: 0 },
+      rothWithdrawal: { min: 0, max: 0 },
+      qcd: { min: 0, max: 0 },
+      deferredWithdrawal: { min: 0, max: 0 },
+      taxableWithdrawal: { min: 0, max: 670_000 },
+    },
+    taxableBasis: {
+      assumption: {
+        code: 'WITHDRAWAL_PLANNER_TAXABLE_50_50_ASSUMPTION',
+        principalFraction: 0.5,
+        gainFraction: 0.5,
+      },
+    },
+  });
+
+  const slot = refs.sliders.taxableWithdrawal;
+  assert.equal(slot.input.max, '500000');
+  assert.equal(slot.input.disabled, false);
 });
 
 test('unavailable attribution clears prior sleeve values', () => {
