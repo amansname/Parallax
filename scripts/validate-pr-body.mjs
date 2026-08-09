@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { marked } from 'marked';
 
 const REQUIRED_SECTIONS = [
   'Problem and user-visible impact',
@@ -23,132 +24,97 @@ const REQUIRED_SECTIONS = [
 ];
 
 const COMPLETION_SENTENCE = 'Every behavior described as fixed was reproduced on the base branch and directly verified on this branch.';
+const ACCEPTANCE_HEADERS = [
+  'Reported symptom',
+  'Exact reproduction',
+  'Pre-fix failure',
+  'Production change',
+  'Regression assertion',
+  'Post-fix proof',
+];
 
-function stripHtmlComments(source){
-  let cursor = 0;
-  let visible = '';
-  while(cursor < source.length){
-    const start = source.indexOf('<!--', cursor);
-    if(start < 0){
-      visible += source.slice(cursor);
-      break;
-    }
-    visible += source.slice(cursor, start);
-    const end = source.indexOf('-->', start + 4);
-    const hiddenEnd = end < 0 ? source.length : end + 3;
-    visible += source.slice(start, hiddenEnd).replace(/[^\r\n]/g, '');
-    cursor = hiddenEnd;
+function visibleTokenText(token){
+  if(!token || token.type === 'html' || token.type === 'space') return '';
+  if(token.type === 'code') return token.text || '';
+  if(token.type === 'table'){
+    return [...(token.header || []), ...(token.rows || []).flat()]
+      .map(cell => cell.text || '')
+      .join(' ');
   }
-  return visible;
+  if(Array.isArray(token.items)) return token.items.map(visibleTokenText).join(' ');
+  if(Array.isArray(token.tokens)) return token.tokens.map(visibleTokenText).join(' ');
+  return typeof token.text === 'string' ? token.text : '';
 }
 
-function visibleMarkdownLines(source){
-  const visible = [];
-  let fence = null;
-
-  for(const line of stripHtmlComments(source).split(/\r?\n/)){
-    if(fence){
-      const closingFence = line.match(/^ {0,3}(`+|~+)[ \t]*$/);
-      if(closingFence
-        && closingFence[1][0] === fence.character
-        && closingFence[1].length >= fence.length){
-        fence = null;
-      }
-      continue;
-    }
-
-    const openingFence = line.match(/^ {0,3}(`{3,}|~{3,})/);
-    if(openingFence){
-      fence = {
-        character: openingFence[1][0],
-        length: openingFence[1].length,
-      };
-      continue;
-    }
-
-    if(/^(?: {4}| {0,3}\t)/.test(line)) continue;
-
-    visible.push(line);
-  }
-
-  return visible;
-}
-
-function parseLevelTwoSections(body){
+function parseLevelTwoSections(tokens){
   const sections = new Map();
-  let currentLines = null;
-  let fence = null;
+  let currentTokens = null;
 
-  for(const line of stripHtmlComments(body).split(/\r?\n/)){
-    if(fence){
-      if(currentLines) currentLines.push(line);
-      const closingFence = line.match(/^ {0,3}(`+|~+)[ \t]*$/);
-      if(closingFence
-        && closingFence[1][0] === fence.character
-        && closingFence[1].length >= fence.length){
-        fence = null;
-      }
-      continue;
-    }
-
-    const openingFence = line.match(/^ {0,3}(`{3,}|~{3,})/);
-    if(openingFence){
-      if(currentLines) currentLines.push(line);
-      fence = {
-        character: openingFence[1][0],
-        length: openingFence[1].length,
-      };
-      continue;
-    }
-
-    const headingMatch = line.match(/^ {0,3}##(?!#)[ \t]+(.+?)[ \t]*$/);
-    if(headingMatch){
-      const heading = headingMatch[1].replace(/[ \t]+#+[ \t]*$/, '').trim();
-      currentLines = [];
+  for(const token of tokens){
+    if(token.type === 'heading' && token.depth === 2){
+      const heading = token.text.trim();
+      currentTokens = [];
       const matches = sections.get(heading) || [];
-      matches.push(currentLines);
+      matches.push(currentTokens);
       sections.set(heading, matches);
       continue;
     }
-
-    if(currentLines) currentLines.push(line);
+    if(currentTokens) currentTokens.push(token);
   }
 
   return sections;
 }
 
-function sectionContent(sections, heading){
+function sectionTokens(sections, heading){
   const matches = sections.get(heading);
-  if(!matches) return null;
-  return matches[0].join('\n').trim();
+  return matches ? matches[0] : null;
 }
 
-function labeledSha(content, label){
-  if(!content) return null;
-  const match = content.match(new RegExp(`^[ \\t]*-[ \\t]*${label}:[ \\t]*([0-9a-f]{40})[ \\t]*$`, 'im'));
-  return match?.[1]?.toLowerCase() || null;
+function sectionContent(sections, heading){
+  const tokens = sectionTokens(sections, heading);
+  if(!tokens) return null;
+  return tokens.map(visibleTokenText).join('\n').trim();
 }
 
-function validateAcceptanceMatrix(content){
-  if(!content) return false;
-  const rows = visibleMarkdownLines(content)
-    .map(line => line.trim())
-    .filter(line => line.startsWith('|') && line.endsWith('|'))
-    .map(line => line.slice(1, -1).split('|').map(cell => cell.trim()));
-  return rows.some(cells => (
-    cells.length === 6
-    && cells.every(cell => cell.length > 0 && !/^[-:]+$/.test(cell))
-    && cells[0] !== 'Reported symptom'
+function labeledSha(tokens, label){
+  if(!tokens) return null;
+  const pattern = new RegExp(`^${label}:[ \\t]*([0-9a-f]{40})[ \\t]*$`, 'i');
+  for(const token of tokens){
+    if(token.type !== 'list') continue;
+    for(const item of token.items || []){
+      if((item.tokens || []).some(child => ['blockquote', 'code', 'html', 'list'].includes(child.type))) continue;
+      const match = visibleTokenText(item).trim().match(pattern);
+      if(match) return match[1].toLowerCase();
+    }
+  }
+  return null;
+}
+
+function validateAcceptanceMatrix(tokens){
+  if(!tokens) return false;
+  return tokens.some(token => (
+    token.type === 'table'
+    && token.header?.length === ACCEPTANCE_HEADERS.length
+    && token.header.every((cell, index) => cell.text.trim() === ACCEPTANCE_HEADERS[index])
+    && token.rows?.some(row => (
+      row.length === ACCEPTANCE_HEADERS.length
+      && row.every(cell => cell.text.trim().length > 0)
+    ))
   ));
 }
 
 export function validatePullRequestBody(body, expectedShas = {}){
   const failures = [];
   if(typeof body !== 'string' || !body.trim()) return ['pull request body is empty'];
-  if(visibleMarkdownLines(body).some(line => line.trimStart().startsWith('<'))){
+  const tokens = marked.lexer(body, { gfm: true });
+  let hasRawHtml = false;
+  marked.walkTokens(tokens, token => {
+    if(token.type === 'html' && !token.raw.trimStart().startsWith('<!--')) hasRawHtml = true;
+  });
+  if(hasRawHtml){
     failures.push('PR evidence must not be hidden in a raw HTML block');
   }
-  const sections = parseLevelTwoSections(body);
+  const sections = parseLevelTwoSections(tokens);
 
   for(const heading of REQUIRED_SECTIONS){
     const matches = sections.get(heading);
@@ -158,12 +124,12 @@ export function validatePullRequestBody(body, expectedShas = {}){
     else if(!content) failures.push(`required PR section has no evidence: ${heading}`);
   }
 
-  const acceptance = sectionContent(sections, 'Acceptance matrix');
+  const acceptance = sectionTokens(sections, 'Acceptance matrix');
   if(!validateAcceptanceMatrix(acceptance)){
     failures.push('Acceptance matrix needs at least one fully populated six-column evidence row');
   }
 
-  const exactReproduction = sectionContent(sections, 'Exact reproduction');
+  const exactReproduction = sectionTokens(sections, 'Exact reproduction');
   const documentedBaseSha = labeledSha(exactReproduction, 'Base commit SHA');
   const documentedHeadSha = labeledSha(exactReproduction, 'Branch commit SHA');
   if(!documentedBaseSha) failures.push('Exact reproduction must name the full Base commit SHA');
@@ -186,9 +152,12 @@ export function validatePullRequestBody(body, expectedShas = {}){
     failures.push('Exact commands and results still contains a template placeholder');
   }
 
-  const completion = sectionContent(sections, 'Truthful completion gate') || '';
-  const checked = new RegExp(`^[ \\t]*- \\[x\\] ${COMPLETION_SENTENCE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[ \\t]*$`, 'i');
-  if(!visibleMarkdownLines(completion).some(line => checked.test(line))){
+  const completion = sectionTokens(sections, 'Truthful completion gate') || [];
+  const checked = completion.some(token => (
+    token.type === 'list'
+    && token.items?.some(item => item.task && item.checked === true && item.text.trim() === COMPLETION_SENTENCE)
+  ));
+  if(!checked){
     failures.push('truthful completion checkbox must be checked before required PR evidence can pass');
   }
 

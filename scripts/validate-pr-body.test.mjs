@@ -154,3 +154,17 @@ test('rejects the unit-test counts placeholder from the PR template', () => {
   const failures = validatePullRequestEvent(validEvent(placeholderBody)).failures.join('\n');
   assert.match(failures, /template placeholder/);
 });
+
+test('rejects required evidence hidden in a list-contained fenced block', () => {
+  const hiddenBody = validBody().split('\n').map(line => `  ${line}`).join('\n');
+  const spoofedBody = `- \`\`\`markdown\n${hiddenBody}\n  \`\`\``;
+  const failures = validatePullRequestEvent(validEvent(spoofedBody)).failures.join('\n');
+  assert.match(failures, /missing required PR section/);
+});
+
+test('rejects a pipe-delimited row that is not a rendered GFM table', () => {
+  const table = '| Reported symptom | Exact reproduction | Pre-fix failure | Production change | Regression assertion | Post-fix proof |\n|---|---|---|---|---|---|\n| Governance gap | Base inspection | Missing guard | Validator | Reject missing evidence | Validator accepts full evidence |';
+  const rowOnly = '| Governance gap | Base inspection | Missing guard | Validator | Reject missing evidence | Validator accepts full evidence |';
+  const failures = validatePullRequestEvent(validEvent(validBody().replace(table, rowOnly))).failures.join('\n');
+  assert.match(failures, /fully populated/);
+});
