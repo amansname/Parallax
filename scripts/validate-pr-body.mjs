@@ -54,7 +54,7 @@ function visibleEvidenceText(token){
     })
     .replace(/&[a-z][a-z0-9]+;/gi, '')
     .normalize('NFKC')
-    .replace(/[\p{Cf}\p{Default_Ignorable_Code_Point}\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u2800\u3164\uffa0]/gu, '');
+    .replace(/[\p{Cf}\p{Default_Ignorable_Code_Point}\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u2800\u3164\uffa0\u{13441}\u{13442}]/gu, '');
 }
 
 function hasSubstantiveEvidence(text){

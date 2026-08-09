@@ -210,10 +210,16 @@ test('rejects required sections containing only default-ignorable evidence', () 
   }
 });
 
-test('rejects visually blank symbols and fillers across tables and sections', () => {
+test('rejects visually blank symbols, fillers, and hieroglyphs across tables and sections', () => {
   const evidenceRow = '| Governance gap | Base inspection | Missing guard | Validator | Reject missing evidence | Validator accepts full evidence |';
   const rootCause = '## Root cause\nRecorded evidence';
-  for(const invisible of ['\u2800', '&#x2800;', '\u3164', '&#x3164;', '\uffa0', '&#xFFA0;']){
+  for(const invisible of [
+    '\u2800', '&#x2800;',
+    '\u3164', '&#x3164;',
+    '\uffa0', '&#xFFA0;',
+    '\u{13441}', '&#x13441;',
+    '\u{13442}', '&#x13442;',
+  ]){
     const invisibleRow = `| ${invisible} | ${invisible} | ${invisible} | ${invisible} | ${invisible} | ${invisible} |`;
     const failures = validatePullRequestEvent(validEvent(validBody()
       .replace(evidenceRow, invisibleRow)
