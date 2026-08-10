@@ -312,7 +312,7 @@ export function createTaxAwareWithdrawalController(deps) {
         || refs !== viewRefs
         || plan !== deps.getPlan()
       ) return;
-      if (approval?.approved) {
+      if (approval?.state && approval?.levers) {
         levers = { ...approval.levers };
         accountState = approval.state;
       } else {

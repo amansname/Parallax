@@ -11,6 +11,7 @@ const PATHS = {
   attribution: '../tax/attributeWithdrawalTaxByBucket.js',
   current1040: '../tax/buildCurrent1040Intake.js',
   engine: '../../../engine.js',
+  taxableBasis: '../../household/resolveTaxableStartingBasis.js',
 };
 
 let mods = null;
@@ -20,14 +21,15 @@ async function load() {
   if (mods) return mods;
   if (loadError) throw loadError;
   try {
-    const [annual1040, constants, attribution, current1040, engine] = await Promise.all([
+    const [annual1040, constants, attribution, current1040, engine, taxableBasis] = await Promise.all([
       import(PATHS.annual1040),
       import(PATHS.constants),
       import(PATHS.attribution),
       import(PATHS.current1040),
       import(PATHS.engine),
+      import(PATHS.taxableBasis),
     ]);
-    mods = { annual1040, constants, attribution, current1040, engine };
+    mods = { annual1040, constants, attribution, current1040, engine, taxableBasis };
     return mods;
   } catch (e) {
     loadError = e;
@@ -44,6 +46,174 @@ export const NOT_MODELED = Object.freeze({
   niit: 'NIIT_NOT_MODELED',
 });
 
+const READY_TAXABLE_BASIS_STATUSES = new Set([
+  'confirmed',
+  'legacy-assumption',
+  'not-applicable',
+]);
+
+const WITHDRAWAL_PLANNER_BASIS_ASSUMPTION_CODES = new Set([
+  'TAXABLE_BASIS_UNKNOWN',
+]);
+
+const WITHDRAWAL_PLANNER_PRESERVED_BASIS_GAP_CODES = new Set([
+  'TAXABLE_BASIS_ASSUMED',
+  'LEGACY_TAXABLE_BASIS_ASSUMPTION',
+]);
+
+const WITHDRAWAL_PLANNER_50_50_ASSUMPTION = Object.freeze({
+  code: 'WITHDRAWAL_PLANNER_TAXABLE_50_50_ASSUMPTION',
+  principalFraction: 0.5,
+  gainFraction: 0.5,
+});
+
+const TAXABLE_BASIS_LOSS_TREATMENT_PENDING = 'TAXABLE_LOSS_TREATMENT_PENDING';
+
+const PERSISTED_CONFIRMED_LOSS_REASONS = new Set([
+  'unsupported-basis-method',
+]);
+
+function taxableBasisContract(plan, taxableBasis) {
+  const resolution = taxableBasis.resolveTaxableStartingBasis(plan);
+  const canonicalReady = READY_TAXABLE_BASIS_STATUSES.has(resolution.status);
+  const plannerAssumptionGaps = resolution.gaps.filter(gap => (
+    WITHDRAWAL_PLANNER_BASIS_ASSUMPTION_CODES.has(gap.code)
+  ));
+  const plannerCompatibleGaps = resolution.gaps.filter(gap => (
+    WITHDRAWAL_PLANNER_BASIS_ASSUMPTION_CODES.has(gap.code)
+      || WITHDRAWAL_PLANNER_PRESERVED_BASIS_GAP_CODES.has(gap.code)
+  ));
+  const usesPlannerAssumption = !canonicalReady
+    && resolution.taxableBalance > 0
+    && plannerAssumptionGaps.length > 0
+    && plannerCompatibleGaps.length === resolution.gaps.length;
+  const unknownBasisAccountIds = new Set(
+    plannerAssumptionGaps.map(gap => gap.accountId).filter(Boolean)
+  );
+  const preservedLegacyAccountIds = new Set(
+    resolution.gaps
+      .filter(gap => WITHDRAWAL_PLANNER_PRESERVED_BASIS_GAP_CODES.has(gap.code))
+      .map(gap => gap.accountId)
+      .filter(Boolean)
+  );
+  const legacyBasisFraction = resolution.taxableBalance > 0
+    ? resolution.legacyFallbackBasis / resolution.taxableBalance
+    : null;
+  const plannerAppliedBasisCandidate = usesPlannerAssumption
+    ? resolution.records.reduce((total, record) => {
+        if (unknownBasisAccountIds.has(record.accountId)) {
+          return total
+            + record.balance * WITHDRAWAL_PLANNER_50_50_ASSUMPTION.principalFraction;
+        }
+        const recordedBasis = num(record.basisAmount);
+        if (recordedBasis !== null) return total + recordedBasis;
+        if (preservedLegacyAccountIds.has(record.accountId) && legacyBasisFraction !== null) {
+          return total + record.balance * legacyBasisFraction;
+        }
+        return total;
+      }, 0)
+    : null;
+  const persistedAccounts = plan?.portfolio?.extraAccounts ?? [];
+  const hasConfirmedLossEvidence = resolution.records.some(record => {
+    if (record.basisStatus !== 'confirmed') return false;
+    const resolvedBasis = num(record.basisAmount);
+    if (resolvedBasis !== null && resolvedBasis > record.balance) return true;
+    if (!PERSISTED_CONFIRMED_LOSS_REASONS.has(record.reason)) return false;
+    return persistedAccounts.some(account => (
+      account?.id === record.accountId
+        && account?.basis?.status === 'confirmed'
+        && num(account.basis.amount) !== null
+        && account.basis.amount > record.balance
+    ));
+  });
+  const hasUnresolvedConfirmedLoss = hasConfirmedLossEvidence
+    && !canonicalReady;
+  const lossTreatmentPending = resolution.gaps.some(gap => (
+    gap.code === TAXABLE_BASIS_LOSS_TREATMENT_PENDING
+  )) || hasUnresolvedConfirmedLoss;
+  const unavailableCode = lossTreatmentPending
+    ? TAXABLE_BASIS_LOSS_TREATMENT_PENDING
+    : null;
+  const appliesPlannerAssumption = plannerAppliedBasisCandidate !== null
+    && !unavailableCode;
+  const plannerAppliedBasis = appliesPlannerAssumption
+    ? plannerAppliedBasisCandidate
+    : null;
+  const appliedBasis = unavailableCode
+    ? null
+    : plannerAppliedBasis ?? num(resolution.appliedBasis);
+  const gainFraction = resolution.taxableBalance > 0 && appliedBasis !== null
+    ? 1 - (appliedBasis / resolution.taxableBalance)
+    : null;
+  return Object.freeze({
+    gainFraction,
+    resolution,
+    assumption: appliesPlannerAssumption ? WITHDRAWAL_PLANNER_50_50_ASSUMPTION : null,
+    unavailableCode,
+  });
+}
+
+function applyTaxableBasisContract(state, basisContract) {
+  if (!state) return state;
+  const next = {
+    ...state,
+    taxableBasis: Object.freeze({
+      status: basisContract.resolution.status,
+      appliedMode: basisContract.unavailableCode
+        ? 'unavailable'
+        : basisContract.assumption
+          ? 'withdrawal-planner-50-50-assumption'
+          : basisContract.resolution.appliedMode,
+      gainFraction: basisContract.gainFraction,
+      assumption: basisContract.assumption,
+      gaps: basisContract.resolution.gaps,
+      issue: basisContract.unavailableCode,
+    }),
+  };
+  if (!basisContract.unavailableCode) return Object.freeze(next);
+  const requestedTaxableUse = num(state.levers?.taxableWithdrawal) ?? 0;
+  const normalizedLevers = requestedTaxableUse > 0
+    ? Object.freeze({ ...state.levers, taxableWithdrawal: 0 })
+    : state.levers;
+  const issues = requestedTaxableUse > 0
+    ? Object.freeze([
+        ...(state.issues ?? []),
+        Object.freeze({
+          code: basisContract.unavailableCode,
+          lever: 'taxableWithdrawal',
+          requested: requestedTaxableUse,
+        }),
+      ])
+    : state.issues;
+  return Object.freeze({
+    ...next,
+    valid: state.valid && requestedTaxableUse === 0,
+    levers: normalizedLevers,
+    limits: Object.freeze({
+      ...state.limits,
+      taxableWithdrawal: Object.freeze({
+        ...state.limits.taxableWithdrawal,
+        max: null,
+        available: false,
+        reason: basisContract.unavailableCode,
+      }),
+    }),
+    pools: Object.freeze({
+      ...state.pools,
+      taxable: Object.freeze({
+        ...state.pools.taxable,
+        available: null,
+        used: 0,
+        remaining: null,
+      }),
+    }),
+    issues,
+    sourceIssues: Object.freeze([
+      ...new Set([...(state.sourceIssues ?? []), basisContract.unavailableCode]),
+    ]),
+  });
+}
+
 export function supportedYears() {
   return mods ? mods.annual1040.supportedTaxYears() : [];
 }
@@ -56,8 +226,9 @@ export async function sleeveBalances(plan) {
 
 export async function withdrawalAccountState(plan, levers = {}, facts = {}) {
   if (!plan) return null;
-  const { engine } = await load();
-  return engine.resolveWithdrawalPlannerAccountState(plan, levers, {
+  const { engine, taxableBasis } = await load();
+  const basisContract = taxableBasisContract(plan, taxableBasis);
+  const state = engine.resolveWithdrawalPlannerAccountState(plan, levers, {
     traditionalTotal: Math.max(0, num(facts?.iraDistributions) ?? 0),
     rmdEligibleCash: Math.max(0, num(facts?.iraCashDistributions) ?? 0),
     traditionalByOwner: facts?.iraDistributionsByOwner ?? null,
@@ -68,6 +239,7 @@ export async function withdrawalAccountState(plan, levers = {}, facts = {}) {
         ? plan.meta.planningAsOfYear
         : 2026),
   });
+  return applyTaxableBasisContract(state, basisContract);
 }
 
 export async function approveWithdrawalPlannerLeverChange(
@@ -77,24 +249,54 @@ export async function approveWithdrawalPlannerLeverChange(
   requestedValue,
   facts = {}
 ) {
-  const { engine } = await load();
-  return engine.approveWithdrawalPlannerLeverChange(
+  const { engine, taxableBasis } = await load();
+  const basisContract = taxableBasisContract(plan, taxableBasis);
+  const options = {
+    traditionalTotal: Math.max(0, num(facts?.iraDistributions) ?? 0),
+    rmdEligibleCash: Math.max(0, num(facts?.iraCashDistributions) ?? 0),
+    traditionalByOwner: facts?.iraDistributionsByOwner ?? null,
+    rmdEligibleCashByOwner: facts?.iraCashDistributionsByOwner ?? null,
+    taxYear: Number.isInteger(facts?.taxYear)
+      ? facts.taxYear
+      : (Number.isInteger(plan?.meta?.planningAsOfYear)
+        ? plan.meta.planningAsOfYear
+        : 2026),
+  };
+  const normalizedCurrentLevers = basisContract.unavailableCode
+    ? Object.freeze({ ...currentLevers, taxableWithdrawal: 0 })
+    : currentLevers;
+  if (
+    changedLever === 'taxableWithdrawal'
+    && requestedValue > 0
+    && basisContract.unavailableCode
+  ) {
+    const requestedLevers = {
+      ...normalizedCurrentLevers,
+      taxableWithdrawal: requestedValue,
+    };
+    const state = applyTaxableBasisContract(
+      engine.resolveWithdrawalPlannerAccountState(plan, requestedLevers, options),
+      basisContract
+    );
+    return Object.freeze({
+      approved: false,
+      requestedValue,
+      approvedValue: state.levers.taxableWithdrawal,
+      clamped: requestedValue !== state.levers.taxableWithdrawal,
+      levers: state.levers,
+      state,
+      code: basisContract.unavailableCode,
+    });
+  }
+  const approval = engine.approveWithdrawalPlannerLeverChange(
     plan,
-    currentLevers,
+    normalizedCurrentLevers,
     changedLever,
     requestedValue,
-    {
-      traditionalTotal: Math.max(0, num(facts?.iraDistributions) ?? 0),
-      rmdEligibleCash: Math.max(0, num(facts?.iraCashDistributions) ?? 0),
-      traditionalByOwner: facts?.iraDistributionsByOwner ?? null,
-      rmdEligibleCashByOwner: facts?.iraCashDistributionsByOwner ?? null,
-      taxYear: Number.isInteger(facts?.taxYear)
-        ? facts.taxYear
-        : (Number.isInteger(plan?.meta?.planningAsOfYear)
-          ? plan.meta.planningAsOfYear
-          : 2026),
-    }
+    options
   );
+  const state = applyTaxableBasisContract(approval.state, basisContract);
+  return Object.freeze({ ...approval, state });
 }
 
 export async function householdIncome(plan, taxYear, options = {}) {
@@ -466,19 +668,24 @@ function toYearFacts({ facts, levers, gainFraction, taxYear, deductionContract }
 }
 
 export async function evaluateYear({ plan, taxYear, facts, levers }) {
-  const { annual1040, constants, engine } = await load();
+  const { annual1040, constants, engine, taxableBasis } = await load();
   if (!facts || !facts.filingStatus) return null;
 
   let accountState = null;
+  let basisContract = null;
   const accountIssues = [];
   try {
-    accountState = engine.resolveWithdrawalPlannerAccountState(plan, levers, {
-      traditionalTotal: Math.max(0, num(facts?.iraDistributions) ?? 0),
-      rmdEligibleCash: Math.max(0, num(facts?.iraCashDistributions) ?? 0),
-      traditionalByOwner: facts?.iraDistributionsByOwner ?? null,
-      rmdEligibleCashByOwner: facts?.iraCashDistributionsByOwner ?? null,
-      taxYear,
-    });
+    basisContract = taxableBasisContract(plan, taxableBasis);
+    accountState = applyTaxableBasisContract(
+      engine.resolveWithdrawalPlannerAccountState(plan, levers, {
+        traditionalTotal: Math.max(0, num(facts?.iraDistributions) ?? 0),
+        rmdEligibleCash: Math.max(0, num(facts?.iraCashDistributions) ?? 0),
+        traditionalByOwner: facts?.iraDistributionsByOwner ?? null,
+        rmdEligibleCashByOwner: facts?.iraCashDistributionsByOwner ?? null,
+        taxYear,
+      }),
+      basisContract
+    );
   } catch {
     accountIssues.push({ code: 'WITHDRAWAL_ACCOUNT_STATE_UNAVAILABLE' });
   }
@@ -496,7 +703,11 @@ export async function evaluateYear({ plan, taxYear, facts, levers }) {
       accountIssues,
     };
   }
-  if (accountState && !accountState.valid) {
+  const basisUnavailableWithTaxableUse = Boolean(
+    basisContract?.unavailableCode
+    && (num(levers?.taxableWithdrawal) ?? 0) > 0
+  );
+  if (accountState && !accountState.valid && !basisUnavailableWithTaxableUse) {
     return {
       code: 'WITHDRAWAL_ACCOUNT_LIMIT_EXCEEDED',
       accountState,
@@ -505,8 +716,7 @@ export async function evaluateYear({ plan, taxYear, facts, levers }) {
   }
   const effectiveLevers = accountState?.levers ?? levers;
 
-  const basisPct = num(plan?.portfolio?.accounts?.taxable?.basisPct);
-  const gainFraction = basisPct === null ? null : 1 - basisPct;
+  const gainFraction = basisContract?.gainFraction ?? null;
 
   const context = annual1040.buildDefaultTaxContext({ taxYear, runId: 'tax_aware_withdrawal', scenarioId: 'focus_year' });
   const lawVersion = context.lawVersion;
@@ -522,7 +732,9 @@ export async function evaluateYear({ plan, taxYear, facts, levers }) {
       && !bothHouseholdMembersAlive)
   );
   let unavailableCode = null;
-  if (facts.available === false) {
+  if (basisUnavailableWithTaxableUse) {
+    unavailableCode = basisContract.unavailableCode;
+  } else if (facts.available === false) {
     unavailableCode = 'HOUSEHOLD_INCOME_UNAVAILABLE';
   } else if (filingStatusHouseholdMismatch) {
     unavailableCode = 'FILING_STATUS_HOUSEHOLD_MISMATCH';
@@ -742,19 +954,33 @@ export async function evaluateYear({ plan, taxYear, facts, levers }) {
 }
 
 export async function attributeSleeves({ plan, taxYear, facts, levers }) {
-  const { annual1040, attribution, engine } = await load();
+  const { annual1040, attribution, engine, taxableBasis } = await load();
   if (!facts || !facts.filingStatus) return null;
   let accountState = null;
+  let basisContract = null;
   try {
-    accountState = engine.resolveWithdrawalPlannerAccountState(plan, levers, {
-      traditionalTotal: Math.max(0, num(facts?.iraDistributions) ?? 0),
-      rmdEligibleCash: Math.max(0, num(facts?.iraCashDistributions) ?? 0),
-      traditionalByOwner: facts?.iraDistributionsByOwner ?? null,
-      rmdEligibleCashByOwner: facts?.iraCashDistributionsByOwner ?? null,
-      taxYear,
-    });
+    basisContract = taxableBasisContract(plan, taxableBasis);
+    accountState = applyTaxableBasisContract(
+      engine.resolveWithdrawalPlannerAccountState(plan, levers, {
+        traditionalTotal: Math.max(0, num(facts?.iraDistributions) ?? 0),
+        rmdEligibleCash: Math.max(0, num(facts?.iraCashDistributions) ?? 0),
+        traditionalByOwner: facts?.iraDistributionsByOwner ?? null,
+        rmdEligibleCashByOwner: facts?.iraCashDistributionsByOwner ?? null,
+        taxYear,
+      }),
+      basisContract
+    );
   } catch {
     return { code: 'WITHDRAWAL_ACCOUNT_STATE_UNAVAILABLE', accountState: null };
+  }
+  if (
+    basisContract?.unavailableCode
+    && (num(levers?.taxableWithdrawal) ?? 0) > 0
+  ) {
+    return {
+      code: basisContract.unavailableCode,
+      accountState,
+    };
   }
   if (!accountState.valid) {
     return {
@@ -770,8 +996,7 @@ export async function attributeSleeves({ plan, taxYear, facts, levers }) {
   }
   const effectiveLevers = accountState.levers;
 
-  const basisPct = num(plan?.portfolio?.accounts?.taxable?.basisPct);
-  const gainFraction = basisPct === null ? null : 1 - basisPct;
+  const gainFraction = basisContract?.gainFraction ?? null;
   const context = annual1040.buildDefaultTaxContext({
     taxYear, runId: 'tax_aware_withdrawal', scenarioId: 'sleeve_attribution',
   });

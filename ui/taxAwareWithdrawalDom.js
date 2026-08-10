@@ -22,6 +22,11 @@ const SLIDER_DEFS = [
   { key: 'taxableWithdrawal', label: 'Brokerage account', caused: 'taxable' },
 ];
 
+const SLIDER_REASON_COPY = Object.freeze({
+  TAXABLE_LOSS_TREATMENT_PENDING:
+    'Brokerage withdrawals are unavailable because confirmed losses are not modeled yet.',
+});
+
 function markSlotHtml(colId, index) {
   return `
     <div class="taw-mark" data-taw-mark="" data-taw-col-id="${colId}" data-taw-mark-idx="${index}" hidden>
@@ -84,6 +89,8 @@ export function mountWithdrawalPlannerShell(root, { caps }) {
         </div>
         <input type="range" class="taw-range" min="0" max="${cap}" step="500" value="0"
           data-taw-lever="${key}" aria-label="${escHtml(label)}">
+        <div class="taw-slider-issue" id="taw-${key}-issue"
+          data-taw-slider-issue="${key}" role="note" hidden></div>
       </div>`;
   }).join('');
 
@@ -137,6 +144,7 @@ export function cacheWithdrawalRefs(root) {
     sliders[key] = {
       input: root.querySelector(`[data-taw-lever="${key}"]`),
       val: root.querySelector(`[data-taw-slider-val="${key}"]`),
+      issue: root.querySelector(`[data-taw-slider-issue="${key}"]`),
     };
   });
   const columns = {};
@@ -197,10 +205,21 @@ export function updateSliderCaps(refs, caps) {
       ? Math.max(0, limits[key].min)
       : 0;
     const input = refs.sliders[key]?.input;
+    const issue = refs.sliders[key]?.issue;
+    const reason = limits?.[key]?.reason;
+    const reasonCopy = SLIDER_REASON_COPY[reason] ?? '';
     if (input) {
       input.min = String(min);
       input.max = String(Math.max(min, max));
       input.disabled = Math.max(min, max) <= min;
+      if (typeof input.setAttribute === 'function' && typeof input.removeAttribute === 'function') {
+        if (reasonCopy) input.setAttribute('aria-describedby', `taw-${key}-issue`);
+        else input.removeAttribute('aria-describedby');
+      }
+    }
+    if (issue) {
+      issue.textContent = reasonCopy;
+      issue.hidden = !reasonCopy;
     }
   });
 }

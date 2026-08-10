@@ -354,7 +354,8 @@ try {
   });
 
   await step('seed filled demo fixture', async () => {
-    await page.evaluate(() => {
+    await page.evaluate(async () => {
+      const { createAccount } = await import('/src/household/createAccount.js');
       const key = 'parallax.households.v1';
       const db = JSON.parse(localStorage.getItem(key));
       const demo = db.demo;
@@ -364,10 +365,11 @@ try {
       demo.household.primary = { currentAge: 64, retirementAge: 66, planEndAge: 96, birthYear: 1962 };
       demo.household.spouse = { currentAge: 63, retirementAge: 65, planEndAge: 95, birthYear: 1963 };
       demo.portfolio.extraAccounts = [
-        { type:'Traditional IRA', bucket:'traditional', owner:'client', balance:1600000 },
-        { type:'Brokerage (taxable)', bucket:'taxable', owner:'spouse', balance:800000 },
-        { type:'Roth IRA', bucket:'roth', owner:'spouse', balance:400000 },
+        createAccount('traditional_ira', { owner:'client', balance:1600000 }),
+        createAccount('brokerage_taxable', { owner:'spouse', balance:800000 }),
+        createAccount('roth_ira', { owner:'spouse', balance:400000 }),
       ];
+      demo.portfolio.accounts.taxable.basisPct = 1;
       demo.expenses.living = 38000;
       demo.expenses.healthcare = 18000;
       demo.expenses.extra = [
@@ -377,8 +379,8 @@ try {
       demo.income.socialSecurity.primary = { pia:34000, claimAge:67 };
       demo.income.socialSecurity.spouse = { pia:28000, claimAge:67 };
       demo.income.other = [
-        { typeId:'wages', owner:'client', label:'Client wages', amount:120000, startAge:64, endAge:65, realGrowth:0, taxablePct:1 },
-        { typeId:'wages', owner:'spouse', label:'Co-client wages', amount:60000, startAge:63, endAge:64, realGrowth:0, taxablePct:1 },
+        { id:'income_verify_client_wages', typeId:'wages', owner:'client', label:'Client wages', amount:120000, startAge:64, endAge:65, realGrowth:0, taxablePct:1 },
+        { id:'income_verify_spouse_wages', typeId:'wages', owner:'spouse', label:'Co-client wages', amount:60000, startAge:63, endAge:64, realGrowth:0, taxablePct:1 },
       ];
       demo.meta.spendingSchemaVersion = 1;
       demo.goals = [
@@ -388,10 +390,8 @@ try {
           startsAtRetirement:true, endAge:999, realGrowth:0.02 },
         { name:'Travel & leisure', amount:30000, startAge:66, endAge:81 },
       ];
-      // Filled demo uses legacy-shaped accounts and ID-less wizard rows; strip
-      // both schema stamps so their one-time migrations run together.
-      delete demo.meta.accountSchemaVersion;
-      delete demo.meta.householdRecordSchemaVersion;
+      // Keep the exact current household and account schema markers intact.
+      // The dedicated legacy fixture below exercises household migration.
       localStorage.setItem(key, JSON.stringify(db));
     });
     await stableReload({ waitUntil: 'networkidle2', timeout: 20000 });
@@ -415,6 +415,22 @@ try {
         document.querySelectorAll('.taw-range'),
         input => [input.dataset.tawLever, Number(input.max)],
       )),
+      persistedBrokerageFixture: (() => {
+        const db = JSON.parse(localStorage.getItem('parallax.households.v1') || '{}');
+        const plan = db.demo;
+        const account = plan?.portfolio?.extraAccounts?.find(
+          candidate => candidate?.typeId === 'brokerage_taxable',
+        );
+        return {
+          householdRecordSchemaVersion: plan?.meta?.householdRecordSchemaVersion ?? null,
+          accountSchemaVersion: plan?.meta?.accountSchemaVersion ?? null,
+          typeId: account?.typeId ?? null,
+          balance: account?.balance ?? null,
+          basisStatus: account?.basis?.status ?? null,
+          basisAmount: account?.basis?.amount ?? null,
+          legacyBasisPct: plan?.portfolio?.accounts?.taxable?.basisPct ?? null,
+        };
+      })(),
       ord: !!document.querySelector('[data-taw-col="ord"]'),
     }));
     if(planner.active !== 'tax-buckets') throw new Error(`Tax Buckets tab not active: ${JSON.stringify(planner)}`);
@@ -430,6 +446,19 @@ try {
       || planner.sliderCaps.rothWithdrawal !== 400000
     ) {
       throw new Error(`Withdrawal Planner display ceilings are wrong: ${JSON.stringify(planner.sliderCaps)}`);
+    }
+    if(
+      planner.persistedBrokerageFixture.householdRecordSchemaVersion !== 1
+      || !Number.isInteger(planner.persistedBrokerageFixture.accountSchemaVersion)
+      || planner.persistedBrokerageFixture.typeId !== 'brokerage_taxable'
+      || planner.persistedBrokerageFixture.balance !== 800000
+      || planner.persistedBrokerageFixture.basisStatus !== 'unknown'
+      || planner.persistedBrokerageFixture.basisAmount !== null
+      || planner.persistedBrokerageFixture.legacyBasisPct !== 1
+    ) {
+      throw new Error(
+        `Withdrawal Planner Brokerage fixture is not exact current persisted state: ${JSON.stringify(planner.persistedBrokerageFixture)}`,
+      );
     }
 
     await page.waitForFunction(
@@ -588,6 +617,95 @@ try {
       document.querySelector('[data-taw-slider-val="deferredWithdrawal"]')?.textContent.trim() === '$0'
       && document.querySelector('[data-taw-federal-tax]')?.textContent.trim() === baseline
     ), { timeout: 15000 }, baselinePlannerTax);
+
+    const brokerageLiterals = Object.freeze({
+      before: Object.freeze({
+        federalTax: '$21,940',
+        ordinary: '$21,940',
+        ltcg: '$0',
+        ltcgFill: '0%',
+        caused: '\u2014',
+      }),
+      after: Object.freeze({
+        slider: '$100,000',
+        federalTax: '$29,440',
+        ordinary: '$21,940',
+        ltcg: '$7,500',
+        ltcgFill: '6.83%',
+        caused: '$7,500',
+      }),
+    });
+    const brokerageBefore = await page.evaluate(() => ({
+      federalTax: document.querySelector('[data-taw-federal-tax]')?.textContent.trim() ?? null,
+      ordinary: document.querySelector('[data-taw-col="ord"] .taw-col-edge span')?.textContent.trim() ?? null,
+      ltcg: document.querySelector('[data-taw-col="ltcg"] .taw-col-edge span')?.textContent.trim() ?? null,
+      ltcgFill: document.querySelector('[data-taw-col="ltcg"] .taw-col-fill')?.style.height ?? null,
+      caused: document.querySelector('[data-taw-caused="taxable"] [data-taw-caused-val]')?.textContent.trim() ?? null,
+    }));
+    if(
+      Object.entries(brokerageLiterals.before)
+        .some(([key, expected]) => brokerageBefore[key] !== expected)
+    ) {
+      throw new Error(
+        `Brokerage baseline differs from persisted-current literals: ${JSON.stringify({ brokerageBefore, brokerageLiterals })}`,
+      );
+    }
+    await page.$eval('[data-taw-lever="taxableWithdrawal"]', input => {
+      input.value = '100000';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await page.waitForFunction(expected => (
+      document.querySelector('[data-taw-slider-val="taxableWithdrawal"]')?.textContent.trim() === expected.slider
+      && document.querySelector('[data-taw-federal-tax]')?.textContent.trim() === expected.federalTax
+      && document.querySelector('[data-taw-col="ord"] .taw-col-edge span')?.textContent.trim() === expected.ordinary
+      && document.querySelector('[data-taw-col="ltcg"] .taw-col-edge span')?.textContent.trim() === expected.ltcg
+      && document.querySelector('[data-taw-col="ltcg"] .taw-col-fill')?.style.height === expected.ltcgFill
+      && document.querySelector('[data-taw-caused="taxable"] [data-taw-caused-val]')?.textContent.trim() === expected.caused
+    ), { timeout: 15000 }, brokerageLiterals.after);
+    const brokerageAfter = await page.evaluate(() => ({
+      slider: document.querySelector('[data-taw-slider-val="taxableWithdrawal"]')?.textContent.trim() ?? null,
+      federalTax: document.querySelector('[data-taw-federal-tax]')?.textContent.trim() ?? null,
+      ordinary: document.querySelector('[data-taw-col="ord"] .taw-col-edge span')?.textContent.trim() ?? null,
+      ltcg: document.querySelector('[data-taw-col="ltcg"] .taw-col-edge span')?.textContent.trim() ?? null,
+      ltcgFill: document.querySelector('[data-taw-col="ltcg"] .taw-col-fill')?.style.height ?? null,
+      caused: document.querySelector('[data-taw-caused="taxable"] [data-taw-caused-val]')?.textContent.trim() ?? null,
+    }));
+    if(
+      Object.entries(brokerageLiterals.after)
+        .some(([key, expected]) => brokerageAfter[key] !== expected)
+      || !(parseFloat(brokerageAfter.ltcgFill || '0') > 0)
+    ) {
+      throw new Error(
+        `Brokerage slider differs from persisted-current literals: ${JSON.stringify({ brokerageBefore, brokerageAfter, brokerageLiterals })}`,
+      );
+    }
+    await page.$eval('[data-taw-lever="taxableWithdrawal"]', input => {
+      input.value = '0';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await page.waitForFunction(expected => (
+      document.querySelector('[data-taw-slider-val="taxableWithdrawal"]')?.textContent.trim() === '$0'
+      && document.querySelector('[data-taw-federal-tax]')?.textContent.trim() === expected.federalTax
+      && document.querySelector('[data-taw-col="ord"] .taw-col-edge span')?.textContent.trim() === expected.ordinary
+      && document.querySelector('[data-taw-col="ltcg"] .taw-col-edge span')?.textContent.trim() === expected.ltcg
+      && document.querySelector('[data-taw-col="ltcg"] .taw-col-fill')?.style.height === expected.ltcgFill
+      && document.querySelector('[data-taw-caused="taxable"] [data-taw-caused-val]')?.textContent.trim() === expected.caused
+    ), { timeout: 15000 }, brokerageLiterals.before);
+    const brokerageReset = await page.evaluate(() => ({
+      federalTax: document.querySelector('[data-taw-federal-tax]')?.textContent.trim() ?? null,
+      ordinary: document.querySelector('[data-taw-col="ord"] .taw-col-edge span')?.textContent.trim() ?? null,
+      ltcg: document.querySelector('[data-taw-col="ltcg"] .taw-col-edge span')?.textContent.trim() ?? null,
+      ltcgFill: document.querySelector('[data-taw-col="ltcg"] .taw-col-fill')?.style.height ?? null,
+      caused: document.querySelector('[data-taw-caused="taxable"] [data-taw-caused-val]')?.textContent.trim() ?? null,
+    }));
+    if(
+      Object.entries(brokerageLiterals.before)
+        .some(([key, expected]) => brokerageReset[key] !== expected)
+    ) {
+      throw new Error(
+        `Brokerage reset differs from persisted-current literals: ${JSON.stringify({ brokerageReset, brokerageLiterals })}`,
+      );
+    }
     await page.screenshot({ path:join(OUT, '02-tax-buckets.png') });
     await page.setViewport({ width:1920, height:1080, deviceScaleFactor:3 });
   });
@@ -604,6 +722,7 @@ try {
       let nextRefreshGate = null;
       let refreshStateCalls = 0;
       let approvalReturns = 0;
+      let rejectTaxable = false;
       const waitFor = async (predicate, label) => {
         const deadline = performance.now() + 2000;
         while (performance.now() < deadline) {
@@ -652,6 +771,25 @@ try {
           const gate = nextApprovalGate;
           nextApprovalGate = null;
           if (gate) await gate;
+          if (rejectTaxable && key === 'taxableWithdrawal') {
+            const safeLevers = { ...currentLevers, taxableWithdrawal: 0 };
+            const state = accountState(safeLevers);
+            state.valid = false;
+            state.levers = safeLevers;
+            state.limits.taxableWithdrawal = {
+              min: 0,
+              max: null,
+              available: false,
+              reason: 'TAXABLE_LOSS_TREATMENT_PENDING',
+            };
+            approvalReturns++;
+            return {
+              approved: false,
+              levers: safeLevers,
+              state,
+              code: 'TAXABLE_LOSS_TREATMENT_PENDING',
+            };
+          }
           const nextLevers = { ...currentLevers, [key]: value };
           approvalReturns++;
           return { approved: true, levers: nextLevers, state: accountState(nextLevers) };
@@ -705,6 +843,17 @@ try {
       releaseRefresh();
       await waitFor(() => calls.length === 4, 'approval queued after refresh');
       await waitFor(() => taxable.value === '10000', 'post-refresh approved slider value');
+      const finalTaxableBeforeLoss = taxable.value;
+      rejectTaxable = true;
+      taxable.value = '20000';
+      taxable.dispatchEvent(new Event('input', { bubbles: true }));
+      await waitFor(
+        () => taxable.value === '0'
+          && taxable.disabled
+          && host.querySelector('[data-taw-slider-issue="taxableWithdrawal"]')?.hidden === false,
+        'confirmed-loss rejection and visible unavailable reason',
+      );
+      const lossIssue = host.querySelector('[data-taw-slider-issue="taxableWithdrawal"]');
 
       return {
         callsBeforeRelease,
@@ -722,7 +871,13 @@ try {
           conversionAfterStaleReturn,
           callsWhileRefreshPending,
           postRefreshCall: calls[3],
+          finalTaxable: finalTaxableBeforeLoss,
+        },
+        lossBoundary: {
           finalTaxable: taxable.value,
+          disabled: taxable.disabled,
+          issue: lossIssue?.textContent ?? null,
+          describedBy: taxable.getAttribute('aria-describedby'),
         },
       };
     });
@@ -754,6 +909,14 @@ try {
       || proof.refreshRace.finalTaxable !== '10000'
     ) {
       throw new Error(`refresh and approval ordering is unsafe: ${JSON.stringify(proof)}`);
+    }
+    if (
+      proof.lossBoundary.finalTaxable !== '0'
+      || proof.lossBoundary.disabled !== true
+      || proof.lossBoundary.issue !== 'Brokerage withdrawals are unavailable because confirmed losses are not modeled yet.'
+      || proof.lossBoundary.describedBy !== 'taw-taxableWithdrawal-issue'
+    ) {
+      throw new Error(`confirmed-loss rejection was not rendered truthfully: ${JSON.stringify(proof)}`);
     }
   });
 
