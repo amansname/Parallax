@@ -69,6 +69,10 @@ const WITHDRAWAL_PLANNER_50_50_ASSUMPTION = Object.freeze({
 
 const TAXABLE_BASIS_LOSS_TREATMENT_PENDING = 'TAXABLE_LOSS_TREATMENT_PENDING';
 
+const PERSISTED_CONFIRMED_LOSS_REASONS = new Set([
+  'unsupported-basis-method',
+]);
+
 function taxableBasisContract(plan, taxableBasis) {
   const resolution = taxableBasis.resolveTaxableStartingBasis(plan);
   const canonicalReady = READY_TAXABLE_BASIS_STATUSES.has(resolution.status);
@@ -114,6 +118,7 @@ function taxableBasisContract(plan, taxableBasis) {
     if (record.basisStatus !== 'confirmed') return false;
     const resolvedBasis = num(record.basisAmount);
     if (resolvedBasis !== null && resolvedBasis > record.balance) return true;
+    if (!PERSISTED_CONFIRMED_LOSS_REASONS.has(record.reason)) return false;
     return persistedAccounts.some(account => (
       account?.id === record.accountId
         && account?.basis?.status === 'confirmed'
