@@ -114,9 +114,11 @@ function taxableBasisContract(plan, taxableBasis) {
       && num(record.basisAmount) !== null
       && record.basisAmount > record.balance
   ));
+  const hasUnresolvedConfirmedLoss = hasConfirmedLossEvidence
+    && !canonicalReady;
   const lossTreatmentPending = resolution.gaps.some(gap => (
     gap.code === TAXABLE_BASIS_LOSS_TREATMENT_PENDING
-  )) || (usesPlannerAssumption && hasConfirmedLossEvidence);
+  )) || hasUnresolvedConfirmedLoss;
   const unavailableCode = lossTreatmentPending
     ? TAXABLE_BASIS_LOSS_TREATMENT_PENDING
     : null;
