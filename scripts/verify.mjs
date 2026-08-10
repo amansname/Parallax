@@ -379,8 +379,8 @@ try {
       demo.income.socialSecurity.primary = { pia:34000, claimAge:67 };
       demo.income.socialSecurity.spouse = { pia:28000, claimAge:67 };
       demo.income.other = [
-        { typeId:'wages', owner:'client', label:'Client wages', amount:120000, startAge:64, endAge:65, realGrowth:0, taxablePct:1 },
-        { typeId:'wages', owner:'spouse', label:'Co-client wages', amount:60000, startAge:63, endAge:64, realGrowth:0, taxablePct:1 },
+        { id:'income_verify_client_wages', typeId:'wages', owner:'client', label:'Client wages', amount:120000, startAge:64, endAge:65, realGrowth:0, taxablePct:1 },
+        { id:'income_verify_spouse_wages', typeId:'wages', owner:'spouse', label:'Co-client wages', amount:60000, startAge:63, endAge:64, realGrowth:0, taxablePct:1 },
       ];
       demo.meta.spendingSchemaVersion = 1;
       demo.goals = [
@@ -390,9 +390,8 @@ try {
           startsAtRetirement:true, endAge:999, realGrowth:0.02 },
         { name:'Travel & leisure', amount:30000, startAge:66, endAge:81 },
       ];
-      // Filled demo keeps exact current account records while ID-less wizard
-      // rows exercise their separate one-time household-record migration.
-      delete demo.meta.householdRecordSchemaVersion;
+      // Keep the exact current household and account schema markers intact.
+      // The dedicated legacy fixture below exercises household migration.
       localStorage.setItem(key, JSON.stringify(db));
     });
     await stableReload({ waitUntil: 'networkidle2', timeout: 20000 });
@@ -423,6 +422,7 @@ try {
           candidate => candidate?.typeId === 'brokerage_taxable',
         );
         return {
+          householdRecordSchemaVersion: plan?.meta?.householdRecordSchemaVersion ?? null,
           accountSchemaVersion: plan?.meta?.accountSchemaVersion ?? null,
           typeId: account?.typeId ?? null,
           balance: account?.balance ?? null,
@@ -448,7 +448,8 @@ try {
       throw new Error(`Withdrawal Planner display ceilings are wrong: ${JSON.stringify(planner.sliderCaps)}`);
     }
     if(
-      !Number.isInteger(planner.persistedBrokerageFixture.accountSchemaVersion)
+      planner.persistedBrokerageFixture.householdRecordSchemaVersion !== 1
+      || !Number.isInteger(planner.persistedBrokerageFixture.accountSchemaVersion)
       || planner.persistedBrokerageFixture.typeId !== 'brokerage_taxable'
       || planner.persistedBrokerageFixture.balance !== 800000
       || planner.persistedBrokerageFixture.basisStatus !== 'unknown'
@@ -721,6 +722,7 @@ try {
       let nextRefreshGate = null;
       let refreshStateCalls = 0;
       let approvalReturns = 0;
+      let rejectTaxable = false;
       const waitFor = async (predicate, label) => {
         const deadline = performance.now() + 2000;
         while (performance.now() < deadline) {
@@ -769,6 +771,25 @@ try {
           const gate = nextApprovalGate;
           nextApprovalGate = null;
           if (gate) await gate;
+          if (rejectTaxable && key === 'taxableWithdrawal') {
+            const safeLevers = { ...currentLevers, taxableWithdrawal: 0 };
+            const state = accountState(safeLevers);
+            state.valid = false;
+            state.levers = safeLevers;
+            state.limits.taxableWithdrawal = {
+              min: 0,
+              max: null,
+              available: false,
+              reason: 'TAXABLE_LOSS_TREATMENT_PENDING',
+            };
+            approvalReturns++;
+            return {
+              approved: false,
+              levers: safeLevers,
+              state,
+              code: 'TAXABLE_LOSS_TREATMENT_PENDING',
+            };
+          }
           const nextLevers = { ...currentLevers, [key]: value };
           approvalReturns++;
           return { approved: true, levers: nextLevers, state: accountState(nextLevers) };
@@ -822,6 +843,17 @@ try {
       releaseRefresh();
       await waitFor(() => calls.length === 4, 'approval queued after refresh');
       await waitFor(() => taxable.value === '10000', 'post-refresh approved slider value');
+      const finalTaxableBeforeLoss = taxable.value;
+      rejectTaxable = true;
+      taxable.value = '20000';
+      taxable.dispatchEvent(new Event('input', { bubbles: true }));
+      await waitFor(
+        () => taxable.value === '0'
+          && taxable.disabled
+          && host.querySelector('[data-taw-slider-issue="taxableWithdrawal"]')?.hidden === false,
+        'confirmed-loss rejection and visible unavailable reason',
+      );
+      const lossIssue = host.querySelector('[data-taw-slider-issue="taxableWithdrawal"]');
 
       return {
         callsBeforeRelease,
@@ -839,7 +871,13 @@ try {
           conversionAfterStaleReturn,
           callsWhileRefreshPending,
           postRefreshCall: calls[3],
+          finalTaxable: finalTaxableBeforeLoss,
+        },
+        lossBoundary: {
           finalTaxable: taxable.value,
+          disabled: taxable.disabled,
+          issue: lossIssue?.textContent ?? null,
+          describedBy: taxable.getAttribute('aria-describedby'),
         },
       };
     });
@@ -871,6 +909,14 @@ try {
       || proof.refreshRace.finalTaxable !== '10000'
     ) {
       throw new Error(`refresh and approval ordering is unsafe: ${JSON.stringify(proof)}`);
+    }
+    if (
+      proof.lossBoundary.finalTaxable !== '0'
+      || proof.lossBoundary.disabled !== true
+      || proof.lossBoundary.issue !== 'Brokerage withdrawals are unavailable because confirmed losses are not modeled yet.'
+      || proof.lossBoundary.describedBy !== 'taw-taxableWithdrawal-issue'
+    ) {
+      throw new Error(`confirmed-loss rejection was not rendered truthfully: ${JSON.stringify(proof)}`);
     }
   });
 

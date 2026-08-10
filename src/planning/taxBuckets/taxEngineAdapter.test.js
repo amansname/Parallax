@@ -358,6 +358,46 @@ test('Withdrawal Planner preserves legacy-assumed basis while applying 50/50 onl
   assert.equal(result.ltcg.gains, 20_000);
 });
 
+test('Withdrawal Planner preserves a legacy-assumed loss while applying 50/50 only to unknown Brokerage basis', async () => {
+  const subject = structuredClone(plan);
+  subject.meta.filingStatus = 'single';
+  subject.household.spouse = null;
+  subject.portfolio.accounts = {
+    taxable: { balance: 0, basisPct: 1.5 },
+    traditional: { balance: 0 },
+    roth: { balance: 0 },
+  };
+  const assumed = createAccount(
+    'brokerage_taxable',
+    { owner: 'client', balance: 300_000 },
+  );
+  assumed.basis = {
+    amount: 450_000,
+    method: 'legacy-proportional',
+    status: 'assumed',
+    source: 'planner-assumption',
+    confirmedAt: null,
+    version: 1,
+  };
+  subject.portfolio.extraAccounts = [
+    assumed,
+    createAccount('brokerage_taxable', { owner: 'client', balance: 200_000 }),
+  ];
+
+  const state = await withdrawalAccountState(subject);
+
+  assert.equal(state.valid, true);
+  assert.equal(state.taxableBasis.appliedMode, 'withdrawal-planner-50-50-assumption');
+  assert.deepEqual(state.taxableBasis.assumption, {
+    code: 'WITHDRAWAL_PLANNER_TAXABLE_50_50_ASSUMPTION',
+    principalFraction: 0.5,
+    gainFraction: 0.5,
+  });
+  assert.ok(Math.abs(state.taxableBasis.gainFraction - (-0.1)) < 1e-12);
+  assert.equal(state.taxableBasis.issue, null);
+  assert.equal(state.limits.taxableWithdrawal.max, 500_000);
+});
+
 test('Withdrawal Planner does not mask ambiguous legacy-base and typed unknown Brokerage overlap', async () => {
   const subject = structuredClone(plan);
   subject.meta.filingStatus = 'single';
@@ -418,7 +458,7 @@ test('Withdrawal Planner preserves confirmed basis while applying 50/50 only to 
   assert.equal(result.ltcg.gains, 50_000);
 });
 
-test('Withdrawal Planner does not turn mixed confirmed-loss and unknown basis into a modeled capital loss', async () => {
+test('Withdrawal Planner fails closed when confirmed-loss and unknown basis require unsupported loss treatment', async () => {
   const subject = structuredClone(plan);
   subject.meta.filingStatus = 'single';
   subject.household.spouse = null;
@@ -430,6 +470,7 @@ test('Withdrawal Planner does not turn mixed confirmed-loss and unknown basis in
   subject.portfolio.extraAccounts = [
     confirmedBrokerageAccount({ balance: 100_000, basis: 200_000 }),
     createAccount('brokerage_taxable', { owner: 'client', balance: 100_000 }),
+    createAccount('traditional_ira', { owner: 'client', balance: 100_000 }),
   ];
 
   const facts = {
@@ -449,11 +490,73 @@ test('Withdrawal Planner does not turn mixed confirmed-loss and unknown basis in
       qcd: 0,
     },
   });
+  const approval = await approveWithdrawalPlannerLeverChange(
+    subject,
+    {
+      taxableWithdrawal: 0,
+      deferredWithdrawal: 0,
+      rothConversion: 0,
+      rothWithdrawal: 0,
+      qcd: 0,
+    },
+    'taxableWithdrawal',
+    100_000,
+    facts,
+  );
+  const staleState = await withdrawalAccountState(subject, {
+    taxableWithdrawal: 50_000,
+    deferredWithdrawal: 0,
+    rothConversion: 0,
+    rothWithdrawal: 0,
+    qcd: 0,
+  }, facts);
+  const otherLeverApproval = await approveWithdrawalPlannerLeverChange(
+    subject,
+    {
+      taxableWithdrawal: 50_000,
+      deferredWithdrawal: 0,
+      rothConversion: 0,
+      rothWithdrawal: 0,
+      qcd: 0,
+    },
+    'deferredWithdrawal',
+    10_000,
+    facts,
+  );
 
-  assert.equal(state.taxableBasis.appliedMode, 'legacy-basis-percent');
+  assert.equal(state.taxableBasis.appliedMode, 'unavailable');
   assert.equal(state.taxableBasis.assumption, null);
-  assert.equal(state.taxableBasis.gainFraction, 0.4);
-  assert.equal(result.ltcg.gains, 40_000);
+  assert.equal(state.taxableBasis.gainFraction, null);
+  assert.equal(state.taxableBasis.issue, 'TAXABLE_LOSS_TREATMENT_PENDING');
+  assert.equal(state.limits.taxableWithdrawal.max, null);
+  assert.equal(state.limits.taxableWithdrawal.available, false);
+  assert.equal(
+    state.limits.taxableWithdrawal.reason,
+    'TAXABLE_LOSS_TREATMENT_PENDING',
+  );
+  assert.ok(state.sourceIssues.includes('TAXABLE_LOSS_TREATMENT_PENDING'));
+  assert.equal(result.code, 'TAXABLE_LOSS_TREATMENT_PENDING');
+  assert.equal(result.totals.federalTax, null);
+  assert.equal(result.thresholdTaxDollars.preferentialIncomeTax, null);
+  assert.equal(result.accountState.valid, false);
+  assert.equal(result.accountState.levers.taxableWithdrawal, 0);
+  assert.deepEqual(result.accountState.issues.at(-1), {
+    code: 'TAXABLE_LOSS_TREATMENT_PENDING',
+    lever: 'taxableWithdrawal',
+    requested: 100_000,
+  });
+  assert.equal(approval.approved, false);
+  assert.equal(approval.approvedValue, 0);
+  assert.equal(approval.code, 'TAXABLE_LOSS_TREATMENT_PENDING');
+  assert.equal(approval.state.valid, false);
+  assert.equal(approval.state.levers.taxableWithdrawal, 0);
+  assert.equal(staleState.valid, false);
+  assert.equal(staleState.levers.taxableWithdrawal, 0);
+  assert.equal(staleState.pools.taxable.used, 0);
+  assert.equal(otherLeverApproval.approved, true);
+  assert.equal(otherLeverApproval.levers.taxableWithdrawal, 0);
+  assert.equal(otherLeverApproval.levers.deferredWithdrawal, 10_000);
+  assert.equal(otherLeverApproval.state.valid, true);
 });
 
 test('Social Security threshold dollars use a full tax-engine counterfactual', async () => {

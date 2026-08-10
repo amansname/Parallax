@@ -67,6 +67,8 @@ const WITHDRAWAL_PLANNER_50_50_ASSUMPTION = Object.freeze({
   gainFraction: 0.5,
 });
 
+const TAXABLE_BASIS_LOSS_TREATMENT_PENDING = 'TAXABLE_LOSS_TREATMENT_PENDING';
+
 function taxableBasisContract(plan, taxableBasis) {
   const resolution = taxableBasis.resolveTaxableStartingBasis(plan);
   const canonicalReady = READY_TAXABLE_BASIS_STATUSES.has(resolution.status);
@@ -107,12 +109,25 @@ function taxableBasisContract(plan, taxableBasis) {
         return total;
       }, 0)
     : null;
+  const hasConfirmedLossEvidence = resolution.records.some(record => (
+    record.basisStatus === 'confirmed'
+      && num(record.basisAmount) !== null
+      && record.basisAmount > record.balance
+  ));
+  const lossTreatmentPending = resolution.gaps.some(gap => (
+    gap.code === TAXABLE_BASIS_LOSS_TREATMENT_PENDING
+  )) || (usesPlannerAssumption && hasConfirmedLossEvidence);
+  const unavailableCode = lossTreatmentPending
+    ? TAXABLE_BASIS_LOSS_TREATMENT_PENDING
+    : null;
   const appliesPlannerAssumption = plannerAppliedBasisCandidate !== null
-    && plannerAppliedBasisCandidate <= resolution.taxableBalance;
+    && !unavailableCode;
   const plannerAppliedBasis = appliesPlannerAssumption
     ? plannerAppliedBasisCandidate
     : null;
-  const appliedBasis = plannerAppliedBasis ?? num(resolution.appliedBasis);
+  const appliedBasis = unavailableCode
+    ? null
+    : plannerAppliedBasis ?? num(resolution.appliedBasis);
   const gainFraction = resolution.taxableBalance > 0 && appliedBasis !== null
     ? 1 - (appliedBasis / resolution.taxableBalance)
     : null;
@@ -120,22 +135,68 @@ function taxableBasisContract(plan, taxableBasis) {
     gainFraction,
     resolution,
     assumption: appliesPlannerAssumption ? WITHDRAWAL_PLANNER_50_50_ASSUMPTION : null,
+    unavailableCode,
   });
 }
 
 function applyTaxableBasisContract(state, basisContract) {
   if (!state) return state;
-  return Object.freeze({
+  const next = {
     ...state,
     taxableBasis: Object.freeze({
       status: basisContract.resolution.status,
-      appliedMode: basisContract.assumption
-        ? 'withdrawal-planner-50-50-assumption'
-        : basisContract.resolution.appliedMode,
+      appliedMode: basisContract.unavailableCode
+        ? 'unavailable'
+        : basisContract.assumption
+          ? 'withdrawal-planner-50-50-assumption'
+          : basisContract.resolution.appliedMode,
       gainFraction: basisContract.gainFraction,
       assumption: basisContract.assumption,
       gaps: basisContract.resolution.gaps,
+      issue: basisContract.unavailableCode,
     }),
+  };
+  if (!basisContract.unavailableCode) return Object.freeze(next);
+  const requestedTaxableUse = num(state.levers?.taxableWithdrawal) ?? 0;
+  const normalizedLevers = requestedTaxableUse > 0
+    ? Object.freeze({ ...state.levers, taxableWithdrawal: 0 })
+    : state.levers;
+  const issues = requestedTaxableUse > 0
+    ? Object.freeze([
+        ...(state.issues ?? []),
+        Object.freeze({
+          code: basisContract.unavailableCode,
+          lever: 'taxableWithdrawal',
+          requested: requestedTaxableUse,
+        }),
+      ])
+    : state.issues;
+  return Object.freeze({
+    ...next,
+    valid: state.valid && requestedTaxableUse === 0,
+    levers: normalizedLevers,
+    limits: Object.freeze({
+      ...state.limits,
+      taxableWithdrawal: Object.freeze({
+        ...state.limits.taxableWithdrawal,
+        max: null,
+        available: false,
+        reason: basisContract.unavailableCode,
+      }),
+    }),
+    pools: Object.freeze({
+      ...state.pools,
+      taxable: Object.freeze({
+        ...state.pools.taxable,
+        available: null,
+        used: 0,
+        remaining: null,
+      }),
+    }),
+    issues,
+    sourceIssues: Object.freeze([
+      ...new Set([...(state.sourceIssues ?? []), basisContract.unavailableCode]),
+    ]),
   });
 }
 
@@ -187,9 +248,35 @@ export async function approveWithdrawalPlannerLeverChange(
         ? plan.meta.planningAsOfYear
         : 2026),
   };
+  const normalizedCurrentLevers = basisContract.unavailableCode
+    ? Object.freeze({ ...currentLevers, taxableWithdrawal: 0 })
+    : currentLevers;
+  if (
+    changedLever === 'taxableWithdrawal'
+    && requestedValue > 0
+    && basisContract.unavailableCode
+  ) {
+    const requestedLevers = {
+      ...normalizedCurrentLevers,
+      taxableWithdrawal: requestedValue,
+    };
+    const state = applyTaxableBasisContract(
+      engine.resolveWithdrawalPlannerAccountState(plan, requestedLevers, options),
+      basisContract
+    );
+    return Object.freeze({
+      approved: false,
+      requestedValue,
+      approvedValue: state.levers.taxableWithdrawal,
+      clamped: requestedValue !== state.levers.taxableWithdrawal,
+      levers: state.levers,
+      state,
+      code: basisContract.unavailableCode,
+    });
+  }
   const approval = engine.approveWithdrawalPlannerLeverChange(
     plan,
-    currentLevers,
+    normalizedCurrentLevers,
     changedLever,
     requestedValue,
     options
@@ -602,7 +689,11 @@ export async function evaluateYear({ plan, taxYear, facts, levers }) {
       accountIssues,
     };
   }
-  if (accountState && !accountState.valid) {
+  const basisUnavailableWithTaxableUse = Boolean(
+    basisContract?.unavailableCode
+    && (num(levers?.taxableWithdrawal) ?? 0) > 0
+  );
+  if (accountState && !accountState.valid && !basisUnavailableWithTaxableUse) {
     return {
       code: 'WITHDRAWAL_ACCOUNT_LIMIT_EXCEEDED',
       accountState,
@@ -627,7 +718,9 @@ export async function evaluateYear({ plan, taxYear, facts, levers }) {
       && !bothHouseholdMembersAlive)
   );
   let unavailableCode = null;
-  if (facts.available === false) {
+  if (basisUnavailableWithTaxableUse) {
+    unavailableCode = basisContract.unavailableCode;
+  } else if (facts.available === false) {
     unavailableCode = 'HOUSEHOLD_INCOME_UNAVAILABLE';
   } else if (filingStatusHouseholdMismatch) {
     unavailableCode = 'FILING_STATUS_HOUSEHOLD_MISMATCH';
@@ -865,6 +958,15 @@ export async function attributeSleeves({ plan, taxYear, facts, levers }) {
     );
   } catch {
     return { code: 'WITHDRAWAL_ACCOUNT_STATE_UNAVAILABLE', accountState: null };
+  }
+  if (
+    basisContract?.unavailableCode
+    && (num(levers?.taxableWithdrawal) ?? 0) > 0
+  ) {
+    return {
+      code: basisContract.unavailableCode,
+      accountState,
+    };
   }
   if (!accountState.valid) {
     return {

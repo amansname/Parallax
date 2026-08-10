@@ -14,7 +14,11 @@ function sliderRefs(keys) {
       return [key, {
         input: {
           max: '', min: '', disabled: false,
+          attributes: {},
+          setAttribute(name, value) { this.attributes[name] = value; },
+          removeAttribute(name) { delete this.attributes[name]; },
         },
+        issue: { textContent: '', hidden: true },
       }];
     })),
   };
@@ -146,6 +150,40 @@ test('missing Brokerage basis keeps the control enabled at the engine-approved d
   const slot = refs.sliders.taxableWithdrawal;
   assert.equal(slot.input.max, '500000');
   assert.equal(slot.input.disabled, false);
+  assert.equal(slot.issue.hidden, true);
+  assert.equal(slot.issue.textContent, '');
+  assert.equal(slot.input.attributes['aria-describedby'], undefined);
+});
+
+test('confirmed Brokerage loss disables its slider and renders the required unavailable reason', () => {
+  const keys = [
+    'rothConversion', 'rothWithdrawal', 'qcd',
+    'deferredWithdrawal', 'taxableWithdrawal',
+  ];
+  const refs = sliderRefs(keys);
+  updateSliderCaps(refs, {
+    limits: {
+      rothConversion: { min: 0, max: 0 },
+      rothWithdrawal: { min: 0, max: 0 },
+      qcd: { min: 0, max: 0 },
+      deferredWithdrawal: { min: 0, max: 0 },
+      taxableWithdrawal: {
+        min: 0,
+        max: null,
+        available: false,
+        reason: 'TAXABLE_LOSS_TREATMENT_PENDING',
+      },
+    },
+  });
+
+  const slot = refs.sliders.taxableWithdrawal;
+  assert.equal(slot.input.disabled, true);
+  assert.equal(slot.issue.hidden, false);
+  assert.equal(
+    slot.issue.textContent,
+    'Brokerage withdrawals are unavailable because confirmed losses are not modeled yet.',
+  );
+  assert.equal(slot.input.attributes['aria-describedby'], 'taw-taxableWithdrawal-issue');
 });
 
 test('unavailable attribution clears prior sleeve values', () => {
