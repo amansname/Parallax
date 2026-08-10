@@ -109,11 +109,18 @@ function taxableBasisContract(plan, taxableBasis) {
         return total;
       }, 0)
     : null;
-  const hasConfirmedLossEvidence = resolution.records.some(record => (
-    record.basisStatus === 'confirmed'
-      && num(record.basisAmount) !== null
-      && record.basisAmount > record.balance
-  ));
+  const persistedAccounts = plan?.portfolio?.extraAccounts ?? [];
+  const hasConfirmedLossEvidence = resolution.records.some(record => {
+    if (record.basisStatus !== 'confirmed') return false;
+    const resolvedBasis = num(record.basisAmount);
+    if (resolvedBasis !== null && resolvedBasis > record.balance) return true;
+    return persistedAccounts.some(account => (
+      account?.id === record.accountId
+        && account?.basis?.status === 'confirmed'
+        && num(account.basis.amount) !== null
+        && account.basis.amount > record.balance
+    ));
+  });
   const hasUnresolvedConfirmedLoss = hasConfirmedLossEvidence
     && !canonicalReady;
   const lossTreatmentPending = resolution.gaps.some(gap => (

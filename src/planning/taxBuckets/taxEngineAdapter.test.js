@@ -645,6 +645,85 @@ test('Withdrawal Planner fails closed when confirmed-loss and assumed basis rema
   assert.equal(blockedResult.totals.federalTax, null);
 });
 
+test('Withdrawal Planner detects confirmed losses retained only in persisted readiness evidence', async () => {
+  const variants = [
+    {
+      label: 'unsupported basis method',
+      mutate(account) {
+        account.basis.method = 'principal';
+      },
+    },
+    {
+      label: 'reporting gap',
+      mutate(account) {
+        account.taxReporting.inclusion = 'unknown';
+      },
+    },
+  ];
+
+  for (const variant of variants) {
+    const subject = structuredClone(plan);
+    subject.meta.filingStatus = 'single';
+    subject.household.spouse = null;
+    subject.portfolio.accounts = {
+      taxable: { balance: 0, basisPct: 0.6 },
+      traditional: { balance: 0 },
+      roth: { balance: 0 },
+    };
+    const confirmedLoss = confirmedBrokerageAccount({
+      balance: 100_000,
+      basis: 200_000,
+    });
+    variant.mutate(confirmedLoss);
+    subject.portfolio.extraAccounts = [confirmedLoss];
+
+    const resolution = resolveTaxableStartingBasis(subject);
+    const state = await withdrawalAccountState(subject);
+    const facts = {
+      filingStatus: 'single', livedWithSpouse: false,
+      socialSecurityBenefits: 0, wages: 50_000, otherIncome: 0,
+    };
+    const result = await evaluateYear({
+      plan: subject,
+      taxYear: 2026,
+      facts,
+      levers: {
+        taxableWithdrawal: 50_000,
+        deferredWithdrawal: 0,
+        rothConversion: 0,
+        rothWithdrawal: 0,
+        qcd: 0,
+      },
+    });
+    const approval = await approveWithdrawalPlannerLeverChange(
+      subject,
+      {
+        taxableWithdrawal: 0,
+        deferredWithdrawal: 0,
+        rothConversion: 0,
+        rothWithdrawal: 0,
+        qcd: 0,
+      },
+      'taxableWithdrawal',
+      50_000,
+      facts,
+    );
+
+    assert.equal(resolution.status, 'incomplete', variant.label);
+    assert.equal(resolution.records[0].basisStatus, 'confirmed', variant.label);
+    assert.equal(resolution.records[0].basisAmount, null, variant.label);
+    assert.equal(state.taxableBasis.appliedMode, 'unavailable', variant.label);
+    assert.equal(state.taxableBasis.gainFraction, null, variant.label);
+    assert.equal(state.taxableBasis.issue, 'TAXABLE_LOSS_TREATMENT_PENDING', variant.label);
+    assert.equal(state.limits.taxableWithdrawal.max, null, variant.label);
+    assert.equal(result.code, 'TAXABLE_LOSS_TREATMENT_PENDING', variant.label);
+    assert.equal(result.totals.federalTax, null, variant.label);
+    assert.equal(approval.approved, false, variant.label);
+    assert.equal(approval.approvedValue, 0, variant.label);
+    assert.equal(approval.code, 'TAXABLE_LOSS_TREATMENT_PENDING', variant.label);
+  }
+});
+
 test('Social Security threshold dollars use a full tax-engine counterfactual', async () => {
   const subject = structuredClone(plan);
   subject.meta.filingStatus = 'single';
