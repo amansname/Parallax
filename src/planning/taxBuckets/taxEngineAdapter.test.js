@@ -303,6 +303,82 @@ test('Withdrawal Planner does not replace an existing legacy basis assumption wi
   assert.equal(state.taxableBasis.gainFraction, 0.4);
 });
 
+test('Withdrawal Planner preserves legacy-assumed basis while applying 50/50 only to unknown Brokerage basis', async () => {
+  const subject = structuredClone(plan);
+  subject.meta.filingStatus = 'single';
+  subject.household.spouse = null;
+  subject.portfolio.accounts = {
+    taxable: { balance: 0, basisPct: 1 },
+    traditional: { balance: 0 },
+    roth: { balance: 0 },
+  };
+  const assumed = createAccount(
+    'brokerage_taxable',
+    { owner: 'client', balance: 300_000 },
+  );
+  assumed.basis = {
+    amount: 300_000,
+    method: 'legacy-proportional',
+    status: 'assumed',
+    source: 'planner-assumption',
+    confirmedAt: null,
+    version: 1,
+  };
+  const unknown = createAccount(
+    'brokerage_taxable',
+    { owner: 'client', balance: 200_000 },
+  );
+  subject.portfolio.extraAccounts = [assumed, unknown];
+
+  const facts = {
+    filingStatus: 'single', livedWithSpouse: false,
+    socialSecurityBenefits: 0, wages: 50_000, otherIncome: 0,
+  };
+  const state = await withdrawalAccountState(subject);
+  const result = await evaluateYear({
+    plan: subject,
+    taxYear: 2026,
+    facts,
+    levers: {
+      taxableWithdrawal: 100_000,
+      deferredWithdrawal: 0,
+      rothConversion: 0,
+      rothWithdrawal: 0,
+      qcd: 0,
+    },
+  });
+
+  assert.equal(state.taxableBasis.appliedMode, 'withdrawal-planner-50-50-assumption');
+  assert.deepEqual(state.taxableBasis.assumption, {
+    code: 'WITHDRAWAL_PLANNER_TAXABLE_50_50_ASSUMPTION',
+    principalFraction: 0.5,
+    gainFraction: 0.5,
+  });
+  assert.ok(Math.abs(state.taxableBasis.gainFraction - 0.2) < 1e-12);
+  assert.equal(result.ltcg.gains, 20_000);
+});
+
+test('Withdrawal Planner does not mask ambiguous legacy-base and typed unknown Brokerage overlap', async () => {
+  const subject = structuredClone(plan);
+  subject.meta.filingStatus = 'single';
+  subject.household.spouse = null;
+  subject.portfolio.accounts = {
+    taxable: { balance: 300_000, basisPct: 0.6 },
+    traditional: { balance: 0 },
+    roth: { balance: 0 },
+  };
+  subject.portfolio.extraAccounts = [
+    createAccount('brokerage_taxable', { owner: 'client', balance: 200_000 }),
+  ];
+
+  const state = await withdrawalAccountState(subject);
+
+  assert.equal(state.limits.taxableWithdrawal.max, null);
+  assert.equal(state.taxableBasis.assumption, null);
+  assert.ok(state.sourceIssues.includes('LEGACY_TYPED_OVERLAP'));
+  assert.ok(state.ambiguousPools.includes('taxable'));
+});
+
 test('Withdrawal Planner preserves confirmed basis while applying 50/50 only to the missing-basis Brokerage balance', async () => {
   const subject = structuredClone(plan);
   subject.meta.filingStatus = 'single';
@@ -340,6 +416,44 @@ test('Withdrawal Planner preserves confirmed basis while applying 50/50 only to 
   );
   assert.ok(Math.abs(result.accountState.taxableBasis.gainFraction - (5 / 12)) < 1e-12);
   assert.equal(result.ltcg.gains, 50_000);
+});
+
+test('Withdrawal Planner does not turn mixed confirmed-loss and unknown basis into a modeled capital loss', async () => {
+  const subject = structuredClone(plan);
+  subject.meta.filingStatus = 'single';
+  subject.household.spouse = null;
+  subject.portfolio.accounts = {
+    taxable: { balance: 0, basisPct: 0.6 },
+    traditional: { balance: 0 },
+    roth: { balance: 0 },
+  };
+  subject.portfolio.extraAccounts = [
+    confirmedBrokerageAccount({ balance: 100_000, basis: 200_000 }),
+    createAccount('brokerage_taxable', { owner: 'client', balance: 100_000 }),
+  ];
+
+  const facts = {
+    filingStatus: 'single', livedWithSpouse: false,
+    socialSecurityBenefits: 0, wages: 50_000, otherIncome: 0,
+  };
+  const state = await withdrawalAccountState(subject);
+  const result = await evaluateYear({
+    plan: subject,
+    taxYear: 2026,
+    facts,
+    levers: {
+      taxableWithdrawal: 100_000,
+      deferredWithdrawal: 0,
+      rothConversion: 0,
+      rothWithdrawal: 0,
+      qcd: 0,
+    },
+  });
+
+  assert.equal(state.taxableBasis.appliedMode, 'legacy-basis-percent');
+  assert.equal(state.taxableBasis.assumption, null);
+  assert.equal(state.taxableBasis.gainFraction, 0.4);
+  assert.equal(result.ltcg.gains, 40_000);
 });
 
 test('Social Security threshold dollars use a full tax-engine counterfactual', async () => {

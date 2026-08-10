@@ -617,52 +617,50 @@ try {
       && document.querySelector('[data-taw-federal-tax]')?.textContent.trim() === baseline
     ), { timeout: 15000 }, baselinePlannerTax);
 
-    const brokerageExpected = await page.evaluate(async () => {
-      const db = JSON.parse(localStorage.getItem('parallax.households.v1') || '{}');
-      const plan = db.demo;
-      const adapter = await import('/src/planning/taxBuckets/taxEngineAdapter.js');
-      const facts = await adapter.householdIncome(plan, 2026);
-      const levers = {
-        taxableWithdrawal: 100000,
-        deferredWithdrawal: 0,
-        rothConversion: 0,
-        rothWithdrawal: 0,
-        qcd: 0,
-      };
-      const result = await adapter.evaluateYear({ plan, taxYear: 2026, facts, levers });
-      const attribution = await adapter.attributeSleeves({ plan, taxYear: 2026, facts, levers });
-      const money = value => typeof value === 'number' && Number.isFinite(value)
-        ? (value < 0 ? '-$' : '$') + Math.abs(Math.round(value)).toLocaleString('en-US')
-        : '\u2014';
-      return {
-        assumptionCode: result?.accountState?.taxableBasis?.assumption?.code ?? null,
-        federalTax: money(result?.totals?.federalTax),
-        ltcg: money(result?.thresholdTaxDollars?.preferentialIncomeTax),
-        ordinary: money(result?.thresholdTaxDollars?.ordinaryIncomeTax),
-        caused: money(attribution?.byBucket?.taxable),
-      };
+    const brokerageLiterals = Object.freeze({
+      before: Object.freeze({
+        federalTax: '$21,940',
+        ordinary: '$21,940',
+        ltcg: '$0',
+        ltcgFill: '0%',
+        caused: '\u2014',
+      }),
+      after: Object.freeze({
+        slider: '$100,000',
+        federalTax: '$29,440',
+        ordinary: '$21,940',
+        ltcg: '$7,500',
+        ltcgFill: '6.83%',
+        caused: '$7,500',
+      }),
     });
-    if(brokerageExpected.federalTax === '\u2014' || brokerageExpected.caused === '\u2014') {
-      throw new Error(`Brokerage assumption did not produce modeled tax: ${JSON.stringify(brokerageExpected)}`);
-    }
     const brokerageBefore = await page.evaluate(() => ({
       federalTax: document.querySelector('[data-taw-federal-tax]')?.textContent.trim() ?? null,
       ordinary: document.querySelector('[data-taw-col="ord"] .taw-col-edge span')?.textContent.trim() ?? null,
       ltcg: document.querySelector('[data-taw-col="ltcg"] .taw-col-edge span')?.textContent.trim() ?? null,
       ltcgFill: document.querySelector('[data-taw-col="ltcg"] .taw-col-fill')?.style.height ?? null,
+      caused: document.querySelector('[data-taw-caused="taxable"] [data-taw-caused-val]')?.textContent.trim() ?? null,
     }));
+    if(
+      Object.entries(brokerageLiterals.before)
+        .some(([key, expected]) => brokerageBefore[key] !== expected)
+    ) {
+      throw new Error(
+        `Brokerage baseline differs from persisted-current literals: ${JSON.stringify({ brokerageBefore, brokerageLiterals })}`,
+      );
+    }
     await page.$eval('[data-taw-lever="taxableWithdrawal"]', input => {
       input.value = '100000';
       input.dispatchEvent(new Event('input', { bubbles: true }));
     });
     await page.waitForFunction(expected => (
-      document.querySelector('[data-taw-slider-val="taxableWithdrawal"]')?.textContent.trim() === '$100,000'
+      document.querySelector('[data-taw-slider-val="taxableWithdrawal"]')?.textContent.trim() === expected.slider
       && document.querySelector('[data-taw-federal-tax]')?.textContent.trim() === expected.federalTax
       && document.querySelector('[data-taw-col="ord"] .taw-col-edge span')?.textContent.trim() === expected.ordinary
       && document.querySelector('[data-taw-col="ltcg"] .taw-col-edge span')?.textContent.trim() === expected.ltcg
+      && document.querySelector('[data-taw-col="ltcg"] .taw-col-fill')?.style.height === expected.ltcgFill
       && document.querySelector('[data-taw-caused="taxable"] [data-taw-caused-val]')?.textContent.trim() === expected.caused
-      && parseFloat(document.querySelector('[data-taw-col="ltcg"] .taw-col-fill')?.style.height || '0') > 0
-    ), { timeout: 15000 }, brokerageExpected);
+    ), { timeout: 15000 }, brokerageLiterals.after);
     const brokerageAfter = await page.evaluate(() => ({
       slider: document.querySelector('[data-taw-slider-val="taxableWithdrawal"]')?.textContent.trim() ?? null,
       federalTax: document.querySelector('[data-taw-federal-tax]')?.textContent.trim() ?? null,
@@ -672,26 +670,41 @@ try {
       caused: document.querySelector('[data-taw-caused="taxable"] [data-taw-caused-val]')?.textContent.trim() ?? null,
     }));
     if(
-      brokerageBefore.federalTax === brokerageAfter.federalTax
-      || brokerageBefore.ltcg === brokerageAfter.ltcg
-      || brokerageBefore.ltcgFill === brokerageAfter.ltcgFill
-      || brokerageBefore.ordinary !== brokerageAfter.ordinary
-      || brokerageExpected.assumptionCode
-        !== 'WITHDRAWAL_PLANNER_TAXABLE_50_50_ASSUMPTION'
+      Object.entries(brokerageLiterals.after)
+        .some(([key, expected]) => brokerageAfter[key] !== expected)
+      || !(parseFloat(brokerageAfter.ltcgFill || '0') > 0)
     ) {
       throw new Error(
-        `Brokerage slider did not change only its intended tax result/fill: ${JSON.stringify({ brokerageBefore, brokerageAfter, brokerageExpected })}`,
+        `Brokerage slider differs from persisted-current literals: ${JSON.stringify({ brokerageBefore, brokerageAfter, brokerageLiterals })}`,
       );
     }
     await page.$eval('[data-taw-lever="taxableWithdrawal"]', input => {
       input.value = '0';
       input.dispatchEvent(new Event('input', { bubbles: true }));
     });
-    await page.waitForFunction(baseline => (
+    await page.waitForFunction(expected => (
       document.querySelector('[data-taw-slider-val="taxableWithdrawal"]')?.textContent.trim() === '$0'
-      && document.querySelector('[data-taw-federal-tax]')?.textContent.trim() === baseline
-      && document.querySelector('[data-taw-col="ltcg"] .taw-col-fill')?.style.height === '0%'
-    ), { timeout: 15000 }, baselinePlannerTax);
+      && document.querySelector('[data-taw-federal-tax]')?.textContent.trim() === expected.federalTax
+      && document.querySelector('[data-taw-col="ord"] .taw-col-edge span')?.textContent.trim() === expected.ordinary
+      && document.querySelector('[data-taw-col="ltcg"] .taw-col-edge span')?.textContent.trim() === expected.ltcg
+      && document.querySelector('[data-taw-col="ltcg"] .taw-col-fill')?.style.height === expected.ltcgFill
+      && document.querySelector('[data-taw-caused="taxable"] [data-taw-caused-val]')?.textContent.trim() === expected.caused
+    ), { timeout: 15000 }, brokerageLiterals.before);
+    const brokerageReset = await page.evaluate(() => ({
+      federalTax: document.querySelector('[data-taw-federal-tax]')?.textContent.trim() ?? null,
+      ordinary: document.querySelector('[data-taw-col="ord"] .taw-col-edge span')?.textContent.trim() ?? null,
+      ltcg: document.querySelector('[data-taw-col="ltcg"] .taw-col-edge span')?.textContent.trim() ?? null,
+      ltcgFill: document.querySelector('[data-taw-col="ltcg"] .taw-col-fill')?.style.height ?? null,
+      caused: document.querySelector('[data-taw-caused="taxable"] [data-taw-caused-val]')?.textContent.trim() ?? null,
+    }));
+    if(
+      Object.entries(brokerageLiterals.before)
+        .some(([key, expected]) => brokerageReset[key] !== expected)
+    ) {
+      throw new Error(
+        `Brokerage reset differs from persisted-current literals: ${JSON.stringify({ brokerageReset, brokerageLiterals })}`,
+      );
+    }
     await page.screenshot({ path:join(OUT, '02-tax-buckets.png') });
     await page.setViewport({ width:1920, height:1080, deviceScaleFactor:3 });
   });

@@ -56,6 +56,11 @@ const WITHDRAWAL_PLANNER_BASIS_ASSUMPTION_CODES = new Set([
   'TAXABLE_BASIS_UNKNOWN',
 ]);
 
+const WITHDRAWAL_PLANNER_PRESERVED_BASIS_GAP_CODES = new Set([
+  'TAXABLE_BASIS_ASSUMED',
+  'LEGACY_TAXABLE_BASIS_ASSUMPTION',
+]);
+
 const WITHDRAWAL_PLANNER_50_50_ASSUMPTION = Object.freeze({
   code: 'WITHDRAWAL_PLANNER_TAXABLE_50_50_ASSUMPTION',
   principalFraction: 0.5,
@@ -68,19 +73,44 @@ function taxableBasisContract(plan, taxableBasis) {
   const plannerAssumptionGaps = resolution.gaps.filter(gap => (
     WITHDRAWAL_PLANNER_BASIS_ASSUMPTION_CODES.has(gap.code)
   ));
+  const plannerCompatibleGaps = resolution.gaps.filter(gap => (
+    WITHDRAWAL_PLANNER_BASIS_ASSUMPTION_CODES.has(gap.code)
+      || WITHDRAWAL_PLANNER_PRESERVED_BASIS_GAP_CODES.has(gap.code)
+  ));
   const usesPlannerAssumption = !canonicalReady
     && resolution.taxableBalance > 0
-    && resolution.gaps.length > 0
-    && plannerAssumptionGaps.length === resolution.gaps.length;
-  const assumedAccountIds = new Set(
+    && plannerAssumptionGaps.length > 0
+    && plannerCompatibleGaps.length === resolution.gaps.length;
+  const unknownBasisAccountIds = new Set(
     plannerAssumptionGaps.map(gap => gap.accountId).filter(Boolean)
   );
-  const plannerAppliedBasis = usesPlannerAssumption
-    ? resolution.records.reduce((total, record) => (
-        total + (assumedAccountIds.has(record.accountId)
-          ? record.balance * WITHDRAWAL_PLANNER_50_50_ASSUMPTION.principalFraction
-          : (num(record.basisAmount) ?? 0))
-      ), 0)
+  const preservedLegacyAccountIds = new Set(
+    resolution.gaps
+      .filter(gap => WITHDRAWAL_PLANNER_PRESERVED_BASIS_GAP_CODES.has(gap.code))
+      .map(gap => gap.accountId)
+      .filter(Boolean)
+  );
+  const legacyBasisFraction = resolution.taxableBalance > 0
+    ? resolution.legacyFallbackBasis / resolution.taxableBalance
+    : null;
+  const plannerAppliedBasisCandidate = usesPlannerAssumption
+    ? resolution.records.reduce((total, record) => {
+        if (unknownBasisAccountIds.has(record.accountId)) {
+          return total
+            + record.balance * WITHDRAWAL_PLANNER_50_50_ASSUMPTION.principalFraction;
+        }
+        const recordedBasis = num(record.basisAmount);
+        if (recordedBasis !== null) return total + recordedBasis;
+        if (preservedLegacyAccountIds.has(record.accountId) && legacyBasisFraction !== null) {
+          return total + record.balance * legacyBasisFraction;
+        }
+        return total;
+      }, 0)
+    : null;
+  const appliesPlannerAssumption = plannerAppliedBasisCandidate !== null
+    && plannerAppliedBasisCandidate <= resolution.taxableBalance;
+  const plannerAppliedBasis = appliesPlannerAssumption
+    ? plannerAppliedBasisCandidate
     : null;
   const appliedBasis = plannerAppliedBasis ?? num(resolution.appliedBasis);
   const gainFraction = resolution.taxableBalance > 0 && appliedBasis !== null
@@ -89,7 +119,7 @@ function taxableBasisContract(plan, taxableBasis) {
   return Object.freeze({
     gainFraction,
     resolution,
-    assumption: usesPlannerAssumption ? WITHDRAWAL_PLANNER_50_50_ASSUMPTION : null,
+    assumption: appliesPlannerAssumption ? WITHDRAWAL_PLANNER_50_50_ASSUMPTION : null,
   });
 }
 

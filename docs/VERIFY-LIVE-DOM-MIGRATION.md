@@ -14,10 +14,11 @@ The funded Brokerage missing-basis path in the `Tax Buckets: withdrawal
 planner loads with display ceilings and live tax output` step now:
 
 - loads exact persisted current-schema Brokerage data with unknown basis and
-  verifies the adapter's module-local 50% principal / 50% gain assumption;
+  asserts independently recorded baseline output literals;
 - moves the visible Brokerage range input through its `input` event;
-- waits for the exact adapter-derived federal tax, long-term-gain tax,
-  Brokerage attribution, and non-zero long-term-gain fill; and
+- waits for independently recorded literal federal tax, long-term-gain tax,
+  Brokerage attribution, ordinary-column isolation, and the exact non-zero
+  long-term-gain fill height; and
 - resets the control and waits for the exact baseline state.
 
 No regex HTML-structure inference or fixed post-action delay is evidence for
