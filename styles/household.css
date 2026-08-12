@@ -547,11 +547,6 @@
 
 /* Net worth */
 
-.page[data-page="household"] .hh-stage[data-wizard-step="net-worth"] {
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.page[data-page="household"] .hh-stage[data-wizard-step="net-worth"] .hh-sidebar,
 .page[data-page="household"] .hh-stage[data-wizard-step="net-worth"] .hh-wizard > footer {
   display: none;
 }
@@ -1950,13 +1945,6 @@
 }
 
 @media (max-width: 920px) {
-  .page[data-page="household"] .hh-stage[data-wizard-step="net-worth"] {
-    display: grid;
-    height: 100%;
-    min-height: 0;
-    overflow: hidden;
-  }
-
   .page[data-page="household"] .hh-stage[data-wizard-step="net-worth"] .hh-wizard {
     min-height: 0;
   }
