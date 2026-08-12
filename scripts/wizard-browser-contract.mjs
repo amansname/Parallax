@@ -271,17 +271,51 @@ async function restoreStorage(page, snapshot){
 }
 
 function stableStorageSnapshot(snapshot){
+  const runtimeIds = new Set([
+    'demo',
+    'default-pre-retirement-solo',
+    'default-pre-retirement-couple',
+  ]);
+  const ownerStorage = Object.fromEntries(Object.entries(snapshot || {}).flatMap(([key, value]) => {
+    if(key === 'parallax.activeHouseholdId') return [];
+    if(key.startsWith('parallax.scenarios.')){
+      const householdId = key.slice('parallax.scenarios.'.length, -'.v1'.length);
+      if(runtimeIds.has(householdId)) return [];
+    }
+    if(key !== 'parallax.households.v1') return [[key, value]];
+    const database = JSON.parse(value || 'null');
+    const savedHouseholds = Object.fromEntries(
+      Object.entries(database || {}).filter(([householdId]) => !runtimeIds.has(householdId)),
+    );
+    return [[key, JSON.stringify(savedHouseholds)]];
+  }));
   return JSON.stringify(
     Object.fromEntries(
-      Object.entries(snapshot || {}).sort(([left], [right]) =>
+      Object.entries(ownerStorage).sort(([left], [right]) =>
         left.localeCompare(right)),
     ),
   );
 }
 
 async function reloadWizard(page){
+  const priorHouseholdId = await page.$eval(
+    '#hh-switch',
+    selector => selector.value,
+  ).catch(() => null);
   await page.reload({ waitUntil: 'networkidle2', timeout: 20000 });
-  return waitForWizard(page);
+  await waitForWizard(page, { householdId: 'demo' });
+  if(priorHouseholdId && priorHouseholdId !== 'demo'){
+    const available = await page.$$eval(
+      '#hh-switch option',
+      (options, householdId) => options.some(option => option.value === householdId),
+      priorHouseholdId,
+    );
+    if(available){
+      await page.select('#hh-switch', priorHouseholdId);
+      return waitForWizard(page, { householdId: priorHouseholdId });
+    }
+  }
+  return waitForWizard(page, { householdId: 'demo' });
 }
 
 async function settleWizardCapture(page){
@@ -466,6 +500,13 @@ export function attachBrowserDiagnostics(page){
 }
 
 async function prepareContractFixture(page){
+  await clickWizardAction(page, '#hh-menu-btn', { expectRevision: false });
+  await clickWizardAction(page, '#hh-new');
+  await page.waitForFunction(() => {
+    const selected = document.querySelector('#hh-switch')?.value;
+    return selected && selected !== 'demo'
+      && document.querySelector('[data-hh-wizard-root]')?.dataset.householdId === selected;
+  }, { timeout: 10000 });
   await page.evaluate(() => {
     const dbKey = 'parallax.households.v1';
     const activeKey = 'parallax.activeHouseholdId';
