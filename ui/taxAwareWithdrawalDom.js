@@ -19,13 +19,8 @@ const SLIDER_DEFS = [
   { key: 'rothWithdrawal', label: 'Roth IRA', caused: 'roth' },
   { key: 'qcd', label: 'Qualified Charitable Donations', caused: false },
   { key: 'deferredWithdrawal', label: 'IRA', caused: 'traditional' },
-  { key: 'taxableWithdrawal', label: 'Brokerage account', caused: 'taxable' },
+  { key: 'realizedGain', label: 'Realized gain', caused: 'taxable' },
 ];
-
-const SLIDER_REASON_COPY = Object.freeze({
-  TAXABLE_LOSS_TREATMENT_PENDING:
-    'Brokerage withdrawals are unavailable because confirmed losses are not modeled yet.',
-});
 
 function markSlotHtml(colId, index) {
   return `
@@ -64,13 +59,13 @@ export function mountWithdrawalPlannerShell(root, { caps }) {
     rothWithdrawal: capFor(limits.rothWithdrawal?.max),
     qcd: capFor(limits.qcd?.max),
     deferredWithdrawal: capFor(limits.deferredWithdrawal?.max),
-    taxableWithdrawal: capFor(limits.taxableWithdrawal?.max),
+    realizedGain: capFor(limits.realizedGain?.max),
   } : {
     rothConversion: capFor(caps?.traditional),
     rothWithdrawal: capFor(caps?.roth),
     qcd: capFor(caps?.traditional),
     deferredWithdrawal: capFor(caps?.traditional),
-    taxableWithdrawal: capFor(caps?.taxable),
+    realizedGain: capFor(caps?.taxable),
   };
 
   const slidersHtml = SLIDER_DEFS.map(({ key, label, caused }) => {
@@ -89,13 +84,12 @@ export function mountWithdrawalPlannerShell(root, { caps }) {
         </div>
         <input type="range" class="taw-range" min="0" max="${cap}" step="500" value="0"
           data-taw-lever="${key}" aria-label="${escHtml(label)}">
-        <div class="taw-slider-issue" id="taw-${key}-issue"
-          data-taw-slider-issue="${key}" role="note" hidden></div>
       </div>`;
   }).join('');
 
   root.innerHTML = `
-    <div class="taw-root" data-taw-root>
+    <div class="taw-root" data-taw-root aria-busy="true"
+      data-taw-render-revision="0" data-taw-household-id="">
       <div class="taw-grid">
         <div class="taw-left">
           <div class="taw-card--inputs">
@@ -144,7 +138,6 @@ export function cacheWithdrawalRefs(root) {
     sliders[key] = {
       input: root.querySelector(`[data-taw-lever="${key}"]`),
       val: root.querySelector(`[data-taw-slider-val="${key}"]`),
-      issue: root.querySelector(`[data-taw-slider-issue="${key}"]`),
     };
   });
   const columns = {};
@@ -191,13 +184,13 @@ export function updateSliderCaps(refs, caps) {
     rothWithdrawal: capFor(limits.rothWithdrawal?.max),
     qcd: capFor(limits.qcd?.max),
     deferredWithdrawal: capFor(limits.deferredWithdrawal?.max),
-    taxableWithdrawal: capFor(limits.taxableWithdrawal?.max),
+    realizedGain: capFor(limits.realizedGain?.max),
   } : {
     rothConversion: capFor(caps?.traditional),
     rothWithdrawal: capFor(caps?.roth),
     qcd: capFor(caps?.traditional),
     deferredWithdrawal: capFor(caps?.traditional),
-    taxableWithdrawal: capFor(caps?.taxable),
+    realizedGain: capFor(caps?.taxable),
   };
   SLIDER_DEFS.forEach(({ key }) => {
     const max = capByKey[key];
@@ -205,21 +198,10 @@ export function updateSliderCaps(refs, caps) {
       ? Math.max(0, limits[key].min)
       : 0;
     const input = refs.sliders[key]?.input;
-    const issue = refs.sliders[key]?.issue;
-    const reason = limits?.[key]?.reason;
-    const reasonCopy = SLIDER_REASON_COPY[reason] ?? '';
     if (input) {
       input.min = String(min);
       input.max = String(Math.max(min, max));
       input.disabled = Math.max(min, max) <= min;
-      if (typeof input.setAttribute === 'function' && typeof input.removeAttribute === 'function') {
-        if (reasonCopy) input.setAttribute('aria-describedby', `taw-${key}-issue`);
-        else input.removeAttribute('aria-describedby');
-      }
-    }
-    if (issue) {
-      issue.textContent = reasonCopy;
-      issue.hidden = !reasonCopy;
     }
   });
 }

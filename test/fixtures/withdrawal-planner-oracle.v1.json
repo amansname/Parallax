@@ -1,0 +1,43 @@
+{
+  "fixtureVersion": 1,
+  "source": "literal 2026 federal bracket and long-term capital-gain calculations",
+  "leverEffects": {
+    "rothConversion": { "financial": "changes", "geometry": "changes" },
+    "rothWithdrawal": { "financial": "unchanged", "geometry": "unchanged", "taxCaused": "$0" },
+    "qcd": { "financial": "unchanged", "geometry": "unchanged" },
+    "deferredWithdrawal": { "financial": "changes", "geometry": "changes" },
+    "realizedGain": { "financial": "changes", "geometry": "changes" }
+  },
+  "households": {
+    "default-pre-retirement-solo": {
+      "baseline": {
+        "federalTax": "$3,820",
+        "ordinary": "$3,820",
+        "longTermGainTax": "$0"
+      },
+      "realizedGainAtDisplayCeiling": {
+        "slider": "$500,000",
+        "federalTax": "$76,488",
+        "ordinary": "$3,820",
+        "longTermGainTax": "$72,668",
+        "effectiveRate": "14.3%",
+        "taxCaused": "$72,668"
+      }
+    },
+    "default-pre-retirement-couple": {
+      "baseline": {
+        "federalTax": "$8,840",
+        "ordinary": "$8,840",
+        "longTermGainTax": "$0"
+      },
+      "realizedGainAtDisplayCeiling": {
+        "slider": "$500,000",
+        "federalTax": "$80,675",
+        "ordinary": "$8,840",
+        "longTermGainTax": "$71,835",
+        "effectiveRate": "14%",
+        "taxCaused": "$71,835"
+      }
+    }
+  }
+}

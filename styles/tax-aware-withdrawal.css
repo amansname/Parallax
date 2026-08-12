@@ -184,12 +184,6 @@
   opacity: .5;
 }
 
-.page[data-page="tax-buckets"] .taw-slider-issue {
-  margin-top: 5px;
-  color: var(--ink-faint);
-  font: 400 11px/1.4 var(--font-sans);
-}
-
 .page[data-page="tax-buckets"] .taw-range::-webkit-slider-runnable-track {
   height: 4px;
   border-radius: 2px;

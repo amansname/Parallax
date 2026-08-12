@@ -71,9 +71,15 @@ export function prepareHouseholdStore(readResult, dependencies){
   const {
     createDemoHousehold,
     createBlankHousehold,
+    createSelectableDefaultHouseholds = () => [],
     pristinePlan,
     currentYear,
   } = dependencies;
+  const preparationYear = currentYear();
+  const selectableDefaults = () => createSelectableDefaultHouseholds(
+    pristinePlan,
+    preparationYear,
+  );
 
   if(readResult.kind === 'unreadable' || readResult.kind === 'corrupt' || readResult.kind === 'empty_database'){
     return {
@@ -86,8 +92,12 @@ export function prepareHouseholdStore(readResult, dependencies){
   }
 
   if(readResult.kind === 'missing'){
-    const demo = createDemoHousehold(pristinePlan, currentYear());
-    const migration = migrateHouseholdsDb({ [demo.meta.householdId]: demo });
+    const demo = createDemoHousehold(pristinePlan, preparationYear);
+    const defaults = selectableDefaults();
+    const seededDb = Object.fromEntries(
+      [demo, ...defaults].map(household => [household.meta.householdId, household]),
+    );
+    const migration = migrateHouseholdsDb(seededDb);
     if(!migration.ok){
       return {
         ok: false,
@@ -119,12 +129,23 @@ export function prepareHouseholdStore(readResult, dependencies){
       changed: true,
       pointerChanged: true,
       hydrate: true,
-      issuesByHousehold: { [demo.meta.householdId]: [] },
+      issuesByHousehold: Object.fromEntries(
+        Object.keys(recordMigration.db).map(householdId => [householdId, []]),
+      ),
       repairsByHousehold: recordMigration.repairsByHousehold,
     };
   }
 
-  const migration = migrateHouseholdsDb(readResult.database);
+  const databaseWithDefaults = { ...readResult.database };
+  let defaultsAdded = false;
+  for(const household of selectableDefaults()){
+    const householdId = household?.meta?.householdId;
+    if(!householdId || databaseWithDefaults[householdId]) continue;
+    databaseWithDefaults[householdId] = household;
+    defaultsAdded = true;
+  }
+
+  const migration = migrateHouseholdsDb(databaseWithDefaults);
   if(!migration.ok){
     return {
       ok: false,
@@ -154,8 +175,8 @@ export function prepareHouseholdStore(readResult, dependencies){
 
   const mergedDb = Object.fromEntries(Object.entries(recordMigration.db).map(([recordId, record]) => {
     const defaults = recordId === 'demo'
-      ? createDemoHousehold(pristinePlan, currentYear())
-      : createBlankHousehold(pristinePlan, recordId, currentYear());
+      ? createDemoHousehold(pristinePlan, preparationYear)
+      : createBlankHousehold(pristinePlan, recordId, preparationYear);
     return [recordId, mergeNonAccountDefaults(record, defaults)];
   }));
 
@@ -178,7 +199,7 @@ export function prepareHouseholdStore(readResult, dependencies){
     mode: 'normal',
     db: mergedDb,
     activeHouseholdId,
-    changed: migration.changed || schemaFilled || recordMigration.changed,
+    changed: defaultsAdded || migration.changed || schemaFilled || recordMigration.changed,
     pointerChanged,
     hydrate: true,
     issuesByHousehold: migration.issuesByHousehold || {},

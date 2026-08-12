@@ -6,7 +6,11 @@ import { fmtM, fmtMoney } from '../ui/formatters.js';
 import { storyChart, seqChartSvg } from '../ui/charts.js?v=2';
 import { escHtml } from '../ui/dom.js';
 import { CHART_LAYOUT } from '../ui/chartLayout.js';
-import { createDemoHousehold, createBlankHousehold } from '../ui/householdFactories.js';
+import {
+  createBlankHousehold,
+  createDemoHousehold,
+  createSelectableDefaultHouseholds,
+} from '../ui/householdFactories.js';
 import { resolveTypeFromLabel } from './household/accountTypes.js';
 import { createAccount } from './household/createAccount.js';
 import { createIncomeSource } from './household/incomeTaxModel.js';
@@ -208,6 +212,7 @@ function bootstrapHouseholds(){
   let prepared = prepareHouseholdStore(read, {
     createDemoHousehold,
     createBlankHousehold,
+    createSelectableDefaultHouseholds,
     pristinePlan: PRISTINE_PLAN,
     currentYear: () => new Date().getFullYear(),
   });
@@ -1177,6 +1182,7 @@ function hhLoadRecord(status){
   syncHousehold();
   updateHouseholdControls();
   renderInputs();
+  taxBuckets.sync();
   runAll();
   syncRecoveryControls();
   if(status) syncHeaderStatus(status);

@@ -1,0 +1,54 @@
+{
+  "fixtureVersion": 1,
+  "householdId": "demo",
+  "family": {
+    "primaryName": "Planner Verification Client",
+    "birthDate": "1962-01-15",
+    "retirementAge": 66,
+    "planEndAge": 96
+  },
+  "tax": {
+    "wages": 50000
+  },
+  "goals": {
+    "essentialsAnnual": 38000
+  },
+  "accounts": [
+    {
+      "typeId": "traditional_ira",
+      "institution": "Verification Traditional IRA",
+      "owner": "client",
+      "balance": 1600000
+    },
+    {
+      "typeId": "tod_brokerage",
+      "institution": "Verification TOD Brokerage",
+      "owner": "client",
+      "balance": 800000
+    },
+    {
+      "typeId": "roth_ira",
+      "institution": "Verification Roth IRA",
+      "owner": "client",
+      "balance": 400000
+    }
+  ],
+  "plannerOracle": {
+    "baseline": {
+      "federalTax": "$3,820",
+      "ordinary": "$3,820",
+      "longTermGainTax": "$0",
+      "socialSecurityTax": "$0",
+      "effectiveRate": "11.3%",
+      "marginalRate": "12%"
+    },
+    "realizedGainAtDisplayCeiling": {
+      "slider": "$500,000",
+      "federalTax": "$76,488",
+      "ordinary": "$3,820",
+      "longTermGainTax": "$72,668",
+      "effectiveRate": "14.3%",
+      "taxCaused": "$72,668"
+    }
+  }
+}
