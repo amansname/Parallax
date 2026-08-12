@@ -7,6 +7,7 @@ import { storyChart, seqChartSvg } from '../ui/charts.js?v=2';
 import { escHtml } from '../ui/dom.js';
 import { CHART_LAYOUT } from '../ui/chartLayout.js';
 import {
+  SHIPPED_DEFAULT_HOUSEHOLD_IDS,
   createBlankHousehold,
   createDemoHousehold,
   createSelectableDefaultHouseholds,
@@ -51,8 +52,9 @@ import {
    ╚══════════════════════════════════════════════════════════════╝ */
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 /* ── Household model: pure factories + multi-household persistence ──────────
-   The app boots with one blank Demo Household slot. The advisor can create and
-   switch households; persisted values remain authoritative across reloads.
+   The app boots with one current-build blank Demo Household slot. The advisor
+   can explicitly select a shipped template or saved household; browser state
+   never chooses the startup record.
 
    `plan` is the engine's default plan object (imported live). It cannot be
    reassigned (const import binding), so hydratePlan() mutates it in place —
@@ -63,6 +65,8 @@ const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 // engine fields flow through automatically).
 const PRISTINE_PLAN = JSON.parse(JSON.stringify(plan));
 const newHouseholdId = () => 'hh_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+const RUNTIME_HOUSEHOLD_IDS = new Set(['demo', ...SHIPPED_DEFAULT_HOUSEHOLD_IDS]);
+const isRuntimeHousehold = id => RUNTIME_HOUSEHOLD_IDS.has(id);
 
 /* Replace the live engine plan's contents with a household record. Mutates the
    imported `plan` in place (it can't be reassigned) so the engine — which reads
@@ -178,6 +182,9 @@ function persistActiveId(){
 }
 function saveActiveHousehold(){
   if(!guardPlanMutation()) return false;
+  // Demo and shipped defaults are immutable templates from the current build.
+  // Edits remain usable in-session but never become origin-specific startup data.
+  if(isRuntimeHousehold(activeHouseholdId)) return true;
   if(activeHouseholdId && plan && plan.meta){
     try{
       householdsDb[activeHouseholdId] = prepareHouseholdRecordForSave(
@@ -197,14 +204,6 @@ function canChangeActiveHousehold(){
   syncHeaderStatus('Automatic save failed; reload after storage is available');
   return false;
 }
-function ensureDemoRecord(){
-  if(!householdsDb.demo){
-    householdsDb.demo = createDemoHousehold(PRISTINE_PLAN, new Date().getFullYear());
-    persistHouseholdsDb();
-  }
-  return householdsDb.demo;
-}
-
 function bootstrapHouseholds(){
   accountMigrationState = { blocked: false, readOnly: false, message: null, issuesByHousehold: {} };
   recoveryStatusPinned = false;
@@ -322,6 +321,7 @@ const SCEN_PREFIX='parallax.scenarios.';
 const scenKey=id=>SCEN_PREFIX + (id || activeHouseholdId || 'demo') + '.v1';
 function saveScenarios(){
   if(!guardPlanMutation()) return false;
+  if(isRuntimeHousehold(activeHouseholdId)) return true;
   try{
     const slim=scenarios.map(s=>({name:s.name, base:!!s.base, lev:s.lev}));
     localStorage.setItem(scenKey(), JSON.stringify(slim));
@@ -329,6 +329,7 @@ function saveScenarios(){
   }catch(e){ return false; }
 }
 function loadScenarios(id){
+  if(isRuntimeHousehold(id || activeHouseholdId)) return null;
   try{
     const raw=localStorage.getItem(scenKey(id));
     if(!raw) return null;
@@ -824,10 +825,9 @@ function demoScenarios(){
   s[2].lev.risk = 5;
   return s;
 }
-// Seed/hydrate the active household BEFORE scenarios seed, so lever defaults and
-// reseeding see the active household's inputs (never the demo, unless it IS the
-// active household). First load seeds a blank Demo Household; reloads hydrate whatever
-// household was active; a corrupt store safely recreates the demo.
+// Seed/hydrate the blank current-build record BEFORE scenarios seed. Saved
+// households remain available, but reload never grants browser state authority
+// to choose one on localhost or the deployed origin.
 bootstrapHouseholds();
 if(isHouseholdStorageBlocked()){
   uiState.scenarios = [];
@@ -1187,17 +1187,18 @@ function hhLoadRecord(status){
   syncRecoveryControls();
   if(status) syncHeaderStatus(status);
 }
-// Open the persistent demo slot. Create it blank only when it is missing.
+// Open a fresh current-build blank slot. A prior in-session edit must not turn
+// the Demo entry into browser-owned template data.
 function loadDemoHousehold(){
   if(isHouseholdStorageBlocked()){ guardPlanMutation(); return; }
   if(isHouseholdStorageReadOnly() && !householdsDb.demo){ syncRecoveryControls(); return; }
-  ensureDemoRecord();
-  if(activeHouseholdId === 'demo'){
-    updateHouseholdControls();
-    syncHeaderStatus('Loaded Demo Household');
-    return;
-  }
-  switchHousehold('demo');
+  const blank = createDemoHousehold(PRISTINE_PLAN, new Date().getFullYear());
+  householdsDb.demo = blank;
+  activeHouseholdId = 'demo';
+  hydratePlan(blank);
+  uiState.scenarios = demoScenarios();
+  uiState.baseSnapshot = defaultLevers();
+  hhLoadRecord('Loaded Demo Household');
 }
 // Create and immediately persist a brand-new blank household.
 function newHousehold(){

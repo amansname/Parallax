@@ -280,8 +280,24 @@ function stableStorageSnapshot(snapshot){
 }
 
 async function reloadWizard(page){
+  const priorHouseholdId = await page.$eval(
+    '#hh-switch',
+    selector => selector.value,
+  ).catch(() => null);
   await page.reload({ waitUntil: 'networkidle2', timeout: 20000 });
-  return waitForWizard(page);
+  await waitForWizard(page, { householdId: 'demo' });
+  if(priorHouseholdId && priorHouseholdId !== 'demo'){
+    const available = await page.$$eval(
+      '#hh-switch option',
+      (options, householdId) => options.some(option => option.value === householdId),
+      priorHouseholdId,
+    );
+    if(available){
+      await page.select('#hh-switch', priorHouseholdId);
+      return waitForWizard(page, { householdId: priorHouseholdId });
+    }
+  }
+  return waitForWizard(page, { householdId: 'demo' });
 }
 
 async function settleWizardCapture(page){
@@ -466,6 +482,12 @@ export function attachBrowserDiagnostics(page){
 }
 
 async function prepareContractFixture(page){
+  await page.click('#hh-new');
+  await page.waitForFunction(() => {
+    const selected = document.querySelector('#hh-switch')?.value;
+    return selected && selected !== 'demo'
+      && document.querySelector('[data-hh-wizard-root]')?.dataset.householdId === selected;
+  }, { timeout: 10000 });
   await page.evaluate(() => {
     const dbKey = 'parallax.households.v1';
     const activeKey = 'parallax.activeHouseholdId';

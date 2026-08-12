@@ -2320,7 +2320,7 @@ try {
     if(!ctl.loadDemoBtn || ctl.retired) throw new Error(`minimal Load Demo menu contract failed: ${JSON.stringify(ctl)}`);
   });
 
-  await step('persistence: auto-saved demo values and New Household survive reload', async () => {
+  await step('persistence: reload starts blank while saved households remain selectable', async () => {
     const setFamilyField = async (field, value) => {
       const beforeRevision = await page.$eval(
         '[data-hh-wizard-root]',
@@ -2340,22 +2340,13 @@ try {
       });
     };
     await goToWizardStep(page, 'family');
-    await setFamilyField('primaryName', 'Saved Client');
-    await setFamilyField('client.socialSecurityAge', '70');
-    // The storage wait below is the automatic-save assertion. No explicit save
-    // action is available before reload or household switching.
-    await page.waitForFunction(() => {
-      const demo = JSON.parse(
-        localStorage.getItem('parallax.households.v1') || 'null',
-      )?.demo;
-      return demo?.meta?.primaryName === 'Saved Client'
-        && demo?.income?.socialSecurity?.primary?.claimAge === 70;
-    }, { timeout: 10000 });
-    await stableReload({ waitUntil: 'networkidle2', timeout: 20000 });
-    await waitForWizard(page, { step: 'family' });
-    const savedDemo = await page.evaluate(() => JSON.parse(localStorage.getItem('parallax.households.v1') || 'null')?.demo);
-    if(savedDemo?.meta?.primaryName !== 'Saved Client' || savedDemo?.income?.socialSecurity?.primary?.claimAge !== 70)
-      throw new Error(`saved demo values were overwritten on reload: ${JSON.stringify(savedDemo)}`);
+    await setFamilyField('primaryName', 'Transient Demo Edit');
+    const storedDemo = await page.evaluate(() => JSON.parse(
+      localStorage.getItem('parallax.households.v1') || 'null',
+    )?.demo);
+    if(storedDemo?.meta?.primaryName){
+      throw new Error(`runtime Demo edit entered persistent storage: ${JSON.stringify(storedDemo)}`);
+    }
     await page.evaluate(() => document.querySelector('#hh-new').click());
     await page.waitForFunction(() => {
       const id = document.querySelector('#hh-switch')?.value;
@@ -2375,6 +2366,15 @@ try {
     }));
     if(!created.active || created.active === 'demo') throw new Error(`New Household did not become active (active="${created.active}")`);
     const customId = created.active;
+    await setFamilyField('primaryName', 'Saved Client');
+    await setFamilyField('client.socialSecurityAge', '70');
+    await page.waitForFunction(id => {
+      const record = JSON.parse(
+        localStorage.getItem('parallax.households.v1') || 'null',
+      )?.[id];
+      return record?.meta?.primaryName === 'Saved Client'
+        && record?.income?.socialSecurity?.primary?.claimAge === 70;
+    }, { timeout: 10000 }, customId);
     const expectedCreatedIds = [
       'demo',
       ...Object.keys(WITHDRAWAL_PLANNER_ORACLE.households),
@@ -2395,19 +2395,29 @@ try {
       throw new Error(`removed global controls still rendered: ${JSON.stringify(removedGlobalControls)}`);
     }
 
-    // Reload: the custom household must remain active (demo must NOT overwrite it).
+    // Reload must always return to the current-build blank state. The saved
+    // household remains available only through an explicit selector action.
     await stableReload({ waitUntil: 'networkidle2', timeout: 20000 });
-    await waitForWizard(page, { step: 'family' });
+    await waitForWizard(page, { step: 'family', householdId: 'demo' });
     const afterReload = await page.evaluate(() => ({
       active: localStorage.getItem('parallax.activeHouseholdId'),
       db: JSON.parse(localStorage.getItem('parallax.households.v1') || 'null'),
     }));
-    if(afterReload.active !== customId) throw new Error(`custom household did not survive reload (active="${afterReload.active}", want "${customId}")`);
+    if(afterReload.active !== 'demo') throw new Error(`reload did not return to blank Demo (active="${afterReload.active}")`);
     if(!afterReload.db.demo) throw new Error('demo record vanished after reload');
-    if(afterReload.db.demo.meta.primaryName !== 'Saved Client' || afterReload.db.demo.income.socialSecurity.primary.claimAge !== 70)
-      throw new Error(`saved demo was reset during custom-household reload: ${JSON.stringify(afterReload.db.demo)}`);
+    if(afterReload.db.demo.meta.primaryName || afterReload.db.demo.income.socialSecurity.primary.claimAge !== 67)
+      throw new Error(`reload Demo is not current-build blank state: ${JSON.stringify(afterReload.db.demo)}`);
     if(afterReload.db[customId].meta.isDemo !== false) throw new Error('custom record overwritten by demo values on reload');
     if(afterReload.db[customId].meta.name !== 'New Household') throw new Error(`custom household name changed on reload: "${afterReload.db[customId].meta.name}"`);
+    await page.select('#hh-switch', customId);
+    await waitForWizard(page, { step: 'family', householdId: customId });
+    const selectedCustom = await page.evaluate(() => ({
+      selected: document.querySelector('#hh-switch')?.value,
+      primaryName: document.querySelector('[data-wizard-field="primaryName"]')?.value,
+    }));
+    if(selectedCustom.selected !== customId || selectedCustom.primaryName !== 'Saved Client'){
+      throw new Error(`saved household was not restored by explicit selection: ${JSON.stringify(selectedCustom)}`);
+    }
   });
 
   await step('persistence: scenario localStorage is scoped by householdId', async () => {
@@ -2415,12 +2425,12 @@ try {
     const keys = await page.evaluate(() => Object.keys(localStorage));
     const demoKey   = 'parallax.scenarios.demo.v1';
     const customKey = `parallax.scenarios.${customId}.v1`;
-    if(!keys.includes(demoKey)) throw new Error(`demo scenarios not scoped by id (missing ${demoKey}): ${JSON.stringify(keys)}`);
+    if(keys.includes(demoKey)) throw new Error(`runtime Demo scenarios entered persistent storage (${demoKey}): ${JSON.stringify(keys)}`);
     if(!keys.includes(customKey)) throw new Error(`custom scenarios not scoped by id (missing ${customKey}): ${JSON.stringify(keys)}`);
     if(keys.includes('parallax.scenarios.v2')) throw new Error('legacy global scenario key parallax.scenarios.v2 must not be written');
   });
 
-  await step('persistence: schema merge preserves values; Load Demo recreates a missing blank slot', async () => {
+  await step('persistence: schema merge preserves saved values while boot recreates blank Demo', async () => {
     const customId = await page.evaluate(() => localStorage.getItem('parallax.activeHouseholdId'));
     await page.evaluate((id) => {
       const key = 'parallax.households.v1';
@@ -2433,17 +2443,21 @@ try {
       localStorage.setItem('parallax.activeHouseholdId', id);
     }, customId);
     await stableReload({ waitUntil: 'networkidle2', timeout: 20000 });
-    await waitForWizard(page, { householdId: customId });
+    await waitForWizard(page, { householdId: 'demo' });
     const merged = await page.evaluate((id) => {
       const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
       return { active: localStorage.getItem('parallax.activeHouseholdId'), db, record: db?.[id] };
     }, customId);
-    if(merged.active !== customId || merged.record?.meta?.primaryName !== 'Custom Saved' || merged.record?.income?.socialSecurity?.primary?.pia !== 7777)
+    if(merged.active !== 'demo' || merged.record?.meta?.primaryName !== 'Custom Saved' || merged.record?.income?.socialSecurity?.primary?.pia !== 7777)
       throw new Error(`schema merge overwrote saved custom values: ${JSON.stringify(merged)}`);
     if(merged.record.income.socialSecurity.primary.claimAge !== 67)
       throw new Error(`schema merge did not add missing claimAge=67: ${JSON.stringify(merged.record.income.socialSecurity)}`);
-    if(merged.db.demo) throw new Error('bootstrap recreated demo before Load Demo was requested');
+    if(!merged.db.demo || merged.db.demo.meta.primaryName){
+      throw new Error(`bootstrap did not recreate the current-build blank Demo: ${JSON.stringify(merged.db.demo)}`);
+    }
 
+    await page.select('#hh-switch', customId);
+    await waitForWizard(page, { householdId: customId });
     await goToWizardStep(page, 'family');
     const beforeDemo = await page.$eval(
       '[data-hh-wizard-root]',
@@ -2460,7 +2474,7 @@ try {
       customId: id,
     }), customId);
     if(after.active !== 'demo' || !after.db.demo || after.db.demo.meta.isDemo !== true)
-      throw new Error(`Load Demo did not recreate and activate demo: ${JSON.stringify(after)}`);
+      throw new Error(`Load Demo did not activate fresh blank Demo: ${JSON.stringify(after)}`);
     if(after.db.demo.meta.primaryName || after.db.demo.household.spouse || after.db.demo.income.socialSecurity.primary.pia !== null || after.db.demo.income.socialSecurity.primary.claimAge !== 67)
       throw new Error(`Load Demo recreated fictional values: ${JSON.stringify(after.db.demo)}`);
     if(after.db[customId]?.meta?.primaryName !== 'Custom Saved' || after.db[customId]?.income?.socialSecurity?.primary?.pia !== 7777)

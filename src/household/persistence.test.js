@@ -122,7 +122,7 @@ test('missing key seeds selectable production defaults while keeping blank Demo 
   assert.equal(prepared.db.demo.meta.name, 'Demo Household');
 });
 
-test('existing stores gain missing selectable defaults without overwriting user households', () => {
+test('existing stores boot blank with fresh defaults without overwriting user households', () => {
   const userHousehold = createBlankHousehold('advisor-household');
   userHousehold.meta.name = 'Advisor Household';
   userHousehold.portfolio.accounts.taxable.balance = 123_456;
@@ -141,12 +141,35 @@ test('existing stores gain missing selectable defaults without overwriting user 
 
   assert.equal(prepared.ok, true);
   assert.equal(prepared.changed, true);
-  assert.equal(prepared.activeHouseholdId, 'advisor-household');
+  assert.equal(prepared.activeHouseholdId, 'demo');
+  assert.equal(prepared.pointerChanged, true);
   assert.deepEqual(
     Object.keys(prepared.db),
-    ['advisor-household', 'default-one', 'default-two'],
+    ['demo', 'default-one', 'default-two', 'advisor-household'],
   );
   assert.equal(JSON.stringify(prepared.db['advisor-household']), originalUserBytes);
+});
+
+test('stored reserved records are replaced by exact current-build templates', () => {
+  const staleDemo = createDemoHousehold();
+  staleDemo.meta.primaryName = 'Stale Demo';
+  const staleDefault = createBlankHousehold('default-one');
+  staleDefault.meta.primaryName = 'Stale Default';
+  const freshDefault = createBlankHousehold('default-one');
+  freshDefault.meta.primaryName = 'Current Default';
+  const storage = createMemoryStorage({
+    [HHDB_KEY]: JSON.stringify({ demo: staleDemo, 'default-one': staleDefault }),
+    [ACTIVE_KEY]: 'default-one',
+  });
+
+  const prepared = prepareHouseholdStore(readHouseholdStore(storage), {
+    ...deps,
+    createSelectableDefaultHouseholds: () => [freshDefault],
+  });
+
+  assert.equal(prepared.activeHouseholdId, 'demo');
+  assert.equal(prepared.db.demo.meta.primaryName, undefined);
+  assert.deepEqual(prepared.db['default-one'], freshDefault);
 });
 
 test('unchanged current-schema database does not rewrite on commit', () => {
@@ -172,7 +195,7 @@ test('dangling active pointer resolves only after validation', () => {
   assert.equal(prepared.pointerChanged, true);
 });
 
-test('a valid active pointer is preserved after all households migrate', () => {
+test('a valid saved pointer is ignored after all households migrate', () => {
   const one = createBlankHousehold('one');
   delete one.meta.accountSchemaVersion;
   delete one.meta.householdRecordSchemaVersion;
@@ -185,8 +208,8 @@ test('a valid active pointer is preserved after all households migrate', () => {
   });
   const prepared = prepareHouseholdStore(readHouseholdStore(storage), deps);
   assert.equal(prepared.ok, true);
-  assert.equal(prepared.activeHouseholdId, 'two');
-  assert.equal(prepared.pointerChanged, false);
+  assert.equal(prepared.activeHouseholdId, 'demo');
+  assert.equal(prepared.pointerChanged, true);
   assert.equal(prepared.db.one.meta.accountSchemaVersion, 1);
   assert.equal(prepared.db.two.meta.accountSchemaVersion, 1);
 });

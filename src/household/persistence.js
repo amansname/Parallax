@@ -61,12 +61,6 @@ export function readHouseholdStore(storage, keys = { dbKey: HHDB_KEY, activeKey:
   }
 }
 
-function resolveActiveHouseholdId(db, activePointer){
-  if(activePointer && db[activePointer]) return activePointer;
-  const ids = Object.keys(db);
-  return ids[0] || null;
-}
-
 export function prepareHouseholdStore(readResult, dependencies){
   const {
     createDemoHousehold,
@@ -136,14 +130,27 @@ export function prepareHouseholdStore(readResult, dependencies){
     };
   }
 
-  const databaseWithDefaults = { ...readResult.database };
-  let defaultsAdded = false;
-  for(const household of selectableDefaults()){
-    const householdId = household?.meta?.householdId;
-    if(!householdId || databaseWithDefaults[householdId]) continue;
-    databaseWithDefaults[householdId] = household;
-    defaultsAdded = true;
-  }
+  // Reserved records are application templates, never browser-owned truth.
+  // Recreate them from the current build on every boot so localhost and the
+  // deployed site cannot hydrate different copies from origin-scoped storage.
+  const demo = createDemoHousehold(pristinePlan, preparationYear);
+  const runtimeDefaults = [demo, ...selectableDefaults()];
+  const runtimeDefaultsById = Object.fromEntries(runtimeDefaults.map(household => [
+    household.meta.householdId,
+    household,
+  ]));
+  const reservedIds = new Set(Object.keys(runtimeDefaultsById));
+  const savedHouseholds = Object.fromEntries(
+    Object.entries(readResult.database).filter(([householdId]) => !reservedIds.has(householdId)),
+  );
+  const databaseWithDefaults = {
+    ...runtimeDefaultsById,
+    ...savedHouseholds,
+  };
+  const defaultsRefreshed = runtimeDefaults.some(household => (
+    JSON.stringify(readResult.database[household.meta.householdId])
+      !== JSON.stringify(household)
+  ));
 
   const migration = migrateHouseholdsDb(databaseWithDefaults);
   if(!migration.ok){
@@ -174,23 +181,16 @@ export function prepareHouseholdStore(readResult, dependencies){
   }
 
   const mergedDb = Object.fromEntries(Object.entries(recordMigration.db).map(([recordId, record]) => {
-    const defaults = recordId === 'demo'
-      ? createDemoHousehold(pristinePlan, preparationYear)
-      : createBlankHousehold(pristinePlan, recordId, preparationYear);
+    if(runtimeDefaultsById[recordId]){
+      return [recordId, structuredClone(runtimeDefaultsById[recordId])];
+    }
+    const defaults = createBlankHousehold(pristinePlan, recordId, preparationYear);
     return [recordId, mergeNonAccountDefaults(record, defaults)];
   }));
 
-  const activeHouseholdId = resolveActiveHouseholdId(mergedDb, readResult.activePointer);
-  if(!activeHouseholdId){
-    return {
-      ok: false,
-      mode: 'blocked',
-      code: ACCOUNT_MIGRATION_BLOCKED,
-      message: BLOCKED_MESSAGE,
-      hydrate: false,
-    };
-  }
-
+  // Startup is deliberately origin-independent. Saved households remain in
+  // the selector, but only an explicit visible selection may activate one.
+  const activeHouseholdId = demo.meta.householdId;
   const pointerChanged = readResult.activePointer !== activeHouseholdId;
   const schemaFilled = JSON.stringify(migration.db) !== JSON.stringify(mergedDb);
 
@@ -199,7 +199,7 @@ export function prepareHouseholdStore(readResult, dependencies){
     mode: 'normal',
     db: mergedDb,
     activeHouseholdId,
-    changed: defaultsAdded || migration.changed || schemaFilled || recordMigration.changed,
+    changed: defaultsRefreshed || migration.changed || schemaFilled || recordMigration.changed,
     pointerChanged,
     hydrate: true,
     issuesByHousehold: migration.issuesByHousehold || {},
