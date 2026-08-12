@@ -364,6 +364,8 @@ try {
   });
 
   await step('enter funded Withdrawal Planner household through visible production controls', async () => {
+    await stableClick('.htab[data-page="household"]');
+    await waitForWizard(page, { step: 'family', householdId: 'demo' });
     await stableClick('#hh-menu-btn');
     await stableClick('#hh-new');
     await page.waitForFunction(() => {
