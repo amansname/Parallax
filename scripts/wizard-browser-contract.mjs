@@ -155,27 +155,6 @@ export async function goToWizardStep(page, step){
       );
       before = await wizardState(page);
     }
-    const mobile = await page.evaluate(() => matchMedia('(max-width: 920px)').matches);
-    if(step === 'family'){
-      const backSelector = mobile
-        ? '.nw-mobile-footer [data-hh-action="step-back"]'
-        : '.nw-rail [data-hh-action="step-back"]';
-      return clickWizardAction(page, backSelector, { expectedStep: 'family' });
-    }
-    if(await countMatches(page, '.nw-entry-view')){
-      const summarySelector = mobile
-        ? '.nw-mobile-footer [data-hh-action="net-worth-show-summary"]'
-        : '.nw-rail [data-hh-action="net-worth-show-summary"]';
-      await clickWizardAction(page, summarySelector);
-    }
-    before = await wizardState(page);
-    await clickWizardAction(
-      page,
-      '.nw-summary-footer [data-hh-action="step-next"]',
-      { expectedStep: 'tax' },
-    );
-    if(step === 'tax') return wizardState(page);
-    before = await wizardState(page);
   }
   const selector = `[data-hh-wizard-nav="${step}"]`;
   await requireUnique(page, selector, `wizard navigation ${step}`);
@@ -1335,6 +1314,7 @@ async function assertViewport(page, viewport, step, outDir, filename){
   const metrics = await page.evaluate(() => {
     const root = document.querySelector('[data-hh-wizard-root]');
     const screen = document.querySelector('[data-hh-wizard-screen]');
+    const sidebar = document.querySelector('.hh-sidebar');
     const footer = document.querySelector('[data-hh-wizard-footer]');
     const netWorthNavigation = [...document.querySelectorAll(
       '.nw-rail-actions, .nw-mobile-footer, .nw-summary-footer',
@@ -1351,6 +1331,7 @@ async function assertViewport(page, viewport, step, outDir, filename){
     ].filter(Boolean);
     const rect = root?.getBoundingClientRect();
     const screenRect = screen?.getBoundingClientRect();
+    const sidebarRect = sidebar?.getBoundingClientRect();
     const footerRect = footer?.getBoundingClientRect();
     const headerContentBottom = Math.max(
       0,
@@ -1373,6 +1354,7 @@ async function assertViewport(page, viewport, step, outDir, filename){
       rootTop: rect?.top ?? null,
       headerContentBottom,
       viewportWidth: document.documentElement.clientWidth,
+      sidebarVisible: rendered(sidebar, sidebarRect),
       footerVisible: rendered(footer, footerRect),
       netWorthNavigationVisible: netWorthNavigation.some(element =>
         rendered(element, element.getBoundingClientRect())),
@@ -1388,6 +1370,7 @@ async function assertViewport(page, viewport, step, outDir, filename){
       && metrics.rootLeft >= -1
       && metrics.rootRight <= metrics.viewportWidth + 1
       && metrics.rootTop >= metrics.headerContentBottom - 1
+      && metrics.sidebarVisible
       && (step === 'net-worth'
         ? metrics.netWorthNavigationVisible
         : metrics.footerVisible)
