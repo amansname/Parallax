@@ -98,6 +98,57 @@ test('missing key creates exactly one validated current-schema demo', () => {
   assert.ok(prepared.db.demo.taxProfiles.client.rothIra);
 });
 
+test('missing key seeds selectable production defaults while keeping blank Demo active', () => {
+  const storage = createMemoryStorage();
+  const prepared = prepareHouseholdStore(readHouseholdStore(storage), {
+    ...deps,
+    createSelectableDefaultHouseholds: () => [
+      { ...createBlankHousehold('default-one'), meta: {
+        ...createBlankHousehold('default-one').meta,
+        householdId: 'default-one',
+        name: 'Default One',
+      } },
+      { ...createBlankHousehold('default-two'), meta: {
+        ...createBlankHousehold('default-two').meta,
+        householdId: 'default-two',
+        name: 'Default Two',
+      } },
+    ],
+  });
+
+  assert.equal(prepared.ok, true);
+  assert.deepEqual(Object.keys(prepared.db), ['demo', 'default-one', 'default-two']);
+  assert.equal(prepared.activeHouseholdId, 'demo');
+  assert.equal(prepared.db.demo.meta.name, 'Demo Household');
+});
+
+test('existing stores gain missing selectable defaults without overwriting user households', () => {
+  const userHousehold = createBlankHousehold('advisor-household');
+  userHousehold.meta.name = 'Advisor Household';
+  userHousehold.portfolio.accounts.taxable.balance = 123_456;
+  const originalUserBytes = JSON.stringify(userHousehold);
+  const storage = createMemoryStorage({
+    [HHDB_KEY]: JSON.stringify({ 'advisor-household': userHousehold }),
+    [ACTIVE_KEY]: 'advisor-household',
+  });
+  const prepared = prepareHouseholdStore(readHouseholdStore(storage), {
+    ...deps,
+    createSelectableDefaultHouseholds: () => [
+      createBlankHousehold('default-one'),
+      createBlankHousehold('default-two'),
+    ],
+  });
+
+  assert.equal(prepared.ok, true);
+  assert.equal(prepared.changed, true);
+  assert.equal(prepared.activeHouseholdId, 'advisor-household');
+  assert.deepEqual(
+    Object.keys(prepared.db),
+    ['advisor-household', 'default-one', 'default-two'],
+  );
+  assert.equal(JSON.stringify(prepared.db['advisor-household']), originalUserBytes);
+});
+
 test('unchanged current-schema database does not rewrite on commit', () => {
   const demo = createDemoHousehold();
   const storage = createMemoryStorage({

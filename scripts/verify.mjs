@@ -21,6 +21,14 @@ import {
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const OUT = join(ROOT, 'verify-out');
+const WITHDRAWAL_PLANNER_FIXTURE = JSON.parse(readFileSync(
+  join(ROOT, 'test', 'fixtures', 'withdrawal-planner-visible-entry.v1.json'),
+  'utf8',
+));
+const WITHDRAWAL_PLANNER_ORACLE = JSON.parse(readFileSync(
+  join(ROOT, 'test', 'fixtures', 'withdrawal-planner-oracle.v1.json'),
+  'utf8',
+));
 const PORT = 8825;
 const requestedPort = Number(process.env.PORT || PORT);
 if (requestedPort !== PORT) {
@@ -354,52 +362,99 @@ try {
     }
   });
 
-  await step('seed filled demo fixture', async () => {
-    await page.evaluate(async () => {
-      const { createAccount } = await import('/src/household/createAccount.js');
-      const key = 'parallax.households.v1';
-      const db = JSON.parse(localStorage.getItem(key));
-      const demo = db.demo;
-      demo.meta.primaryName = 'Test Client';
-      demo.meta.spouseName = 'Test Co-Client';
-      demo.meta.filingStatus = 'marriedFilingJointly';
-      demo.household.primary = { currentAge: 64, retirementAge: 66, planEndAge: 96, birthYear: 1962 };
-      demo.household.spouse = { currentAge: 63, retirementAge: 65, planEndAge: 95, birthYear: 1963 };
-      demo.portfolio.extraAccounts = [
-        createAccount('traditional_ira', { owner:'client', balance:1600000 }),
-        createAccount('brokerage_taxable', { owner:'spouse', balance:800000 }),
-        createAccount('roth_ira', { owner:'spouse', balance:400000 }),
-      ];
-      demo.portfolio.accounts.taxable.basisPct = 1;
-      demo.expenses.living = 38000;
-      demo.expenses.healthcare = 18000;
-      demo.expenses.extra = [
-        { label:'Housing', amount:34000, startAge:64, endAge:95 },
-        { label:'Vacation budget', amount:0, startAge:66, endAge:80 },
-      ];
-      demo.income.socialSecurity.primary = { pia:34000, claimAge:67 };
-      demo.income.socialSecurity.spouse = { pia:28000, claimAge:67 };
-      demo.income.other = [
-        { id:'income_verify_client_wages', typeId:'wages', owner:'client', label:'Client wages', amount:120000, startAge:64, endAge:65, realGrowth:0, taxablePct:1 },
-        { id:'income_verify_spouse_wages', typeId:'wages', owner:'spouse', label:'Co-client wages', amount:60000, startAge:63, endAge:64, realGrowth:0, taxablePct:1 },
-      ];
-      demo.meta.spendingSchemaVersion = 1;
-      demo.goals = [
-        { id:'system:essentials', system:'essentials', name:'Essentials', amount:38000,
-          startsAtRetirement:true, endAge:999, realGrowth:0, flexesWithSpending:true },
-        { id:'system:healthcare', system:'healthcare', name:'Healthcare', amount:18000,
-          startsAtRetirement:true, endAge:999, realGrowth:0.02 },
-        { name:'Travel & leisure', amount:30000, startAge:66, endAge:81 },
-      ];
-      // Keep the exact current household and account schema markers intact.
-      // The dedicated legacy fixture below exercises household migration.
-      localStorage.setItem(key, JSON.stringify(db));
-    });
+  await step('enter funded Withdrawal Planner household through visible production controls', async () => {
+    const fixture = WITHDRAWAL_PLANNER_FIXTURE;
+    const currentRevision = () => page.$eval(
+      '[data-hh-wizard-root]',
+      root => Number(root.dataset.renderRevision || -1),
+    );
+    const typeAndBlur = async (selector, value, { waitForRender = true } = {}) => {
+      const before = await currentRevision();
+      await stableClick(selector);
+      await page.keyboard.down('Control');
+      await page.keyboard.press('A');
+      await page.keyboard.up('Control');
+      await page.keyboard.type(String(value));
+      await page.keyboard.press('Tab');
+      if(waitForRender){
+        await waitForWizard(page, { afterRevision: before });
+      }
+    };
+
+    await goToWizardStep(page, 'family');
+    await typeAndBlur(
+      '[data-wizard-field="primaryName"]',
+      fixture.family.primaryName,
+    );
+    const [birthYear, birthMonth, birthDay] = fixture.family.birthDate.split('-');
+    await typeAndBlur(
+      '[data-birth-date-group="client"] [data-birth-part="month"]',
+      Number(birthMonth),
+      { waitForRender: false },
+    );
+    await typeAndBlur(
+      '[data-birth-date-group="client"] [data-birth-part="day"]',
+      Number(birthDay),
+      { waitForRender: false },
+    );
+    await typeAndBlur(
+      '[data-birth-date-group="client"] [data-birth-part="year"]',
+      Number(birthYear),
+    );
+    await typeAndBlur(
+      '[data-wizard-field="client.retirementAge"]',
+      fixture.family.retirementAge,
+    );
+    await typeAndBlur(
+      '[data-wizard-field="client.planEndAge"]',
+      fixture.family.planEndAge,
+    );
+
+    await openNetWorthCategory(page, 'investment');
+    for(const account of fixture.accounts){
+      let before = await currentRevision();
+      await stableClick(
+        `[data-hh-action="net-worth-pick-type"][data-account-type-id="${account.typeId}"]`,
+      );
+      await waitForWizard(page, { step: 'net-worth', afterRevision: before });
+      await typeAndBlur(
+        '[data-net-worth-draft="name"]',
+        account.institution,
+        { waitForRender: false },
+      );
+      await stableClick('[data-net-worth-draft="owner"]');
+      await page.keyboard.press('Home');
+      await page.keyboard.press('ArrowDown');
+      await page.keyboard.press('Enter');
+      await typeAndBlur(
+        '[data-net-worth-draft="value"]',
+        account.balance,
+        { waitForRender: false },
+      );
+      before = await currentRevision();
+      await stableClick('[data-hh-action="net-worth-save-entry"]');
+      await waitForWizard(page, { step: 'net-worth', afterRevision: before });
+    }
+    await stableClick('[data-net-worth-overlay] [data-hh-action="net-worth-close-panel"]');
+
+    await stableClick('.htab[data-sub-target="goals"]');
+    await page.waitForSelector('.gh-page', { visible:true, timeout:8000 });
+    await stableClick('[data-goal-chip="system:essentials"]');
+    await stableClick('.gh-amount-input');
+    await page.keyboard.down('Control');
+    await page.keyboard.press('A');
+    await page.keyboard.up('Control');
+    await page.keyboard.type(String(fixture.goals.essentialsAnnual));
+    await page.keyboard.press('Tab');
+    await page.waitForFunction(expected => (
+      document.querySelector('.gh-amount-input')?.value === expected.toLocaleString('en-US')
+    ), { timeout:8000 }, fixture.goals.essentialsAnnual);
+
     await stableReload({ waitUntil: 'networkidle2', timeout: 20000 });
-    await waitForWizard(page, { householdId: 'demo' });
+    await waitForWizard(page, { householdId: fixture.householdId });
   });
 
-  await step('Tax Buckets: withdrawal planner loads with display ceilings and live tax output', async () => {
+  await step('Tax Buckets: production household loads with funded limits and live tax output', async () => {
     await page.setViewport({ width:1440, height:900, deviceScaleFactor:1 });
     await stableClick('.htab[data-page="tax-buckets"]');
     await page.waitForFunction(() => {
@@ -416,22 +471,10 @@ try {
         document.querySelectorAll('.taw-range'),
         input => [input.dataset.tawLever, Number(input.max)],
       )),
-      persistedBrokerageFixture: (() => {
-        const db = JSON.parse(localStorage.getItem('parallax.households.v1') || '{}');
-        const plan = db.demo;
-        const account = plan?.portfolio?.extraAccounts?.find(
-          candidate => candidate?.typeId === 'brokerage_taxable',
-        );
-        return {
-          householdRecordSchemaVersion: plan?.meta?.householdRecordSchemaVersion ?? null,
-          accountSchemaVersion: plan?.meta?.accountSchemaVersion ?? null,
-          typeId: account?.typeId ?? null,
-          balance: account?.balance ?? null,
-          basisStatus: account?.basis?.status ?? null,
-          basisAmount: account?.basis?.amount ?? null,
-          legacyBasisPct: plan?.portfolio?.accounts?.taxable?.basisPct ?? null,
-        };
-      })(),
+      householdId: document.querySelector('[data-taw-root]')?.dataset.tawHouseholdId ?? null,
+      realizedGainLabel: document.querySelector(
+        '[data-taw-slider="realizedGain"] .taw-slider-label',
+      )?.textContent.trim() ?? null,
       ord: !!document.querySelector('[data-taw-col="ord"]'),
     }));
     if(planner.active !== 'tax-buckets') throw new Error(`Tax Buckets tab not active: ${JSON.stringify(planner)}`);
@@ -443,99 +486,45 @@ try {
     if(
       planner.sliderCaps.rothConversion !== 500000
       || planner.sliderCaps.deferredWithdrawal !== 500000
-      || planner.sliderCaps.taxableWithdrawal !== 500000
+      || planner.sliderCaps.realizedGain !== 500000
       || planner.sliderCaps.rothWithdrawal !== 400000
     ) {
       throw new Error(`Withdrawal Planner display ceilings are wrong: ${JSON.stringify(planner.sliderCaps)}`);
     }
     if(
-      planner.persistedBrokerageFixture.householdRecordSchemaVersion !== 1
-      || !Number.isInteger(planner.persistedBrokerageFixture.accountSchemaVersion)
-      || planner.persistedBrokerageFixture.typeId !== 'brokerage_taxable'
-      || planner.persistedBrokerageFixture.balance !== 800000
-      || planner.persistedBrokerageFixture.basisStatus !== 'unknown'
-      || planner.persistedBrokerageFixture.basisAmount !== null
-      || planner.persistedBrokerageFixture.legacyBasisPct !== 1
+      planner.householdId !== WITHDRAWAL_PLANNER_FIXTURE.householdId
+      || planner.realizedGainLabel !== 'Realized gain'
     ) {
-      throw new Error(
-        `Withdrawal Planner Brokerage fixture is not exact current persisted state: ${JSON.stringify(planner.persistedBrokerageFixture)}`,
-      );
+      throw new Error(`Withdrawal Planner did not load the selected production household: ${JSON.stringify(planner)}`);
     }
 
     await page.waitForFunction(
       () => document.querySelector('[data-taw-federal-tax]')?.textContent.trim() !== '\u2014',
       { timeout: 15000 },
     );
-    const thresholdProof = await page.evaluate(async () => {
-      const db = JSON.parse(localStorage.getItem('parallax.households.v1') || '{}');
-      const plan = db.demo;
-      const adapter = await import('/src/planning/taxBuckets/taxEngineAdapter.js');
-      const facts = await adapter.householdIncome(plan, 2026);
-      const result = await adapter.evaluateYear({
-        plan,
-        taxYear: 2026,
-        facts,
-        levers: {
-          taxableWithdrawal: 0,
-          deferredWithdrawal: 0,
-          rothConversion: 0,
-          rothWithdrawal: 0,
-          qcd: 0,
-        },
-      });
-      const money = value => typeof value === 'number' && Number.isFinite(value)
-        ? (value < 0 ? '-$' : '$') + Math.abs(Math.round(value)).toLocaleString('en-US')
-        : '\u2014';
-      const pct = value => {
-        if(typeof value !== 'number' || !Number.isFinite(value)) return '\u2014';
-        const n = Math.abs(value) <= 1 ? value * 100 : value;
-        return `${Math.round(n * 10) / 10}%`;
-      };
+    const thresholdProof = await page.evaluate(() => {
       const text = selector => document.querySelector(selector)?.textContent.trim() ?? null;
       return {
-        resultCode: result?.code ?? result?.error ?? null,
-        expected: {
-          ordinary: money(result?.thresholdTaxDollars?.ordinaryIncomeTax),
-          ltcg: money(result?.thresholdTaxDollars?.preferentialIncomeTax),
-          socialSecurity: money(result?.thresholdTaxDollars?.socialSecurityIncrementalModeledFederalIncomeTax),
-          federalTax: money(result?.totals?.federalTax),
-          effectiveRate: pct(result?.totals?.effectiveRate),
-          marginalRate: pct(result?.totals?.marginalRate ?? result?.ordinary?.rate),
-          ltcgMiddleRate: pct(result?.ladders?.ltcg?.rates?.middle),
-          socialSecurityLowerRate: pct(result?.ladders?.socialSecurity?.rates?.lowerTier),
-        },
-        actual: {
-          ordinaryHeadline: text('[data-taw-col="ord"] .taw-col-rate'),
-          ltcgHeadline: text('[data-taw-col="ltcg"] .taw-col-rate'),
-          socialSecurityHeadline: text('[data-taw-col="ss"] .taw-col-rate'),
-          ordinary: text('[data-taw-col="ord"] .taw-col-edge span'),
-          ltcg: text('[data-taw-col="ltcg"] .taw-col-edge span'),
-          irmaa: text('[data-taw-col="irmaa"] .taw-col-edge span'),
-          socialSecurity: text('[data-taw-col="ss"] .taw-col-edge span'),
-          federalTax: text('[data-taw-federal-tax]'),
-          effectiveRate: text('[data-taw-effective-rate]'),
-          marginalRate: text('[data-taw-marginal-rate]'),
-          ltcgMiddleRate: text('[data-taw-mark="ltcg:0"] .taw-mark-chip'),
-          socialSecurityLowerRate: text('[data-taw-mark="ss:0"] .taw-mark-chip'),
-        },
+        ordinary: text('[data-taw-col="ord"] .taw-col-edge span'),
+        ltcg: text('[data-taw-col="ltcg"] .taw-col-edge span'),
+        irmaa: text('[data-taw-col="irmaa"] .taw-col-edge span'),
+        socialSecurity: text('[data-taw-col="ss"] .taw-col-edge span'),
+        federalTax: text('[data-taw-federal-tax]'),
+        effectiveRate: text('[data-taw-effective-rate]'),
+        marginalRate: text('[data-taw-marginal-rate]'),
       };
     });
-    if(thresholdProof.resultCode) throw new Error(`live tax-engine result unavailable: ${JSON.stringify(thresholdProof)}`);
+    const expected = WITHDRAWAL_PLANNER_FIXTURE.plannerOracle.baseline;
     if(
-      thresholdProof.actual.ordinaryHeadline !== thresholdProof.expected.ordinary
-      || thresholdProof.actual.ltcgHeadline !== thresholdProof.expected.ltcg
-      || thresholdProof.actual.socialSecurityHeadline !== thresholdProof.expected.socialSecurity
-      || thresholdProof.actual.ordinary !== thresholdProof.expected.ordinary
-      || thresholdProof.actual.ltcg !== thresholdProof.expected.ltcg
-      || thresholdProof.actual.socialSecurity !== thresholdProof.expected.socialSecurity
-      || thresholdProof.actual.irmaa !== '\u2014'
-      || thresholdProof.actual.federalTax !== thresholdProof.expected.federalTax
-      || thresholdProof.actual.effectiveRate !== thresholdProof.expected.effectiveRate
-      || thresholdProof.actual.marginalRate !== thresholdProof.expected.marginalRate
-      || thresholdProof.actual.ltcgMiddleRate !== thresholdProof.expected.ltcgMiddleRate
-      || thresholdProof.actual.socialSecurityLowerRate !== thresholdProof.expected.socialSecurityLowerRate
+      thresholdProof.ordinary !== expected.ordinary
+      || thresholdProof.ltcg !== expected.longTermGainTax
+      || thresholdProof.socialSecurity !== expected.socialSecurityTax
+      || thresholdProof.irmaa !== '\u2014'
+      || thresholdProof.federalTax !== expected.federalTax
+      || thresholdProof.effectiveRate !== expected.effectiveRate
+      || thresholdProof.marginalRate !== expected.marginalRate
     ) {
-      throw new Error(`rendered threshold contract differs from tax engine: ${JSON.stringify(thresholdProof)}`);
+      throw new Error(`rendered threshold contract differs from literal oracle: ${JSON.stringify({ thresholdProof, expected })}`);
     }
 
     const plannerControls = await page.evaluate(() => ({
@@ -560,7 +549,7 @@ try {
         '[data-taw-slider-val="rothWithdrawal"]',
         '[data-taw-slider-val="qcd"]',
         '[data-taw-slider-val="deferredWithdrawal"]',
-        '[data-taw-slider-val="taxableWithdrawal"]',
+        '[data-taw-slider-val="realizedGain"]',
       ].map(selector => document.querySelector(selector)?.getBoundingClientRect().right ?? null),
     }));
     const amountEdges = plannerControls.amountRightEdges.filter(Number.isFinite);
@@ -582,131 +571,255 @@ try {
       throw new Error(`Withdrawal Planner contains non-canonical controls or copy: ${JSON.stringify(plannerControls)}`);
     }
 
-    const baselinePlannerTax = await page.$eval(
-      '[data-taw-federal-tax]',
-      element => element.textContent.trim(),
-    );
-    await page.$eval('[data-taw-lever="rothConversion"]', input => {
-      input.value = input.max;
-      input.dispatchEvent(new Event('input', { bubbles: true }));
+    const plannerSnapshot = () => page.evaluate(() => {
+      const text = selector => document.querySelector(selector)?.textContent.trim() ?? null;
+      const columns = Object.fromEntries(['ord', 'ltcg', 'irmaa', 'ss'].map(id => {
+        const column = document.querySelector(`[data-taw-col="${id}"]`);
+        const base = column?.querySelector('.taw-col-base');
+        const fill = column?.querySelector('.taw-col-fill');
+        const gap = column?.querySelector('.taw-col-gap');
+        return [id, {
+          value: text(`[data-taw-col="${id}"] .taw-col-edge span`),
+          baseStyle: base?.style.height ?? null,
+          fillStyle: fill?.style.height ?? null,
+          gapStyle: gap?.style.height ?? null,
+          basePixels: base?.getBoundingClientRect().height ?? null,
+          fillPixels: fill?.getBoundingClientRect().height ?? null,
+          gapPixels: gap?.getBoundingClientRect().height ?? null,
+        }];
+      }));
+      return {
+        revision: Number(document.querySelector('[data-taw-root]')?.dataset.tawRenderRevision || -1),
+        federalTax: text('[data-taw-federal-tax]'),
+        effectiveRate: text('[data-taw-effective-rate]'),
+        marginalRate: text('[data-taw-marginal-rate]'),
+        taxCaused: {
+          roth: text('[data-taw-caused="roth"] [data-taw-caused-val]'),
+          traditional: text('[data-taw-caused="traditional"] [data-taw-caused-val]'),
+          taxable: text('[data-taw-caused="taxable"] [data-taw-caused-val]'),
+        },
+        columns,
+      };
     });
-    await page.waitForFunction(() => (
-      document.querySelector('[data-taw-slider-val="rothConversion"]')?.textContent.trim() === '$500,000'
-      && document.querySelector('[data-taw-lever="rothConversion"]')?.value === '500000'
-    ), { timeout: 15000 });
-    await page.$eval('[data-taw-lever="rothConversion"]', input => {
-      input.value = '0';
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-    });
-    await page.waitForFunction(baseline => (
-      document.querySelector('[data-taw-slider-val="rothConversion"]')?.textContent.trim() === '$0'
-      && document.querySelector('[data-taw-federal-tax]')?.textContent.trim() === baseline
-    ), { timeout: 15000 }, baselinePlannerTax);
-    await page.$eval('[data-taw-lever="deferredWithdrawal"]', input => {
-      input.value = '50000';
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-    });
-    await page.waitForFunction(baseline => (
-      document.querySelector('[data-taw-slider-val="deferredWithdrawal"]')?.textContent.trim() === '$50,000'
-      && document.querySelector('[data-taw-federal-tax]')?.textContent.trim() !== baseline
-    ), { timeout: 15000 }, baselinePlannerTax);
-    await page.$eval('[data-taw-lever="deferredWithdrawal"]', input => {
-      input.value = '0';
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-    });
-    await page.waitForFunction(baseline => (
-      document.querySelector('[data-taw-slider-val="deferredWithdrawal"]')?.textContent.trim() === '$0'
-      && document.querySelector('[data-taw-federal-tax]')?.textContent.trim() === baseline
-    ), { timeout: 15000 }, baselinePlannerTax);
+    const exerciseLever = async key => {
+      const effect = WITHDRAWAL_PLANNER_ORACLE.leverEffects[key];
+      if(!effect) throw new Error(`literal lever-effect oracle is missing: ${key}`);
+      const selector = `[data-taw-lever="${key}"]`;
+      const before = await plannerSnapshot();
+      const control = await page.$eval(selector, input => ({
+        disabled: input.disabled,
+        min: Number(input.min),
+        max: Number(input.max),
+      }));
+      if(control.disabled || !(control.max > control.min)){
+        throw new Error(`funded Planner lever is unavailable: ${JSON.stringify({ key, control })}`);
+      }
+      await stableClick(selector);
+      await page.keyboard.press('End');
+      await page.waitForFunction(({ leverKey, previousRevision }) => {
+        const root = document.querySelector('[data-taw-root]');
+        const input = document.querySelector(`[data-taw-lever="${leverKey}"]`);
+        return root?.getAttribute('aria-busy') === 'false'
+          && Number(root.dataset.tawRenderRevision || -1) > previousRevision
+          && input?.value === input?.max;
+      }, { timeout: 15000 }, { leverKey: key, previousRevision: before.revision });
+      const causedBucket = {
+        rothWithdrawal: 'roth',
+        deferredWithdrawal: 'traditional',
+        realizedGain: 'taxable',
+      }[key];
+      if(causedBucket){
+        await page.waitForFunction(bucket => (
+          document.querySelector(`[data-taw-caused="${bucket}"] [data-taw-caused-val]`)
+            ?.textContent.trim() !== '\u2014'
+        ), { timeout: 15000 }, causedBucket);
+      }
+      const after = await plannerSnapshot();
+      if(
+        after.federalTax === '\u2014'
+        || after.effectiveRate === '\u2014'
+        || after.marginalRate === '\u2014'
+        || after.columns.ord.value === '\u2014'
+        || after.columns.ltcg.value === '\u2014'
+        || after.columns.ss.value === '\u2014'
+        || Object.values(after.columns).some(column => (
+          !Number.isFinite(column.basePixels)
+            || !Number.isFinite(column.fillPixels)
+            || !Number.isFinite(column.gapPixels)
+        ))
+      ){
+        throw new Error(`Planner lever blanked visible outputs or fill geometry: ${JSON.stringify({ key, before, after })}`);
+      }
+      const financialView = snapshot => ({
+        federalTax: snapshot.federalTax,
+        effectiveRate: snapshot.effectiveRate,
+        marginalRate: snapshot.marginalRate,
+        columns: Object.fromEntries(
+          Object.entries(snapshot.columns).map(([id, column]) => [id, column.value]),
+        ),
+      });
+      const geometryView = snapshot => Object.fromEntries(
+        Object.entries(snapshot.columns).map(([id, column]) => [id, {
+          baseStyle: column.baseStyle,
+          fillStyle: column.fillStyle,
+          gapStyle: column.gapStyle,
+        }]),
+      );
+      const financialChanged = JSON.stringify(financialView(after))
+        !== JSON.stringify(financialView(before));
+      const geometryChanged = JSON.stringify(geometryView(after))
+        !== JSON.stringify(geometryView(before));
+      if(financialChanged !== (effect.financial === 'changes')){
+        throw new Error(`Planner lever financial-output contract failed: ${JSON.stringify({ key, effect, before, after })}`);
+      }
+      if(geometryChanged !== (effect.geometry === 'changes')){
+        throw new Error(`Planner lever fill-geometry contract failed: ${JSON.stringify({ key, effect, before, after })}`);
+      }
+      if(effect.taxCaused !== undefined){
+        if(!causedBucket || after.taxCaused[causedBucket] !== effect.taxCaused){
+          throw new Error(`Planner lever tax-caused contract failed: ${JSON.stringify({ key, effect, after })}`);
+        }
+      }
+      await stableClick(selector);
+      await page.keyboard.press('Home');
+      await page.waitForFunction(({ leverKey, previousRevision }) => {
+        const root = document.querySelector('[data-taw-root]');
+        const input = document.querySelector(`[data-taw-lever="${leverKey}"]`);
+        return root?.getAttribute('aria-busy') === 'false'
+          && Number(root.dataset.tawRenderRevision || -1) > previousRevision
+          && input?.value === input?.min;
+      }, { timeout: 15000 }, { leverKey: key, previousRevision: after.revision });
+      const reset = await plannerSnapshot();
+      const comparable = snapshot => ({
+        federalTax: snapshot.federalTax,
+        effectiveRate: snapshot.effectiveRate,
+        marginalRate: snapshot.marginalRate,
+        columns: Object.fromEntries(Object.entries(snapshot.columns).map(([id, column]) => [id, {
+          value: column.value,
+          baseStyle: column.baseStyle,
+          fillStyle: column.fillStyle,
+          gapStyle: column.gapStyle,
+        }])),
+      });
+      if(JSON.stringify(comparable(reset)) !== JSON.stringify(comparable(before))){
+        throw new Error(`Planner lever did not restore its visible baseline: ${JSON.stringify({ key, before, after, reset })}`);
+      }
+      return { key, control, before, after };
+    };
 
-    const brokerageLiterals = Object.freeze({
-      before: Object.freeze({
-        federalTax: '$21,940',
-        ordinary: '$21,940',
-        ltcg: '$0',
-        ltcgFill: '0%',
-        caused: '\u2014',
-      }),
-      after: Object.freeze({
-        slider: '$100,000',
-        federalTax: '$29,440',
-        ordinary: '$21,940',
-        ltcg: '$7,500',
-        ltcgFill: '6.83%',
-        caused: '$7,500',
-      }),
-    });
-    const brokerageBefore = await page.evaluate(() => ({
-      federalTax: document.querySelector('[data-taw-federal-tax]')?.textContent.trim() ?? null,
-      ordinary: document.querySelector('[data-taw-col="ord"] .taw-col-edge span')?.textContent.trim() ?? null,
-      ltcg: document.querySelector('[data-taw-col="ltcg"] .taw-col-edge span')?.textContent.trim() ?? null,
-      ltcgFill: document.querySelector('[data-taw-col="ltcg"] .taw-col-fill')?.style.height ?? null,
-      caused: document.querySelector('[data-taw-caused="taxable"] [data-taw-caused-val]')?.textContent.trim() ?? null,
-    }));
-    if(
-      Object.entries(brokerageLiterals.before)
-        .some(([key, expected]) => brokerageBefore[key] !== expected)
-    ) {
-      throw new Error(
-        `Brokerage baseline differs from persisted-current literals: ${JSON.stringify({ brokerageBefore, brokerageLiterals })}`,
-      );
+    const leverProof = [];
+    for(const key of [
+      'rothConversion',
+      'rothWithdrawal',
+      'qcd',
+      'deferredWithdrawal',
+      'realizedGain',
+    ]){
+      leverProof.push(await exerciseLever(key));
     }
-    await page.$eval('[data-taw-lever="taxableWithdrawal"]', input => {
-      input.value = '100000';
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-    });
-    await page.waitForFunction(expected => (
-      document.querySelector('[data-taw-slider-val="taxableWithdrawal"]')?.textContent.trim() === expected.slider
-      && document.querySelector('[data-taw-federal-tax]')?.textContent.trim() === expected.federalTax
-      && document.querySelector('[data-taw-col="ord"] .taw-col-edge span')?.textContent.trim() === expected.ordinary
-      && document.querySelector('[data-taw-col="ltcg"] .taw-col-edge span')?.textContent.trim() === expected.ltcg
-      && document.querySelector('[data-taw-col="ltcg"] .taw-col-fill')?.style.height === expected.ltcgFill
-      && document.querySelector('[data-taw-caused="taxable"] [data-taw-caused-val]')?.textContent.trim() === expected.caused
-    ), { timeout: 15000 }, brokerageLiterals.after);
-    const brokerageAfter = await page.evaluate(() => ({
-      slider: document.querySelector('[data-taw-slider-val="taxableWithdrawal"]')?.textContent.trim() ?? null,
-      federalTax: document.querySelector('[data-taw-federal-tax]')?.textContent.trim() ?? null,
-      ordinary: document.querySelector('[data-taw-col="ord"] .taw-col-edge span')?.textContent.trim() ?? null,
-      ltcg: document.querySelector('[data-taw-col="ltcg"] .taw-col-edge span')?.textContent.trim() ?? null,
-      ltcgFill: document.querySelector('[data-taw-col="ltcg"] .taw-col-fill')?.style.height ?? null,
-      caused: document.querySelector('[data-taw-caused="taxable"] [data-taw-caused-val]')?.textContent.trim() ?? null,
-    }));
-    if(
-      Object.entries(brokerageLiterals.after)
-        .some(([key, expected]) => brokerageAfter[key] !== expected)
-      || !(parseFloat(brokerageAfter.ltcgFill || '0') > 0)
-    ) {
-      throw new Error(
-        `Brokerage slider differs from persisted-current literals: ${JSON.stringify({ brokerageBefore, brokerageAfter, brokerageLiterals })}`,
-      );
+    const realized = leverProof.find(candidate => candidate.key === 'realizedGain');
+    const realizedOracle = WITHDRAWAL_PLANNER_FIXTURE.plannerOracle.realizedGainAtDisplayCeiling;
+    const realizedVisible = {
+      slider: `$${realized.control.max.toLocaleString('en-US')}`,
+      federalTax: realized.after.federalTax,
+      ordinary: realized.after.columns.ord.value,
+      longTermGainTax: realized.after.columns.ltcg.value,
+      effectiveRate: realized.after.effectiveRate,
+      taxCaused: realized.after.taxCaused.taxable,
+    };
+    if(Object.entries(realizedVisible).some(([key, value]) => value !== realizedOracle[key])){
+      throw new Error(`Realized Gain differs from the independent literal oracle: ${JSON.stringify({ realizedVisible, realizedOracle })}`);
     }
-    await page.$eval('[data-taw-lever="taxableWithdrawal"]', input => {
-      input.value = '0';
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-    });
-    await page.waitForFunction(expected => (
-      document.querySelector('[data-taw-slider-val="taxableWithdrawal"]')?.textContent.trim() === '$0'
-      && document.querySelector('[data-taw-federal-tax]')?.textContent.trim() === expected.federalTax
-      && document.querySelector('[data-taw-col="ord"] .taw-col-edge span')?.textContent.trim() === expected.ordinary
-      && document.querySelector('[data-taw-col="ltcg"] .taw-col-edge span')?.textContent.trim() === expected.ltcg
-      && document.querySelector('[data-taw-col="ltcg"] .taw-col-fill')?.style.height === expected.ltcgFill
-      && document.querySelector('[data-taw-caused="taxable"] [data-taw-caused-val]')?.textContent.trim() === expected.caused
-    ), { timeout: 15000 }, brokerageLiterals.before);
-    const brokerageReset = await page.evaluate(() => ({
-      federalTax: document.querySelector('[data-taw-federal-tax]')?.textContent.trim() ?? null,
-      ordinary: document.querySelector('[data-taw-col="ord"] .taw-col-edge span')?.textContent.trim() ?? null,
-      ltcg: document.querySelector('[data-taw-col="ltcg"] .taw-col-edge span')?.textContent.trim() ?? null,
-      ltcgFill: document.querySelector('[data-taw-col="ltcg"] .taw-col-fill')?.style.height ?? null,
-      caused: document.querySelector('[data-taw-caused="taxable"] [data-taw-caused-val]')?.textContent.trim() ?? null,
-    }));
-    if(
-      Object.entries(brokerageLiterals.before)
-        .some(([key, expected]) => brokerageReset[key] !== expected)
-    ) {
-      throw new Error(
-        `Brokerage reset differs from persisted-current literals: ${JSON.stringify({ brokerageReset, brokerageLiterals })}`,
-      );
+    if(!(parseFloat(realized.after.columns.ltcg.fillStyle || '0') > 0)){
+      throw new Error(`Realized Gain did not produce visible long-term-gain fill: ${JSON.stringify(realized)}`);
     }
+
+    const defaultIds = Object.keys(WITHDRAWAL_PLANNER_ORACLE.households);
+    const selectableIds = await page.$$eval(
+      '#hh-switch option',
+      options => options.map(option => option.value),
+    );
+    if(
+      selectableIds.length !== defaultIds.length + 1
+      || selectableIds[0] !== 'demo'
+      || defaultIds.some(id => !selectableIds.includes(id))
+    ){
+      throw new Error(`production default household selector is incomplete: ${JSON.stringify({ selectableIds, defaultIds })}`);
+    }
+    const productionDefaultProof = {};
+    for(const householdId of defaultIds){
+      await page.select('#hh-switch', householdId);
+      try{
+        await page.waitForFunction(expectedHouseholdId => {
+          const root = document.querySelector('[data-taw-root]');
+          return root?.dataset.tawHouseholdId === expectedHouseholdId
+            && root?.getAttribute('aria-busy') === 'false'
+            && document.querySelectorAll('.taw-range:not(:disabled)').length === 5
+            && document.querySelector('[data-taw-federal-tax]')?.textContent.trim() !== '\u2014';
+        }, { timeout: 15000 }, householdId);
+      }catch(error){
+        const observed = await page.evaluate(() => ({
+          selectedHouseholdId: document.querySelector('#hh-switch')?.value ?? null,
+          wizardHouseholdId: document.querySelector('[data-hh-wizard-root]')?.dataset.householdId ?? null,
+          householdName: document.querySelector('#hh-rail-name')?.textContent.trim() ?? null,
+          plannerHouseholdId: document.querySelector('[data-taw-root]')?.dataset.tawHouseholdId ?? null,
+          busy: document.querySelector('[data-taw-root]')?.getAttribute('aria-busy') ?? null,
+          federalTax: document.querySelector('[data-taw-federal-tax]')?.textContent.trim() ?? null,
+          controls: Array.from(document.querySelectorAll('.taw-range'), input => ({
+            lever: input.dataset.tawLever ?? null,
+            value: input.value,
+            max: input.max,
+            disabled: input.disabled,
+          })),
+        }));
+        throw new Error(
+          `production default did not reach ready funded Planner state: ${JSON.stringify({ householdId, observed })}`,
+          { cause:error },
+        );
+      }
+      const baseline = await plannerSnapshot();
+      const oracle = WITHDRAWAL_PLANNER_ORACLE.households[householdId];
+      if(
+        baseline.federalTax !== oracle.baseline.federalTax
+        || baseline.columns.ord.value !== oracle.baseline.ordinary
+        || baseline.columns.ltcg.value !== oracle.baseline.longTermGainTax
+      ){
+        throw new Error(`production default baseline differs from literal oracle: ${JSON.stringify({ householdId, baseline, oracle })}`);
+      }
+      const proofs = [];
+      for(const key of [
+        'rothConversion',
+        'rothWithdrawal',
+        'qcd',
+        'deferredWithdrawal',
+        'realizedGain',
+      ]){
+        proofs.push(await exerciseLever(key));
+      }
+      const realizedProof = proofs.find(candidate => candidate.key === 'realizedGain');
+      const realizedExpected = oracle.realizedGainAtDisplayCeiling;
+      const realizedActual = {
+        slider: `$${realizedProof.control.max.toLocaleString('en-US')}`,
+        federalTax: realizedProof.after.federalTax,
+        ordinary: realizedProof.after.columns.ord.value,
+        longTermGainTax: realizedProof.after.columns.ltcg.value,
+        effectiveRate: realizedProof.after.effectiveRate,
+        taxCaused: realizedProof.after.taxCaused.taxable,
+      };
+      if(Object.entries(realizedActual).some(([key, value]) => value !== realizedExpected[key])){
+        throw new Error(`production default Realized Gain differs from literal oracle: ${JSON.stringify({ householdId, realizedActual, realizedExpected })}`);
+      }
+      productionDefaultProof[householdId] = proofs;
+    }
+    if(Object.values(productionDefaultProof).some(proofs => proofs.length !== 5)){
+      throw new Error(`not every funded lever was exercised for every production default: ${JSON.stringify(productionDefaultProof)}`);
+    }
+    await page.select('#hh-switch', WITHDRAWAL_PLANNER_FIXTURE.householdId);
+    await page.waitForFunction(expectedHouseholdId => (
+      document.querySelector('[data-hh-wizard-root]')?.dataset.householdId === expectedHouseholdId
+      && document.querySelector('[data-taw-root]')?.dataset.tawHouseholdId === expectedHouseholdId
+      && document.querySelector('[data-taw-root]')?.getAttribute('aria-busy') === 'false'
+    ), { timeout:15000 }, WITHDRAWAL_PLANNER_FIXTURE.householdId);
     await page.screenshot({ path:join(OUT, '02-tax-buckets.png') });
     await page.setViewport({ width:1920, height:1080, deviceScaleFactor:3 });
   });
@@ -723,7 +836,6 @@ try {
       let nextRefreshGate = null;
       let refreshStateCalls = 0;
       let approvalReturns = 0;
-      let rejectTaxable = false;
       const waitFor = async (predicate, label) => {
         const deadline = performance.now() + 2000;
         while (performance.now() < deadline) {
@@ -744,7 +856,7 @@ try {
             rothWithdrawal: { max: 50000 },
             qcd: { max: levers.qcd + remainingTraditional },
             deferredWithdrawal: { max: levers.deferredWithdrawal + remainingTraditional },
-            taxableWithdrawal: { max: 50000 },
+            realizedGain: { max: 50000 },
           },
         };
       };
@@ -772,25 +884,6 @@ try {
           const gate = nextApprovalGate;
           nextApprovalGate = null;
           if (gate) await gate;
-          if (rejectTaxable && key === 'taxableWithdrawal') {
-            const safeLevers = { ...currentLevers, taxableWithdrawal: 0 };
-            const state = accountState(safeLevers);
-            state.valid = false;
-            state.levers = safeLevers;
-            state.limits.taxableWithdrawal = {
-              min: 0,
-              max: null,
-              available: false,
-              reason: 'TAXABLE_LOSS_TREATMENT_PENDING',
-            };
-            approvalReturns++;
-            return {
-              approved: false,
-              levers: safeLevers,
-              state,
-              code: 'TAXABLE_LOSS_TREATMENT_PENDING',
-            };
-          }
           const nextLevers = { ...currentLevers, [key]: value };
           approvalReturns++;
           return { approved: true, levers: nextLevers, state: accountState(nextLevers) };
@@ -836,25 +929,14 @@ try {
       await waitFor(() => approvalReturns === 3, 'stale approval return');
       await new Promise(resolveWait => setTimeout(resolveWait, 0));
       const conversionAfterStaleReturn = conversion.value;
-      const taxable = host.querySelector('[data-taw-lever="taxableWithdrawal"]');
-      taxable.value = '10000';
-      taxable.dispatchEvent(new Event('input', { bubbles: true }));
+      const realizedGain = host.querySelector('[data-taw-lever="realizedGain"]');
+      realizedGain.value = '10000';
+      realizedGain.dispatchEvent(new Event('input', { bubbles: true }));
       await new Promise(resolveWait => setTimeout(resolveWait, 0));
       const callsWhileRefreshPending = calls.length;
       releaseRefresh();
       await waitFor(() => calls.length === 4, 'approval queued after refresh');
-      await waitFor(() => taxable.value === '10000', 'post-refresh approved slider value');
-      const finalTaxableBeforeLoss = taxable.value;
-      rejectTaxable = true;
-      taxable.value = '20000';
-      taxable.dispatchEvent(new Event('input', { bubbles: true }));
-      await waitFor(
-        () => taxable.value === '0'
-          && taxable.disabled
-          && host.querySelector('[data-taw-slider-issue="taxableWithdrawal"]')?.hidden === false,
-        'confirmed-loss rejection and visible unavailable reason',
-      );
-      const lossIssue = host.querySelector('[data-taw-slider-issue="taxableWithdrawal"]');
+      await waitFor(() => realizedGain.value === '10000', 'post-refresh approved slider value');
 
       return {
         callsBeforeRelease,
@@ -872,13 +954,7 @@ try {
           conversionAfterStaleReturn,
           callsWhileRefreshPending,
           postRefreshCall: calls[3],
-          finalTaxable: finalTaxableBeforeLoss,
-        },
-        lossBoundary: {
-          finalTaxable: taxable.value,
-          disabled: taxable.disabled,
-          issue: lossIssue?.textContent ?? null,
-          describedBy: taxable.getAttribute('aria-describedby'),
+          finalRealizedGain: realizedGain.value,
         },
       };
     });
@@ -907,25 +983,18 @@ try {
       || proof.refreshRace.conversionAfterStaleReturn !== '60000'
       || proof.refreshRace.callsWhileRefreshPending !== 3
       || proof.refreshRace.postRefreshCall?.currentLevers?.rothConversion !== 60000
-      || proof.refreshRace.finalTaxable !== '10000'
+      || proof.refreshRace.finalRealizedGain !== '10000'
     ) {
       throw new Error(`refresh and approval ordering is unsafe: ${JSON.stringify(proof)}`);
-    }
-    if (
-      proof.lossBoundary.finalTaxable !== '0'
-      || proof.lossBoundary.disabled !== true
-      || proof.lossBoundary.issue !== 'Brokerage withdrawals are unavailable because confirmed losses are not modeled yet.'
-      || proof.lossBoundary.describedBy !== 'taw-taxableWithdrawal-issue'
-    ) {
-      throw new Error(`confirmed-loss rejection was not rendered truthfully: ${JSON.stringify(proof)}`);
     }
   });
 
   await step('Tax Buckets: production RMD floor and shared IRA limits reach the controls', async () => {
     const proof = await page.evaluate(async () => {
-      const [engineModule, accountModule, controllerModule, adapter] = await Promise.all([
+      const [engineModule, accountModule, factModule, controllerModule, adapter] = await Promise.all([
         import('/engine.js'),
         import('/src/household/createAccount.js'),
+        import('/src/household/factEnvelope.js'),
         import('/ui/taxAwareWithdrawal.js?verify=production-rmd'),
         import('/src/planning/taxBuckets/taxEngineAdapter.js'),
       ]);
@@ -943,6 +1012,12 @@ try {
         birthYear: 1953,
       };
       plan.household.spouse = null;
+      plan.taxProfiles.client.birthDate = factModule.createFact(
+        '1953-01-15',
+        'confirmed',
+        'household-entry',
+        '2026-01-15T12:00:00Z',
+      );
       plan.income.socialSecurity = {
         primary: { pia: 0, claimAge: 70 },
         spouse: null,
@@ -980,13 +1055,28 @@ try {
       };
       const conversion = host.querySelector('[data-taw-lever="rothConversion"]');
       const distribution = host.querySelector('[data-taw-lever="deferredWithdrawal"]');
-      await waitFor(
-        () => distribution.min === '10000'
-          && distribution.max === '265000'
-          && distribution.value === '10000'
-          && conversion.max === '255000',
-        'initial RMD-backed limits',
-      );
+      try{
+        await waitFor(
+          () => distribution.min === '10000'
+            && distribution.max === '265000'
+            && distribution.value === '10000'
+            && conversion.max === '255000',
+          'initial RMD-backed limits',
+        );
+      }catch(error){
+        const debugFacts = await adapter.householdIncome(plan, 2026);
+        const debugState = await adapter.withdrawalAccountState(plan, {}, debugFacts);
+        throw new Error(`${error.message}: ${JSON.stringify({
+          distributionMin:distribution.min,
+          distributionMax:distribution.max,
+          distributionValue:distribution.value,
+          conversionMax:conversion.max,
+          busy:host.querySelector('[data-taw-root]')?.getAttribute('aria-busy') ?? null,
+          revision:host.querySelector('[data-taw-root]')?.dataset.tawRenderRevision ?? null,
+          facts:debugFacts,
+          state:debugState,
+        })}`);
+      }
       const initial = {
         distributionMin: distribution.min,
         distributionMax: distribution.max,
@@ -1181,18 +1271,30 @@ try {
     await stableClick('button[data-page="scenarios"]');
     await page.waitForSelector('#scn-view', { visible: true, timeout: 15000 });
     await page.click('#scn-seg-compare');
-    await page.waitForFunction(expected => {
-      const toggle = document.querySelector('#scn-view [data-goals-toggle]');
-      const names = document.querySelectorAll('#scn-view .goal-detail__name');
-      const inputs = document.querySelectorAll('#scn-view .cmp-goal-in');
-      const medians = [...document.querySelectorAll('#scn-view .scol__median b')]
-        .map(element => element.textContent.trim());
-      return toggle?.getAttribute('aria-expanded') === 'true'
-        && names.length === expected
-        && inputs.length >= expected
-        && medians.length > 0
-        && medians.every(value => /^\$[\d,.]+[KMB]?$/.test(value));
-    }, { timeout: 10000 }, laneCount);
+    try{
+      await page.waitForFunction(expected => {
+        const toggle = document.querySelector('#scn-view [data-goals-toggle]');
+        const names = document.querySelectorAll('#scn-view .goal-detail__name');
+        const inputs = document.querySelectorAll('#scn-view .cmp-goal-in');
+        const medians = [...document.querySelectorAll('#scn-view .scol__median b')]
+          .map(element => element.textContent.trim());
+        return toggle?.getAttribute('aria-expanded') === 'true'
+          && names.length === expected
+          && inputs.length >= expected
+          && medians.length > 0
+          && medians.every(value => /^\$[\d,.]+[KMB]?$/.test(value));
+      }, { timeout: 10000 }, laneCount);
+    }catch(error){
+      const observed = await page.evaluate(() => ({
+        householdId:document.querySelector('[data-hh-wizard-root]')?.dataset.householdId ?? null,
+        expanded:document.querySelector('#scn-view [data-goals-toggle]')?.getAttribute('aria-expanded') ?? null,
+        names:[...document.querySelectorAll('#scn-view .goal-detail__name')].map(element => element.textContent.trim()),
+        inputs:document.querySelectorAll('#scn-view .cmp-goal-in').length,
+        medians:[...document.querySelectorAll('#scn-view .scol__median b')].map(element => element.textContent.trim()),
+        status:document.querySelector('#status')?.textContent.trim() ?? null,
+      }));
+      throw new Error(`Goals did not reach ready Scenarios view: ${JSON.stringify({ laneCount, observed })}`, { cause:error });
+    }
     const scenarioGoals = await page.evaluate(() => {
       const text = document.querySelector('#scn-view .goal-pill, #scn-view .goal-note')?.textContent || '';
       return {
@@ -2176,9 +2278,10 @@ try {
   // ── Multi-household persistence & bootstrapping ────────────────────────────
   // These run LAST (they clear storage and reload) so they can't disturb the
   // demo-coupled steps above. They prove the state-management contract:
-  // first-load seeds a blank demo, saved values survive reload, scenario storage
-  // is scoped by householdId, and Load Demo can recreate a missing demo slot.
-  await step('persistence: first load seeds one blank Demo Household + exposes minimal controls', async () => {
+  // first-load seeds a blank demo plus the shipped selectable defaults, saved
+  // values survive reload, scenario storage is scoped by householdId, and Load
+  // Demo can recreate a missing demo slot.
+  await step('persistence: first load seeds blank Demo + shipped selectable defaults', async () => {
     await page.evaluate(() => { try { localStorage.clear(); } catch (e) {} });
     await stableReload({ waitUntil: 'networkidle2', timeout: 20000 });
     await waitForWizard(page, { householdId: 'demo' });
@@ -2188,6 +2291,11 @@ try {
     }));
     if(!s.db || typeof s.db !== 'object') throw new Error('households store not created on first load');
     if(!s.db.demo) throw new Error('first load did not seed a "demo" household record');
+    const expectedFirstLoadIds = ['demo', ...Object.keys(WITHDRAWAL_PLANNER_ORACLE.households)].sort();
+    const actualFirstLoadIds = Object.keys(s.db).sort();
+    if(JSON.stringify(actualFirstLoadIds) !== JSON.stringify(expectedFirstLoadIds)){
+      throw new Error(`first-load household set is wrong: ${JSON.stringify({ actualFirstLoadIds, expectedFirstLoadIds })}`);
+    }
     if(s.active !== 'demo') throw new Error(`active household not "demo" on first load (got "${s.active}")`);
     if(!s.db.demo.meta || s.db.demo.meta.isDemo !== true) throw new Error('seeded demo record missing meta.isDemo=true');
     if(s.db.demo.meta.name !== 'Demo Household') throw new Error(`seeded demo meta.name wrong: "${s.db.demo.meta?.name}"`);
@@ -2199,13 +2307,15 @@ try {
     await goToWizardStep(page, 'family');
     const ctl = await page.evaluate(() => ({
       switcher: !!document.querySelector('#hh-menu-pop #hh-switch'),
-      opts: document.querySelectorAll('#hh-switch option').length,
+      options: [...document.querySelectorAll('#hh-switch option')].map(option => option.value),
       newBtn: !!document.querySelector('#hh-menu-pop #hh-new'),
       loadDemoBtn: !!document.querySelector('#hh-menu-pop #hh-load-demo'),
       retired: !!document.querySelector('#hh-act-demo, #hh-act-clear, .hh-menu__row'),
     }));
     if(!ctl.switcher) throw new Error('household switcher (#hh-switch) not rendered in the menu');
-    if(ctl.opts < 1) throw new Error('household switcher has no options');
+    if(JSON.stringify([...ctl.options].sort()) !== JSON.stringify(expectedFirstLoadIds)){
+      throw new Error(`household switcher options are wrong: ${JSON.stringify(ctl.options)}`);
+    }
     if(!ctl.newBtn) throw new Error('New Household button (#hh-new) not rendered in the menu');
     if(!ctl.loadDemoBtn || ctl.retired) throw new Error(`minimal Load Demo menu contract failed: ${JSON.stringify(ctl)}`);
   });
@@ -2264,8 +2374,16 @@ try {
       db: JSON.parse(localStorage.getItem('parallax.households.v1') || 'null'),
     }));
     if(!created.active || created.active === 'demo') throw new Error(`New Household did not become active (active="${created.active}")`);
-    if(Object.keys(created.db).length !== 2) throw new Error(`expected 2 households after New (got ${Object.keys(created.db).length})`);
     const customId = created.active;
+    const expectedCreatedIds = [
+      'demo',
+      ...Object.keys(WITHDRAWAL_PLANNER_ORACLE.households),
+      customId,
+    ].sort();
+    const actualCreatedIds = Object.keys(created.db).sort();
+    if(JSON.stringify(actualCreatedIds) !== JSON.stringify(expectedCreatedIds)){
+      throw new Error(`household set after New is wrong: ${JSON.stringify({ actualCreatedIds, expectedCreatedIds })}`);
+    }
     if(!created.db[customId] || created.db[customId].meta.isDemo !== false) throw new Error('new household record is not marked isDemo=false');
     if(created.db[customId].income.socialSecurity.primary.claimAge !== 67)
       throw new Error(`new household primary claim age must default to 67: ${JSON.stringify(created.db[customId].income.socialSecurity)}`);

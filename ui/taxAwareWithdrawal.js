@@ -12,13 +12,13 @@ import {
 export { renderTaxAwareWithdrawalView } from './taxAwareWithdrawalDom.js';
 
 const ATTRIBUTION_DEBOUNCE_MS = 180;
-const LEVER_KEYS = ['rothConversion', 'rothWithdrawal', 'qcd', 'deferredWithdrawal', 'taxableWithdrawal'];
+const LEVER_KEYS = ['rothConversion', 'rothWithdrawal', 'qcd', 'deferredWithdrawal', 'realizedGain'];
 
 const adapterPromise = import('../src/planning/taxBuckets/taxEngineAdapter.js');
 
 function defaultLevers() {
   return {
-    taxableWithdrawal: 0,
+    realizedGain: 0,
     deferredWithdrawal: 0,
     rothConversion: 0,
     rothWithdrawal: 0,
@@ -59,6 +59,19 @@ export function createTaxAwareWithdrawalController(deps) {
   let result = null;
   let attribution = null;
   let hoverMark = null;
+  let renderRevision = 0;
+
+  function setRenderBusy(){
+    if(refs?.tawRoot) refs.tawRoot.setAttribute('aria-busy', 'true');
+  }
+
+  function completeRender(plan){
+    if(!refs?.tawRoot) return;
+    renderRevision += 1;
+    refs.tawRoot.dataset.tawRenderRevision = String(renderRevision);
+    refs.tawRoot.dataset.tawHouseholdId = plan?.meta?.householdId ?? '';
+    refs.tawRoot.setAttribute('aria-busy', 'false');
+  }
 
   async function getAdapter() {
     if (adapter) return adapter;
@@ -71,6 +84,7 @@ export function createTaxAwareWithdrawalController(deps) {
   }
 
   function invalidateComputedView({ clearCaps = false } = {}) {
+    setRenderBusy();
     recomputeToken++;
     attributionToken++;
     clearTimeout(attTimer);
@@ -139,10 +153,11 @@ export function createTaxAwareWithdrawalController(deps) {
       token !== recomputeToken
       || refs !== viewRefs
       || plan !== deps.getPlan()
-      || !ad
-      || !plan
-      || !factSnapshot.filingStatus
     ) return;
+    if (!ad || !plan || !factSnapshot.filingStatus) {
+      completeRender(plan);
+      return;
+    }
     let next = null;
     try {
       next = await ad.evaluateYear({
@@ -166,6 +181,7 @@ export function createTaxAwareWithdrawalController(deps) {
       taxYear: selectedTaxYear,
       hoverMark,
     });
+    completeRender(plan);
     scheduleAttribution();
   }
 
@@ -279,6 +295,7 @@ export function createTaxAwareWithdrawalController(deps) {
       : 0;
     const plan = deps.getPlan();
     const viewRefs = refs;
+    setRenderBusy();
     paintLeverSync(viewRefs, key, value);
     const work = leverQueue.then(async () => {
       let ad = null;
@@ -312,7 +329,7 @@ export function createTaxAwareWithdrawalController(deps) {
         || refs !== viewRefs
         || plan !== deps.getPlan()
       ) return;
-      if (approval?.state && approval?.levers) {
+      if (approval?.approved) {
         levers = { ...approval.levers };
         accountState = approval.state;
       } else {
@@ -400,6 +417,7 @@ export function createTaxAwareWithdrawalController(deps) {
     attribution = null;
     result = null;
     hoverMark = null;
+    renderRevision = 0;
     bindListeners(host);
     ensureShell();
     LEVER_KEYS.forEach(key => paintLeverSync(refs, key, levers[key]));

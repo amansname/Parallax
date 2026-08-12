@@ -5,6 +5,7 @@ import { buildThresholdColumns, formatWithdrawalMoney } from './taxAwareWithdraw
 import {
   applyAttribution,
   applyThresholdColumns,
+  mountWithdrawalPlannerShell,
   updateSliderCaps,
 } from './taxAwareWithdrawalDom.js';
 
@@ -14,11 +15,7 @@ function sliderRefs(keys) {
       return [key, {
         input: {
           max: '', min: '', disabled: false,
-          attributes: {},
-          setAttribute(name, value) { this.attributes[name] = value; },
-          removeAttribute(name) { delete this.attributes[name]; },
         },
-        issue: { textContent: '', hidden: true },
       }];
     })),
   };
@@ -92,7 +89,7 @@ test('threshold headlines and bar labels use the tax-engine contract', () => {
 test('slider caps use the smaller of engine-approved limits and the $500,000 display ceiling', () => {
   const keys = [
     'rothConversion', 'rothWithdrawal', 'qcd',
-    'deferredWithdrawal', 'taxableWithdrawal',
+    'deferredWithdrawal', 'realizedGain',
   ];
   const refs = sliderRefs(keys);
   updateSliderCaps(refs, {
@@ -101,21 +98,21 @@ test('slider caps use the smaller of engine-approved limits and the $500,000 dis
       rothWithdrawal: { max: 750_000 },
       qcd: { max: 10_000 },
       deferredWithdrawal: { max: 40_000 },
-      taxableWithdrawal: { max: 1_200_000 },
+      realizedGain: { max: 1_200_000 },
     },
   });
   assert.strictEqual(refs.sliders.rothConversion.input.max, '70000');
   assert.strictEqual(refs.sliders.qcd.input.max, '10000');
   assert.strictEqual(refs.sliders.deferredWithdrawal.input.max, '40000');
   assert.strictEqual(refs.sliders.rothWithdrawal.input.max, '500000');
-  assert.strictEqual(refs.sliders.taxableWithdrawal.input.max, '500000');
-  assert.strictEqual(refs.sliders.taxableWithdrawal.input.disabled, false);
+  assert.strictEqual(refs.sliders.realizedGain.input.max, '500000');
+  assert.strictEqual(refs.sliders.realizedGain.input.disabled, false);
 });
 
 test('zero engine-approved limit disables its slider', () => {
   const keys = [
     'rothConversion', 'rothWithdrawal', 'qcd',
-    'deferredWithdrawal', 'taxableWithdrawal',
+    'deferredWithdrawal', 'realizedGain',
   ];
   const refs = sliderRefs(keys);
   updateSliderCaps(refs, {
@@ -124,10 +121,10 @@ test('zero engine-approved limit disables its slider', () => {
   assert.ok(keys.every(key => refs.sliders[key].input.disabled === true));
 });
 
-test('missing Brokerage basis keeps the control enabled at the engine-approved display cap', () => {
+test('Realized Gain uses the taxable-balance limit supplied by the account contract', () => {
   const keys = [
     'rothConversion', 'rothWithdrawal', 'qcd',
-    'deferredWithdrawal', 'taxableWithdrawal',
+    'deferredWithdrawal', 'realizedGain',
   ];
   const refs = sliderRefs(keys);
   updateSliderCaps(refs, {
@@ -136,29 +133,19 @@ test('missing Brokerage basis keeps the control enabled at the engine-approved d
       rothWithdrawal: { min: 0, max: 0 },
       qcd: { min: 0, max: 0 },
       deferredWithdrawal: { min: 0, max: 0 },
-      taxableWithdrawal: { min: 0, max: 670_000 },
-    },
-    taxableBasis: {
-      assumption: {
-        code: 'WITHDRAWAL_PLANNER_TAXABLE_50_50_ASSUMPTION',
-        principalFraction: 0.5,
-        gainFraction: 0.5,
-      },
+      realizedGain: { min: 0, max: 200_000 },
     },
   });
 
-  const slot = refs.sliders.taxableWithdrawal;
-  assert.equal(slot.input.max, '500000');
+  const slot = refs.sliders.realizedGain;
+  assert.equal(slot.input.max, '200000');
   assert.equal(slot.input.disabled, false);
-  assert.equal(slot.issue.hidden, true);
-  assert.equal(slot.issue.textContent, '');
-  assert.equal(slot.input.attributes['aria-describedby'], undefined);
 });
 
-test('confirmed Brokerage loss disables its slider and renders the required unavailable reason', () => {
+test('Realized Gain availability does not require Brokerage basis metadata', () => {
   const keys = [
     'rothConversion', 'rothWithdrawal', 'qcd',
-    'deferredWithdrawal', 'taxableWithdrawal',
+    'deferredWithdrawal', 'realizedGain',
   ];
   const refs = sliderRefs(keys);
   updateSliderCaps(refs, {
@@ -167,23 +154,44 @@ test('confirmed Brokerage loss disables its slider and renders the required unav
       rothWithdrawal: { min: 0, max: 0 },
       qcd: { min: 0, max: 0 },
       deferredWithdrawal: { min: 0, max: 0 },
-      taxableWithdrawal: {
+      realizedGain: {
         min: 0,
-        max: null,
-        available: false,
-        reason: 'TAXABLE_LOSS_TREATMENT_PENDING',
+        max: 670_000,
       },
     },
   });
 
-  const slot = refs.sliders.taxableWithdrawal;
-  assert.equal(slot.input.disabled, true);
-  assert.equal(slot.issue.hidden, false);
-  assert.equal(
-    slot.issue.textContent,
-    'Brokerage withdrawals are unavailable because confirmed losses are not modeled yet.',
-  );
-  assert.equal(slot.input.attributes['aria-describedby'], 'taw-taxableWithdrawal-issue');
+  const slot = refs.sliders.realizedGain;
+  assert.equal(slot.input.max, '500000');
+  assert.equal(slot.input.disabled, false);
+});
+
+test('Withdrawal Planner shell labels the control Realized gain with no Brokerage-basis copy', () => {
+  const emptyColumn = {
+    querySelector: () => null,
+    querySelectorAll: () => [],
+  };
+  const root = {
+    innerHTML: '',
+    querySelector: selector => selector.startsWith('[data-taw-col=') ? emptyColumn : null,
+    querySelectorAll: () => [],
+  };
+  mountWithdrawalPlannerShell(root, {
+    caps: {
+      limits: {
+        rothConversion: { max: 500_000 },
+        rothWithdrawal: { max: 400_000 },
+        qcd: { max: 500_000 },
+        deferredWithdrawal: { max: 500_000 },
+        realizedGain: { max: 500_000 },
+      },
+    },
+  });
+
+  assert.match(root.innerHTML, />Realized gain</);
+  assert.doesNotMatch(root.innerHTML, />Brokerage account</);
+  assert.doesNotMatch(root.innerHTML, /taw-slider-issue/);
+  assert.doesNotMatch(root.innerHTML, /confirmed losses are not modeled/i);
 });
 
 test('unavailable attribution clears prior sleeve values', () => {

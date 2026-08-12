@@ -12,7 +12,7 @@ export function createWithdrawalPlannerUiState(initialFilingStatus = null) {
       otherIncome: 0,
     }),
     levers: Object.freeze({
-      taxableWithdrawal: 0,
+      realizedGain: 0,
       deferredWithdrawal: 0,
       rothConversion: 0,
       rothWithdrawal: 0,
