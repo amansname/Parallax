@@ -25,6 +25,7 @@ const WITHDRAWAL_PLANNER_FIXTURE = JSON.parse(readFileSync(
   join(ROOT, 'test', 'fixtures', 'withdrawal-planner-visible-entry.v1.json'),
   'utf8',
 ));
+let withdrawalPlannerFixtureHouseholdId = null;
 const WITHDRAWAL_PLANNER_ORACLE = JSON.parse(readFileSync(
   join(ROOT, 'test', 'fixtures', 'withdrawal-planner-oracle.v1.json'),
   'utf8',
@@ -363,7 +364,18 @@ try {
   });
 
   await step('enter funded Withdrawal Planner household through visible production controls', async () => {
-    const fixture = WITHDRAWAL_PLANNER_FIXTURE;
+    await stableClick('#hh-menu-btn');
+    await stableClick('#hh-new');
+    await page.waitForFunction(() => {
+      const selected = document.querySelector('#hh-switch')?.value;
+      return selected && selected !== 'demo'
+        && document.querySelector('[data-hh-wizard-root]')?.dataset.householdId === selected;
+    }, { timeout: 10000 });
+    withdrawalPlannerFixtureHouseholdId = await page.$eval('#hh-switch', selector => selector.value);
+    const fixture = {
+      ...WITHDRAWAL_PLANNER_FIXTURE,
+      householdId: withdrawalPlannerFixtureHouseholdId,
+    };
     const currentRevision = () => page.$eval(
       '[data-hh-wizard-root]',
       root => Number(root.dataset.renderRevision || -1),
@@ -451,6 +463,8 @@ try {
     ), { timeout:8000 }, fixture.goals.essentialsAnnual);
 
     await stableReload({ waitUntil: 'networkidle2', timeout: 20000 });
+    await waitForWizard(page, { householdId: 'demo' });
+    await page.select('#hh-switch', fixture.householdId);
     await waitForWizard(page, { householdId: fixture.householdId });
   });
 
@@ -492,7 +506,7 @@ try {
       throw new Error(`Withdrawal Planner display ceilings are wrong: ${JSON.stringify(planner.sliderCaps)}`);
     }
     if(
-      planner.householdId !== WITHDRAWAL_PLANNER_FIXTURE.householdId
+      planner.householdId !== withdrawalPlannerFixtureHouseholdId
       || planner.realizedGainLabel !== 'Realized gain'
     ) {
       throw new Error(`Withdrawal Planner did not load the selected production household: ${JSON.stringify(planner)}`);
@@ -814,12 +828,12 @@ try {
     if(Object.values(productionDefaultProof).some(proofs => proofs.length !== 5)){
       throw new Error(`not every funded lever was exercised for every production default: ${JSON.stringify(productionDefaultProof)}`);
     }
-    await page.select('#hh-switch', WITHDRAWAL_PLANNER_FIXTURE.householdId);
+    await page.select('#hh-switch', withdrawalPlannerFixtureHouseholdId);
     await page.waitForFunction(expectedHouseholdId => (
       document.querySelector('[data-hh-wizard-root]')?.dataset.householdId === expectedHouseholdId
       && document.querySelector('[data-taw-root]')?.dataset.tawHouseholdId === expectedHouseholdId
       && document.querySelector('[data-taw-root]')?.getAttribute('aria-busy') === 'false'
-    ), { timeout:15000 }, WITHDRAWAL_PLANNER_FIXTURE.householdId);
+    ), { timeout:15000 }, withdrawalPlannerFixtureHouseholdId);
     await page.screenshot({ path:join(OUT, '02-tax-buckets.png') });
     await page.setViewport({ width:1920, height:1080, deviceScaleFactor:3 });
   });
