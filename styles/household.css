@@ -378,8 +378,6 @@
 
 .page[data-page="household"] .hh-field input,
 .page[data-page="household"] .hh-field select,
-.page[data-page="household"] .hh-cell input,
-.page[data-page="household"] .hh-cell select,
 .page[data-page="household"] .hh-tax-amount {
   width: 100%;
   min-width: 0;
@@ -394,8 +392,6 @@
 
 .page[data-page="household"] .hh-field input:focus,
 .page[data-page="household"] .hh-field select:focus,
-.page[data-page="household"] .hh-cell input:focus,
-.page[data-page="household"] .hh-cell select:focus,
 .page[data-page="household"] .hh-tax-amount:focus {
   border-color: rgba(207, 173, 101, 0.65);
   box-shadow: 0 0 0 1px rgba(207, 173, 101, 0.08);
@@ -551,91 +547,683 @@
 
 /* Net worth */
 
-.page[data-page="household"] .hh-account-table {
-  min-width: 0;
-  margin-top: 14px;
+.page[data-page="household"] .hh-stage[data-wizard-step="net-worth"] {
+  grid-template-columns: minmax(0, 1fr);
 }
 
-.page[data-page="household"] .hh-account-head,
-.page[data-page="household"] .hh-account-row {
+.page[data-page="household"] .hh-stage[data-wizard-step="net-worth"] .hh-sidebar,
+.page[data-page="household"] .hh-stage[data-wizard-step="net-worth"] .hh-wizard > footer {
+  display: none;
+}
+
+.page[data-page="household"] .hh-stage[data-wizard-step="net-worth"] .hh-wizard,
+.page[data-page="household"] .hh-stage[data-wizard-step="net-worth"] .hh-wiz-workspace,
+.page[data-page="household"] .hh-stage[data-wizard-step="net-worth"] .hh-content {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.page[data-page="household"] .hh-stage[data-wizard-step="net-worth"] .hh-wiz-workspace {
+  overflow: auto;
+}
+
+.page[data-page="household"] .hh-screen.nw-workflow {
+  --nw-bg-deep: #070809;
+  --nw-bg: #0b0d11;
+  --nw-ink: #ddd5c4;
+  --nw-ink-bright: #e7dec9;
+  --nw-ink-mute: #878e96;
+  --nw-ink-faint: #7d848c;
+  --nw-num: #b8ad92;
+  --nw-accent: #c6a662;
+  --nw-accent-bright: #d8c084;
+  --nw-accent-soft: rgba(198, 166, 98, 0.22);
+  --nw-accent-glow: rgba(198, 166, 98, 0.18);
+  --nw-btn: linear-gradient(180deg, #d8c084, #c6a662);
+  --nw-btn-ink: #15181d;
+  position: relative;
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  min-height: 600px;
+  margin: 0;
+  padding: 0;
+  background: var(--nw-bg-deep);
+  color: var(--nw-ink);
+  font-family: var(--font-sans);
+}
+
+.page[data-page="household"] .nw-entry-view {
   display: grid;
-  grid-template-columns:
-    minmax(190px, 1.35fr)
-    minmax(150px, 0.9fr)
-    minmax(170px, 0.9fr)
-    52px;
-  align-items: start;
-  gap: 14px;
+  grid-template-columns: minmax(0, 1fr) 296px;
+  width: 100%;
+  min-height: 600px;
 }
 
-.page[data-page="household"] .hh-account-head {
-  padding: 0 0 9px;
-  color: var(--hh-muted);
-  font-size: 8px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
+.page[data-page="household"] .nw-grid-region {
+  min-width: 0;
+  padding: 32px 30px 24px 34px;
+}
+
+.page[data-page="household"] .nw-group {
+  margin-bottom: 26px;
+}
+
+.page[data-page="household"] .nw-group h2 {
+  margin: 0;
+  padding-bottom: 12px;
+  color: var(--nw-ink-mute);
+  font: 600 10.5px/1 var(--font-sans);
+  letter-spacing: 0.18em;
   text-transform: uppercase;
 }
 
-.page[data-page="household"] .hh-account-head .is-right {
-  text-align: right;
+.page[data-page="household"] .nw-tile-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
 }
 
-.page[data-page="household"] .hh-account-row {
-  min-height: 51px;
-  padding: 8px 0;
-  border-top: 1px solid var(--hh-line-soft);
-}
-
-.page[data-page="household"] .hh-cell {
+.page[data-page="household"] .nw-tile {
+  display: flex;
   min-width: 0;
+  padding: 16px 15px;
+  flex-direction: column;
+  gap: 14px;
+  border: 1px solid rgba(231, 222, 201, 0.10);
+  border-radius: 7px;
+  background: var(--nw-bg);
+  box-shadow: 0 0 14px -4px rgba(198, 166, 98, 0.09);
+  color: var(--nw-ink);
+  text-align: left;
+  cursor: pointer;
+  transition: box-shadow 0.16s ease, border-color 0.16s ease;
 }
 
-.page[data-page="household"] .hh-cell--amount input,
-.page[data-page="household"] .hh-account-basis input {
-  text-align: right;
+.page[data-page="household"] .nw-tile.has-entries {
+  border-color: rgba(198, 166, 98, 0.20);
+  box-shadow: 0 0 16px -4px rgba(198, 166, 98, 0.16);
+}
+
+.page[data-page="household"] .nw-tile:hover {
+  border-color: rgba(198, 166, 98, 0.34);
+  background: rgba(231, 222, 201, 0.03);
+  box-shadow: 0 0 22px -3px rgba(198, 166, 98, 0.26);
+}
+
+.page[data-page="household"] .nw-tile-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.page[data-page="household"] .nw-tile-icon {
+  width: 22px;
+  height: 22px;
+  color: var(--nw-ink-mute);
+}
+
+.page[data-page="household"] .nw-tile.has-entries .nw-tile-icon {
+  color: var(--nw-accent);
+}
+
+.page[data-page="household"] .nw-tile-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--nw-accent);
+}
+
+.page[data-page="household"] .nw-tile-copy {
+  display: block;
+}
+
+.page[data-page="household"] .nw-tile-copy strong {
+  display: block;
+  margin-bottom: 7px;
+  font: 600 13.5px/1.2 var(--font-sans);
+}
+
+.page[data-page="household"] .nw-tile-copy > span {
+  display: block;
+  color: var(--nw-num);
+  font: 400 15px/1 var(--font-sans);
   font-variant-numeric: tabular-nums;
 }
 
-.page[data-page="household"] .hh-account-meta {
+.page[data-page="household"] .nw-rail {
   display: flex;
   min-width: 0;
+  padding: 30px 26px;
+  flex-direction: column;
+  border-left: 1px solid rgba(221, 213, 196, 0.12);
+  background: var(--nw-bg);
+}
+
+.page[data-page="household"] .nw-total-label,
+.page[data-page="household"] .nw-mobile-total > span {
+  margin-bottom: 14px;
+  color: var(--nw-ink-mute);
+  font: 500 10.5px/1 var(--font-sans);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.page[data-page="household"] .nw-rail > strong {
+  margin-bottom: 0;
+  color: #d8c084;
+  background: linear-gradient(102deg, #eee4cf 0%, #d8c084 46%, #c6a662 72%, #dfd2b5 100%);
+  background-clip: text;
+  -webkit-background-clip: text;
+  font: 400 40px/0.92 var(--font-serif);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.018em;
+  -webkit-text-fill-color: transparent;
+  text-shadow: 0 0 20px rgba(198, 166, 98, 0.08);
+}
+
+.page[data-page="household"] .nw-rail-spacer {
+  flex: 1;
+}
+
+.page[data-page="household"] .nw-rail-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.page[data-page="household"] .nw-primary-button,
+.page[data-page="household"] .nw-secondary-button {
+  height: 40px;
+  padding: 0 20px;
+  border-radius: 4px;
+  font: 500 13.5px/1 var(--font-sans);
+  cursor: pointer;
+}
+
+.page[data-page="household"] .nw-primary-button {
+  padding-inline: 24px;
+  border: 0;
+  background: var(--nw-btn);
+  color: var(--nw-btn-ink);
+  font-weight: 600;
+}
+
+.page[data-page="household"] .nw-primary-button:hover {
+  filter: brightness(1.08);
+}
+
+.page[data-page="household"] .nw-primary-button:disabled {
+  opacity: 0.42;
+  filter: none;
+  cursor: default;
+}
+
+.page[data-page="household"] .nw-secondary-button {
+  border: 1px solid rgba(221, 213, 196, 0.22);
+  background: var(--nw-bg);
+  color: var(--nw-ink);
+}
+
+.page[data-page="household"] .nw-secondary-button:hover {
+  background: rgba(221, 213, 196, 0.06);
+}
+
+.page[data-page="household"] .nw-rail-actions .nw-primary-button,
+.page[data-page="household"] .nw-rail-actions .nw-secondary-button {
+  width: 100%;
+  height: 42px;
+}
+
+.page[data-page="household"] .nw-mobile-total,
+.page[data-page="household"] .nw-mobile-footer,
+.page[data-page="household"] .nw-sheet-grabber {
+  display: none;
+}
+
+.page[data-page="household"] .nw-summary-view {
+  display: flex;
+  min-height: 600px;
+  flex-direction: column;
+  background: var(--nw-bg);
+}
+
+.page[data-page="household"] .nw-summary-main {
+  min-height: 600px;
+  padding: 44px 34px 32px;
+  background: var(--nw-bg);
+}
+
+.page[data-page="household"] .nw-summary-hero {
+  padding-bottom: 34px;
+  border-bottom: 1px solid rgba(221, 213, 196, 0.12);
+  text-align: center;
+}
+
+.page[data-page="household"] .nw-summary-hero > span {
+  display: block;
+  margin-bottom: 16px;
+  color: var(--nw-ink-mute);
+  font: 500 10.5px/1 var(--font-sans);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.page[data-page="household"] .nw-summary-hero > strong {
+  display: block;
+  color: var(--nw-num);
+  font: 400 68px/0.9 var(--font-serif);
+  font-variant-numeric: tabular-nums;
+}
+
+.page[data-page="household"] .nw-summary-hero > div {
+  display: flex;
+  justify-content: center;
+  gap: 60px;
+  margin-top: 26px;
+}
+
+.page[data-page="household"] .nw-summary-hero p {
+  margin: 0;
+}
+
+.page[data-page="household"] .nw-summary-hero p span {
+  display: block;
+  margin-bottom: 10px;
+  color: var(--nw-ink-mute);
+  font: 500 10.5px/1 var(--font-sans);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.page[data-page="household"] .nw-summary-hero p b {
+  color: var(--nw-num);
+  font: 400 24px/1 var(--font-serif);
+}
+
+.page[data-page="household"] .nw-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 26px;
+}
+
+.page[data-page="household"] .nw-summary-card {
+  min-width: 0;
+  padding: 15px;
+  border: 1px solid rgba(231, 222, 201, 0.08);
+  border-radius: 7px;
+  background: var(--nw-bg);
+}
+
+.page[data-page="household"] .nw-summary-icon {
+  width: 20px;
+  height: 20px;
+  margin-bottom: 12px;
+  color: var(--nw-ink-mute);
+}
+
+.page[data-page="household"] .nw-summary-card strong,
+.page[data-page="household"] .nw-summary-card > span {
+  display: block;
+}
+
+.page[data-page="household"] .nw-summary-card strong {
+  margin-bottom: 6px;
+  font: 600 13px/1.2 var(--font-sans);
+}
+
+.page[data-page="household"] .nw-summary-card > span {
+  color: var(--nw-num);
+  font: 400 14px/1 var(--font-sans);
+  font-variant-numeric: tabular-nums;
+}
+
+.page[data-page="household"] .nw-summary-footer {
+  display: flex;
   align-items: center;
-  gap: 8px;
-  margin-top: 6px;
+  justify-content: space-between;
+  padding: 18px 34px;
+  border-top: 1px solid rgba(221, 213, 196, 0.12);
+  background: var(--nw-bg);
+}
+
+.page[data-page="household"] .nw-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+}
+
+.page[data-page="household"] .nw-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.58);
+}
+
+.page[data-page="household"] .nw-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  width: 560px;
+  height: 100%;
+  flex-direction: column;
+  background: var(--nw-bg);
+  box-shadow: -8px 0 32px rgba(0, 0, 0, 0.5);
+}
+
+.page[data-page="household"] .nw-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 24px 28px;
+  flex: none;
+  border-bottom: 1px solid rgba(221, 213, 196, 0.12);
+}
+
+.page[data-page="household"] .nw-panel-head > div {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+}
+
+.page[data-page="household"] .nw-panel-head h2 {
+  margin: 0;
+  color: var(--nw-ink);
+  font: 400 24px/1 var(--font-serif);
+}
+
+.page[data-page="household"] .nw-panel-icon {
+  width: 24px;
+  height: 24px;
+  color: var(--nw-accent);
+}
+
+.page[data-page="household"] .nw-icon-button {
+  display: flex;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--nw-ink-mute);
+  cursor: pointer;
+}
+
+.page[data-page="household"] .nw-icon-button:hover {
+  background: rgba(221, 213, 196, 0.08);
+  color: var(--nw-ink);
+}
+
+.page[data-page="household"] .nw-icon-button svg {
+  width: 17px;
+  height: 17px;
+}
+
+.page[data-page="household"] .nw-panel-body {
+  min-height: 0;
+  padding: 8px 28px 24px;
+  flex: 1;
+  overflow: auto;
+}
+
+.page[data-page="household"] .nw-saved-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 16px 0;
+  border-bottom: 1px solid rgba(221, 213, 196, 0.08);
+}
+
+.page[data-page="household"] .nw-saved-copy {
+  min-width: 0;
+}
+
+.page[data-page="household"] .nw-saved-name {
+  margin-bottom: 5px;
   overflow: hidden;
-  color: var(--hh-muted);
-  font-size: 9px;
+  font: 500 14.5px/1.2 var(--font-sans);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.page[data-page="household"] .hh-account-basis {
-  display: grid;
-  gap: 4px;
-  margin-top: 7px;
+.page[data-page="household"] .nw-saved-meta {
+  overflow: hidden;
+  color: var(--nw-ink-mute);
+  font: 400 12.5px/1 var(--font-sans);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.page[data-page="household"] .hh-account-basis > span {
-  color: var(--hh-muted);
-  font-size: 8px;
-  line-height: 1.2;
-  text-align: right;
-}
-
-.page[data-page="household"] .hh-treatment-dot {
-  width: 7px;
-  height: 7px;
+.page[data-page="household"] .nw-saved-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   flex: none;
-  background: var(--treatment-color, var(--hh-slate));
 }
 
-.page[data-page="household"] .hh-cell.is-disabled input {
-  color: var(--hh-faint);
-  opacity: 0.65;
+.page[data-page="household"] .nw-saved-actions > span {
+  font: 500 15px/1 var(--font-sans);
+  font-variant-numeric: tabular-nums;
 }
 
-.page[data-page="household"] .hh-row-remove,
+.page[data-page="household"] .nw-remove-entry {
+  width: 26px;
+  height: 26px;
+  color: var(--nw-num);
+}
+
+.page[data-page="household"] .nw-remove-entry svg {
+  width: 14px;
+  height: 14px;
+}
+
+.page[data-page="household"] .nw-form {
+  padding-top: 18px;
+}
+
+.page[data-page="household"] .nw-type-selection {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 16px;
+}
+
+.page[data-page="household"] .nw-type-selection > span {
+  display: inline-flex;
+  height: 28px;
+  padding: 0 12px;
+  align-items: center;
+  border-radius: 14px;
+  background: var(--nw-accent-soft);
+  color: var(--nw-accent-bright);
+  font: 600 12.5px/1 var(--font-sans);
+}
+
+.page[data-page="household"] .nw-type-selection > input {
+  width: 210px;
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid rgba(221, 213, 196, 0.22);
+  border-radius: 16px;
+  background: var(--nw-bg);
+  color: var(--nw-ink);
+  font: 500 13px/1 var(--font-sans);
+  outline: 0;
+}
+
+.page[data-page="household"] .nw-type-selection .nw-icon-button {
+  width: 26px;
+  height: 26px;
+  color: var(--nw-num);
+}
+
+.page[data-page="household"] .nw-type-selection .nw-icon-button svg {
+  width: 14px;
+  height: 14px;
+}
+
+.page[data-page="household"] .nw-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.page[data-page="household"] .nw-field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.page[data-page="household"] .nw-field--wide {
+  grid-column: span 2;
+}
+
+.page[data-page="household"] .nw-field > span {
+  color: var(--nw-ink-mute);
+  font: 500 10px/1 var(--font-sans);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.page[data-page="household"] .nw-field input,
+.page[data-page="household"] .nw-field select {
+  width: 100%;
+  min-width: 0;
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid rgba(221, 213, 196, 0.22);
+  border-radius: 4px;
+  background: var(--nw-bg);
+  color: var(--nw-ink);
+  font-size: 14px;
+  outline: 0;
+}
+
+.page[data-page="household"] .nw-field select {
+  appearance: none;
+}
+
+.page[data-page="household"] .nw-field [data-net-worth-draft="value"] {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.page[data-page="household"] .nw-field input:focus,
+.page[data-page="household"] .nw-field select:focus,
+.page[data-page="household"] .nw-type-selection > input:focus {
+  border-color: var(--nw-accent);
+  box-shadow: 0 0 0 3px var(--nw-accent-glow);
+}
+
+.page[data-page="household"] .nw-type-picker {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 20px;
+}
+
+.page[data-page="household"] .nw-type-chip {
+  display: inline-flex;
+  height: 36px;
+  padding: 0 15px 0 12px;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid rgba(221, 213, 196, 0.18);
+  border-radius: 18px;
+  background: var(--nw-bg);
+  color: var(--nw-ink);
+  font: 500 13px/1 var(--font-sans);
+  cursor: pointer;
+  transition: border-color 0.14s ease, background 0.14s ease;
+}
+
+.page[data-page="household"] .nw-type-chip:hover {
+  border-color: var(--nw-accent);
+  background: rgba(198, 166, 98, 0.10);
+  color: var(--nw-accent-bright);
+}
+
+.page[data-page="household"] .nw-type-chip svg {
+  width: 12px;
+  height: 12px;
+  color: var(--nw-ink-faint);
+}
+
+.page[data-page="household"] .nw-type-chip--more {
+  padding-inline: 13px;
+  gap: 6px;
+  background: var(--nw-bg-deep);
+  color: var(--nw-ink-mute);
+}
+
+.page[data-page="household"] .nw-more-menu {
+  position: absolute;
+  top: 60px;
+  right: 0;
+  z-index: 9;
+  display: flex;
+  min-width: 236px;
+  padding: 6px;
+  flex-direction: column;
+  border: 1px solid rgba(221, 213, 196, 0.18);
+  border-radius: 7px;
+  background: var(--nw-bg);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+.page[data-page="household"] .nw-more-menu button {
+  height: 34px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--nw-ink);
+  font: 500 13px/1 var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+}
+
+.page[data-page="household"] .nw-more-menu button:hover {
+  background: rgba(221, 213, 196, 0.06);
+}
+
+.page[data-page="household"] .nw-more-menu .nw-type-own {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--nw-accent);
+  font-weight: 600;
+}
+
+.page[data-page="household"] .nw-type-own svg {
+  width: 13px;
+  height: 13px;
+}
+
+.page[data-page="household"] .nw-more-rule {
+  height: 1px;
+  margin: 5px 4px;
+  background: rgba(221, 213, 196, 0.12);
+}
+
+.page[data-page="household"] .nw-panel-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+  padding: 18px 28px;
+  flex: none;
+  border-top: 1px solid rgba(221, 213, 196, 0.12);
+  background: var(--nw-bg-deep);
+}
+
 .page[data-page="household"] .hh-tax-optional-head button {
   padding: 0;
   border: 0;
@@ -645,16 +1233,8 @@
   cursor: pointer;
 }
 
-.page[data-page="household"] .hh-row-remove:hover,
 .page[data-page="household"] .hh-tax-optional-head button:hover {
   color: #d89a88;
-}
-
-.page[data-page="household"] .hh-empty-row {
-  padding: 28px 0;
-  border-top: 1px solid var(--hh-line-soft);
-  color: var(--hh-muted);
-  font-size: 12px;
 }
 
 .page[data-page="household"] .hh-add-row {
@@ -672,62 +1252,6 @@
 .page[data-page="household"] .hh-add-row:hover {
   border-color: var(--hh-gold);
   color: var(--hh-gold-bright);
-}
-
-.page[data-page="household"] .hh-account-add-form {
-  display: grid;
-  grid-template-columns: 1.2fr 0.9fr 0.9fr auto;
-  align-items: end;
-  gap: 10px;
-  margin-top: 12px;
-  padding: 14px;
-  border: 1px solid rgba(207, 173, 101, 0.30);
-}
-
-.page[data-page="household"] .hh-account-add-actions {
-  display: flex;
-  gap: 7px;
-}
-
-.page[data-page="household"] .hh-button--quiet {
-  color: var(--hh-body);
-}
-
-.page[data-page="household"] .hh-bucket-totals {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  margin-top: 24px;
-  border-top: 1px solid var(--hh-line);
-  border-bottom: 1px solid var(--hh-line-soft);
-}
-
-.page[data-page="household"] .hh-bucket-total {
-  display: grid;
-  min-width: 0;
-  gap: 5px;
-  padding: 14px 0;
-}
-
-.page[data-page="household"] .hh-bucket-total + .hh-bucket-total {
-  padding-left: 20px;
-  border-left: 1px solid var(--hh-line-soft);
-}
-
-.page[data-page="household"] .hh-bucket-total > span {
-  color: var(--hh-body);
-  font-size: 10px;
-}
-
-.page[data-page="household"] .hh-bucket-total strong {
-  overflow: hidden;
-  color: var(--hh-ink);
-  font: 400 19px/1 var(--font-serif);
-  text-overflow: ellipsis;
-}
-
-.page[data-page="household"] .hh-bucket-total small {
-  color: var(--hh-muted);
-  font-size: 8px;
 }
 
 /* Tax */
@@ -1226,24 +1750,6 @@
     padding-inline: 26px;
   }
 
-  .page[data-page="household"] .hh-account-head,
-  .page[data-page="household"] .hh-account-row {
-    grid-template-columns:
-      minmax(170px, 1.2fr)
-      minmax(130px, 0.85fr)
-      minmax(150px, 0.85fr)
-      46px;
-    gap: 10px;
-  }
-
-  .page[data-page="household"] .hh-account-add-form {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .page[data-page="household"] .hh-account-add-actions {
-    grid-column: 1 / -1;
-  }
-
   .page[data-page="household"] .hh-tax-profile {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1310,14 +1816,6 @@
     overflow: visible;
   }
 
-  .page[data-page="household"] .hh-account-table {
-    overflow-x: auto;
-  }
-
-  .page[data-page="household"] .hh-account-head,
-  .page[data-page="household"] .hh-account-row {
-    min-width: 620px;
-  }
 }
 
 @media (max-width: 700px) {
@@ -1335,7 +1833,6 @@
 
   .page[data-page="household"] .hh-family-people,
   .page[data-page="household"] .hh-family-filing,
-  .page[data-page="household"] .hh-bucket-totals,
   .page[data-page="household"] .hh-itemized-grid,
   .page[data-page="household"] .hh-tax-mini-grid,
   .page[data-page="household"] .hh-summary-metrics,
@@ -1343,7 +1840,6 @@
     grid-template-columns: 1fr;
   }
 
-  .page[data-page="household"] .hh-bucket-total + .hh-bucket-total,
   .page[data-page="household"] .hh-summary-metric + .hh-summary-metric {
     padding-left: 0;
     border-top: 1px solid var(--hh-line-soft);
@@ -1450,5 +1946,412 @@
 
   .page[data-page="household"] .hh-wizard > footer {
     grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 920px) {
+  .page[data-page="household"] .hh-stage[data-wizard-step="net-worth"] {
+    display: grid;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .page[data-page="household"] .hh-stage[data-wizard-step="net-worth"] .hh-wizard {
+    min-height: 0;
+  }
+
+  .page[data-page="household"] .hh-stage[data-wizard-step="net-worth"] .hh-wiz-workspace {
+    overflow: auto;
+  }
+}
+
+@keyframes nw-sheet-up {
+  from {
+    opacity: 0.6;
+    transform: translateY(40px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 700px) {
+  .wrap:has(> .page.on[data-page="household"] .hh-stage[data-wizard-step="net-worth"]) {
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .page[data-page="household"] .hh-stage[data-wizard-step="net-worth"] .hh-wiz-workspace {
+    overflow: hidden;
+  }
+
+  .page[data-page="household"] .hh-screen.nw-workflow {
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .page[data-page="household"] .nw-entry-view {
+    display: flex;
+    height: 100%;
+    min-height: 0;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .page[data-page="household"] .nw-mobile-total {
+    display: block;
+    padding: 18px 20px 20px;
+    flex: none;
+    border-bottom: 1px solid rgba(221, 213, 196, 0.12);
+    background: var(--nw-bg);
+  }
+
+  .page[data-page="household"] .nw-mobile-total > span {
+    display: block;
+    margin-bottom: 11px;
+    font-size: 10px;
+  }
+
+  .page[data-page="household"] .nw-mobile-total > strong {
+    display: block;
+    margin-bottom: 0;
+    color: #d8c084;
+    background: linear-gradient(102deg, #eee4cf 0%, #d8c084 46%, #c6a662 72%, #dfd2b5 100%);
+    background-clip: text;
+    -webkit-background-clip: text;
+    font: 400 34px/0.92 var(--font-serif);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.018em;
+    -webkit-text-fill-color: transparent;
+    text-shadow: 0 0 18px rgba(198, 166, 98, 0.08);
+  }
+
+  .page[data-page="household"] .nw-grid-region {
+    min-height: 0;
+    padding: 18px 20px 8px;
+    flex: 1;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .page[data-page="household"] .nw-group {
+    margin-bottom: 20px;
+  }
+
+  .page[data-page="household"] .nw-group h2 {
+    padding-bottom: 10px;
+    font-size: 10px;
+  }
+
+  .page[data-page="household"] .nw-tile-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .page[data-page="household"] .nw-tile {
+    min-height: 104px;
+    padding: 14px;
+    border-radius: 9px;
+  }
+
+  .page[data-page="household"] .nw-tile-copy {
+    margin-top: auto;
+  }
+
+  .page[data-page="household"] .nw-tile-copy strong {
+    margin-bottom: 6px;
+    font-size: 14px;
+  }
+
+  .page[data-page="household"] .nw-rail {
+    display: none;
+  }
+
+  .page[data-page="household"] .nw-mobile-footer,
+  .page[data-page="household"] .nw-summary-footer {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 20px calc(14px + env(safe-area-inset-bottom));
+    flex: none;
+    border-top: 1px solid rgba(221, 213, 196, 0.12);
+    background: var(--nw-bg);
+  }
+
+  .page[data-page="household"] .nw-mobile-footer .nw-secondary-button,
+  .page[data-page="household"] .nw-summary-footer .nw-secondary-button {
+    height: 50px;
+    padding-inline: 20px;
+    border-radius: 6px;
+    font-size: 15px;
+  }
+
+  .page[data-page="household"] .nw-mobile-footer .nw-primary-button,
+  .page[data-page="household"] .nw-summary-footer .nw-primary-button {
+    height: 50px;
+    padding-inline: 20px;
+    flex: 1;
+    border-radius: 6px;
+    font-size: 15px;
+  }
+
+  .page[data-page="household"] .nw-summary-view {
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .page[data-page="household"] .nw-summary-main {
+    min-height: 0;
+    padding: 26px 20px 8px;
+    flex: 1;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .page[data-page="household"] .nw-summary-hero {
+    padding-bottom: 26px;
+  }
+
+  .page[data-page="household"] .nw-summary-hero > span {
+    margin-bottom: 14px;
+    font-size: 10px;
+  }
+
+  .page[data-page="household"] .nw-summary-hero > strong {
+    font-size: 50px;
+  }
+
+  .page[data-page="household"] .nw-summary-hero > div {
+    gap: 44px;
+    margin-top: 22px;
+  }
+
+  .page[data-page="household"] .nw-summary-hero p span {
+    margin-bottom: 8px;
+    font-size: 10px;
+  }
+
+  .page[data-page="household"] .nw-summary-hero p b {
+    font-size: 21px;
+  }
+
+  .page[data-page="household"] .nw-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 22px;
+    padding-bottom: 16px;
+  }
+
+  .page[data-page="household"] .nw-summary-card {
+    padding: 14px;
+    border-color: rgba(221, 213, 196, 0.12);
+    border-radius: 9px;
+    background: var(--nw-bg-deep);
+  }
+
+  .page[data-page="household"] .nw-summary-card strong {
+    font-size: 13.5px;
+  }
+
+  .page[data-page="household"] .nw-overlay {
+    display: flex;
+    align-items: flex-end;
+  }
+
+  .page[data-page="household"] .nw-scrim {
+    background: rgba(0, 0, 0, 0.55);
+  }
+
+  .page[data-page="household"] .nw-panel {
+    position: relative;
+    top: auto;
+    right: auto;
+    width: 100%;
+    height: auto;
+    max-height: 82%;
+    border-top: 1px solid rgba(221, 213, 196, 0.14);
+    border-radius: 16px 16px 0 0;
+    box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.5);
+    animation: nw-sheet-up 0.22s ease;
+  }
+
+  .page[data-page="household"] .nw-sheet-grabber {
+    display: flex;
+    width: 38px;
+    height: 4px;
+    margin: 10px auto 4px;
+    flex: none;
+    border-radius: 2px;
+    background: #e3ddd6;
+  }
+
+  .page[data-page="household"] .nw-panel-head {
+    padding: 10px 20px 16px;
+  }
+
+  .page[data-page="household"] .nw-panel-head > div {
+    gap: 11px;
+  }
+
+  .page[data-page="household"] .nw-panel-head h2 {
+    font-size: 22px;
+  }
+
+  .page[data-page="household"] .nw-panel-icon {
+    width: 22px;
+    height: 22px;
+  }
+
+  .page[data-page="household"] .nw-panel-close {
+    width: 34px;
+    height: 34px;
+    border-radius: 6px;
+  }
+
+  .page[data-page="household"] .nw-panel-close svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  .page[data-page="household"] .nw-panel-body {
+    padding: 4px 20px 20px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .page[data-page="household"] .nw-saved-row {
+    gap: 12px;
+    padding: 14px 0;
+  }
+
+  .page[data-page="household"] .nw-saved-name {
+    margin-bottom: 0;
+    font-size: 14.5px;
+  }
+
+  .page[data-page="household"] .nw-saved-meta {
+    padding-top: 5px;
+    font-size: 12px;
+  }
+
+  .page[data-page="household"] .nw-saved-actions {
+    gap: 6px;
+  }
+
+  .page[data-page="household"] .nw-saved-actions > span {
+    font-size: 14.5px;
+  }
+
+  .page[data-page="household"] .nw-remove-entry {
+    width: 30px;
+    height: 30px;
+    border-radius: 6px;
+    color: var(--nw-ink-faint);
+  }
+
+  .page[data-page="household"] .nw-type-picker {
+    gap: 8px;
+    padding-top: 18px;
+  }
+
+  .page[data-page="household"] .nw-type-chip {
+    height: 40px;
+    padding: 0 16px 0 13px;
+    border-radius: 20px;
+    font-size: 13.5px;
+  }
+
+  .page[data-page="household"] .nw-type-chip--more {
+    padding-inline: 14px;
+  }
+
+  .page[data-page="household"] .nw-more-menu {
+    position: static;
+    width: 100%;
+    min-width: 0;
+    margin-top: 2px;
+    border-radius: 9px;
+    box-shadow: none;
+  }
+
+  .page[data-page="household"] .nw-more-menu button {
+    height: 44px;
+    padding-inline: 12px;
+    border-radius: 6px;
+    font-size: 14.5px;
+  }
+
+  .page[data-page="household"] .nw-type-own svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  .page[data-page="household"] .nw-form {
+    padding-top: 16px;
+  }
+
+  .page[data-page="household"] .nw-type-selection {
+    padding-bottom: 10px;
+  }
+
+  .page[data-page="household"] .nw-type-selection > span {
+    height: 30px;
+    padding-inline: 13px;
+    border-radius: 15px;
+    font-size: 13px;
+  }
+
+  .page[data-page="household"] .nw-type-selection > input {
+    width: auto;
+    height: 34px;
+    flex: 1;
+    border-radius: 17px;
+  }
+
+  .page[data-page="household"] .nw-form-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .page[data-page="household"] .nw-field--wide {
+    grid-column: auto;
+  }
+
+  .page[data-page="household"] .nw-field input,
+  .page[data-page="household"] .nw-field select {
+    height: 46px;
+    padding-inline: 13px;
+    border-color: rgba(221, 213, 196, 0.18);
+    border-radius: 6px;
+    font-size: 14.5px;
+  }
+
+  .page[data-page="household"] .nw-field input {
+    font-size: 15px;
+    font-weight: 500;
+  }
+
+  .page[data-page="household"] .nw-panel-footer {
+    gap: 10px;
+    padding: 14px 20px calc(14px + env(safe-area-inset-bottom));
+  }
+
+  .page[data-page="household"] .nw-panel-footer .nw-secondary-button {
+    height: 48px;
+    padding-inline: 20px;
+    border-radius: 6px;
+    font-size: 15px;
+  }
+
+  .page[data-page="household"] .nw-panel-footer .nw-primary-button {
+    height: 48px;
+    padding-inline: 20px;
+    flex: 1;
+    border-radius: 6px;
+    font-size: 15px;
   }
 }

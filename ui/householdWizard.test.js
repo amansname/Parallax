@@ -82,8 +82,9 @@ function plan(){
 }
 
 function wizard({
-  accountFormOpen = false,
-  accountDraft = {},
+  netWorthPanelCategory = null,
+  netWorthDraft = null,
+  withoutSpouse = false,
   taxView = 'simplified',
   optionalMenuOpen = false,
   showScheduleSE = false,
@@ -95,6 +96,10 @@ function wizard({
   partialTax = false,
 } = {}){
   const value = plan();
+  if(withoutSpouse){
+    value.household.spouse = null;
+    value.meta.spouseName = '';
+  }
   if(grossOnlyDistributions){
     value.incomeTax.current1040.income.iraDistributions = 20000;
     value.incomeTax.current1040.income.pensionAmount = 15000;
@@ -110,8 +115,14 @@ function wizard({
     }];
   }
   const uiState = {
-    accountFormOpen,
-    accountDraft,
+    netWorthView: 'entry',
+    netWorthPanelCategory,
+    netWorthMoreOpen: false,
+    netWorthDraft,
+    netWorthShellEntries: [],
+    netWorthAccountMeta: {},
+    netWorthPropertyMeta: [],
+    netWorthMortgageMeta: [],
     taxView,
     optionalTaxItems: new Set(),
     optionalMenuOpen,
@@ -212,27 +223,41 @@ test('Family is compact and omits MFS and survivor controls', () => {
   assert.doesNotMatch(html, /Survivor assumption/i);
 });
 
-test('Net Worth presents account type, owner, and balance without a redundant account-name column', () => {
+test('Net Worth presents the approved category workflow and canonical portfolio total', () => {
   const html = wizard().render('net-worth');
-  assert.match(html, /data-account-id="acct-1"/);
-  assert.match(html, /data-derived-treatment="acct-1"/);
-  assert.match(html, />Account type</);
-  assert.match(html, />Account owner</);
-  assert.match(html, />Balance</);
-  assert.doesNotMatch(html, /data-account-field="displayName"/);
-  assert.doesNotMatch(html, /data-account-field="taxTreatment"/);
-  assert.doesNotMatch(html, />Joint brokerage</);
-  assert.match(html, /<option value="joint" selected>Joint<\/option>/);
-  assert.match(html, /value="1,450,000"\s+data-hh-field="account\.acct-1\.balance"/);
-  assert.match(html, /value="980,000"\s+placeholder="Cost basis"/);
+  assert.match(html, /data-hh-wizard-screen="net-worth"/);
+  assert.match(html, /data-hh-action="net-worth-open-category" data-category-id="bank"/);
+  assert.match(html, /data-hh-action="net-worth-open-category" data-category-id="investment"/);
+  assert.match(html, /data-hh-action="net-worth-open-category" data-category-id="property"/);
+  assert.match(html, /data-hh-action="net-worth-open-category" data-category-id="mortgage"/);
+  assert.match(html, /\$1,450,000/);
+  assert.match(html, /data-hh-action="net-worth-show-summary"/);
+  assert.doesNotMatch(html, /data-account-field|data-hh-action="add-account"/);
 });
 
-test('Net Worth formats an in-progress account balance with grouping separators', () => {
+test('Net Worth requires a valid owner and hides spouse ownership when no spouse exists', () => {
   const html = wizard({
-    accountFormOpen: true,
-    accountDraft: { balance: '250000' },
+    netWorthPanelCategory: 'bank',
+    withoutSpouse: true,
+    netWorthDraft: {
+      categoryId: 'bank',
+      name: '',
+      type: 'Checking',
+      custom: false,
+      owner: '',
+      link: '',
+      linkLabel: '',
+      linkAvailable: false,
+      value: '$250,000',
+      accountTypeId: 'checking',
+      canonicalTax: 'Taxable',
+      shellOnly: false,
+      owners: ['client', 'joint'],
+    },
   }).render('net-worth');
-  assert.match(html, /value="250,000"\s+data-account-draft="balance"/);
+  assert.match(html, /value="\$250,000"\s+data-net-worth-draft="value"/);
+  assert.match(html, /data-hh-action="net-worth-save-entry"[\s\S]*data-net-worth-owner-required="true"[\s\S]*disabled>Save/);
+  assert.doesNotMatch(html, /<option value="spouse"/);
 });
 
 test('Tax preserves the approved 1040 order and removes ledger-only columns', () => {

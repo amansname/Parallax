@@ -41,13 +41,15 @@ export function createHouseholdWizardController({
   let wizard;
 
   const state = {
-    accountFormOpen: false,
-    accountDraft: {
-      displayName: '',
-      typeId: '',
-      owner: 'client',
-      balance: '',
-    },
+    netWorthView: 'entry',
+    netWorthPanelCategory: null,
+    netWorthMoreOpen: false,
+    netWorthDraft: null,
+    netWorthShellEntries: [],
+    netWorthAccountMeta: {},
+    netWorthPropertyMeta: [],
+    netWorthMortgageMeta: [],
+    netWorthShellSequence: 0,
     taxView: 'simplified',
     optionalTaxItems: new Set(),
     optionalMenuOpen: false,
@@ -56,10 +58,26 @@ export function createHouseholdWizardController({
   const uiState = {
     get stepId(){ return stepId; },
     get renderRevision(){ return renderRevision; },
-    get accountFormOpen(){ return state.accountFormOpen; },
-    set accountFormOpen(value){ state.accountFormOpen = value === true; },
-    get accountDraft(){ return state.accountDraft; },
-    set accountDraft(value){ state.accountDraft = value; },
+    get netWorthView(){ return state.netWorthView; },
+    set netWorthView(value){ state.netWorthView = value === 'summary' ? 'summary' : 'entry'; },
+    get netWorthPanelCategory(){ return state.netWorthPanelCategory; },
+    set netWorthPanelCategory(value){ state.netWorthPanelCategory = value || null; },
+    get netWorthMoreOpen(){ return state.netWorthMoreOpen; },
+    set netWorthMoreOpen(value){ state.netWorthMoreOpen = value === true; },
+    get netWorthDraft(){ return state.netWorthDraft; },
+    set netWorthDraft(value){ state.netWorthDraft = value; },
+    get netWorthShellEntries(){ return state.netWorthShellEntries; },
+    set netWorthShellEntries(value){ state.netWorthShellEntries = Array.isArray(value) ? value : []; },
+    get netWorthAccountMeta(){ return state.netWorthAccountMeta; },
+    set netWorthAccountMeta(value){ state.netWorthAccountMeta = value && typeof value === 'object' ? value : {}; },
+    get netWorthPropertyMeta(){ return state.netWorthPropertyMeta; },
+    set netWorthPropertyMeta(value){ state.netWorthPropertyMeta = Array.isArray(value) ? value : []; },
+    get netWorthMortgageMeta(){ return state.netWorthMortgageMeta; },
+    set netWorthMortgageMeta(value){ state.netWorthMortgageMeta = Array.isArray(value) ? value : []; },
+    nextNetWorthShellId(){
+      state.netWorthShellSequence += 1;
+      return `nw-shell-${state.netWorthShellSequence}`;
+    },
     get taxView(){ return state.taxView; },
     set taxView(value){ state.taxView = value === 'detailed' ? 'detailed' : 'simplified'; },
     get optionalTaxItems(){ return state.optionalTaxItems; },
@@ -82,13 +100,10 @@ export function createHouseholdWizardController({
   }
 
   function resetTransient(){
-    state.accountFormOpen = false;
-    state.accountDraft = {
-      displayName: '',
-      typeId: '',
-      owner: 'client',
-      balance: '',
-    };
+    state.netWorthView = 'entry';
+    state.netWorthPanelCategory = null;
+    state.netWorthMoreOpen = false;
+    state.netWorthDraft = null;
     state.optionalMenuOpen = false;
   }
 
@@ -96,6 +111,11 @@ export function createHouseholdWizardController({
     stepId = 'family';
     state.taxView = 'simplified';
     state.optionalTaxItems.clear();
+    state.netWorthShellEntries = [];
+    state.netWorthAccountMeta = {};
+    state.netWorthPropertyMeta = [];
+    state.netWorthMortgageMeta = [];
+    state.netWorthShellSequence = 0;
     resetTransient();
   }
 

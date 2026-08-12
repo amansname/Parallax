@@ -145,8 +145,38 @@ export async function goToWizardStep(page, step){
     `Unsupported wizard step "${step}"`,
   );
   await openWizard(page);
-  const before = await wizardState(page);
+  let before = await wizardState(page);
   if(before.step === step) return before;
+  if(before.step === 'net-worth'){
+    if(await countMatches(page, '[data-net-worth-overlay]')){
+      await clickWizardAction(
+        page,
+        '[data-net-worth-overlay] .nw-panel-close',
+      );
+      before = await wizardState(page);
+    }
+    const mobile = await page.evaluate(() => matchMedia('(max-width: 920px)').matches);
+    if(step === 'family'){
+      const backSelector = mobile
+        ? '.nw-mobile-footer [data-hh-action="step-back"]'
+        : '.nw-rail [data-hh-action="step-back"]';
+      return clickWizardAction(page, backSelector, { expectedStep: 'family' });
+    }
+    if(await countMatches(page, '.nw-entry-view')){
+      const summarySelector = mobile
+        ? '.nw-mobile-footer [data-hh-action="net-worth-show-summary"]'
+        : '.nw-rail [data-hh-action="net-worth-show-summary"]';
+      await clickWizardAction(page, summarySelector);
+    }
+    before = await wizardState(page);
+    await clickWizardAction(
+      page,
+      '.nw-summary-footer [data-hh-action="step-next"]',
+      { expectedStep: 'tax' },
+    );
+    if(step === 'tax') return wizardState(page);
+    before = await wizardState(page);
+  }
   const selector = `[data-hh-wizard-nav="${step}"]`;
   await requireUnique(page, selector, `wizard navigation ${step}`);
   await page.click(selector);
@@ -197,7 +227,11 @@ async function clickWizardAction(
 ){
   await requireUnique(page, selector);
   const before = await wizardState(page);
-  await page.click(selector);
+  try{
+    await page.click(selector);
+  }catch(error){
+    throw new Error(`Unable to click wizard action ${selector}: ${error.message}`);
+  }
   if(expectRevision){
     return waitForWizard(page, {
       step: expectedStep || before.step,
@@ -211,6 +245,30 @@ async function clickWizardAction(
     `${selector} unexpectedly changed wizard state`,
   );
   return after;
+}
+
+export async function openNetWorthCategory(page, categoryId){
+  await goToWizardStep(page, 'net-worth');
+  const openCategory = await page.evaluate(() =>
+    document.querySelector('[data-net-worth-category-id]')
+      ?.dataset.netWorthCategoryId || '');
+  if(openCategory === categoryId) return wizardState(page);
+  if(openCategory){
+    await clickWizardAction(
+      page,
+      '[data-net-worth-overlay] .nw-panel-close',
+    );
+  }
+  await clickWizardAction(
+    page,
+    `[data-hh-action="net-worth-open-category"][data-category-id="${categoryId}"]`,
+  );
+  await requireUnique(
+    page,
+    `[data-net-worth-category-id="${categoryId}"]`,
+    `Net Worth ${categoryId} panel`,
+  );
+  return wizardState(page);
 }
 
 async function snapshotStorage(page){
@@ -443,6 +501,7 @@ async function prepareContractFixture(page){
     plan.household.primary.retirementAge = 70;
     plan.income.socialSecurity.spouse = null;
     plan.portfolio.extraAccounts = [];
+    plan.properties = [];
     plan.income.other = [
       {
         id: 'verify_wage_one',
@@ -575,30 +634,31 @@ async function verifyFamilyPropagation(page){
     );
   }
 
-  await goToWizardStep(page, 'net-worth');
-  await clickWizardAction(page, '[data-hh-action="add-account"]');
-  await setWizardValue(
+  await openNetWorthCategory(page, 'investment');
+  await clickWizardAction(
     page,
-    '[data-account-draft="typeId"]',
-    'roth_ira',
-    { expectRevision: false, eventType: 'input' },
+    '[data-hh-action="net-worth-pick-type"][data-account-type-id="roth_ira"]',
   );
   await setWizardValue(
     page,
-    '[data-account-draft="owner"]',
+    '[data-net-worth-draft="owner"]',
     'spouse',
-    { expectRevision: false, eventType: 'input' },
+    { expectRevision: false },
   );
   await setWizardValue(
     page,
-    '[data-account-draft="balance"]',
+    '[data-net-worth-draft="value"]',
     '1000',
     { expectRevision: false, eventType: 'input' },
   );
-  await clickWizardAction(page, '[data-hh-action="save-account"]');
+  await clickWizardAction(page, '[data-hh-action="net-worth-save-entry"]');
   const spouseAccountId = await page.$eval(
-    '.hh-account-row',
-    row => row.dataset.accountId,
+    '[data-hh-action="net-worth-remove-entry"][data-entry-source="account"]',
+    button => button.dataset.accountId,
+  );
+  await clickWizardAction(
+    page,
+    '[data-net-worth-overlay] .nw-panel-close',
   );
   await page.evaluate(() => {
     window.__coClientConfirmCalls = 0;
@@ -624,10 +684,14 @@ async function verifyFamilyPropagation(page){
     `Co-client account guard did not precede confirmation: ${JSON.stringify(accountBlocked)}`,
   );
 
-  await goToWizardStep(page, 'net-worth');
+  await openNetWorthCategory(page, 'investment');
   await clickWizardAction(
     page,
-    `[data-hh-action="remove-account"][data-account-id="${spouseAccountId}"]`,
+    `[data-hh-action="net-worth-remove-entry"][data-entry-source="account"][data-account-id="${spouseAccountId}"]`,
+  );
+  await clickWizardAction(
+    page,
+    '[data-net-worth-overlay] .nw-panel-close',
   );
   await goToWizardStep(page, 'family');
   await page.evaluate(() => {
@@ -695,6 +759,32 @@ async function verifyFamilyPropagation(page){
     persistedRemoval.people === 1 && persistedRemoval.status === 'single',
     `Co-client removal did not survive reload: ${JSON.stringify(persistedRemoval)}`,
   );
+  await openNetWorthCategory(page, 'bank');
+  await clickWizardAction(
+    page,
+    '[data-hh-action="net-worth-pick-type"][data-account-type-id="checking"]',
+  );
+  const singleOwnerState = await page.evaluate(() => ({
+    spouseOptions: document.querySelectorAll(
+      '[data-net-worth-draft="owner"] option[value="spouse"]',
+    ).length,
+    owner: document.querySelector('[data-net-worth-draft="owner"]')?.value || '',
+    saveDisabled: document.querySelector(
+      '[data-hh-action="net-worth-save-entry"]',
+    )?.disabled === true,
+  }));
+  requireCondition(
+    singleOwnerState.spouseOptions === 0
+      && singleOwnerState.owner === ''
+      && singleOwnerState.saveDisabled,
+    `Single-household account ownership is unsafe: ${JSON.stringify(singleOwnerState)}`,
+  );
+  await clickWizardAction(page, '[data-hh-action="net-worth-cancel-draft"]');
+  await clickWizardAction(
+    page,
+    '[data-net-worth-overlay] .nw-panel-close',
+  );
+  await goToWizardStep(page, 'family');
   await setWizardValue(
     page,
     '[data-wizard-field="filingStatus"]',
@@ -727,90 +817,217 @@ async function verifyFamilyPropagation(page){
   );
 }
 
-async function verifyAccountFlow(page){
-  await goToWizardStep(page, 'net-worth');
-  await clickWizardAction(page, '[data-hh-action="add-account"]', {
-    expectRevision: true,
-  });
-  const accountFields = await page.evaluate(() => ({
-    name: document.querySelectorAll('[data-account-draft="displayName"]').length,
-    type: document.querySelectorAll('[data-account-draft="typeId"]').length,
-    owner: document.querySelectorAll('[data-account-draft="owner"]').length,
-    balance: document.querySelectorAll('[data-account-draft="balance"]').length,
-    jointType: !!document.querySelector('[data-account-draft="typeId"] option[value="joint_brokerage"]'),
-    jointOwner: !!document.querySelector('[data-account-draft="owner"] option[value="joint"]'),
+async function verifyNetWorthFlow(page){
+  await openNetWorthCategory(page, 'bank');
+  await clickWizardAction(
+    page,
+    '[data-hh-action="net-worth-pick-type"][data-account-type-id="checking"]',
+  );
+  const accountDraft = await page.evaluate(() => ({
+    name: document.querySelectorAll('[data-net-worth-draft="name"]').length,
+    owner: document.querySelectorAll('[data-net-worth-draft="owner"]').length,
+    value: document.querySelectorAll('[data-net-worth-draft="value"]').length,
+    saveDisabled: document.querySelector(
+      '[data-hh-action="net-worth-save-entry"]',
+    )?.disabled === true,
+    ownerRequired: document.querySelector(
+      '[data-hh-action="net-worth-save-entry"]',
+    )?.dataset.netWorthOwnerRequired || '',
   }));
   requireCondition(
-    accountFields.name === 0
-      && accountFields.type === 1
-      && accountFields.owner === 1
-      && accountFields.balance === 1
-      && accountFields.jointType === false
-      && accountFields.jointOwner === true,
-    `Net Worth must expose only type, owner, and balance: ${JSON.stringify(accountFields)}`,
+    accountDraft.name === 1
+      && accountDraft.owner === 1
+      && accountDraft.value === 1
+      && accountDraft.saveDisabled
+      && accountDraft.ownerRequired === 'true',
+    `Net Worth canonical account draft is unsafe: ${JSON.stringify(accountDraft)}`,
   );
   await setWizardValue(
     page,
-    '[data-account-draft="typeId"]',
-    'brokerage_taxable',
+    '[data-net-worth-draft="name"]',
+    'Verifier checking',
     { expectRevision: false, eventType: 'input' },
   );
   await setWizardValue(
     page,
-    '[data-account-draft="owner"]',
+    '[data-net-worth-draft="owner"]',
     'client',
-    { expectRevision: false, eventType: 'input' },
+    { expectRevision: false },
   );
   await setWizardValue(
     page,
-    '[data-account-draft="balance"]',
-    '250000',
+    '[data-net-worth-draft="value"]',
+    '250000.75',
     { expectRevision: false, eventType: 'input' },
   );
-  const formattedDraftBalance = await page.$eval(
-    '[data-account-draft="balance"]',
-    input => input.value,
-  );
+  const formattedAccount = await page.evaluate(() => ({
+    value: document.querySelector('[data-net-worth-draft="value"]')?.value || '',
+    saveDisabled: document.querySelector(
+      '[data-hh-action="net-worth-save-entry"]',
+    )?.disabled === true,
+  }));
   requireCondition(
-    formattedDraftBalance === '250,000',
-    `Account draft balance did not format with commas: "${formattedDraftBalance}"`,
+    formattedAccount.value === '$250,000.75' && !formattedAccount.saveDisabled,
+    `Net Worth account draft did not become savable: ${JSON.stringify(formattedAccount)}`,
   );
-  await clickWizardAction(page, '[data-hh-action="save-account"]');
+  await clickWizardAction(page, '[data-hh-action="net-worth-save-entry"]');
   const account = await page.evaluate(() => {
-    const row = document.querySelector('.hh-account-row');
+    const remove = document.querySelector(
+      '[data-hh-action="net-worth-remove-entry"][data-entry-source="account"]',
+    );
+    const row = remove?.closest('.nw-saved-row');
     return {
-      id: row?.dataset.accountId || '',
-      treatment: row?.querySelector('[data-derived-treatment]')?.textContent.trim() || '',
-      balance: row?.querySelector('[data-account-field="balance"]')?.value || '',
-      count: document.querySelectorAll('.hh-account-row').length,
+      id: remove?.dataset.accountId || '',
+      count: document.querySelectorAll(
+        '[data-hh-action="net-worth-remove-entry"][data-entry-source="account"]',
+      ).length,
+      name: row?.querySelector('.nw-saved-name')?.textContent.trim() || '',
+      meta: row?.querySelector('.nw-saved-meta')?.textContent.trim() || '',
+      value: row?.querySelector('.nw-saved-actions span')?.textContent.trim() || '',
     };
   });
   requireCondition(
     account.count === 1
       && account.id
-      && account.treatment === 'Taxable'
-      && account.balance === '250,000',
-    `Account add/derived treatment failed: ${JSON.stringify(account)}`,
+      && account.name === 'Verifier checking'
+      && account.meta.includes('Checking')
+      && account.meta.includes('Client')
+      && account.value === '$250,001',
+    `Net Worth account did not save canonical truth: ${JSON.stringify(account)}`,
+  );
+  await page.waitForFunction(expectedId => {
+    const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+    const active = localStorage.getItem('parallax.activeHouseholdId');
+    const saved = db?.[active]?.portfolio?.extraAccounts
+      ?.find(item => item.id === expectedId);
+    return saved?.balance === 250001;
+  }, { timeout: 10000 }, account.id);
+  await reloadWizard(page);
+  await openNetWorthCategory(page, 'bank');
+  const persistedAccountValue = await page.$eval(
+    `[data-hh-action="net-worth-remove-entry"][data-entry-source="account"][data-account-id="${account.id}"]`,
+    button => button.closest('.nw-saved-row')
+      ?.querySelector('.nw-saved-actions span')?.textContent.trim() || '',
+  );
+  requireCondition(
+    persistedAccountValue === '$250,001',
+    `Canonical account value changed after reload: "${persistedAccountValue}"`,
+  );
+
+  await openNetWorthCategory(page, 'property');
+  await clickWizardAction(
+    page,
+    '[data-hh-action="net-worth-pick-type"][data-type-label="Primary Residence"]',
   );
   await setWizardValue(
     page,
-    `[data-account-id="${account.id}"][data-account-field="typeId"]`,
-    'traditional_ira',
+    '[data-net-worth-draft="value"]',
+    '500000.25',
+    { expectRevision: false, eventType: 'input' },
   );
-  const changedTreatment = await page.evaluate(id =>
-    document.querySelector(`[data-derived-treatment="${id}"]`)
-      ?.textContent.trim() || '', account.id);
+  await clickWizardAction(page, '[data-hh-action="net-worth-save-entry"]');
+  const property = await page.evaluate(() => {
+    const remove = document.querySelector(
+      '[data-hh-action="net-worth-remove-entry"][data-entry-source="property"]',
+    );
+    const row = remove?.closest('.nw-saved-row');
+    return {
+      count: document.querySelectorAll(
+        '[data-hh-action="net-worth-remove-entry"][data-entry-source="property"]',
+      ).length,
+      name: row?.querySelector('.nw-saved-name')?.textContent.trim() || '',
+      value: row?.querySelector('.nw-saved-actions span')?.textContent.trim() || '',
+    };
+  });
   requireCondition(
-    changedTreatment === 'Tax-deferred',
-    `Account type did not derive treatment: "${changedTreatment}"`,
+    property.count === 1 && property.name === '—' && property.value === '$500,000',
+    `Unnamed property did not save canonical truth: ${JSON.stringify(property)}`,
+  );
+
+  await openNetWorthCategory(page, 'mortgage');
+  await clickWizardAction(
+    page,
+    '[data-hh-action="net-worth-pick-type"][data-type-label="Primary Residence"]',
+  );
+  const autoLink = await page.evaluate(() => ({
+    value: document.querySelector('[data-net-worth-draft="link"]')?.value || '',
+    label: document.querySelector('[data-net-worth-draft="link"]')
+      ?.selectedOptions?.[0]?.textContent.trim() || '',
+    available: document.querySelector(
+      '[data-hh-action="net-worth-save-entry"]',
+    )?.dataset.netWorthResolvedLinkAvailable || '',
+  }));
+  requireCondition(
+    autoLink.value === '0'
+      && autoLink.label === 'Property 1'
+      && autoLink.available === 'true',
+    `Unnamed property was not mortgage-linkable: ${JSON.stringify(autoLink)}`,
+  );
+  await setWizardValue(
+    page,
+    '[data-net-worth-draft="value"]',
+    '120000.75',
+    { expectRevision: false, eventType: 'input' },
+  );
+  await clickWizardAction(page, '[data-hh-action="net-worth-save-entry"]');
+  const mortgage = await page.evaluate(() => {
+    const remove = document.querySelector(
+      '[data-hh-action="net-worth-remove-entry"][data-entry-source="mortgage"]',
+    );
+    const row = remove?.closest('.nw-saved-row');
+    return {
+      count: document.querySelectorAll(
+        '[data-hh-action="net-worth-remove-entry"][data-entry-source="mortgage"]',
+      ).length,
+      meta: row?.querySelector('.nw-saved-meta')?.textContent.trim() || '',
+      value: row?.querySelector('.nw-saved-actions span')?.textContent.trim() || '',
+    };
+  });
+  requireCondition(
+    mortgage.count === 1
+      && mortgage.meta.includes('Property 1')
+      && mortgage.value === '$120,001',
+    `Mortgage did not preserve its canonical property link: ${JSON.stringify(mortgage)}`,
+  );
+  await page.waitForFunction(() => {
+    const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+    const active = localStorage.getItem('parallax.activeHouseholdId');
+    const property = db?.[active]?.properties?.[0];
+    return property?.value === 500000 && property?.mortgage?.balance === 120001;
+  }, { timeout: 10000 });
+  await reloadWizard(page);
+  await openNetWorthCategory(page, 'mortgage');
+  const persistedMortgage = await page.evaluate(() => {
+    const remove = document.querySelector(
+      '[data-hh-action="net-worth-remove-entry"][data-entry-source="mortgage"]',
+    );
+    const row = remove?.closest('.nw-saved-row');
+    return {
+      meta: row?.querySelector('.nw-saved-meta')?.textContent.trim() || '',
+      value: row?.querySelector('.nw-saved-actions span')?.textContent.trim() || '',
+    };
+  });
+  requireCondition(
+    persistedMortgage.meta.includes('Property 1')
+      && persistedMortgage.value === '$120,001',
+    `Mortgage link/value changed after reload: ${JSON.stringify(persistedMortgage)}`,
+  );
+
+  await openNetWorthCategory(page, 'bank');
+  await clickWizardAction(
+    page,
+    `[data-hh-action="net-worth-remove-entry"][data-entry-source="account"][data-account-id="${account.id}"]`,
+  );
+  requireCondition(
+    await countMatches(
+      page,
+      '[data-hh-action="net-worth-remove-entry"][data-entry-source="account"]',
+    ) === 0,
+    'Net Worth account removal did not target the stable account ID',
   );
   await clickWizardAction(
     page,
-    `[data-hh-action="remove-account"][data-account-id="${account.id}"]`,
-  );
-  requireCondition(
-    await countMatches(page, '.hh-account-row') === 0,
-    'Account removal did not target the stable account ID',
+    '[data-net-worth-overlay] .nw-panel-close',
   );
 }
 
@@ -1119,6 +1336,9 @@ async function assertViewport(page, viewport, step, outDir, filename){
     const root = document.querySelector('[data-hh-wizard-root]');
     const screen = document.querySelector('[data-hh-wizard-screen]');
     const footer = document.querySelector('[data-hh-wizard-footer]');
+    const netWorthNavigation = [...document.querySelectorAll(
+      '.nw-rail-actions, .nw-mobile-footer, .nw-summary-footer',
+    )];
     const nav = document.querySelector(
       '[data-hh-wizard-nav][aria-current="step"]',
     );
@@ -1154,6 +1374,8 @@ async function assertViewport(page, viewport, step, outDir, filename){
       headerContentBottom,
       viewportWidth: document.documentElement.clientWidth,
       footerVisible: rendered(footer, footerRect),
+      netWorthNavigationVisible: netWorthNavigation.some(element =>
+        rendered(element, element.getBoundingClientRect())),
       screenVisible: rendered(screen, screenRect),
       step: root?.dataset.wizardStep || '',
       screen: screen?.dataset.hhWizardScreen || '',
@@ -1166,7 +1388,9 @@ async function assertViewport(page, viewport, step, outDir, filename){
       && metrics.rootLeft >= -1
       && metrics.rootRight <= metrics.viewportWidth + 1
       && metrics.rootTop >= metrics.headerContentBottom - 1
-      && metrics.footerVisible
+      && (step === 'net-worth'
+        ? metrics.netWorthNavigationVisible
+        : metrics.footerVisible)
       && metrics.screenVisible
       && metrics.step === step
       && metrics.screen === step
@@ -1209,17 +1433,20 @@ export async function captureWizardScreens(
       viewport: 'desktop',
     });
     if(step === 'net-worth'){
-      await clickWizardAction(page, '[data-hh-action="add-account"]');
+      await openNetWorthCategory(page, 'bank');
       await settleWizardCapture(page);
-      const addAccountPath = join(outDir, `${prefix}-${step}-add-account.png`);
-      await captureFullWizardArtifact(page, addAccountPath);
+      const panelPath = join(outDir, `${prefix}-${step}-bank-panel.png`);
+      await captureFullWizardArtifact(page, panelPath);
       artifacts.push({
-        label: 'net worth · add account',
-        path: addAccountPath,
+        label: 'net worth bank panel',
+        path: panelPath,
         step,
         viewport: 'desktop',
       });
-      await clickWizardAction(page, '[data-hh-action="cancel-account"]');
+      await clickWizardAction(
+        page,
+        '[data-net-worth-overlay] .nw-panel-close',
+      );
     }
     if(step === 'tax'){
       await clickWizardAction(
@@ -1284,7 +1511,7 @@ export async function runWizardBrowserContract(
     await prepareContractFixture(page);
     await assertFourStepStructure(page);
     await verifyFamilyPropagation(page);
-    await verifyAccountFlow(page);
+    await verifyNetWorthFlow(page);
     await verifyPlanningSourceAndTaxFlow(page);
     await verifyAutoSaveReloadAndMemberWages(page);
     await verifyDuplicateRepair(page);

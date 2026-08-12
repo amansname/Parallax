@@ -14,6 +14,7 @@ import { runMonteCarloWithFederalFunding } from '../src/planning/tax/runMonteCar
 import { createBlankTaxProfiles } from '../src/household/factEnvelope.js';
 import {
   goToWizardStep,
+  openNetWorthCategory,
   runWizardBrowserContract,
   waitForWizard,
 } from './wizard-browser-contract.mjs';
@@ -31,7 +32,7 @@ const SKIP_SEQUENCING = process.env.PARALLAX_VERIFY_SKIP_SEQUENCING === '1';
 function step(name, fn){
   return fn().then(
     r => { console.log(`  OK ${name}`); return r; },
-    e => { console.error(`  FAIL ${name}\n${e.message || e}`); process.exit(1); }
+    e => { console.error(`  FAIL ${name}\n${e.stack || e.message || e}`); process.exit(1); }
   );
 }
 
@@ -2001,12 +2002,37 @@ try {
     // Now "Retirement Age" must DROP OUT of the Scenarios levers (it is no longer
     // a decision to pull), while the other levers remain.
     await stableClick('button[data-page="scenarios"]');
-    await page.waitForFunction(() => {
-      const names = [...document.querySelectorAll('#scn-view .lever__name')]
-        .map(element => element.textContent.trim());
-      return names.includes('Allocation') && !names.includes('Retirement Age');
-    }, { timeout: 10000 });
     await stableClick('#scn-seg-compare');
+    try{
+      await page.waitForFunction(() => {
+        const names = [...document.querySelectorAll('#scn-view .lever__name')]
+          .map(element => element.textContent.trim());
+        return names.includes('Allocation') && !names.includes('Retirement Age');
+      }, { timeout: 10000 });
+    }catch(error){
+      const observed = await page.evaluate(() => {
+        const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+        const active = localStorage.getItem('parallax.activeHouseholdId');
+        const household = db?.[active]?.household || {};
+        return {
+          names: [...document.querySelectorAll('#scn-view .lever__name')]
+            .map(element => element.textContent.trim()),
+          primary: household.primary
+            ? {
+                currentAge: household.primary.currentAge,
+                retirementAge: household.primary.retirementAge,
+              }
+            : null,
+          spouse: household.spouse
+            ? {
+                currentAge: household.spouse.currentAge,
+                retirementAge: household.spouse.retirementAge,
+              }
+            : null,
+        };
+      });
+      throw new Error(`Retired-household lever state did not settle: ${JSON.stringify(observed)}. ${error.message}`);
+    }
     const afterNames = await leverNames();
     if(afterNames.includes('Retirement Age'))
       throw new Error(`Retirement Age lever must disappear once already retired: ${JSON.stringify(afterNames)}`);
@@ -2622,59 +2648,60 @@ try {
     await assertPinned('Family fields');
     await assertBytesUnchanged('Family fields');
 
-    // Net Worth uses stable account IDs. Add/remove and field edits stay inert
-    // even when a synthetic event bypasses the disabled browser control.
-    await goToWizardStep(page, 'net-worth');
+    // Net Worth category navigation remains available, while every mutation
+    // stays inert even when a synthetic event targets a disabled control.
+    await openNetWorthCategory(page, 'investment');
     const accountBefore = await page.evaluate(() => {
-      const fields = [...document.querySelectorAll(
-        '[data-hh-wizard-screen="net-worth"] [data-account-field]',
+      const remove = [...document.querySelectorAll(
+        '[data-hh-action="net-worth-remove-entry"][data-entry-source="account"]',
       )];
-      const rows = [...document.querySelectorAll('.hh-account-row[data-account-id]')];
-      const remove = [...document.querySelectorAll('[data-hh-action="remove-account"]')];
-      const add = [...document.querySelectorAll('[data-hh-action="add-account"]')];
+      const picks = [...document.querySelectorAll(
+        '[data-hh-action="net-worth-pick-type"]',
+      )];
       return {
-        ids: rows.map(row => row.dataset.accountId),
-        fields: fields.length,
-        enabledFields: fields.filter(element => !element.disabled)
-          .map(element => `${element.dataset.accountId}:${element.dataset.accountField}`),
+        ids: remove.map(button => button.dataset.accountId),
+        values: remove.map(button => button.closest('.nw-saved-row')
+          ?.querySelector('.nw-saved-actions span')?.textContent.trim() || ''),
         removeCount: remove.length,
         removeEnabled: remove.filter(element => !element.disabled).length,
-        addCount: add.length,
-        addEnabled: add.filter(element => !element.disabled).length,
-        firstBalance: document.querySelector('[data-account-field="balance"]')?.value || '',
+        pickCount: picks.length,
+        pickEnabled: picks.filter(element => !element.disabled).length,
+        draftCount: document.querySelectorAll('[data-net-worth-draft]').length,
       };
     });
-    if(!accountBefore.ids.length || !accountBefore.fields || accountBefore.enabledFields.length
+    if(!accountBefore.ids.length
       || !accountBefore.removeCount || accountBefore.removeEnabled
-      || !accountBefore.addCount || accountBefore.addEnabled){
-      throw new Error(`read-only account controls are not disabled: ${JSON.stringify(accountBefore)}`);
+      || !accountBefore.pickCount || accountBefore.pickEnabled
+      || accountBefore.draftCount){
+      throw new Error(`read-only Net Worth controls are not disabled: ${JSON.stringify(accountBefore)}`);
     }
     await page.evaluate(() => {
-      document.querySelector('[data-hh-action="remove-account"]')
+      document.querySelector(
+        '[data-hh-action="net-worth-remove-entry"][data-entry-source="account"]',
+      )
         ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-      document.querySelector('[data-hh-action="add-account"]')
+      document.querySelector('[data-hh-action="net-worth-pick-type"]')
         ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-      const balance = document.querySelector('[data-account-field="balance"]');
-      if(balance){
-        balance.value = '999';
-        balance.dispatchEvent(new Event('change', { bubbles: true }));
-      }
     });
     await goToWizardStep(page, 'family');
-    await goToWizardStep(page, 'net-worth');
+    await openNetWorthCategory(page, 'investment');
     const accountAfter = await page.evaluate(() => ({
-      ids: [...document.querySelectorAll('.hh-account-row[data-account-id]')]
-        .map(row => row.dataset.accountId),
-      form: Boolean(document.querySelector('[data-hh-account-add-form]')),
-      firstBalance: document.querySelector('[data-account-field="balance"]')?.value || '',
+      ids: [...document.querySelectorAll(
+        '[data-hh-action="net-worth-remove-entry"][data-entry-source="account"]',
+      )].map(button => button.dataset.accountId),
+      values: [...document.querySelectorAll(
+        '[data-hh-action="net-worth-remove-entry"][data-entry-source="account"]',
+      )].map(button => button.closest('.nw-saved-row')
+        ?.querySelector('.nw-saved-actions span')?.textContent.trim() || ''),
+      draftCount: document.querySelectorAll('[data-net-worth-draft]').length,
     }));
     if(JSON.stringify(accountAfter.ids) !== JSON.stringify(accountBefore.ids)
-      || accountAfter.form
-      || accountAfter.firstBalance !== accountBefore.firstBalance){
-      throw new Error(`read-only account edit changed immediate state: ${JSON.stringify({ accountBefore, accountAfter })}`);
+      || JSON.stringify(accountAfter.values) !== JSON.stringify(accountBefore.values)
+      || accountAfter.draftCount){
+      throw new Error(`read-only Net Worth edit changed immediate state: ${JSON.stringify({ accountBefore, accountAfter })}`);
     }
-    await assertPinned('account add/remove and fields');
-    await assertBytesUnchanged('account add/remove and fields');
+    await assertPinned('Net Worth add/remove');
+    await assertBytesUnchanged('Net Worth add/remove');
 
     // Tax fields and completion are guarded mutations. View controls may remain
     // navigable, while source-override and remove-item actions must be disabled.
