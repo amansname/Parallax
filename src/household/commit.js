@@ -10,6 +10,89 @@ function valueFromControl(control){
   return control.value;
 }
 
+function hasDigits(value){
+  return /\d/.test(String(value ?? ''));
+}
+
+function formatNetWorthCurrency(raw){
+  let value = String(raw ?? '').replace(/[^0-9.]/g, '');
+  const dot = value.indexOf('.');
+  if(dot !== -1){
+    value = value.slice(0, dot + 1) + value.slice(dot + 1).replace(/\./g, '');
+  }
+  if(!value) return '$';
+  const parts = value.split('.');
+  const integer = parts[0].replace(/^0+(?=\d)/, '') || '0';
+  const grouped = integer.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return parts.length > 1
+    ? `$${grouped}.${parts[1].slice(0, 2)}`
+    : `$${grouped}`;
+}
+
+function formatCanonicalCurrency(raw){
+  const value = Number(raw);
+  const rounded = Number.isFinite(value) && value >= 0 ? Math.round(value) : 0;
+  return `$${rounded.toLocaleString('en-US')}`;
+}
+
+function blankNetWorthDraft(categoryId){
+  return {
+    categoryId,
+    name: '',
+    type: '',
+    custom: false,
+    owner: '',
+    link: '',
+    linkLabel: '',
+    linkAvailable: false,
+    value: '$',
+    accountTypeId: '',
+    canonicalTax: '',
+    shellOnly: false,
+    owners: ['client', 'spouse', 'joint'],
+  };
+}
+
+function updateNetWorthDraft(transientState, control){
+  const field = control.dataset.netWorthDraft;
+  if(!field || !transientState.netWorthDraft) return false;
+  let value = control.value;
+  if(field === 'value'){
+    value = formatNetWorthCurrency(value);
+    control.value = value;
+  }
+  const next = {
+    ...transientState.netWorthDraft,
+    [field]: value,
+  };
+  if(field === 'link'){
+    const selected = control.selectedOptions?.[0];
+    next.linkLabel = selected?.textContent?.trim() || '';
+    next.linkAvailable = selected?.dataset.netWorthLinkAvailable === 'true';
+    const save = control.closest?.('.nw-panel')
+      ?.querySelector('[data-hh-action="net-worth-save-entry"]');
+    if(save){
+      save.dataset.netWorthResolvedLink = next.linkAvailable ? next.link : '';
+      save.dataset.netWorthResolvedLinkLabel = next.linkAvailable ? next.linkLabel : '';
+      save.dataset.netWorthResolvedLinkAvailable = next.linkAvailable ? 'true' : 'false';
+    }
+  }
+  const save = control.closest?.('.nw-panel')
+    ?.querySelector('[data-hh-action="net-worth-save-entry"]');
+  if(save){
+    const ownerRequired = save.dataset.netWorthOwnerRequired === 'true';
+    const ownerValid = !ownerRequired
+      || Boolean(next.owner && next.owners.includes(next.owner));
+    const linkRequired = save.dataset.netWorthLinkRequired === 'true';
+    const linkValid = !linkRequired
+      || (save.dataset.netWorthResolvedLinkAvailable === 'true'
+        && Boolean(save.dataset.netWorthResolvedLink));
+    save.disabled = !ownerValid || !linkValid;
+  }
+  transientState.netWorthDraft = next;
+  return true;
+}
+
 function birthDateValidityControl(control){
   if(!control?.matches?.('[data-birth-date-value]')) return control;
   const group = control.closest('[data-birth-date-group]');
@@ -74,14 +157,14 @@ export function bindHouseholdEditor({
     syncHeaderStatus(message);
   }
 
-  function commit(command, control = null){
+  function commit(command, control = null, returnResult = false){
     if(!guardPlanMutation()) return false;
     try{
       const result = commitWizardEdit(command);
       if(result?.refreshError){
         wizardRoot.dataset.validationCode = 'WIZARD_REFRESH_FAILED';
         syncHeaderStatus('Edit applied, but the screen could not refresh');
-        return true;
+        return returnResult ? result : true;
       }
       delete wizardRoot.dataset.validationCode;
       if(control){
@@ -94,7 +177,7 @@ export function bindHouseholdEditor({
           }
         }
       }
-      return true;
+      return returnResult ? result : true;
     }catch(error){
       reportError(error, control);
       return false;
@@ -120,40 +203,36 @@ export function bindHouseholdEditor({
         event.target.setCustomValidity('');
       }
     }
-    const draft = event.target.closest('[data-account-draft]');
-    if(draft){
-      if(draft.dataset.accountDraft === 'balance') liveCommas(draft);
-      transientState.accountDraft = {
-        ...transientState.accountDraft,
-        [draft.dataset.accountDraft]: draft.value,
-      };
+    const netWorthDraft = event.target.closest?.('[data-net-worth-draft]');
+    if(netWorthDraft){
+      updateNetWorthDraft(transientState, netWorthDraft);
       return;
     }
-    if(event.target.classList.contains('hh-tax-amount')
-        || event.target.dataset.accountField === 'balance'
-        || event.target.dataset.accountField === 'basis'){
+    if(event.target.classList.contains('hh-tax-amount')){
       if(event.target.dataset.signed !== 'true') liveCommas(event.target);
     }
   });
 
   root.addEventListener('focusin', event => {
-    const control = event.target.closest?.(
-      '.hh-tax-amount, [data-account-field="balance"], [data-account-field="basis"]',
-    );
+    const control = event.target.closest?.('.hh-tax-amount');
     if(control && control.dataset.householdCommittedValue === undefined){
       control.dataset.householdCommittedValue = control.value;
     }
   });
 
   root.addEventListener('focusout', event => {
-    const control = event.target.closest?.(
-      '.hh-tax-amount, [data-account-field="balance"], [data-account-field="basis"]',
-    );
+    const control = event.target.closest?.('.hh-tax-amount');
     if(!control || control.dataset.householdCommittedValue === control.value) return;
     control.dispatchEvent(new Event('change', { bubbles: true }));
   });
 
   root.addEventListener('change', event => {
+    const netWorthDraft = event.target.closest?.('[data-net-worth-draft]');
+    if(netWorthDraft){
+      updateNetWorthDraft(transientState, netWorthDraft);
+      return;
+    }
+
     const family = event.target.closest('[data-wizard-scope="family"][data-wizard-field]');
     if(family){
       const priorValue = family.matches?.('[data-birth-date-value]')
@@ -175,19 +254,6 @@ export function bindHouseholdEditor({
       return;
     }
 
-    const account = event.target.closest('[data-account-field][data-account-id]');
-    if(account){
-      const applied = commit({
-        scope: 'account',
-        action: 'update',
-        accountId: account.dataset.accountId,
-        field: account.dataset.accountField,
-        value: valueFromControl(account),
-      }, account);
-      if(applied) account.dataset.householdCommittedValue = account.value;
-      return;
-    }
-
     const tax = event.target.closest('[data-tax-field]');
     if(tax){
       const applied = commit({
@@ -203,6 +269,7 @@ export function bindHouseholdEditor({
   root.addEventListener('click', event => {
     const action = event.target.closest('[data-hh-action]');
     if(!action) return;
+    if(action.disabled || action.getAttribute('aria-disabled') === 'true') return;
     const kind = action.dataset.hhAction;
 
     if(kind === 'step-back'){
@@ -213,17 +280,297 @@ export function bindHouseholdEditor({
       navigateWizard('next');
       return;
     }
-    if(kind === 'add-account'){
-      if(!guardPlanMutation()) return;
-      transientState.accountFormOpen = true;
-      transientState.accountDraft = {
-        displayName: '',
-        typeId: '',
-        owner: 'client',
-        balance: '',
-      };
+    if(kind === 'net-worth-show-summary'){
+      transientState.netWorthView = 'summary';
+      transientState.netWorthPanelCategory = null;
+      transientState.netWorthMoreOpen = false;
+      transientState.netWorthDraft = null;
       syncHousehold();
       return;
+    }
+    if(kind === 'net-worth-show-entry'){
+      transientState.netWorthView = 'entry';
+      syncHousehold();
+      return;
+    }
+    if(kind === 'net-worth-open-category'){
+      transientState.netWorthPanelCategory = action.dataset.categoryId;
+      transientState.netWorthMoreOpen = false;
+      transientState.netWorthDraft = null;
+      syncHousehold();
+      return;
+    }
+    if(kind === 'net-worth-close-panel'){
+      transientState.netWorthPanelCategory = null;
+      transientState.netWorthMoreOpen = false;
+      transientState.netWorthDraft = null;
+      syncHousehold();
+      return;
+    }
+    if(kind === 'net-worth-toggle-more'){
+      transientState.netWorthMoreOpen = !transientState.netWorthMoreOpen;
+      syncHousehold();
+      return;
+    }
+    if(kind === 'net-worth-pick-type'){
+      const categoryId = action.dataset.categoryId;
+      const current = transientState.netWorthDraft?.categoryId === categoryId
+        ? transientState.netWorthDraft
+        : blankNetWorthDraft(categoryId);
+      const owners = String(action.dataset.owners || '')
+        .split(',')
+        .filter(Boolean);
+      transientState.netWorthDraft = {
+        ...current,
+        categoryId,
+        type: action.dataset.typeLabel || '',
+        custom: false,
+        owner: owners.includes(current.owner) ? current.owner : '',
+        accountTypeId: action.dataset.accountTypeId || '',
+        canonicalTax: action.dataset.canonicalTax || '',
+        shellOnly: action.dataset.shellOnly === 'true',
+        owners,
+      };
+      transientState.netWorthMoreOpen = false;
+      syncHousehold();
+      return;
+    }
+    if(kind === 'net-worth-pick-custom'){
+      const categoryId = action.dataset.categoryId;
+      const current = transientState.netWorthDraft?.categoryId === categoryId
+        ? transientState.netWorthDraft
+        : blankNetWorthDraft(categoryId);
+      transientState.netWorthDraft = {
+        ...current,
+        categoryId,
+        type: '',
+        custom: true,
+        accountTypeId: '',
+        canonicalTax: '',
+        shellOnly: true,
+        owners: ['client', 'spouse', 'joint'],
+      };
+      transientState.netWorthMoreOpen = false;
+      syncHousehold();
+      return;
+    }
+    if(kind === 'net-worth-clear-type'){
+      if(!transientState.netWorthDraft) return;
+      transientState.netWorthDraft = {
+        ...transientState.netWorthDraft,
+        type: '',
+        custom: false,
+        accountTypeId: '',
+        canonicalTax: '',
+        shellOnly: false,
+        owners: ['client', 'spouse', 'joint'],
+      };
+      transientState.netWorthMoreOpen = false;
+      syncHousehold();
+      return;
+    }
+    if(kind === 'net-worth-cancel-draft'){
+      transientState.netWorthDraft = null;
+      transientState.netWorthMoreOpen = false;
+      syncHousehold();
+      return;
+    }
+    if(kind === 'net-worth-save-entry'){
+      if(!guardPlanMutation()) return;
+      const currentDraft = transientState.netWorthDraft;
+      if(!currentDraft || (!currentDraft.type && !currentDraft.custom)) return;
+      const draft = currentDraft.categoryId === 'mortgage'
+          && currentDraft.link === ''
+          && action.dataset.netWorthResolvedLinkAvailable === 'true'
+        ? {
+            ...currentDraft,
+            link: action.dataset.netWorthResolvedLink || '',
+            linkLabel: action.dataset.netWorthResolvedLinkLabel || '',
+            linkAvailable: true,
+          }
+        : currentDraft;
+      if(!draft.name && !hasDigits(draft.value)) return;
+      const savedValue = hasDigits(draft.value)
+        ? formatNetWorthCurrency(draft.value)
+        : '';
+      const restoreDraft = () => {
+        transientState.netWorthDraft = draft;
+        syncHousehold();
+      };
+      transientState.netWorthDraft = null;
+      transientState.netWorthMoreOpen = false;
+
+      const isCanonicalAccount = (draft.categoryId === 'bank' || draft.categoryId === 'investment')
+        && draft.accountTypeId
+        && draft.shellOnly !== true;
+      if(isCanonicalAccount && (!draft.owner || !draft.owners.includes(draft.owner))){
+        restoreDraft();
+        return;
+      }
+      if(isCanonicalAccount){
+        const result = commit({
+          scope: 'account',
+          action: 'add',
+          displayName: draft.name,
+          typeId: draft.accountTypeId,
+          owner: draft.owner,
+          balance: draft.value,
+        }, action, true);
+        if(!result){
+          restoreDraft();
+          return;
+        }
+        const createdAccounts = result.plan.portfolio.extraAccounts;
+        const account = createdAccounts[createdAccounts.length - 1];
+        if(account){
+          transientState.netWorthAccountMeta = {
+            ...transientState.netWorthAccountMeta,
+            [account.id]: {
+              type: draft.type,
+              owner: draft.owner,
+              tax: draft.categoryId === 'investment' ? draft.canonicalTax : '',
+              value: formatCanonicalCurrency(account.balance),
+            },
+          };
+        }
+        syncHousehold();
+        return;
+      }
+
+      if(draft.categoryId === 'property'){
+        const result = commit({
+          scope: 'property',
+          action: 'add',
+          name: draft.name,
+          value: draft.value,
+        }, action, true);
+        if(!result){
+          restoreDraft();
+          return;
+        }
+        const index = result.plan.properties.length - 1;
+        const meta = [...transientState.netWorthPropertyMeta];
+        meta[index] = {
+          type: draft.type,
+          owner: draft.owner,
+          value: formatCanonicalCurrency(result.plan.properties[index]?.value),
+        };
+        transientState.netWorthPropertyMeta = meta;
+        syncHousehold();
+        return;
+      }
+
+      if(draft.categoryId === 'mortgage'
+          && draft.link !== ''
+          && draft.linkAvailable === true
+          && hasDigits(draft.value)){
+        const result = commit({
+          scope: 'mortgage',
+          action: 'set-balance',
+          propertyIndex: draft.link,
+          value: draft.value,
+        }, action, true);
+        if(!result){
+          restoreDraft();
+          return;
+        }
+        const index = Number(draft.link);
+        const meta = [...transientState.netWorthMortgageMeta];
+        meta[index] = {
+          present: true,
+          name: draft.name,
+          type: draft.type,
+          owner: draft.owner,
+          link: draft.linkLabel,
+          value: formatCanonicalCurrency(result.plan.properties[index]?.mortgage?.balance),
+        };
+        transientState.netWorthMortgageMeta = meta;
+        syncHousehold();
+        return;
+      }
+
+      if(draft.categoryId === 'mortgage'){
+        restoreDraft();
+        return;
+      }
+
+      transientState.netWorthShellEntries = [
+        ...transientState.netWorthShellEntries,
+        {
+          id: transientState.nextNetWorthShellId(),
+          categoryId: draft.categoryId,
+          name: draft.name,
+          type: draft.type,
+          owner: draft.owner,
+          tax: draft.categoryId === 'investment' ? draft.canonicalTax : '',
+          canonicalTax: draft.categoryId === 'investment' ? draft.canonicalTax : '',
+          link: draft.link,
+          linkLabel: draft.linkLabel,
+          value: savedValue,
+        },
+      ];
+      syncHousehold();
+      return;
+    }
+    if(kind === 'net-worth-remove-entry'){
+      if(!guardPlanMutation()) return;
+      const source = action.dataset.entrySource;
+      if(source === 'shell'){
+        transientState.netWorthShellEntries = transientState.netWorthShellEntries
+          .filter(entry => entry.id !== action.dataset.shellId);
+        syncHousehold();
+        return;
+      }
+      if(source === 'account'){
+        const accountId = action.dataset.accountId;
+        const priorMeta = transientState.netWorthAccountMeta;
+        const nextMeta = { ...priorMeta };
+        delete nextMeta[accountId];
+        transientState.netWorthAccountMeta = nextMeta;
+        if(!commit({
+          scope: 'account',
+          action: 'remove',
+          accountId,
+        }, action)){
+          transientState.netWorthAccountMeta = priorMeta;
+        }
+        return;
+      }
+      if(source === 'property'){
+        const index = Number(action.dataset.propertyIndex);
+        const priorPropertyMeta = transientState.netWorthPropertyMeta;
+        const priorMortgageMeta = transientState.netWorthMortgageMeta;
+        const nextPropertyMeta = [...priorPropertyMeta];
+        const nextMortgageMeta = [...priorMortgageMeta];
+        nextPropertyMeta.splice(index, 1);
+        nextMortgageMeta.splice(index, 1);
+        transientState.netWorthPropertyMeta = nextPropertyMeta;
+        transientState.netWorthMortgageMeta = nextMortgageMeta;
+        if(!commit({
+          scope: 'property',
+          action: 'remove',
+          propertyIndex: index,
+        }, action)){
+          transientState.netWorthPropertyMeta = priorPropertyMeta;
+          transientState.netWorthMortgageMeta = priorMortgageMeta;
+        }
+        return;
+      }
+      if(source === 'mortgage'){
+        const index = Number(action.dataset.propertyIndex);
+        const priorMeta = transientState.netWorthMortgageMeta;
+        const nextMeta = [...priorMeta];
+        delete nextMeta[index];
+        transientState.netWorthMortgageMeta = nextMeta;
+        if(!commit({
+          scope: 'mortgage',
+          action: 'remove',
+          propertyIndex: index,
+        }, action)){
+          transientState.netWorthMortgageMeta = priorMeta;
+        }
+        return;
+      }
     }
     if(kind === 'remove-spouse'){
       if(!guardPlanMutation()) return;
@@ -243,35 +590,6 @@ export function bindHouseholdEditor({
       );
       if(!confirmed) return;
       commit(command, action);
-      return;
-    }
-    if(kind === 'cancel-account'){
-      transientState.accountFormOpen = false;
-      syncHousehold();
-      return;
-    }
-    if(kind === 'save-account'){
-      const draft = transientState.accountDraft;
-      transientState.accountFormOpen = false;
-      if(!commit({
-        scope: 'account',
-        action: 'add',
-        displayName: draft.displayName,
-        typeId: draft.typeId,
-        owner: draft.owner,
-        balance: draft.balance,
-      }, action)){
-        transientState.accountFormOpen = true;
-        syncHousehold();
-      }
-      return;
-    }
-    if(kind === 'remove-account'){
-      commit({
-        scope: 'account',
-        action: 'remove',
-        accountId: action.dataset.accountId,
-      }, action);
       return;
     }
     if(kind === 'set-tax-view'){

@@ -142,6 +142,8 @@ function syncRecoveryControls(){
   const selectors = [
     '#hh-new','#scn-solve','#hh-view input','#hh-view select','#hh-view textarea','#hh-view .row-x','#hh-view [data-add]',
     '#hh-view [data-hh-action="add-account"]','#hh-view [data-hh-action="save-account"]','#hh-view [data-hh-action="remove-account"]',
+    '#hh-view [data-hh-action="net-worth-toggle-more"]','#hh-view [data-hh-action="net-worth-pick-type"]','#hh-view [data-hh-action="net-worth-pick-custom"]',
+    '#hh-view [data-hh-action="net-worth-clear-type"]','#hh-view [data-hh-action="net-worth-save-entry"]','#hh-view [data-hh-action="net-worth-remove-entry"]',
     '#hh-view [data-hh-action="override-income-group"]','#hh-view [data-hh-action="revert-income-group"]','#hh-view [data-hh-action="remove-tax-item"]',
     '#hh-view [data-hh-action="add-spouse"]','#hh-view [data-hh-action="remove-spouse"]','#hh-view [data-hh-action="save-account"]',
     '#hh-view [data-hh-action="open-account-form"]','#hh-view [data-hh-action="open-add"]','#hh-view [data-hh-action="commit-add"]','#hh-view [data-hh-action="add-home"]','#hh-view [data-hh-action="add-mortgage"]',

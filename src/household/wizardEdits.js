@@ -360,6 +360,9 @@ function applyAccountEdit(plan, command, timestamp){
     const entry = getAccountTypeById(command.typeId);
     if(!entry || entry.wizardEnabled !== true) throw new Error('Unsupported account type');
     const owner = defaultOwnerForType(entry, command.owner);
+    if(owner === 'spouse' && !plan.household?.spouse){
+      throw new Error('Spouse ownership requires an active spouse');
+    }
     plan.portfolio.extraAccounts.push(createAccount(entry.id, {
       displayName: normalizedText(command.displayName),
       owner,
@@ -386,6 +389,9 @@ function applyAccountEdit(plan, command, timestamp){
     }
     const entry = getAccountTypeById(account.typeId);
     if(!entry?.wizardOwners?.includes(command.value)) throw new Error('Owner is not valid for this account type');
+    if(command.value === 'spouse' && !plan.household?.spouse){
+      throw new Error('Spouse ownership requires an active spouse');
+    }
     account.owner = command.value;
     account.taxReporting.reportingTaxpayer =
       command.value === 'client' || command.value === 'spouse' ? command.value : null;
@@ -400,6 +406,52 @@ function applyAccountEdit(plan, command, timestamp){
     setAccountBasis(plan, account, command.value, timestamp);
   }else{
     throw new Error(`Unsupported account field: ${command.field}`);
+  }
+}
+
+function propertyIndex(plan, value){
+  if(!Array.isArray(plan.properties)) throw new Error('properties must be an array');
+  const index = Number(value);
+  if(!Number.isInteger(index)
+      || index < 0
+      || index >= plan.properties.length){
+    throw new Error('Property must resolve exactly once');
+  }
+  return index;
+}
+
+function applyPropertyEdit(plan, command){
+  if(!Array.isArray(plan.properties)) throw new Error('properties must be an array');
+  if(command.action === 'add'){
+    plan.properties.push({
+      name: normalizedText(command.name),
+      value: money(command.value),
+      purchasePrice: 0,
+      mortgage: {
+        balance: 0,
+        rate: 0,
+        termYears: 0,
+      },
+    });
+    return;
+  }
+  if(command.action !== 'remove') throw new Error('Unsupported property action');
+  plan.properties.splice(propertyIndex(plan, command.propertyIndex), 1);
+}
+
+function applyMortgageEdit(plan, command){
+  const index = propertyIndex(plan, command.propertyIndex);
+  const property = plan.properties[index];
+  const mortgage = property.mortgage;
+  if(!mortgage || typeof mortgage !== 'object' || Array.isArray(mortgage)){
+    throw new Error('mortgage must be an object');
+  }
+  if(command.action === 'set-balance'){
+    mortgage.balance = money(command.value);
+  }else if(command.action === 'remove'){
+    mortgage.balance = 0;
+  }else{
+    throw new Error('Unsupported mortgage action');
   }
 }
 
@@ -437,6 +489,10 @@ export function applyHouseholdWizardEdit(plan, command, options = {}){
     }
   }else if(command.scope === 'account'){
     applyAccountEdit(next, command, timestamp);
+  }else if(command.scope === 'property'){
+    applyPropertyEdit(next, command);
+  }else if(command.scope === 'mortgage'){
+    applyMortgageEdit(next, command);
   }else if(command.scope === 'tax'){
     applyTaxEdit(next, command);
   }else{

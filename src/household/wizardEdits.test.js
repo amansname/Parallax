@@ -452,6 +452,50 @@ test('account money edits accept comma-formatted display values without storing 
   assert.equal(edited.portfolio.extraAccounts[0].balance, 2000000);
 });
 
+test('account ownership rejects a spouse owner when no spouse exists', () => {
+  const subject = plan();
+  const before = structuredClone(subject);
+  assert.throws(
+    () => applyHouseholdWizardEdit(subject, {
+      scope: 'account',
+      action: 'add',
+      typeId: 'roth_ira',
+      owner: 'spouse',
+      balance: 40000,
+    }),
+    /Spouse ownership requires an active spouse/,
+  );
+  assert.deepEqual(subject, before);
+});
+
+test('Net Worth canonical mutations round decimal display values once', () => {
+  let edited = applyHouseholdWizardEdit(plan(), {
+    scope: 'account',
+    action: 'add',
+    typeId: 'checking',
+    owner: 'client',
+    balance: '$1,000.75',
+  });
+  assert.equal(edited.portfolio.extraAccounts[0].balance, 1001);
+
+  edited.properties = [];
+  edited = applyHouseholdWizardEdit(edited, {
+    scope: 'property',
+    action: 'add',
+    name: '',
+    value: '$500,000.25',
+  });
+  assert.equal(edited.properties[0].value, 500000);
+
+  edited = applyHouseholdWizardEdit(edited, {
+    scope: 'mortgage',
+    action: 'set-balance',
+    propertyIndex: 0,
+    value: '$120,000.75',
+  });
+  assert.equal(edited.properties[0].mortgage.balance, 120001);
+});
+
 test('tax edits route only through canonical current1040 and preserve explicit zero', () => {
   let subject = plan();
   subject = applyHouseholdWizardEdit(subject, {

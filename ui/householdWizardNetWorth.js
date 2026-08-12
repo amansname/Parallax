@@ -1,152 +1,578 @@
+import { getAccountTypeById } from '../src/household/accountTypes.js';
+
+const ALL_OWNERS = Object.freeze(['client', 'spouse', 'joint']);
+const BANK_TYPE_IDS = new Set([
+  'checking',
+  'savings',
+  'money_market',
+  'certificate_of_deposit',
+]);
+
+const CATEGORIES = Object.freeze([
+  Object.freeze({
+    id: 'bank',
+    label: 'Bank',
+    group: 'Assets',
+    icon: 'M3 9.6 12 4.2l9 5.4M5.4 10.4v7.8M9.8 10.4v7.8M14.2 10.4v7.8M18.6 10.4v7.8M3.4 19.4h17.2',
+    types: Object.freeze([
+      Object.freeze({ label: 'Checking', accountTypeId: 'checking', owners: ALL_OWNERS, canonicalTax: 'Taxable' }),
+      Object.freeze({ label: 'Savings', accountTypeId: 'savings', owners: ALL_OWNERS, canonicalTax: 'Taxable' }),
+      Object.freeze({ label: 'Money Market', accountTypeId: 'money_market', owners: ALL_OWNERS, canonicalTax: 'Taxable' }),
+      Object.freeze({ label: 'CD', accountTypeId: 'certificate_of_deposit', owners: ALL_OWNERS, canonicalTax: 'Taxable' }),
+    ]),
+  }),
+  Object.freeze({
+    id: 'investment',
+    label: 'Investment',
+    group: 'Assets',
+    icon: 'M4 19.2h16M7.2 16.2V9.4M12 16.2V5.2M16.8 16.2v-4.6',
+    chips: 6,
+    types: Object.freeze([
+      Object.freeze({ label: 'TOD Brokerage', accountTypeId: 'tod_brokerage', owners: Object.freeze(['client', 'spouse']), canonicalTax: 'Taxable' }),
+      Object.freeze({ label: 'Joint Brokerage', accountTypeId: 'joint_brokerage', owners: Object.freeze(['joint']), canonicalTax: 'Taxable' }),
+      Object.freeze({ label: 'Traditional IRA', accountTypeId: 'traditional_ira', owners: Object.freeze(['client', 'spouse']), canonicalTax: 'Tax-Deferred' }),
+      Object.freeze({ label: 'Rollover IRA', accountTypeId: 'rollover_ira', owners: Object.freeze(['client', 'spouse']), canonicalTax: 'Tax-Deferred' }),
+      Object.freeze({ label: 'Roth IRA', accountTypeId: 'roth_ira', owners: Object.freeze(['client', 'spouse']), canonicalTax: 'Tax-Free' }),
+      Object.freeze({ label: '401(k)', accountTypeId: '401k', owners: Object.freeze(['client', 'spouse']), canonicalTax: 'Tax-Deferred' }),
+      Object.freeze({ label: 'Trust', owners: ALL_OWNERS, canonicalTax: 'Taxable', shellOnly: true }),
+      Object.freeze({ label: 'Roth 401(k)', accountTypeId: 'roth_401k', owners: Object.freeze(['client', 'spouse']), canonicalTax: 'Tax-Free' }),
+    ]),
+  }),
+  Object.freeze({
+    id: 'property',
+    label: 'Property',
+    group: 'Assets',
+    icon: 'M3.8 11.2 12 4.2l8.2 7M6.2 10v9.4h11.6V10M10 19.4v-4.8h4v4.8',
+    types: Object.freeze([
+      Object.freeze({ label: 'Primary Residence', owners: ALL_OWNERS }),
+      Object.freeze({ label: 'Second Home', owners: ALL_OWNERS }),
+      Object.freeze({ label: 'Investment Property', owners: ALL_OWNERS }),
+      Object.freeze({ label: 'Land', owners: ALL_OWNERS }),
+    ]),
+  }),
+  Object.freeze({
+    id: 'insurance',
+    label: 'Insurance',
+    group: 'Assets',
+    icon: 'M12 3.6 5.2 6.2v5.6c0 4.2 3 7.4 6.8 8.8 3.8-1.4 6.8-4.6 6.8-8.8V6.2z',
+    chips: 3,
+    shellOnly: true,
+    types: Object.freeze([
+      Object.freeze({ label: 'Whole Life', owners: ALL_OWNERS }),
+      Object.freeze({ label: 'Universal Life', owners: ALL_OWNERS }),
+      Object.freeze({ label: 'Long-Term Care', owners: ALL_OWNERS }),
+      Object.freeze({ label: 'Variable Life', owners: ALL_OWNERS }),
+    ]),
+  }),
+  Object.freeze({
+    id: 'card',
+    label: 'Credit Card',
+    group: 'Liabilities',
+    icon: 'M3.4 7h17.2v10H3.4zM3.4 11h17.2M6.8 14.4h3.6',
+    shellOnly: true,
+    types: Object.freeze([
+      Object.freeze({ label: 'Revolving', owners: ALL_OWNERS }),
+      Object.freeze({ label: 'Charge Card', owners: ALL_OWNERS }),
+    ]),
+  }),
+  Object.freeze({
+    id: 'mortgage',
+    label: 'Mortgage',
+    group: 'Liabilities',
+    icon: 'M6 3.6h8.2L18 7.4v13H6zM14.2 3.6v3.8H18M9 13h6M9 16.6h4',
+    link: true,
+    types: Object.freeze([
+      Object.freeze({ label: 'Primary Residence', owners: ALL_OWNERS }),
+      Object.freeze({ label: 'Second Home', owners: ALL_OWNERS }),
+      Object.freeze({ label: 'Investment Property', owners: ALL_OWNERS }),
+      Object.freeze({ label: 'HELOC', owners: ALL_OWNERS }),
+    ]),
+  }),
+  Object.freeze({
+    id: 'loan',
+    label: 'Loan',
+    group: 'Liabilities',
+    icon: 'M12 4.2v15.6M8.2 8.2h6a2.1 2.1 0 0 1 0 4.2H9.6a2.1 2.1 0 0 0 0 4.2h7',
+    shellOnly: true,
+    types: Object.freeze([
+      Object.freeze({ label: 'Auto', owners: ALL_OWNERS }),
+      Object.freeze({ label: 'Student', owners: ALL_OWNERS }),
+      Object.freeze({ label: 'Personal', owners: ALL_OWNERS }),
+      Object.freeze({ label: 'Margin', owners: ALL_OWNERS }),
+      Object.freeze({ label: 'Securities-Based', owners: ALL_OWNERS }),
+    ]),
+  }),
+]);
+
+const DESIGN_LABEL_BY_ACCOUNT_TYPE = Object.freeze({
+  checking: 'Checking',
+  savings: 'Savings',
+  money_market: 'Money Market',
+  certificate_of_deposit: 'CD',
+  tod_brokerage: 'TOD Brokerage',
+  joint_brokerage: 'Joint Brokerage',
+  traditional_ira: 'Traditional IRA',
+  rollover_ira: 'Rollover IRA',
+  roth_ira: 'Roth IRA',
+  '401k': '401(k)',
+  roth_401k: 'Roth 401(k)',
+});
+
+const TAX_LABELS = Object.freeze({
+  Taxable: 'Taxable',
+  'Tax-deferred': 'Tax-Deferred',
+  'Tax-free': 'Tax-Free',
+  Roth: 'Tax-Free',
+});
+
+const hasOwn = (value, key) =>
+  Boolean(value) && Object.prototype.hasOwnProperty.call(value, key);
+
+function number(value){
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+}
+
+function icon(path, className = ''){
+  return `<svg class="${className}" viewBox="0 0 24 24" fill="none" aria-hidden="true"
+    stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round">
+    <path d="${path}"></path>
+  </svg>`;
+}
+
+function closeIcon(){
+  return `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"
+    stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+    <path d="M18 6 6 18M6 6l12 12"></path>
+  </svg>`;
+}
+
+function ownerLabel(owner){
+  if(owner === 'client') return 'Client';
+  if(owner === 'spouse') return 'Spouse';
+  if(owner === 'joint') return 'Joint';
+  if(owner === 'trust') return 'Trust';
+  return '';
+}
+
+function treatmentLabel(value){
+  return TAX_LABELS[value] || value || '';
+}
+
+function categoryForAccount(account){
+  return BANK_TYPE_IDS.has(account?.typeId) ? 'bank' : 'investment';
+}
+
+function displayTypeForAccount(account){
+  return DESIGN_LABEL_BY_ACCOUNT_TYPE[account?.typeId]
+    || getAccountTypeById(account?.typeId)?.label
+    || account?.type
+    || '';
+}
+
+function renderSavedRow(entry, esc){
+  const meta = [entry.type, entry.owner, entry.tax, entry.link].filter(Boolean).join(' · ');
+  const sourceAttrs = entry.source === 'account'
+    ? `data-entry-source="account" data-account-id="${esc(entry.id)}"`
+    : entry.source === 'property'
+      ? `data-entry-source="property" data-property-index="${entry.index}"`
+      : entry.source === 'mortgage'
+        ? `data-entry-source="mortgage" data-property-index="${entry.index}"`
+        : `data-entry-source="shell" data-shell-id="${esc(entry.id)}"`;
+  return `
+    <div class="nw-saved-row">
+      <div class="nw-saved-copy">
+        <div class="nw-saved-name">${esc(entry.name || '—')}</div>
+        <div class="nw-saved-meta">${esc(meta || '—')}</div>
+      </div>
+      <div class="nw-saved-actions">
+        <span>${esc(entry.value || '—')}</span>
+        <button type="button" class="nw-icon-button nw-remove-entry"
+          data-hh-action="net-worth-remove-entry" ${sourceAttrs}
+          aria-label="Remove ${esc(entry.name || entry.type || 'entry')}">${closeIcon()}</button>
+      </div>
+    </div>
+  `;
+}
+
+function ownersForPlan(owners, plan){
+  const configured = owners || ALL_OWNERS;
+  return plan.household?.spouse
+    ? configured
+    : configured.filter(owner => owner !== 'spouse');
+}
+
+function renderTypeButton(type, category, plan, esc){
+  const owners = ownersForPlan(type.owners, plan);
+  return `
+    <button type="button" class="nw-type-chip" data-hh-action="net-worth-pick-type"
+      data-category-id="${category.id}" data-type-label="${esc(type.label)}"
+      data-account-type-id="${esc(type.accountTypeId || '')}"
+      data-canonical-tax="${esc(type.canonicalTax || '')}"
+      data-shell-only="${type.shellOnly || category.shellOnly ? 'true' : 'false'}"
+      data-owners="${owners.join(',')}">
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"
+        stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+        <path d="M12 5v14M5 12h14"></path>
+      </svg>
+      ${esc(type.label)}
+    </button>
+  `;
+}
+
+function renderPanel({ category, entries, draft, moreOpen, plan, mortgageMeta, esc }){
+  if(!category) return '';
+  const selected = Boolean(draft && (draft.type || draft.custom));
+  const chips = category.chips || 4;
+  const topTypes = category.types.slice(0, chips);
+  const restTypes = category.types.slice(chips);
+  const owners = ownersForPlan(
+    Array.isArray(draft?.owners) && draft.owners.length ? draft.owners : ALL_OWNERS,
+    plan,
+  );
+  const propertyChoices = (plan.properties || []).map((property, index) => {
+    const name = String(property?.name || '').trim() || `Property ${index + 1}`;
+    const available = number(property?.mortgage?.balance) === 0
+      && mortgageMeta[index]?.present !== true;
+    return { index: String(index), name, available };
+  });
+  const eligibleProperties = propertyChoices.filter(property => property.available);
+  const draftLink = draft?.link == null ? '' : String(draft.link);
+  const resolvedLink = category.id === 'mortgage'
+      && draftLink === ''
+      && eligibleProperties.length === 1
+    ? eligibleProperties[0].index
+    : draftLink;
+  const resolvedProperty = propertyChoices.find(property => property.index === resolvedLink);
+  const resolvedLinkAvailable = Boolean(resolvedProperty?.available);
+  const propertyOptions = propertyChoices.map(property => `
+    <option value="${property.index}"
+      data-net-worth-link-available="${property.available ? 'true' : 'false'}"
+      ${property.available ? '' : 'disabled'}
+      ${property.index === resolvedLink ? 'selected' : ''}>${esc(property.name)}</option>
+  `).join('');
+
+  const picker = !selected ? `
+    <div class="nw-type-picker">
+      ${topTypes.map(type => renderTypeButton(type, category, plan, esc)).join('')}
+      <button type="button" class="nw-type-chip nw-type-chip--more"
+        data-hh-action="net-worth-toggle-more">
+        More
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"
+          stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+          <path d="m6 9 6 6 6-6"></path>
+        </svg>
+      </button>
+      ${moreOpen ? `
+        <div class="nw-more-menu">
+          ${restTypes.map(type => `
+            <button type="button" data-hh-action="net-worth-pick-type"
+              data-category-id="${category.id}" data-type-label="${esc(type.label)}"
+              data-account-type-id="${esc(type.accountTypeId || '')}"
+              data-canonical-tax="${esc(type.canonicalTax || '')}"
+              data-shell-only="${type.shellOnly || category.shellOnly ? 'true' : 'false'}"
+              data-owners="${ownersForPlan(type.owners, plan).join(',')}">${esc(type.label)}</button>
+          `).join('')}
+          ${restTypes.length ? '<div class="nw-more-rule"></div>' : ''}
+          <button type="button" class="nw-type-own"
+            data-hh-action="net-worth-pick-custom" data-category-id="${category.id}">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"
+              stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M16.5 4.5a2.1 2.1 0 0 1 3 3L8 19l-4 1 1-4z"></path>
+            </svg>
+            Type your own
+          </button>
+        </div>
+      ` : ''}
+    </div>
+  ` : '';
+
+  const form = selected ? `
+    <div class="nw-form">
+      <div class="nw-type-selection">
+        ${draft.custom
+          ? `<input type="text" value="${esc(draft.type || '')}"
+              data-net-worth-draft="type">`
+          : `<span>${esc(draft.type)}</span>`}
+        <button type="button" class="nw-icon-button" data-hh-action="net-worth-clear-type"
+          aria-label="Clear selected type">${closeIcon()}</button>
+      </div>
+      <div class="nw-form-grid">
+        <label class="nw-field nw-field--wide">
+          <span>Institution</span>
+          <input type="text" value="${esc(draft.name || '')}"
+            data-net-worth-draft="name">
+        </label>
+        <label class="nw-field">
+          <span>Ownership</span>
+          <select data-net-worth-draft="owner">
+            <option value=""></option>
+            ${owners.map(owner => `<option value="${owner}" ${draft.owner === owner ? 'selected' : ''}>${ownerLabel(owner)}</option>`).join('')}
+          </select>
+        </label>
+        ${category.link ? `
+          <label class="nw-field">
+            <span>Property</span>
+            <select data-net-worth-draft="link">
+              <option value=""></option>
+              ${propertyOptions}
+            </select>
+          </label>
+        ` : ''}
+        <label class="nw-field">
+          <span>Value</span>
+          <input type="text" inputmode="decimal" value="${esc(draft.value || '$')}"
+            data-net-worth-draft="value">
+        </label>
+      </div>
+    </div>
+  ` : '';
+
+  const ownerRequired = selected
+    && (category.id === 'bank' || category.id === 'investment')
+    && Boolean(draft.accountTypeId)
+    && draft.shellOnly !== true;
+  const ownerValid = !ownerRequired || owners.includes(draft.owner);
+  const linkRequired = category.id === 'mortgage';
+  const saveDisabled = !ownerValid || (linkRequired && !resolvedLinkAvailable);
+
+  return `
+    <div class="nw-overlay" data-net-worth-overlay>
+      <div class="nw-scrim" data-hh-action="net-worth-close-panel"></div>
+      <aside class="nw-panel" aria-label="${esc(category.label)}"
+        data-net-worth-category-id="${category.id}">
+        <div class="nw-sheet-grabber" aria-hidden="true"></div>
+        <header class="nw-panel-head">
+          <div>${icon(category.icon, 'nw-panel-icon')}<h2>${esc(category.label)}</h2></div>
+          <button type="button" class="nw-icon-button nw-panel-close"
+            data-hh-action="net-worth-close-panel" aria-label="Close">${closeIcon()}</button>
+        </header>
+        <div class="nw-panel-body">
+          ${entries.map(entry => renderSavedRow(entry, esc)).join('')}
+          ${form}
+          ${picker}
+        </div>
+        <footer class="nw-panel-footer">
+          ${selected ? `
+            <button type="button" class="nw-secondary-button"
+              data-hh-action="net-worth-cancel-draft">Cancel</button>
+            <button type="button" class="nw-primary-button"
+              data-hh-action="net-worth-save-entry"
+              data-net-worth-resolved-link="${esc(resolvedLink)}"
+              data-net-worth-resolved-link-label="${esc(resolvedProperty?.name || '')}"
+              data-net-worth-resolved-link-available="${resolvedLinkAvailable ? 'true' : 'false'}"
+              data-net-worth-owner-required="${ownerRequired ? 'true' : 'false'}"
+              data-net-worth-link-required="${linkRequired ? 'true' : 'false'}"
+              ${saveDisabled ? 'disabled' : ''}>Save</button>
+          ` : `
+            <button type="button" class="nw-primary-button"
+              data-hh-action="net-worth-close-panel">Done</button>
+          `}
+        </footer>
+      </aside>
+    </div>
+  `;
+}
+
 export function renderHouseholdWizardNetWorth(ctx){
   const {
     plan,
     esc,
-    moneyFieldValue,
     money,
-    accountTypes,
     accountTreatment,
-    accountBasis,
     taxBucketSnapshot,
     uiState,
   } = ctx;
   const accounts = plan.portfolio?.extraAccounts || [];
-  const visibleAccountTypes = accountTypes.filter(type => type.typeId !== 'joint_brokerage');
-  const visibleTypeId = typeId => typeId === 'joint_brokerage'
-    ? 'brokerage_taxable'
-    : typeId;
-  const typeOptions = visibleAccountTypes.map(type =>
-    `<option value="${esc(type.typeId)}">${esc(type.label)}</option>`
-  ).join('');
+  const properties = plan.properties || [];
+  const shellEntries = uiState.netWorthShellEntries || [];
+  const accountMeta = uiState.netWorthAccountMeta || {};
+  const propertyMeta = uiState.netWorthPropertyMeta || [];
+  const mortgageMeta = uiState.netWorthMortgageMeta || [];
+  const entriesByCategory = Object.fromEntries(CATEGORIES.map(category => [category.id, []]));
 
-  const ownerOptions = (typeId, selected) => {
-    const type = visibleAccountTypes.find(item => item.typeId === visibleTypeId(typeId));
-    const allowed = type?.owners || ['client', 'spouse'];
-    const labels = {
-      client: plan.meta?.primaryName || 'Client',
-      spouse: plan.meta?.spouseName || 'Co-client',
-      joint: 'Joint',
-    };
-    return allowed.map(owner =>
-      `<option value="${owner}" ${owner === selected ? 'selected' : ''}>${esc(labels[owner])}</option>`
-    ).join('');
+  for(const account of accounts){
+    const meta = accountMeta[account.id] || {};
+    const treatment = treatmentLabel(accountTreatment(account.typeId)?.label);
+    const categoryId = categoryForAccount(account);
+    entriesByCategory[categoryId].push({
+      source: 'account',
+      id: account.id,
+      name: account.displayName,
+      type: meta.type || displayTypeForAccount(account),
+      owner: hasOwn(meta, 'owner') ? ownerLabel(meta.owner) : ownerLabel(account.owner),
+      tax: categoryId === 'investment'
+        ? hasOwn(meta, 'tax') ? meta.tax : treatment
+        : '',
+      value: hasOwn(meta, 'value') ? meta.value : money(account.balance),
+    });
+  }
+
+  properties.forEach((property, index) => {
+    const meta = propertyMeta[index] || {};
+    entriesByCategory.property.push({
+      source: 'property',
+      index,
+      name: property?.name,
+      type: meta.type || '',
+      owner: ownerLabel(meta.owner),
+      value: hasOwn(meta, 'value') ? meta.value : money(property?.value || 0),
+    });
+    const balance = number(property?.mortgage?.balance);
+    const mortgage = mortgageMeta[index] || {};
+    if(balance > 0 || mortgage.present){
+      entriesByCategory.mortgage.push({
+        source: 'mortgage',
+        index,
+        name: mortgage.name || '',
+        type: mortgage.type || '',
+        owner: ownerLabel(mortgage.owner),
+        link: mortgage.link || property?.name || `Property ${index + 1}`,
+        value: hasOwn(mortgage, 'value') ? mortgage.value : money(balance),
+      });
+    }
+  });
+
+  for(const entry of shellEntries){
+    if(!entriesByCategory[entry.categoryId]) continue;
+    entriesByCategory[entry.categoryId].push({
+      source: 'shell',
+      id: entry.id,
+      name: entry.name,
+      type: entry.type,
+      owner: ownerLabel(entry.owner),
+      tax: entry.tax || entry.canonicalTax || '',
+      link: entry.linkLabel || '',
+      value: entry.value,
+    });
+  }
+
+  const bankTotal = accounts
+    .filter(account => BANK_TYPE_IDS.has(account.typeId))
+    .reduce((sum, account) => sum + number(account.balance), 0);
+  const portfolioTotal = number(taxBucketSnapshot.totalBalance);
+  const investmentTotal = Math.max(0, portfolioTotal - bankTotal);
+  const propertyTotal = properties.reduce((sum, property) => sum + number(property?.value), 0);
+  const mortgageTotal = properties.reduce((sum, property) => sum + number(property?.mortgage?.balance), 0);
+  const assetTotal = portfolioTotal + propertyTotal;
+  const liabilityTotal = mortgageTotal;
+  const netWorthTotal = assetTotal - liabilityTotal;
+  const basePortfolioTotal = Object.values(plan.portfolio?.accounts || {})
+    .reduce((sum, sleeve) => sum + number(sleeve?.balance), 0);
+  const presence = {
+    bank: accounts.some(account => BANK_TYPE_IDS.has(account.typeId)),
+    investment: accounts.some(account => !BANK_TYPE_IDS.has(account.typeId)) || basePortfolioTotal > 0,
+    property: properties.length > 0,
+    mortgage: properties.some((property, index) =>
+      number(property?.mortgage?.balance) > 0 || mortgageMeta[index]?.present === true),
   };
+  const categoryAmounts = {
+    bank: bankTotal,
+    investment: investmentTotal,
+    property: propertyTotal,
+    mortgage: mortgageTotal,
+  };
+  const hasWiredData = Object.values(presence).some(Boolean);
+  const amountForCategory = categoryId =>
+    presence[categoryId] ? money(categoryAmounts[categoryId]) : '—';
+  const groups = ['Assets', 'Liabilities'].map(label => ({
+    label,
+    categories: CATEGORIES.filter(category => category.group === label),
+  }));
 
-  const rows = accounts.map(account => {
-    const treatment = accountTreatment(account.typeId);
-    const basis = accountBasis(account);
-    const selectedTypeId = visibleTypeId(account.typeId);
-    return `
-      <div class="hh-account-row" data-account-id="${esc(account.id)}">
-        <div class="hh-cell hh-cell--type">
-          <label>
-            <span class="hh-sr-only">Account type</span>
-            <select data-hh-field="account.${esc(account.id)}.typeId"
-              data-account-field="typeId" data-account-id="${esc(account.id)}">
-              ${visibleAccountTypes.map(type =>
-                `<option value="${esc(type.typeId)}" ${type.typeId === selectedTypeId ? 'selected' : ''}>${esc(type.label)}</option>`
-              ).join('')}
-            </select>
-          </label>
-          <span class="hh-account-meta" data-derived-treatment="${esc(account.id)}">
-            <span class="hh-treatment-dot" style="--treatment-color:${esc(treatment.color)}"></span>
-            ${esc(treatment.label)}
-          </span>
-        </div>
-        <label class="hh-cell hh-cell--owner">
-          <span class="hh-sr-only">Account owner</span>
-          <select data-hh-field="account.${esc(account.id)}.owner"
-            data-account-field="owner" data-account-id="${esc(account.id)}">
-            ${ownerOptions(selectedTypeId, account.owner)}
-          </select>
-        </label>
-        <div class="hh-cell hh-cell--amount">
-          <label>
-            <span class="hh-sr-only">Balance</span>
-            <input type="text" inputmode="decimal" value="${moneyFieldValue(account.balance)}"
-              data-hh-field="account.${esc(account.id)}.balance"
-              data-account-field="balance" data-account-id="${esc(account.id)}">
-          </label>
-          ${basis.editable ? `
-            <label class="hh-account-basis">
-              <span>${esc(basis.label)}</span>
-              <input type="text" inputmode="decimal" value="${moneyFieldValue(basis.value)}"
-                placeholder="${esc(basis.placeholder)}" aria-label="${esc(basis.label)}"
-                data-hh-field="account.${esc(account.id)}.basis"
-                data-account-field="basis" data-account-id="${esc(account.id)}">
-            </label>
-          ` : ''}
-        </div>
-        <button class="hh-row-remove" type="button"
-          data-hh-action="remove-account" data-account-id="${esc(account.id)}"
-          aria-label="Remove ${esc(account.type || 'account')}">Remove</button>
+  const tiles = groups.map(group => `
+    <section class="nw-group">
+      <h2>${group.label}</h2>
+      <div class="nw-tile-grid">
+        ${group.categories.map(category => {
+          const hasEntries = entriesByCategory[category.id].length > 0;
+          return `
+            <button type="button" class="nw-tile ${hasEntries ? 'has-entries' : ''}"
+              data-hh-action="net-worth-open-category" data-category-id="${category.id}">
+              <span class="nw-tile-top">
+                ${icon(category.icon, 'nw-tile-icon')}
+                ${hasEntries ? '<span class="nw-tile-dot"></span>' : ''}
+              </span>
+              <span class="nw-tile-copy">
+                <strong>${category.label}</strong>
+                <span>${amountForCategory(category.id)}</span>
+              </span>
+            </button>
+          `;
+        }).join('')}
       </div>
-    `;
-  }).join('');
+    </section>
+  `).join('');
 
-  const addForm = uiState.accountFormOpen ? `
-    <div class="hh-account-add-form" data-hh-account-add-form>
-      <label class="hh-field">
-        <span>Account type</span>
-        <select data-account-draft="typeId">
-          <option value="">Choose account type</option>
-          ${typeOptions}
-        </select>
-      </label>
-      <label class="hh-field">
-        <span>Account owner</span>
-        <select data-account-draft="owner">
-          <option value="client">${esc(plan.meta?.primaryName || 'Client')}</option>
-          ${plan.household?.spouse ? `<option value="spouse">${esc(plan.meta?.spouseName || 'Co-client')}</option>` : ''}
-          <option value="joint">Joint</option>
-        </select>
-      </label>
-      <label class="hh-field">
-        <span>Balance</span>
-        <input type="text" inputmode="decimal" value="${moneyFieldValue(uiState.accountDraft.balance)}"
-          data-account-draft="balance" placeholder="0">
-      </label>
-      <div class="hh-account-add-actions">
-        <button type="button" class="hh-button hh-button--quiet" data-hh-action="cancel-account">Cancel</button>
-        <button type="button" class="hh-button hh-button--gold" data-hh-action="save-account">Add account</button>
+  const entryView = `
+    <div class="nw-entry-view">
+      <div class="nw-mobile-total">
+        <span>Total Net Worth</span>
+        <strong>${hasWiredData ? money(netWorthTotal) : '—'}</strong>
       </div>
+      <main class="nw-grid-region">${tiles}</main>
+      <aside class="nw-rail">
+        <span class="nw-total-label">Net Worth</span>
+        <strong>${hasWiredData ? money(netWorthTotal) : '—'}</strong>
+        <div class="nw-rail-spacer"></div>
+        <div class="nw-rail-actions">
+          <button type="button" class="nw-primary-button"
+            data-hh-action="net-worth-show-summary">Continue</button>
+          <button type="button" class="nw-secondary-button" data-hh-action="step-back">Back</button>
+        </div>
+      </aside>
+      <footer class="nw-mobile-footer">
+        <button type="button" class="nw-secondary-button" data-hh-action="step-back">Back</button>
+        <button type="button" class="nw-primary-button"
+          data-hh-action="net-worth-show-summary">Continue</button>
+      </footer>
     </div>
-  ` : `
-    <button type="button" class="hh-add-row" data-hh-action="add-account">+ Add another account</button>
   `;
 
-  const buckets = taxBucketSnapshot.buckets;
-  return `
-    <div class="hh-screen hh-net-worth-screen" data-hh-wizard-screen="net-worth"
-      id="hh-panel-net-worth" role="tabpanel" aria-labelledby="hh-nav-net-worth">
-      <header class="hh-screen-head">
-        <div>
-          <div class="hh-step-kicker">Step 02</div>
-          <h1>Net Worth</h1>
-        </div>
-        <div class="hh-screen-count">${accounts.length} ${accounts.length === 1 ? 'account' : 'accounts'}</div>
-      </header>
-
-      <div class="hh-account-table">
-        <div class="hh-account-head" aria-hidden="true">
-          <span>Account type</span><span>Account owner</span>
-          <span class="is-right">Balance</span><span></span>
-        </div>
-        <div class="hh-account-rows">
-          ${rows || `<div class="hh-empty-row">No accounts entered yet.</div>`}
-        </div>
-      </div>
-      ${addForm}
-
-      <div class="hh-bucket-totals" aria-label="Portfolio by tax treatment">
-        ${['taxable', 'traditional', 'roth'].map(key => `
-          <div class="hh-bucket-total" data-bucket="${key}">
-            <span>${esc(buckets[key].label)}</span>
-            <strong>${money(buckets[key].balance)}</strong>
-            <small>${buckets[key].accountCount} ${buckets[key].accountCount === 1 ? 'account' : 'accounts'}</small>
+  const summaryView = `
+    <div class="nw-summary-view">
+      <main class="nw-summary-main">
+        <header class="nw-summary-hero">
+          <span>Total Net Worth</span>
+          <strong>${hasWiredData ? money(netWorthTotal) : '—'}</strong>
+          <div>
+            <p><span>Assets</span><b>${hasWiredData ? money(assetTotal) : '—'}</b></p>
+            <p><span>Liabilities</span><b>${hasWiredData ? money(liabilityTotal) : '—'}</b></p>
           </div>
-        `).join('')}
-      </div>
+        </header>
+        <div class="nw-summary-grid">
+          ${CATEGORIES.map(category => `
+            <article class="nw-summary-card">
+              ${icon(category.icon, 'nw-summary-icon')}
+              <strong>${category.label}</strong>
+              <span>${amountForCategory(category.id)}</span>
+            </article>
+          `).join('')}
+        </div>
+      </main>
+      <footer class="nw-summary-footer">
+        <button type="button" class="nw-secondary-button"
+          data-hh-action="net-worth-show-entry">Back</button>
+        <button type="button" class="nw-primary-button" data-hh-action="step-next">Continue</button>
+      </footer>
+    </div>
+  `;
+
+  const activeCategory = CATEGORIES.find(category =>
+    category.id === uiState.netWorthPanelCategory) || null;
+  return `
+    <div class="hh-screen nw-workflow" data-hh-wizard-screen="net-worth"
+      id="hh-panel-net-worth" role="tabpanel" aria-labelledby="hh-nav-net-worth">
+      ${uiState.netWorthView === 'summary' ? summaryView : entryView}
+      ${renderPanel({
+        category: activeCategory,
+        entries: activeCategory ? entriesByCategory[activeCategory.id] : [],
+        draft: uiState.netWorthDraft,
+        moreOpen: uiState.netWorthMoreOpen,
+        plan,
+        mortgageMeta,
+        esc,
+      })}
     </div>
   `;
 }
