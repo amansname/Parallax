@@ -12,6 +12,7 @@ import {
   wizardTaxError,
 } from './wizardIntakeSupport.js';
 import { newWizardRowId } from './householdRecordSchema.js';
+import { setWizardIrmaaLookbackField } from './wizardIrmaa.js';
 
 const INCOME_FIELDS = new Set([
   'wages',
@@ -435,6 +436,9 @@ function setScheduleSE(current, field, value){
 }
 
 export function setWizardTaxField(plan, field, value){
+  if(field.startsWith('irmaa.lookback.')){
+    return setWizardIrmaaLookbackField(plan, field, value);
+  }
   const current = ensureWizardCurrent1040(plan);
   current.incomeSourcesComplete = false;
   if(field === 'taxYear'){

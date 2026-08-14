@@ -58,6 +58,24 @@ export function renderHouseholdWizardSummary(ctx){
         </div>
       </section>
 
+      ${taxSummary.irmaa ? `
+        <table class="hh-summary-irmaa" data-summary-irmaa aria-label="IRMAA">
+          <thead>
+            <tr><th scope="col">Item</th><th scope="col">Value</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Program</td><td>IRMAA</td></tr>
+            <tr><td>MAGI</td><td>${money(taxSummary.irmaa.magi)}</td></tr>
+            <tr><td>Current tier</td><td>${taxSummary.irmaa.tier ?? '—'}</td></tr>
+            <tr><td>Next tier</td><td>${taxSummary.irmaa.nextTier ?? '—'}</td></tr>
+            <tr><td>To next tier</td><td>${typeof taxSummary.irmaa.roomToNext === 'number'
+              ? money(taxSummary.irmaa.roomToNext)
+              : '—'}</td></tr>
+            <tr><td>Premium year</td><td>${taxSummary.irmaa.premiumYear}</td></tr>
+          </tbody>
+        </table>
+      ` : ''}
+
       <section class="hh-summary-composition">
         <div class="hh-summary-section-head">
           <h2>Portfolio by tax treatment</h2>

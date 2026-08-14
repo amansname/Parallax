@@ -3,6 +3,17 @@
 import { TaxDataError } from './errors.js';
 
 export const DATA_SOURCES = {
+  CMS_2026_MEDICARE_IRMAA_v1_0: {
+    id: 'CMS_2026_MEDICARE_IRMAA_v1.0',
+    description: 'Medicare Part B and Part D income-related monthly adjustment amount tables, premium year 2026',
+    authority: 'Centers for Medicare & Medicaid Services, 2026 Medicare Parts A & B Premiums and Deductibles',
+    url: 'https://www.cms.gov/newsroom/fact-sheets/2026-medicare-parts-b-premiums-deductibles',
+    taxYear: 2024,
+    premiumYear: 2026,
+    lawVersion: '2026_FINAL',
+    status: 'verified',
+    retrievedAt: '2026-08-14',
+  },
   IRS_2025_SCHEDULE_SE_v1_0: {
     id: 'IRS_2025_SCHEDULE_SE_v1.0',
     description: 'Schedule SE social security wage base and self-employment tax rates, tax year 2025',

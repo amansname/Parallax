@@ -542,7 +542,7 @@ try {
       thresholdProof.ordinary !== expected.ordinary
       || thresholdProof.ltcg !== expected.longTermGainTax
       || thresholdProof.socialSecurity !== expected.socialSecurityTax
-      || thresholdProof.irmaa !== '\u2014'
+      || thresholdProof.irmaa !== expected.irmaaAnnual
       || thresholdProof.federalTax !== expected.federalTax
       || thresholdProof.effectiveRate !== expected.effectiveRate
       || thresholdProof.marginalRate !== expected.marginalRate
@@ -747,6 +747,7 @@ try {
       federalTax: realized.after.federalTax,
       ordinary: realized.after.columns.ord.value,
       longTermGainTax: realized.after.columns.ltcg.value,
+      irmaaAnnual: realized.after.columns.irmaa.value,
       effectiveRate: realized.after.effectiveRate,
       taxCaused: realized.after.taxCaused.taxable,
     };

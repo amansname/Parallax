@@ -1075,16 +1075,114 @@ async function verifyPlanningSourceAndTaxFlow(page){
     `Member wage inputs were not independent: ${JSON.stringify(initialWages)}`,
   );
 
+  const irmaaInputs = await page.evaluate(() => {
+    const section = document.querySelector(
+      '[data-tax-input-section="irmaa-lookback"]',
+    );
+    const rows = [...document.querySelectorAll('[data-irmaa-tax-year]')];
+    return {
+      sectionCount: document.querySelectorAll(
+        '[data-tax-input-section="irmaa-lookback"]',
+      ).length,
+      years: rows.map(row => row.dataset.irmaaTaxYear),
+      magiFields: rows.map(row => row.querySelector(
+        '[data-tax-field$=".magi"]',
+      )?.dataset.taxField || ''),
+      filingFields: rows.map(row => row.querySelector(
+        '[data-tax-field$=".filingStatus"]',
+      )?.dataset.taxField || ''),
+      outputCopy: /Current tier|Next tier|To next tier|Premium year/i.test(
+        section?.textContent || '',
+      ),
+    };
+  });
+  requireCondition(
+    irmaaInputs.sectionCount === 1
+      && JSON.stringify(irmaaInputs.years) === JSON.stringify(['2024', '2025'])
+      && JSON.stringify(irmaaInputs.magiFields) === JSON.stringify([
+        'irmaa.lookback.2024.magi',
+        'irmaa.lookback.2025.magi',
+      ])
+      && JSON.stringify(irmaaInputs.filingFields) === JSON.stringify([
+        'irmaa.lookback.2024.filingStatus',
+        'irmaa.lookback.2025.filingStatus',
+      ])
+      && !irmaaInputs.outputCopy,
+    `Tax IRMAA lookback is not input-only: ${JSON.stringify(irmaaInputs)}`,
+  );
+  await setWizardValue(
+    page,
+    '[data-tax-field="irmaa.lookback.2024.magi"]',
+    '218000',
+  );
+  const persistedIrmaaInput = await page.$eval(
+    '[data-tax-field="irmaa.lookback.2024.magi"]',
+    control => control.value,
+  );
+  requireCondition(
+    persistedIrmaaInput === '218000',
+    `IRMAA lookback MAGI did not survive the production edit path: "${persistedIrmaaInput}"`,
+  );
+  await reloadWizard(page);
+  await goToWizardStep(page, 'tax');
+  const reloadedIrmaaInput = await page.$eval(
+    '[data-tax-field="irmaa.lookback.2024.magi"]',
+    control => control.value,
+  );
+  requireCondition(
+    reloadedIrmaaInput === '218000',
+    `IRMAA lookback MAGI did not survive reload: "${reloadedIrmaaInput}"`,
+  );
+
   await goToWizardStep(page, 'summary');
-  const derivedSummary = await page.evaluate(() => ({
-    income: document.querySelector('[data-summary-metric="income"]')
-      ?.dataset.summaryIncomeStatus || '',
-    tax: document.querySelector('[data-summary-metric="federal-tax"]')
-      ?.dataset.summaryTaxStatus || '',
-  }));
+  const derivedSummary = await page.evaluate(() => {
+    const table = document.querySelector('table[data-summary-irmaa]');
+    const rect = table?.getBoundingClientRect();
+    const headers = [...(table?.querySelectorAll('thead th') || [])]
+      .map(cell => cell.textContent.trim());
+    const rows = [...(table?.querySelectorAll('tbody tr') || [])]
+      .map(row => [...row.querySelectorAll('td')]
+        .map(cell => cell.textContent.trim()));
+    return {
+      income: document.querySelector('[data-summary-metric="income"]')
+        ?.dataset.summaryIncomeStatus || '',
+      tax: document.querySelector('[data-summary-metric="federal-tax"]')
+        ?.dataset.summaryTaxStatus || '',
+      tableCount: document.querySelectorAll('table[data-summary-irmaa]').length,
+      headers,
+      rows,
+      width: rect?.width || 0,
+      directScreenChild: table?.parentElement
+        ?.matches('[data-hh-wizard-screen="summary"]') === true,
+      captionCount: table?.querySelectorAll('caption').length || 0,
+    };
+  });
   requireCondition(
     derivedSummary.income === 'ready' && derivedSummary.tax === 'ready',
     `Derived Tax summary did not calculate: ${JSON.stringify(derivedSummary)}`,
+  );
+  requireCondition(
+    derivedSummary.tableCount === 1
+      && JSON.stringify(derivedSummary.headers) === JSON.stringify(['Item', 'Value'])
+      && JSON.stringify(derivedSummary.rows.map(row => row[0])) === JSON.stringify([
+        'Program',
+        'MAGI',
+        'Current tier',
+        'Next tier',
+        'To next tier',
+        'Premium year',
+      ])
+      && derivedSummary.rows[0]?.[1] === 'IRMAA'
+      && /^\$[\d,]+$/.test(derivedSummary.rows[1]?.[1] || '')
+      && /^\d+$/.test(derivedSummary.rows[2]?.[1] || '')
+      && /^(\d+|—)$/.test(derivedSummary.rows[3]?.[1] || '')
+      && /^(\$[\d,]+|—)$/.test(derivedSummary.rows[4]?.[1] || '')
+      && derivedSummary.rows[5]?.[1] === '2028'
+      && derivedSummary.width >= 190
+      && derivedSummary.width <= 300
+      && derivedSummary.directScreenChild
+      && derivedSummary.captionCount === 0,
+    `Summary IRMAA table drifted from the compact Item/Value contract: ${JSON.stringify(derivedSummary)}`,
   );
   const summaryContinueSelector = '#hh-wiz-footer [data-hh-action="step-next"]';
 

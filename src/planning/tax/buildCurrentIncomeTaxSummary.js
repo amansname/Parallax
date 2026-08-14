@@ -12,6 +12,7 @@ import {
   buildCurrent1040Intake,
   hasCurrent1040PlanningEnvelope,
 } from './buildCurrent1040Intake.js';
+import { buildIrmaaPlanningResult } from './buildIrmaaPlanningResult.js';
 
 const add = (target, key, amount) => { target[key] = (target[key] || 0) + amount; };
 
@@ -111,6 +112,48 @@ function run(intake, suffix){
   return runClient1040Intake(intake, context);
 }
 
+function irmaaMfsLivingArrangement(filingStatus, income){
+  if(filingStatus !== 'marriedFilingSeparately') return undefined;
+  const livedWithSpouse = income?.socialSecurity?.livedWithSpouse;
+  if(typeof livedWithSpouse !== 'boolean') return undefined;
+  return livedWithSpouse
+    ? 'lived-together-at-any-time'
+    : 'lived-apart-all-year';
+}
+
+function summaryIrmaa({
+  plan,
+  adjustedGrossIncome,
+  filingStatus,
+  taxYear,
+  income,
+  context = {},
+}){
+  if(typeof adjustedGrossIncome !== 'number'
+      || !Number.isFinite(adjustedGrossIncome)) return null;
+  const mfsLivingArrangement = irmaaMfsLivingArrangement(
+    filingStatus,
+    income,
+  );
+  if(filingStatus === 'marriedFilingSeparately'
+      && !mfsLivingArrangement) return null;
+  try{
+    return buildIrmaaPlanningResult({
+      adjustedGrossIncome,
+      taxExemptInterest: income?.taxExemptInterest ?? 0,
+      uncommonAddbacks:
+        plan.incomeTax?.irmaa?.uncommonAddbacksByTaxYear?.[taxYear] ?? 0,
+      filingStatus,
+      mfsLivingArrangement,
+      taxYear,
+      premiumYear: taxYear + 2,
+      context,
+    });
+  }catch{
+    return null;
+  }
+}
+
 function ordinaryBracketRoom(filingStatus, taxableOrdinaryIncome, lawVersion = '2026_FINAL'){
   const bracket = ORDINARY_BRACKETS[lawVersion]?.[filingStatus]
     ?.find(row => taxableOrdinaryIncome <= row.upTo);
@@ -198,6 +241,13 @@ function buildLegacyCurrentIncomeTaxSummary(plan){
       capitalGainsRate,
       annual.federalSummary.preferentialIncome,
     );
+    const irmaa = summaryIrmaa({
+      plan,
+      adjustedGrossIncome: annual.federalSummary.adjustedGrossIncome,
+      filingStatus,
+      taxYear: 2026,
+      income,
+    });
     return {
       status: 'ready',
       totalIncome: enteredTotal,
@@ -218,6 +268,7 @@ function buildLegacyCurrentIncomeTaxSummary(plan){
       capitalGainsNote: capitalGains.note,
       rmdAge: 73,
       firstRmdYear: firstRmdYear(plan),
+      ...(irmaa ? { irmaa } : {}),
       warnings: annual.warnings || [],
     };
   }catch(error){
@@ -266,6 +317,15 @@ function canonicalValidationSummary(plan, built, error){
 function canonicalDeferredSummary(plan, intake, context, annual, form1040){
   const unresolvedTaxableIncomeLines =
     annual.readiness?.unresolvedTaxableIncomeLines ?? [];
+  const adjustedGrossIncome = form1040.line11a?.value ?? null;
+  const irmaa = summaryIrmaa({
+    plan,
+    adjustedGrossIncome,
+    filingStatus: intake.filingStatus,
+    taxYear: intake.taxYear,
+    income: intake.income,
+    context,
+  });
   return {
     status: 'needs_facts',
     sourceMode: 'canonical-v1',
@@ -283,9 +343,11 @@ function canonicalDeferredSummary(plan, intake, context, annual, form1040){
     lawVersion: context.lawVersion,
     taxTotalScope: annual.federalSummary.taxTotalScope,
     totalIncome: form1040.line9?.value ?? null,
+    adjustedGrossIncome,
     deductionUsed: null,
     rmdAge: 73,
     firstRmdYear: firstRmdYear(plan),
+    ...(irmaa ? { irmaa } : {}),
     warnings: annual.warnings || [],
   };
 }
@@ -339,6 +401,14 @@ function buildCanonicalCurrentIncomeTaxSummary(plan){
       intake.passThrough || {},
       'line20'
     );
+    const irmaa = summaryIrmaa({
+      plan,
+      adjustedGrossIncome: annual.federalSummary.adjustedGrossIncome,
+      filingStatus: intake.filingStatus,
+      taxYear: intake.taxYear,
+      income: intake.income,
+      context,
+    });
     return {
       status: 'ready',
       sourceMode: 'canonical-v1',
@@ -370,6 +440,7 @@ function buildCanonicalCurrentIncomeTaxSummary(plan){
       taxTotalScope: annual.federalSummary.taxTotalScope,
       rmdAge: 73,
       firstRmdYear: firstRmdYear(plan),
+      ...(irmaa ? { irmaa } : {}),
       warnings: annual.warnings || [],
     };
   }catch(error){

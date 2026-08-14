@@ -95,6 +95,7 @@ export function buildThresholdColumns({ result, hoverMark }) {
   const ord = result.ordinary || {};
   const ltcg = result.ltcg || {};
   const ss = result.socialSecurity || {};
+  const irmaa = result.irmaa || {};
   const lad = result.ladders || {};
   const bl = result.baseline || {};
   const taxDollars = result.thresholdTaxDollars || {};
@@ -129,6 +130,21 @@ export function buildThresholdColumns({ result, hoverMark }) {
     ],
     floorOf(bl.provisionalIncome, ss.provisionalIncome),
     (ss.provisionalIncome || 0) - floorOf(bl.provisionalIncome, ss.provisionalIncome),
+    hoverMark,
+    m,
+    pc,
+  );
+  const irmaaL = Array.isArray(lad.irmaa) ? lad.irmaa : [];
+  const gIrmaa = columnGeom(
+    'irmaa',
+    irmaaL.map((row, index) => ({
+      v: row.upTo,
+      label: Number.isInteger(irmaaL[index + 1]?.tier)
+        ? `Tier ${irmaaL[index + 1].tier}`
+        : '',
+    })),
+    floorOf(irmaa.baselineMagi, irmaa.magi),
+    (irmaa.magi || 0) - floorOf(irmaa.baselineMagi, irmaa.magi),
     hoverMark,
     m,
     pc,
@@ -175,9 +191,20 @@ export function buildThresholdColumns({ result, hoverMark }) {
       name: 'Medicare IRMAA',
       current: m(taxDollars.irmaaPremium),
       tone: 'var(--ink-faint)',
-      footLabel: '—',
-      foot: '—',
       ...blank,
+      footLabel: Number.isFinite(irmaa.incrementalAnnualHouseholdAdjustment)
+        ? `${m(irmaa.incrementalAnnualHouseholdAdjustment)} vs baseline`
+        : '\u2014',
+      foot: Number.isInteger(irmaa.premiumYear)
+        ? `${Number.isFinite(irmaa.roomToNext)
+          ? `${m(irmaa.roomToNext)} to next`
+          : 'Top tier'} · ${irmaa.premiumYear}`
+        : '\u2014',
+      fillBg: gold,
+      baseBg: dim,
+      edge: 'rgba(216,192,132,.45)',
+      ...(gIrmaa || blank),
+      value: m(taxDollars.irmaaPremium),
     },
     {
       id: 'ss',
