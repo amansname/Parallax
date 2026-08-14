@@ -19,6 +19,7 @@ import {
 import { isWizardTaxComplete } from './wizardTaxCompletion.js';
 import { readWizardPlanningIncome } from './wizardPlanningIncome.js';
 import { parseWizardNumber } from './wizardTaxMutations.js';
+import { readWizardIrmaaLookback } from './wizardIrmaa.js';
 
 test('wizard intake facade exposes only the stable acyclic production surface', () => {
   assert.deepEqual(Object.keys(wizardIntakeFacade).sort(), [
@@ -115,6 +116,72 @@ test('income fields preserve explicit zero and reject negative non-signed amount
     () => setWizardTaxField(subject, 'income.taxableInterest', -1),
     /zero or a positive amount/,
   );
+});
+
+test('IRMAA lookback fields save two manual tax years without changing 1040 completion', () => {
+  const subject = plan('marriedFilingJointly');
+  subject.meta.planningAsOfYear = 2026;
+  const current = ensureWizardCurrent1040(subject);
+  current.incomeSourcesComplete = true;
+  const before = structuredClone(current);
+
+  setWizardTaxField(subject, 'irmaa.lookback.2024.magi', '218,000');
+  setWizardTaxField(subject, 'irmaa.lookback.2024.filingStatus', 'marriedFilingJointly');
+  setWizardTaxField(subject, 'irmaa.lookback.2025.magi', 0);
+  setWizardTaxField(subject, 'irmaa.lookback.2025.filingStatus', 'single');
+
+  assert.deepEqual(subject.incomeTax.current1040, before);
+  assert.deepEqual(subject.incomeTax.irmaa, {
+    schemaVersion: 1,
+    lookbackByTaxYear: {
+      2024: { magi: 218000, filingStatus: 'marriedFilingJointly' },
+      2025: { magi: 0, filingStatus: 'single' },
+    },
+  });
+  assert.deepEqual(readWizardIrmaaLookback(subject).map(row => row.taxYear), [2024, 2025]);
+
+  setWizardTaxField(subject, 'irmaa.lookback.2024.magi', '');
+  assert.equal(
+    Object.hasOwn(subject.incomeTax.irmaa.lookbackByTaxYear[2024], 'magi'),
+    false,
+  );
+});
+
+test('IRMAA MFS lookback uses the explicit living-arrangement enum only for MFS', () => {
+  const subject = plan();
+  subject.meta.planningAsOfYear = 2026;
+  setWizardTaxField(subject, 'irmaa.lookback.2024.filingStatus', 'marriedFilingSeparately');
+  setWizardTaxField(
+    subject,
+    'irmaa.lookback.2024.mfsLivingArrangement',
+    'lived-apart-all-year',
+  );
+  assert.equal(
+    subject.incomeTax.irmaa.lookbackByTaxYear[2024].mfsLivingArrangement,
+    'lived-apart-all-year',
+  );
+  setWizardTaxField(subject, 'irmaa.lookback.2024.mfsLivingArrangement', '');
+  assert.equal(
+    Object.hasOwn(
+      subject.incomeTax.irmaa.lookbackByTaxYear[2024],
+      'mfsLivingArrangement',
+    ),
+    false,
+  );
+  setWizardTaxField(
+    subject,
+    'irmaa.lookback.2024.mfsLivingArrangement',
+    'lived-together-at-any-time',
+  );
+  setWizardTaxField(subject, 'irmaa.lookback.2024.filingStatus', 'single');
+  assert.equal(
+    Object.hasOwn(
+      subject.incomeTax.irmaa.lookbackByTaxYear[2024],
+      'mfsLivingArrangement',
+    ),
+    false,
+  );
+  assert.equal(Object.hasOwn(subject.incomeTax, 'current1040'), false);
 });
 
 test('Tax member wages save as owner-specific planning rows and derive one 1040 total', () => {

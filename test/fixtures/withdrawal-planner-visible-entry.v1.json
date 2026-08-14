@@ -38,6 +38,7 @@
       "federalTax": "$3,820",
       "ordinary": "$3,820",
       "longTermGainTax": "$0",
+      "irmaaAnnual": "$0",
       "socialSecurityTax": "$0",
       "effectiveRate": "11.3%",
       "marginalRate": "12%"
@@ -47,6 +48,7 @@
       "federalTax": "$76,488",
       "ordinary": "$3,820",
       "longTermGainTax": "$72,668",
+      "irmaaAnnual": "$6,936",
       "effectiveRate": "14.3%",
       "taxCaused": "$72,668"
     }

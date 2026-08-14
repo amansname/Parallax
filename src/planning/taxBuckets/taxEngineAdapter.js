@@ -10,6 +10,7 @@ const PATHS = {
   constants: '../../tax/core/constants.js',
   attribution: '../tax/attributeWithdrawalTaxByBucket.js',
   current1040: '../tax/buildCurrent1040Intake.js',
+  irmaaPlanning: '../tax/buildIrmaaPlanningResult.js',
   engine: '../../../engine.js',
   portfolio: '../../household/resolvePortfolioAccounts.js',
 };
@@ -21,15 +22,24 @@ async function load() {
   if (mods) return mods;
   if (loadError) throw loadError;
   try {
-    const [annual1040, constants, attribution, current1040, engine, portfolio] = await Promise.all([
+    const [annual1040, constants, attribution, current1040, irmaaPlanning, engine, portfolio] = await Promise.all([
       import(PATHS.annual1040),
       import(PATHS.constants),
       import(PATHS.attribution),
       import(PATHS.current1040),
+      import(PATHS.irmaaPlanning),
       import(PATHS.engine),
       import(PATHS.portfolio),
     ]);
-    mods = { annual1040, constants, attribution, current1040, engine, portfolio };
+    mods = {
+      annual1040,
+      constants,
+      attribution,
+      current1040,
+      irmaaPlanning,
+      engine,
+      portfolio,
+    };
     return mods;
   } catch (e) {
     loadError = e;
@@ -42,7 +52,6 @@ export function loadFailure() {
 }
 
 export const NOT_MODELED = Object.freeze({
-  irmaa: 'No IRMAA table in src/tax/',
   niit: 'NIIT_NOT_MODELED',
 });
 
@@ -434,6 +443,46 @@ export async function householdIncome(plan, taxYear, options = {}) {
 const num = v => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const sub = (a, b) => (num(a) === null || num(b) === null ? null : a - b);
 
+function irmaaMfsLivingArrangement(facts){
+  if(facts.filingStatus !== 'marriedFilingSeparately') return undefined;
+  if(typeof facts.livedWithSpouse !== 'boolean') return undefined;
+  return facts.livedWithSpouse
+    ? 'lived-together-at-any-time'
+    : 'lived-apart-all-year';
+}
+
+function medicareEligibleMembers(plan, facts, taxYear){
+  const premiumYear = taxYear + 2;
+  const planYear = Number.isInteger(plan?.meta?.planningAsOfYear)
+    ? plan.meta.planningAsOfYear
+    : 2026;
+  const owners = ['client', ...(plan?.household?.spouse ? ['spouse'] : [])];
+  let count = 0;
+  let unknown = false;
+  for(const owner of owners){
+    const personFacts = facts.people?.[owner];
+    if(personFacts?.alive === false) continue;
+    if(personFacts && personFacts.alive !== true) unknown = true;
+    const planPerson = owner === 'spouse'
+      ? plan?.household?.spouse
+      : plan?.household?.primary;
+    const taxYearAge = num(personFacts?.age)
+      ?? num(facts.ages?.[owner])
+      ?? (num(planPerson?.currentAge) === null
+        ? null
+        : planPerson.currentAge + (taxYear - planYear));
+    if(taxYearAge === null){
+      unknown = true;
+      continue;
+    }
+    const premiumAge = taxYearAge + (premiumYear - taxYear);
+    const terminalAge = num(planPerson?.planEndAge);
+    if(terminalAge !== null && premiumAge > terminalAge) continue;
+    if(premiumAge >= 65) count += 1;
+  }
+  return unknown ? null : count;
+}
+
 function auditFor(audits, ruleId) {
   return (audits || []).find(a => a && a.ruleId === ruleId) || null;
 }
@@ -658,7 +707,7 @@ function toYearFacts({ facts, levers, taxYear, deductionContract }) {
 
 export async function evaluateYear({ plan, taxYear, facts, levers }) {
   const dependencies = await load();
-  const { annual1040, constants, engine } = dependencies;
+  const { annual1040, constants, engine, irmaaPlanning } = dependencies;
   if (!facts || !facts.filingStatus) return null;
 
   let accountState = null;
@@ -815,6 +864,7 @@ export async function evaluateYear({ plan, taxYear, facts, levers }) {
   const preferential = num(sum.preferentialIncome);
 
   const zero = analysis.baselineRun;
+  const zeroSummary = zero?.annual1040Result?.federalSummary ?? {};
   const zeroOrd = num(auditFor(zero?.audits, 'FED_ORDINARY_INCOME_TAX')?.inputsUsed?.taxableOrdinaryIncome);
   const zeroSsSteps = auditFor(zero?.audits, 'FED_TAXABLE_SOCIAL_SECURITY')?.calculationSteps || [];
   const zeroStep = line => {
@@ -851,6 +901,46 @@ export async function evaluateYear({ plan, taxYear, facts, levers }) {
   const ssNextAt = ssProvisional === null ? ssTier1
     : (ssProvisional < ssTier1 ? ssTier1 : (ssTier2 !== null && ssProvisional < ssTier2 ? ssTier2 : null));
 
+  const eligibleMembers = medicareEligibleMembers(plan, facts, taxYear);
+  const mfsLivingArrangement = irmaaMfsLivingArrangement(facts);
+  const irmaaCommon = {
+    taxExemptInterest: facts.taxExemptInterest ?? 0,
+    uncommonAddbacks:
+      plan?.incomeTax?.irmaa?.uncommonAddbacksByTaxYear?.[taxYear] ?? 0,
+    filingStatus: fs,
+    mfsLivingArrangement,
+    taxYear,
+    premiumYear: taxYear + 2,
+    eligibleMembers,
+    context,
+  };
+  const selectedIrmaa = irmaaPlanning.buildIrmaaPlanningResult({
+    ...irmaaCommon,
+    adjustedGrossIncome: num(sum.adjustedGrossIncome),
+  });
+  const baselineIrmaa = irmaaPlanning.buildIrmaaPlanningResult({
+    ...irmaaCommon,
+    adjustedGrossIncome: num(zeroSummary.adjustedGrossIncome),
+  });
+  const selectedIrmaaAnnual = selectedIrmaa?.annualHouseholdAdjustment ?? null;
+  const baselineIrmaaAnnual = baselineIrmaa?.annualHouseholdAdjustment ?? null;
+  const incrementalIrmaaAnnual = selectedIrmaaAnnual === null
+      || baselineIrmaaAnnual === null
+    ? null
+    : selectedIrmaaAnnual - baselineIrmaaAnnual;
+  const irmaaResult = selectedIrmaa
+    ? Object.freeze({
+      ...selectedIrmaa,
+      baselineMagi: baselineIrmaa?.magi ?? null,
+      baselineAnnualHouseholdAdjustment: baselineIrmaaAnnual,
+      incrementalAnnualHouseholdAdjustment: incrementalIrmaaAnnual,
+    })
+    : null;
+  const thresholdTaxDollars = {
+    ...analysis.thresholdTaxDollars,
+    irmaaPremium: selectedIrmaaAnnual,
+  };
+
   return {
     lawVersion,
     taxYear: res.taxYear ?? taxYear,
@@ -859,7 +949,7 @@ export async function evaluateYear({ plan, taxYear, facts, levers }) {
       ordinaryIncome: taxableOrdinary,
       qualifiedIncome: preferential,
       agi: num(sum.adjustedGrossIncome),
-      magi: num(sum.adjustedGrossIncome),
+      magi: selectedIrmaa?.magi ?? null,
       taxableIncome: num(sum.taxableIncome),
       federalTax: num(sum.federalTaxLiability),
       marginalRate: num(sum.marginalRate),
@@ -888,7 +978,7 @@ export async function evaluateYear({ plan, taxYear, facts, levers }) {
       nextTierAt: ssNextAt,
       roomToNext: sub(ssNextAt, ssProvisional),
     },
-    irmaa: { scope: NOT_MODELED.irmaa },
+    irmaa: irmaaResult,
     niit: { scope: NOT_MODELED.niit },
     rmd: accountState?.rmd
       ? {
@@ -913,7 +1003,7 @@ export async function evaluateYear({ plan, taxYear, facts, levers }) {
         tier2: ssTier2,
         rates: analysis.thresholdRates?.socialSecurity ?? null,
       },
-      irmaa: null,
+      irmaa: selectedIrmaa?.ladder ?? null,
     },
     coverage: {
       unsupportedIntentional: res.unsupportedIntentional || [],
@@ -923,7 +1013,7 @@ export async function evaluateYear({ plan, taxYear, facts, levers }) {
     deductionCoverage: deductionContract.coverage,
     accountState,
     accountIssues,
-    thresholdTaxDollars: analysis.thresholdTaxDollars,
+    thresholdTaxDollars,
     modeledFederalIncomeTax: analysis.modeledFederalIncomeTax,
     cash,
   };

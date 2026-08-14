@@ -38,7 +38,9 @@ test('taxEngineAdapter evaluates a focus year from demo-shaped plan', async () =
   assert.equal(result.error, undefined);
   assert.equal(typeof result.lawVersion, 'string');
   assert.equal(typeof result.ordinary?.rate, 'number');
-  assert.equal(result.irmaa?.scope, 'No IRMAA table in src/tax/');
+  assert.equal(result.irmaa?.premiumYear, 2028);
+  assert.equal(result.irmaa?.tier, 0);
+  assert.equal(result.irmaa?.scope, undefined);
 });
 
 test('taxEngineAdapter returns null when filing status is missing', async () => {
@@ -113,7 +115,7 @@ test('evaluateYear returns engine-owned threshold dollars and incremental net ca
   assert.deepEqual(result.thresholdTaxDollars, {
     ordinaryIncomeTax: 6_570,
     preferentialIncomeTax: 0,
-    irmaaPremium: null,
+    irmaaPremium: 0,
     socialSecurityIncrementalModeledFederalIncomeTax: 0,
   });
   assert.deepEqual(result.ladders.ltcg.rates, {
@@ -137,6 +139,58 @@ test('evaluateYear returns engine-owned threshold dollars and incremental net ca
     netAfterIncrementalModeledFederalIncomeTax: 17_250,
   });
   assert.equal(result.totals.netCash, 17_250);
+});
+
+test('Withdrawal Planner IRMAA uses selected MAGI, annual premium delta, room, and premium year', async () => {
+  const subject = structuredClone(plan);
+  subject.meta.filingStatus = 'single';
+  subject.meta.planningAsOfYear = 2026;
+  subject.household.primary = {
+    ...subject.household.primary,
+    currentAge: 65,
+    planEndAge: 95,
+  };
+  subject.household.spouse = null;
+  subject.portfolio.accounts = {
+    taxable: { balance: 0, basisPct: 0 },
+    traditional: { balance: 1_000_000 },
+    roth: { balance: 0 },
+  };
+  subject.portfolio.extraAccounts = [];
+  const result = await evaluateYear({
+    plan: subject,
+    taxYear: 2026,
+    facts: {
+      filingStatus: 'single',
+      socialSecurityBenefits: 0,
+      wages: 108_000,
+      taxExemptInterest: 1_000,
+      otherIncome: 0,
+      ages: { client: 65 },
+      people: { client: { age: 65, alive: true }, spouse: null },
+    },
+    levers: {
+      realizedGain: 0,
+      deferredWithdrawal: 1,
+      rothConversion: 0,
+      rothWithdrawal: 0,
+      qcd: 0,
+    },
+  });
+
+  assert.equal(result.totals.agi, 108001);
+  assert.equal(result.totals.magi, 109001);
+  assert.equal(result.irmaa.tier, 1);
+  assert.equal(result.irmaa.nextTier, 2);
+  assert.equal(result.irmaa.roomToNext, 27999);
+  assert.equal(result.irmaa.premiumYear, 2028);
+  assert.equal(result.irmaa.baselineAnnualHouseholdAdjustment, 0);
+  assert.equal(result.irmaa.incrementalAnnualHouseholdAdjustment, 1148.40);
+  assert.equal(result.thresholdTaxDollars.irmaaPremium, 1148.40);
+  assert.equal(
+    result.cash.netAfterIncrementalModeledFederalIncomeTax,
+    1 - result.modeledFederalIncomeTax.incremental,
+  );
 });
 
 test('Realized Gain is taxed directly without being counted as withdrawal cash', async () => {

@@ -12,6 +12,7 @@ import { enhancedSeniorDeduction } from '../federal/rules/enhancedSeniorDeductio
 import { medicalExpenseDeduction } from '../federal/rules/medicalExpenseDeduction.js';
 import { saltDeductionCap } from '../federal/rules/saltDeductionCap.js';
 import { overallItemizedDeductionLimit } from '../federal/rules/overallItemizedDeductionLimit.js';
+import { irmaa } from '../federal/rules/irmaa.js';
 
 export const rulesLedger = [
   ordinaryIncomeTax,
@@ -26,6 +27,7 @@ export const rulesLedger = [
   medicalExpenseDeduction,
   saltDeductionCap,
   overallItemizedDeductionLimit,
+  irmaa,
 ];
 
 export function getRuleById(ruleId){

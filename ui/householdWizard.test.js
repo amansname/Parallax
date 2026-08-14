@@ -15,6 +15,7 @@ function plan(){
       primaryName: 'Johnny Calloway',
       spouseName: 'Joanie Calloway',
       filingStatus: 'marriedFilingJointly',
+      planningAsOfYear: 2026,
       state: 'VA',
     },
     household: {
@@ -174,6 +175,13 @@ function wizard({
           federalTaxLiability: 93406,
           effectiveRate: 0.178,
           taxTotalScope: 'FULL_1040',
+          irmaa: {
+            magi: 218000,
+            tier: 1,
+            nextTier: 2,
+            roomToNext: 56000,
+            premiumYear: 2028,
+          },
           reasonCodes: [],
         })
       : partialTax
@@ -346,6 +354,17 @@ test('Tax page omits confirmation checkbox markup', () => {
   assert.doesNotMatch(html, /data-tax-confirmation/);
 });
 
+test('Tax page provides only the two manual IRMAA lookback input rows', () => {
+  const html = wizard().render('tax');
+  assert.match(html, /data-tax-input-section="irmaa-lookback"/);
+  assert.match(html, /data-irmaa-tax-year="2024"/);
+  assert.match(html, /data-irmaa-tax-year="2025"/);
+  assert.match(html, /data-tax-field="irmaa\.lookback\.2024\.magi"/);
+  assert.match(html, /data-tax-field="irmaa\.lookback\.2025\.filingStatus"/);
+  assert.equal((html.match(/data-irmaa-tax-year=/g) || []).length, 2);
+  assert.doesNotMatch(html, /current tier|next tier|premium year|timeline|estimate/i);
+});
+
 test('Summary remains minimal and omits the rejected status and unlock sections', () => {
   const html = wizard().render('summary');
   assert.match(html, /data-summary-metric="portfolio"/);
@@ -359,8 +378,19 @@ test('Summary remains minimal and omits the rejected status and unlock sections'
   assert.match(unavailable, /data-summary-tax-status="not-calculable"/);
   assert.match(unavailable, /data-summary-tax-scope="NOT_CALCULABLE"/);
   assert.match(html, /Portfolio by tax treatment/);
+  assert.match(html, /<table class="hh-summary-irmaa"/);
+  assert.match(html, /<th scope="col">Item<\/th><th scope="col">Value<\/th>/);
+  assert.match(html, /<tr><td>Program<\/td><td>IRMAA<\/td><\/tr>/);
+  assert.match(html, /<tr><td>MAGI<\/td><td>\$218,000<\/td><\/tr>/);
+  assert.match(html, /<tr><td>Current tier<\/td><td>1<\/td><\/tr>/);
+  assert.match(html, /<tr><td>Next tier<\/td><td>2<\/td><\/tr>/);
+  assert.match(html, /<tr><td>To next tier<\/td><td>\$56,000<\/td><\/tr>/);
+  assert.match(html, /<tr><td>Premium year<\/td><td>2028<\/td><\/tr>/);
+  assert.equal((html.match(/<tbody>[\s\S]*?<\/tbody>/)?.[0].match(/<tr>/g) || []).length, 6);
   assert.doesNotMatch(html, /Intake status/i);
   assert.doesNotMatch(html, /What this intake unlocks/i);
+  assert.doesNotMatch(html, /planning estimate|disclosure|timeline/i);
+  assert.doesNotMatch(unavailable, /data-summary-irmaa/);
 });
 
 test('Summary shows available-input income and tax without incompleteness flags', () => {

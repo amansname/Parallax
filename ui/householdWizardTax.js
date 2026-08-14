@@ -1,3 +1,5 @@
+import { readWizardIrmaaLookback } from '../src/household/wizardIrmaa.js';
+
 export function renderHouseholdWizardTax(ctx){
   const {
     plan,
@@ -23,6 +25,7 @@ export function renderHouseholdWizardTax(ctx){
   const planningGroups = planningIncome?.groups || {};
   const wagesByOwner = planningIncome?.wagesByOwner || {};
   const hasSpouse = Boolean(plan.household?.spouse);
+  const irmaaLookback = readWizardIrmaaLookback(plan);
 
   const groupState = groupId => planningGroups[groupId] || {
     rowIds: [],
@@ -178,6 +181,15 @@ export function renderHouseholdWizardTax(ctx){
     headOfHousehold: 'Head of household',
   }[plan.meta?.filingStatus] || 'Unsupported saved filing status';
 
+  const irmaaFilingOptions = (selected = '') => [
+    ['single', 'Single'],
+    ['marriedFilingJointly', 'Married filing jointly'],
+    ['headOfHousehold', 'Head of household'],
+    ['marriedFilingSeparately', 'Married filing separately'],
+  ].map(([value, label]) => (
+    `<option value="${value}" ${selected === value ? 'selected' : ''}>${label}</option>`
+  )).join('');
+
   return `
     <div class="hh-screen hh-tax-screen" data-hh-wizard-screen="tax"
       data-tax-view="${taxView}" id="hh-panel-tax" role="tabpanel"
@@ -218,6 +230,48 @@ export function renderHouseholdWizardTax(ctx){
             <option value="itemized-total" ${deductionMode === 'itemized-total' ? 'selected' : ''}>Itemized · supplied line 12e</option>
           </select>
         </label>
+      </section>
+
+      <section class="hh-irmaa-lookback" data-tax-input-section="irmaa-lookback">
+        <h2>IRMAA lookback</h2>
+        <div class="hh-irmaa-lookback-table" role="table" aria-label="IRMAA lookback inputs">
+          <div class="hh-irmaa-lookback-row hh-irmaa-lookback-row--head" role="row">
+            <span role="columnheader">Tax year</span>
+            <span role="columnheader">MAGI</span>
+            <span role="columnheader">Filing status</span>
+          </div>
+          ${irmaaLookback.map(row => {
+            const prefix = `irmaa.lookback.${row.taxYear}`;
+            return `
+              <div class="hh-irmaa-lookback-row" role="row" data-irmaa-tax-year="${row.taxYear}">
+                <strong role="cell">${row.taxYear}</strong>
+                <div role="cell">
+                  ${amountInput(`${prefix}.magi`, row.magi, {
+                    id: `hh-${prefix.replaceAll('.', '-')}-magi`,
+                  })}
+                </div>
+                <div class="hh-irmaa-filing" role="cell">
+                  <select aria-label="${row.taxYear} filing status"
+                    data-hh-field="${prefix}.filingStatus"
+                    data-tax-field="${prefix}.filingStatus">
+                    ${irmaaFilingOptions(row.filingStatus)}
+                  </select>
+                  ${row.filingStatus === 'marriedFilingSeparately' ? `
+                    <select aria-label="${row.taxYear} MFS living arrangement"
+                      data-hh-field="${prefix}.mfsLivingArrangement"
+                      data-tax-field="${prefix}.mfsLivingArrangement">
+                      <option value="" ${row.mfsLivingArrangement ? '' : 'selected'}></option>
+                      <option value="lived-together-at-any-time"
+                        ${row.mfsLivingArrangement === 'lived-together-at-any-time' ? 'selected' : ''}>Lived together during year</option>
+                      <option value="lived-apart-all-year"
+                        ${row.mfsLivingArrangement === 'lived-apart-all-year' ? 'selected' : ''}>Lived apart all year</option>
+                    </select>
+                  ` : ''}
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
       </section>
 
       <section class="hh-tax-section">

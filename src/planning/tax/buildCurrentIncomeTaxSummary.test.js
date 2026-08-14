@@ -53,6 +53,10 @@ test('current wizard summary runs the federal engine for supported income', () =
   assert.ok(summary.ordinaryBracketRoom > 0);
   assert.equal(summary.rmdAge, 73);
   assert.equal(summary.firstRmdYear, 2049);
+  assert.equal(summary.irmaa.magi, summary.adjustedGrossIncome);
+  assert.equal(summary.irmaa.tier, 0);
+  assert.equal(summary.irmaa.nextTier, 1);
+  assert.equal(summary.irmaa.premiumYear, 2028);
 });
 
 test('qualified dividends expose the audited capital-gains position', () => {
@@ -215,6 +219,7 @@ test('omitted optional Schedule D remains missing instead of becoming confirmed 
   assert.equal(summary.totalIncome, null);
   assert.ok(summary.unresolvedTaxableIncomeLines.includes('line9'));
   assert.ok(summary.reasonCodes.includes('CURRENT_1040_LINE9_DEFERRED'));
+  assert.equal(summary.irmaa, undefined);
 });
 
 test('canonical supplied Social Security cannot become a false ready zero return', () => {
@@ -289,6 +294,9 @@ test('non-ready canonical totalIncome remains authoritative Form 1040 line 9', (
   assert.equal(summary.taxTotalScope, 'NOT_CALCULABLE');
   assert.equal(summary.totalIncome, 85000);
   assert.ok(summary.reasonCodes.includes('CURRENT_1040_LINE13A_DEFERRED'));
+  assert.equal(summary.adjustedGrossIncome, 85000);
+  assert.equal(summary.irmaa.magi, 87500);
+  assert.equal(summary.irmaa.premiumYear, 2028);
 });
 
 test('canonical calculated MFS Social Security preserves living-status semantics', () => {

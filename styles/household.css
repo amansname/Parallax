@@ -1329,6 +1329,55 @@
   white-space: nowrap;
 }
 
+.page[data-page="household"] .hh-irmaa-lookback {
+  margin-top: 20px;
+}
+
+.page[data-page="household"] .hh-irmaa-lookback h2 {
+  margin: 0 0 7px;
+  color: var(--hh-ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.page[data-page="household"] .hh-irmaa-lookback-table {
+  border-top: 1px solid var(--hh-line);
+}
+
+.page[data-page="household"] .hh-irmaa-lookback-row {
+  display: grid;
+  grid-template-columns: 72px 150px minmax(220px, 1fr);
+  align-items: center;
+  gap: 18px;
+  min-height: 42px;
+  border-bottom: 1px solid var(--hh-line-soft);
+}
+
+.page[data-page="household"] .hh-irmaa-lookback-row--head {
+  min-height: 26px;
+  color: var(--hh-muted);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.page[data-page="household"] .hh-irmaa-lookback-row strong {
+  color: var(--hh-body);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.page[data-page="household"] .hh-irmaa-lookback-row .hh-tax-amount {
+  width: 100%;
+}
+
+.page[data-page="household"] .hh-irmaa-filing {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+}
+
 .page[data-page="household"] .hh-tax-section,
 .page[data-page="household"] .hh-tax-subsection,
 .page[data-page="household"] .hh-tax-optional {
@@ -1641,6 +1690,34 @@
   line-height: 1.35;
 }
 
+.page[data-page="household"] .hh-summary-irmaa {
+  width: max-content;
+  min-width: 190px;
+  margin-top: 18px;
+  border-collapse: collapse;
+  color: var(--hh-body);
+  font-size: 10px;
+  line-height: 1.15;
+}
+
+.page[data-page="household"] .hh-summary-irmaa th,
+.page[data-page="household"] .hh-summary-irmaa td {
+  padding: 3px 7px;
+  border: 1px solid var(--hh-line-soft);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.page[data-page="household"] .hh-summary-irmaa th {
+  color: var(--hh-ink);
+  font-weight: 600;
+}
+
+.page[data-page="household"] .hh-summary-irmaa th:last-child,
+.page[data-page="household"] .hh-summary-irmaa td:last-child {
+  text-align: right;
+}
+
 .page[data-page="household"] .hh-summary-composition {
   margin-top: 24px;
 }
@@ -1824,6 +1901,11 @@
 
   .page[data-page="household"] .hh-screen-head h1 {
     font-size: 31px;
+  }
+
+  .page[data-page="household"] .hh-irmaa-lookback-row {
+    grid-template-columns: 56px 90px minmax(150px, 1fr);
+    gap: 8px;
   }
 
   .page[data-page="household"] .hh-family-people,

@@ -47,6 +47,44 @@ export const TRIGGER_TAGS = [
   'self_employment_tax',
 ];
 
+export const IRMAA_MFS_LIVING_ARRANGEMENTS = [
+  'lived-together-at-any-time',
+  'lived-apart-all-year',
+];
+
+// Medicare Part B and Part D income-related monthly adjustment amounts.
+// `upTo` follows the published boundary semantics. The penultimate tier is
+// exclusive because CMS publishes the final tier as "greater than or equal."
+export const IRMAA_TABLES = {
+  2026: {
+    individual: [
+      { tier: 0, upTo: 109000, upperInclusive: true, partBMonthlyAdjustment: 0, partDMonthlyAdjustment: 0 },
+      { tier: 1, upTo: 137000, upperInclusive: true, partBMonthlyAdjustment: 81.20, partDMonthlyAdjustment: 14.50 },
+      { tier: 2, upTo: 171000, upperInclusive: true, partBMonthlyAdjustment: 202.90, partDMonthlyAdjustment: 37.50 },
+      { tier: 3, upTo: 205000, upperInclusive: true, partBMonthlyAdjustment: 324.60, partDMonthlyAdjustment: 60.40 },
+      { tier: 4, upTo: 500000, upperInclusive: false, partBMonthlyAdjustment: 446.30, partDMonthlyAdjustment: 83.30 },
+      { tier: 5, upTo: Infinity, upperInclusive: true, partBMonthlyAdjustment: 487.00, partDMonthlyAdjustment: 91.00 },
+    ],
+    joint: [
+      { tier: 0, upTo: 218000, upperInclusive: true, partBMonthlyAdjustment: 0, partDMonthlyAdjustment: 0 },
+      { tier: 1, upTo: 274000, upperInclusive: true, partBMonthlyAdjustment: 81.20, partDMonthlyAdjustment: 14.50 },
+      { tier: 2, upTo: 342000, upperInclusive: true, partBMonthlyAdjustment: 202.90, partDMonthlyAdjustment: 37.50 },
+      { tier: 3, upTo: 410000, upperInclusive: true, partBMonthlyAdjustment: 324.60, partDMonthlyAdjustment: 60.40 },
+      { tier: 4, upTo: 750000, upperInclusive: false, partBMonthlyAdjustment: 446.30, partDMonthlyAdjustment: 83.30 },
+      { tier: 5, upTo: Infinity, upperInclusive: true, partBMonthlyAdjustment: 487.00, partDMonthlyAdjustment: 91.00 },
+    ],
+    marriedFilingSeparatelyLivedTogether: [
+      { tier: 0, upTo: 109000, upperInclusive: true, partBMonthlyAdjustment: 0, partDMonthlyAdjustment: 0 },
+      { tier: 4, upTo: 391000, upperInclusive: false, partBMonthlyAdjustment: 446.30, partDMonthlyAdjustment: 83.30 },
+      { tier: 5, upTo: Infinity, upperInclusive: true, partBMonthlyAdjustment: 487.00, partDMonthlyAdjustment: 91.00 },
+    ],
+  },
+};
+
+export const IRMAA_TABLE_SOURCE = {
+  2026: 'CMS_2026_MEDICARE_IRMAA_v1.0',
+};
+
 export const SELF_EMPLOYMENT_TAX = {
   '2025_FINAL': {
     socialSecurityWageBase: 176100,

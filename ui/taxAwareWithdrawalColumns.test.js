@@ -86,6 +86,43 @@ test('threshold headlines and bar labels use the tax-engine contract', () => {
   assert.equal(refs.columns.ss.edgeVal.textContent, '$3,457');
 });
 
+test('IRMAA column renders annual premium, baseline delta, room, and premium year', () => {
+  const cols = buildThresholdColumns({
+    result: {
+      irmaa: {
+        magi: 109001,
+        baselineMagi: 109000,
+        tier: 1,
+        nextTier: 2,
+        roomToNext: 27999,
+        premiumYear: 2028,
+        incrementalAnnualHouseholdAdjustment: 1148.40,
+      },
+      thresholdTaxDollars: { irmaaPremium: 1148.40 },
+      ladders: {
+        irmaa: [
+          { tier: 0, upTo: 109000 },
+          { tier: 1, upTo: 137000 },
+          { tier: 2, upTo: 171000 },
+          { tier: 3, upTo: 205000 },
+          { tier: 4, upTo: 500000 },
+          { tier: 5, upTo: null },
+        ],
+      },
+    },
+    hoverMark: null,
+  });
+  const irmaa = cols.find(column => column.id === 'irmaa');
+  assert.equal(irmaa.current, '$1,148');
+  assert.equal(irmaa.value, '$1,148');
+  assert.equal(irmaa.footLabel, '$1,148 vs baseline');
+  assert.equal(irmaa.foot, '$27,999 to next · 2028');
+  assert.deepEqual(
+    irmaa.marks.slice(0, 2).map(mark => mark.label),
+    ['Tier 1', 'Tier 2'],
+  );
+});
+
 test('slider caps use the smaller of engine-approved limits and the $500,000 display ceiling', () => {
   const keys = [
     'rothConversion', 'rothWithdrawal', 'qcd',
