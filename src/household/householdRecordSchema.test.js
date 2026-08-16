@@ -152,3 +152,33 @@ test('adds a versioned displayName without changing canonical account type data'
   assert.equal(migrated.plan.portfolio.extraAccounts[0].typeId, 'brokerage_taxable');
   assert.equal(migrated.plan.portfolio.extraAccounts[0].type, 'Brokerage (taxable)');
 });
+
+test('v1 household records add empty durable Net Worth state without altering saved property facts', () => {
+  const current = migrateHouseholdRecordSchema(subject([])).plan;
+  const legacy = structuredClone(current);
+  legacy.meta.householdRecordSchemaVersion = 1;
+  delete legacy.netWorth;
+  legacy.properties = [{
+    name: 'Anonymized property',
+    value: 500000,
+    purchasePrice: 200000,
+    mortgage: { balance: 120000, rate: 5, termYears: 30 },
+  }];
+  const sourceBytes = JSON.stringify(legacy);
+
+  const first = migrateHouseholdRecordSchema(legacy, 'hh-v1-net-worth');
+  assert.equal(JSON.stringify(legacy), sourceBytes);
+  assert.equal(first.changed, true);
+  assert.deepEqual(first.plan.netWorth, {
+    schemaVersion: 1,
+    shellEntries: [],
+  });
+  assert.deepEqual(first.plan.properties, legacy.properties);
+  assert.ok(first.repairs.some(repair =>
+    repair.code === 'NET_WORTH_RECORDS_INITIALIZED'));
+
+  const second = migrateHouseholdRecordSchema(first.plan, 'hh-v1-net-worth');
+  assert.equal(second.changed, false);
+  assert.deepEqual(second.plan, first.plan);
+  assert.deepEqual(second.repairs, []);
+});

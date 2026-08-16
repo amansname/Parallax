@@ -95,8 +95,40 @@ function wizard({
   taxReady = true,
   partialIncome = false,
   partialTax = false,
+  durableNetWorth = false,
+  portfolioTotal = 1450000,
 } = {}){
   const value = plan();
+  if(durableNetWorth){
+    value.portfolio.extraAccounts = [];
+    value.properties = [{
+      name: 'Audit Lake House',
+      value: 500000,
+      purchasePrice: 0,
+      netWorthMeta: { type: 'Second Home', owner: 'joint' },
+      mortgage: {
+        balance: 120000,
+        rate: 0,
+        termYears: 0,
+        netWorthMeta: {
+          present: true,
+          name: 'Audit Lake Lender',
+          type: 'Second Home',
+          owner: 'joint',
+        },
+      },
+    }];
+    value.netWorth = {
+      schemaVersion: 1,
+      shellEntries: [
+        { id: 'nw-trust', categoryId: 'investment', name: 'Audit Trust', type: 'Trust', owner: 'joint', tax: 'Taxable', value: 100000, projectionTreatment: 'net-worth-only' },
+        { id: 'nw-insurance', categoryId: 'insurance', name: 'Audit Insurance', type: 'Whole Life', owner: 'client', tax: '', value: 50000, projectionTreatment: 'net-worth-only' },
+        { id: 'nw-card', categoryId: 'card', name: 'Audit Card', type: 'Revolving', owner: 'client', tax: '', value: 5000, projectionTreatment: 'net-worth-only' },
+        { id: 'nw-loan', categoryId: 'loan', name: 'Audit Loan', type: 'Auto', owner: 'client', tax: '', value: 20000, projectionTreatment: 'net-worth-only' },
+        { id: 'nw-custom', categoryId: 'bank', name: 'Audit Custom', type: 'Collector cash', owner: 'client', tax: '', value: 3000, projectionTreatment: 'net-worth-only' },
+      ],
+    };
+  }
   if(withoutSpouse){
     value.household.spouse = null;
     value.meta.spouseName = '';
@@ -161,9 +193,9 @@ function wizard({
     }),
     taxBucketSnapshot: () => ({
       status: 'ready',
-      totalBalance: 1450000,
+      totalBalance: portfolioTotal,
       buckets: {
-        taxable: { label: 'Taxable', balance: 1450000, accountCount: 1 },
+        taxable: { label: 'Taxable', balance: portfolioTotal, accountCount: portfolioTotal > 0 ? 1 : 0 },
         traditional: { label: 'Tax-Deferred', balance: 0, accountCount: 0 },
         roth: { label: 'Roth', balance: 0, accountCount: 0 },
       },
@@ -266,6 +298,38 @@ test('Net Worth requires a valid owner and hides spouse ownership when no spouse
   assert.match(html, /value="\$250,000"\s+data-net-worth-draft="value"/);
   assert.match(html, /data-hh-action="net-worth-save-entry"[\s\S]*data-net-worth-owner-required="true"[\s\S]*disabled>Save/);
   assert.doesNotMatch(html, /<option value="spouse"/);
+});
+
+test('Net Worth uses durable shell records and property metadata in rows and totals', () => {
+  const insurance = wizard({
+    durableNetWorth: true,
+    portfolioTotal: 0,
+    netWorthPanelCategory: 'insurance',
+  }).render('net-worth');
+  assert.match(insurance, /Audit Insurance/);
+  assert.match(insurance, /Whole Life · Client/);
+  assert.match(insurance, /\$508,000/);
+  assert.match(insurance, /\$50,000/);
+  assert.match(insurance, /\$100,000/);
+  assert.match(insurance, /\$5,000/);
+  assert.match(insurance, /\$20,000/);
+  assert.match(insurance, /\$3,000/);
+
+  const property = wizard({
+    durableNetWorth: true,
+    portfolioTotal: 0,
+    netWorthPanelCategory: 'property',
+  }).render('net-worth');
+  assert.match(property, /Audit Lake House/);
+  assert.match(property, /Second Home · Joint/);
+
+  const mortgage = wizard({
+    durableNetWorth: true,
+    portfolioTotal: 0,
+    netWorthPanelCategory: 'mortgage',
+  }).render('net-worth');
+  assert.match(mortgage, /Audit Lake Lender/);
+  assert.match(mortgage, /Second Home · Joint · Audit Lake House/);
 });
 
 test('Tax preserves the approved 1040 order and removes ledger-only columns', () => {

@@ -311,11 +311,42 @@ async function reloadWizard(page){
       priorHouseholdId,
     );
     if(available){
-      await page.select('#hh-switch', priorHouseholdId);
-      return waitForWizard(page, { householdId: priorHouseholdId });
+      return selectHouseholdVisible(page, priorHouseholdId);
     }
   }
   return waitForWizard(page, { householdId: 'demo' });
+}
+
+async function selectHouseholdVisible(page, householdId){
+  const before = await wizardState(page);
+  if(before.householdId === householdId) return before;
+  const menuHidden = await page.$eval('#hh-menu-pop', menu => menu.hidden);
+  if(menuHidden){
+    await clickWizardAction(page, '#hh-menu-btn', { expectRevision: false });
+  }
+  await requireUnique(
+    page,
+    '#hh-menu-pop:not([hidden]) #hh-switch',
+    'visible household switcher',
+  );
+  const optionCount = await page.$$eval(
+    '#hh-switch option',
+    (options, expectedId) => options.filter(option => option.value === expectedId).length,
+    householdId,
+  );
+  requireCondition(
+    optionCount === 1,
+    `Household ${householdId} must be selectable exactly once; found ${optionCount}`,
+  );
+  const selected = await page.select('#hh-switch', householdId);
+  requireCondition(
+    selected.length === 1 && selected[0] === householdId,
+    `Visible household switch did not select ${householdId}: ${JSON.stringify(selected)}`,
+  );
+  return waitForWizard(page, {
+    householdId,
+    afterRevision: before.revision,
+  });
 }
 
 async function settleWizardCapture(page){
@@ -500,7 +531,11 @@ export function attachBrowserDiagnostics(page){
 }
 
 async function prepareContractFixture(page){
-  await clickWizardAction(page, '#hh-menu-btn', { expectRevision: false });
+  const menuHidden = await page.$eval('#hh-menu-pop', menu => menu.hidden);
+  if(menuHidden){
+    await clickWizardAction(page, '#hh-menu-btn', { expectRevision: false });
+  }
+  await requireUnique(page, '#hh-menu-pop:not([hidden]) #hh-new', 'visible new household action');
   await clickWizardAction(page, '#hh-new');
   await page.waitForFunction(() => {
     const selected = document.querySelector('#hh-switch')?.value;
@@ -553,6 +588,173 @@ async function prepareContractFixture(page){
     localStorage.setItem(dbKey, JSON.stringify(db));
   });
   await reloadWizard(page);
+}
+
+async function verifyRuntimeTemplateDurableCopy(page){
+  await openWizard(page);
+  await selectHouseholdVisible(page, 'demo');
+  await goToWizardStep(page, 'family');
+  await requireUnique(
+    page,
+    '[data-wizard-field="primaryName"]',
+    'Demo legal-name field',
+  );
+  const sourceBefore = await page.evaluate(() => {
+    const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+    return JSON.stringify(db?.demo || null);
+  });
+  requireCondition(
+    sourceBefore && sourceBefore !== 'null',
+    'Demo runtime source was unavailable before the edit',
+  );
+
+  const editedName = 'Runtime save verifier';
+  await setWizardValue(
+    page,
+    '[data-wizard-field="primaryName"]',
+    editedName,
+  );
+  const copied = await page.evaluate(({ expectedName, expectedSource }) => {
+    const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+    const active = localStorage.getItem('parallax.activeHouseholdId');
+    const record = db?.[active];
+    return {
+      active,
+      rootHouseholdId: document.querySelector('[data-hh-wizard-root]')
+        ?.dataset.householdId || '',
+      selectedHouseholdId: document.querySelector('#hh-switch')?.value || '',
+      selectedHouseholdName: document.querySelector('#hh-switch')
+        ?.selectedOptions?.[0]?.textContent.trim() || '',
+      railName: document.querySelector('#hh-rail-name')?.textContent.trim() || '',
+      status: document.querySelector('#status')?.textContent.trim() || '',
+      visibleName: document.querySelector('[data-wizard-field="primaryName"]')?.value || '',
+      sourceUnchanged: JSON.stringify(db?.demo || null) === expectedSource,
+      sourceVisibleName: db?.demo?.meta?.primaryName || '',
+      recordName: record?.meta?.name || '',
+      runtimeSourceHouseholdId: record?.meta?.runtimeSourceHouseholdId || '',
+      isDemo: record?.meta?.isDemo,
+      isSelectableDefault: record?.meta?.isSelectableDefault,
+      savedName: record?.meta?.primaryName || '',
+      customCount: Object.values(db || {}).filter(item =>
+        item?.meta?.runtimeSourceHouseholdId === 'demo'
+        && item?.meta?.primaryName === expectedName).length,
+    };
+  }, { expectedName: editedName, expectedSource: sourceBefore });
+  requireCondition(
+    copied.active
+      && copied.active !== 'demo'
+      && copied.rootHouseholdId === copied.active
+      && copied.selectedHouseholdId === copied.active
+      && copied.selectedHouseholdName === 'Demo Household copy'
+      && copied.railName === 'Demo Household copy'
+      && [
+        'Saved as Demo Household copy \u00b7 open Scenarios',
+        'Plan updated \u00b7 using available inputs',
+      ].includes(copied.status)
+      && copied.visibleName === editedName
+      && copied.sourceUnchanged
+      && copied.sourceVisibleName !== editedName
+      && copied.recordName === 'Demo Household copy'
+      && copied.runtimeSourceHouseholdId === 'demo'
+      && copied.isDemo === false
+      && copied.isSelectableDefault === false
+      && copied.savedName === editedName
+      && copied.customCount === 1,
+    `Runtime edit was not saved as one durable copy: ${JSON.stringify(copied)}`,
+  );
+
+  await page.reload({ waitUntil: 'networkidle2', timeout: 20000 });
+  await waitForWizard(page, { householdId: 'demo' });
+  const rebooted = await page.evaluate(({ customId, expectedName, expectedSource }) => {
+    const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+    return {
+      sourceUnchanged: JSON.stringify(db?.demo || null) === expectedSource,
+      demoVisibleName: document.querySelector('[data-wizard-field="primaryName"]')?.value || '',
+      customOptionCount: [...document.querySelectorAll('#hh-switch option')]
+        .filter(option => option.value === customId).length,
+      savedName: db?.[customId]?.meta?.primaryName || '',
+      runtimeSourceHouseholdId: db?.[customId]?.meta?.runtimeSourceHouseholdId || '',
+    };
+  }, {
+    customId: copied.active,
+    expectedName: editedName,
+    expectedSource: sourceBefore,
+  });
+  requireCondition(
+    rebooted.sourceUnchanged
+      && rebooted.demoVisibleName !== editedName
+      && rebooted.customOptionCount === 1
+      && rebooted.savedName === editedName
+      && rebooted.runtimeSourceHouseholdId === 'demo',
+    `Runtime copy did not survive a clean reload: ${JSON.stringify(rebooted)}`,
+  );
+
+  await requireUnique(page, '.htab[data-page="scenarios"]', 'Scenarios tab');
+  await page.click('.htab[data-page="scenarios"]');
+  await page.waitForFunction(() =>
+    document.querySelector('.page.on')?.dataset.page === 'scenarios'
+      && document.querySelectorAll('#scn-view .scol__name').length > 0,
+  { timeout: 10000 });
+  const scenarioCountBefore = await countMatches(page, '#scn-view .scol__name');
+  await requireUnique(page, '#scn-add', 'Add scenario action');
+  await page.click('#scn-add');
+  await page.waitForFunction(({ expectedCount, expectedSource }) => {
+    const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+    const active = localStorage.getItem('parallax.activeHouseholdId');
+    const savedScenarios = JSON.parse(
+      localStorage.getItem(`parallax.scenarios.${active}.v1`) || 'null',
+    );
+    return active
+      && active !== 'demo'
+      && db?.[active]?.meta?.runtimeSourceHouseholdId === 'demo'
+      && JSON.stringify(db?.demo || null) === expectedSource
+      && Array.isArray(savedScenarios)
+      && savedScenarios.length === expectedCount + 1
+      && [...document.querySelectorAll('#hh-switch option')]
+        .filter(option => option.value === active).length === 1;
+  }, { timeout: 10000 }, {
+    expectedCount: scenarioCountBefore,
+    expectedSource: sourceBefore,
+  });
+  const scenarioCopy = await page.evaluate(() => {
+    const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+    const active = localStorage.getItem('parallax.activeHouseholdId');
+    const savedScenarios = JSON.parse(
+      localStorage.getItem(`parallax.scenarios.${active}.v1`) || 'null',
+    );
+    return {
+      active,
+      householdBytes: JSON.stringify(db?.[active] || null),
+      scenarioCount: savedScenarios?.length ?? null,
+    };
+  });
+  requireCondition(
+    scenarioCopy.active
+      && scenarioCopy.householdBytes !== 'null'
+      && scenarioCopy.scenarioCount === scenarioCountBefore + 1,
+    `Scenario-only runtime copy was not durable: ${JSON.stringify(scenarioCopy)}`,
+  );
+
+  await page.reload({ waitUntil: 'networkidle2', timeout: 20000 });
+  await waitForWizard(page, { householdId: 'demo' });
+  await selectHouseholdVisible(page, scenarioCopy.active);
+  await page.click('.htab[data-page="scenarios"]');
+  await page.waitForFunction(expectedCount =>
+    document.querySelector('.page.on')?.dataset.page === 'scenarios'
+      && document.querySelectorAll('#scn-view .scol__name').length === expectedCount,
+  { timeout: 10000 }, scenarioCountBefore + 1);
+  await page.click('.htab[data-page="household"]');
+  await waitForWizard(page, { householdId: scenarioCopy.active });
+  await selectHouseholdVisible(page, copied.active);
+  await goToWizardStep(page, 'family');
+  const restoredName = await page.$eval(
+    '[data-wizard-field="primaryName"]',
+    input => input.value,
+  );
+  requireCondition(
+    restoredName === editedName,
+    `Durable runtime copy reloaded with the wrong name: "${restoredName}"`,
+  );
 }
 
 async function assertFourStepStructure(page){
@@ -837,6 +1039,87 @@ async function verifyFamilyPropagation(page){
   );
 }
 
+async function addNetWorthShellEntry(page, {
+  categoryId,
+  type,
+  name,
+  value,
+  expectedValue,
+  custom = false,
+  openMore = false,
+  tax = '',
+}){
+  await openNetWorthCategory(page, categoryId);
+  if(openMore){
+    await clickWizardAction(
+      page,
+      '[data-hh-action="net-worth-toggle-more"]',
+    );
+  }
+  if(custom){
+    await clickWizardAction(
+      page,
+      `[data-hh-action="net-worth-pick-custom"][data-category-id="${categoryId}"]`,
+    );
+    await setWizardValue(
+      page,
+      '[data-net-worth-draft="type"]',
+      type,
+      { expectRevision: false, eventType: 'input' },
+    );
+  }else{
+    await clickWizardAction(
+      page,
+      `[data-hh-action="net-worth-pick-type"][data-category-id="${categoryId}"][data-type-label="${type}"]`,
+    );
+  }
+  await setWizardValue(
+    page,
+    '[data-net-worth-draft="name"]',
+    name,
+    { expectRevision: false, eventType: 'input' },
+  );
+  await setWizardValue(
+    page,
+    '[data-net-worth-draft="owner"]',
+    'client',
+    { expectRevision: false },
+  );
+  await setWizardValue(
+    page,
+    '[data-net-worth-draft="value"]',
+    value,
+    { expectRevision: false, eventType: 'input' },
+  );
+  await clickWizardAction(page, '[data-hh-action="net-worth-save-entry"]');
+  const matches = await page.evaluate(expectedName =>
+    [...document.querySelectorAll('.nw-saved-row')].flatMap(row => {
+      const savedName = row.querySelector('.nw-saved-name')?.textContent.trim() || '';
+      if(savedName !== expectedName) return [];
+      const remove = row.querySelector(
+        '[data-hh-action="net-worth-remove-entry"][data-entry-source="shell"]',
+      );
+      return [{
+        id: remove?.dataset.shellId || '',
+        name: savedName,
+        meta: row.querySelector('.nw-saved-meta')?.textContent.trim() || '',
+        value: row.querySelector('.nw-saved-actions span')?.textContent.trim() || '',
+      }];
+    }), name);
+  requireCondition(
+    matches.length === 1
+      && matches[0].id
+      && matches[0].value === expectedValue
+      && matches[0].meta.includes(type)
+      && matches[0].meta.includes('Client')
+      && matches[0].meta.includes('Net worth only')
+      && matches[0].meta.includes('not projected')
+      && (!tax || matches[0].meta.includes(tax)),
+    `Net Worth shell entry did not save exact visible truth: ${JSON.stringify(matches)}`,
+  );
+  return matches[0].id;
+}
+
 async function verifyNetWorthFlow(page){
   await openNetWorthCategory(page, 'bank');
   await clickWizardAction(
@@ -937,7 +1220,19 @@ async function verifyNetWorthFlow(page){
   await openNetWorthCategory(page, 'property');
   await clickWizardAction(
     page,
-    '[data-hh-action="net-worth-pick-type"][data-type-label="Primary Residence"]',
+    '[data-hh-action="net-worth-pick-type"][data-type-label="Second Home"]',
+  );
+  await setWizardValue(
+    page,
+    '[data-net-worth-draft="name"]',
+    'Verifier lake house',
+    { expectRevision: false, eventType: 'input' },
+  );
+  await setWizardValue(
+    page,
+    '[data-net-worth-draft="owner"]',
+    'joint',
+    { expectRevision: false },
   );
   await setWizardValue(
     page,
@@ -956,18 +1251,22 @@ async function verifyNetWorthFlow(page){
         '[data-hh-action="net-worth-remove-entry"][data-entry-source="property"]',
       ).length,
       name: row?.querySelector('.nw-saved-name')?.textContent.trim() || '',
+      meta: row?.querySelector('.nw-saved-meta')?.textContent.trim() || '',
       value: row?.querySelector('.nw-saved-actions span')?.textContent.trim() || '',
     };
   });
   requireCondition(
-    property.count === 1 && property.name === '—' && property.value === '$500,000',
-    `Unnamed property did not save canonical truth: ${JSON.stringify(property)}`,
+    property.count === 1
+      && property.name === 'Verifier lake house'
+      && property.meta === 'Second Home \u00b7 Joint'
+      && property.value === '$500,000',
+    `Property display metadata did not save canonical truth: ${JSON.stringify(property)}`,
   );
 
   await openNetWorthCategory(page, 'mortgage');
   await clickWizardAction(
     page,
-    '[data-hh-action="net-worth-pick-type"][data-type-label="Primary Residence"]',
+    '[data-hh-action="net-worth-pick-type"][data-type-label="Second Home"]',
   );
   const autoLink = await page.evaluate(() => ({
     value: document.querySelector('[data-net-worth-draft="link"]')?.value || '',
@@ -979,9 +1278,21 @@ async function verifyNetWorthFlow(page){
   }));
   requireCondition(
     autoLink.value === '0'
-      && autoLink.label === 'Property 1'
+      && autoLink.label === 'Verifier lake house'
       && autoLink.available === 'true',
-    `Unnamed property was not mortgage-linkable: ${JSON.stringify(autoLink)}`,
+    `Saved property was not mortgage-linkable by name: ${JSON.stringify(autoLink)}`,
+  );
+  await setWizardValue(
+    page,
+    '[data-net-worth-draft="name"]',
+    'Verifier lender',
+    { expectRevision: false, eventType: 'input' },
+  );
+  await setWizardValue(
+    page,
+    '[data-net-worth-draft="owner"]',
+    'joint',
+    { expectRevision: false },
   );
   await setWizardValue(
     page,
@@ -999,23 +1310,139 @@ async function verifyNetWorthFlow(page){
       count: document.querySelectorAll(
         '[data-hh-action="net-worth-remove-entry"][data-entry-source="mortgage"]',
       ).length,
+      name: row?.querySelector('.nw-saved-name')?.textContent.trim() || '',
       meta: row?.querySelector('.nw-saved-meta')?.textContent.trim() || '',
       value: row?.querySelector('.nw-saved-actions span')?.textContent.trim() || '',
     };
   });
   requireCondition(
     mortgage.count === 1
-      && mortgage.meta.includes('Property 1')
+      && mortgage.name === 'Verifier lender'
+      && mortgage.meta === 'Second Home \u00b7 Joint \u00b7 Verifier lake house'
       && mortgage.value === '$120,001',
-    `Mortgage did not preserve its canonical property link: ${JSON.stringify(mortgage)}`,
+    `Mortgage did not preserve its exact metadata/link: ${JSON.stringify(mortgage)}`,
   );
-  await page.waitForFunction(() => {
+
+  const shellSpecs = [
+    { categoryId: 'investment', type: 'Trust', name: 'Verifier trust', value: '100000', expectedValue: '$100,000', openMore: true, tax: 'Taxable' },
+    { categoryId: 'insurance', type: 'Whole Life', name: 'Verifier insurance', value: '50000', expectedValue: '$50,000' },
+    { categoryId: 'card', type: 'Revolving', name: 'Verifier card', value: '5000', expectedValue: '$5,000' },
+    { categoryId: 'loan', type: 'Auto', name: 'Verifier loan', value: '20000', expectedValue: '$20,000' },
+    { categoryId: 'bank', type: 'Custom bank record', name: 'Verifier custom bank', value: '3000', expectedValue: '$3,000', custom: true, openMore: true },
+  ];
+  for(const spec of shellSpecs){
+    spec.id = await addNetWorthShellEntry(page, spec);
+  }
+
+  await page.waitForFunction(expected => {
     const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
     const active = localStorage.getItem('parallax.activeHouseholdId');
+    const plan = db?.[active];
+    const shell = plan?.netWorth?.shellEntries || [];
     const property = db?.[active]?.properties?.[0];
-    return property?.value === 500000 && property?.mortgage?.balance === 120001;
-  }, { timeout: 10000 });
+    return expected.every(item => shell.some(entry =>
+      entry.id === item.id
+      && entry.categoryId === item.categoryId
+      && entry.name === item.name
+      && entry.type === item.type
+      && entry.owner === 'client'
+      && entry.value === Number(item.value)
+      && entry.projectionTreatment === 'net-worth-only'))
+      && property?.name === 'Verifier lake house'
+      && property?.value === 500000
+      && property?.netWorthMeta?.type === 'Second Home'
+      && property?.netWorthMeta?.owner === 'joint'
+      && property?.mortgage?.balance === 120001
+      && property?.mortgage?.netWorthMeta?.present === true
+      && property?.mortgage?.netWorthMeta?.name === 'Verifier lender'
+      && property?.mortgage?.netWorthMeta?.type === 'Second Home'
+      && property?.mortgage?.netWorthMeta?.owner === 'joint';
+  }, { timeout: 10000 }, shellSpecs);
+
+  await clickWizardAction(page, '[data-net-worth-overlay] .nw-panel-close');
+  const entryTotals = await page.evaluate(() => {
+    const readOne = selector => {
+      const nodes = [...document.querySelectorAll(selector)];
+      return { count: nodes.length, text: nodes[0]?.textContent.trim() || '' };
+    };
+    const category = id => readOne(
+      `[data-hh-action="net-worth-open-category"][data-category-id="${id}"] .nw-tile-copy > span`,
+    );
+    return {
+      rail: readOne('.nw-rail > strong'),
+      mobile: readOne('.nw-mobile-total > strong'),
+      categories: Object.fromEntries(
+        ['bank', 'investment', 'property', 'insurance', 'card', 'mortgage', 'loan']
+          .map(id => [id, category(id)]),
+      ),
+    };
+  });
+  requireCondition(
+    entryTotals.rail.count === 1
+      && entryTotals.rail.text === '$758,000'
+      && entryTotals.mobile.count === 1
+      && entryTotals.mobile.text === '$758,000'
+      && JSON.stringify(entryTotals.categories) === JSON.stringify({
+        bank: { count: 1, text: '$253,001' },
+        investment: { count: 1, text: '$100,000' },
+        property: { count: 1, text: '$500,000' },
+        insurance: { count: 1, text: '$50,000' },
+        card: { count: 1, text: '$5,000' },
+        mortgage: { count: 1, text: '$120,001' },
+        loan: { count: 1, text: '$20,000' },
+      }),
+    `Net Worth entry totals did not reconcile exactly: ${JSON.stringify(entryTotals)}`,
+  );
+
   await reloadWizard(page);
+  for(const spec of shellSpecs){
+    await openNetWorthCategory(page, spec.categoryId);
+    const persistedShell = await page.evaluate(expected =>
+      [...document.querySelectorAll('.nw-saved-row')].flatMap(row => {
+        const button = row.querySelector(
+          '[data-hh-action="net-worth-remove-entry"][data-entry-source="shell"]',
+        );
+        if(button?.dataset.shellId !== expected.id) return [];
+        return [{
+          name: row.querySelector('.nw-saved-name')?.textContent.trim() || '',
+          meta: row.querySelector('.nw-saved-meta')?.textContent.trim() || '',
+          value: row.querySelector('.nw-saved-actions span')?.textContent.trim() || '',
+        }];
+      }), spec);
+    requireCondition(
+      persistedShell.length === 1
+        && persistedShell[0].name === spec.name
+        && persistedShell[0].value === spec.expectedValue
+        && persistedShell[0].meta.includes(spec.type)
+        && persistedShell[0].meta.includes('Net worth only')
+        && persistedShell[0].meta.includes('not projected'),
+      `Net Worth shell record changed after reload: ${JSON.stringify({ spec, persistedShell })}`,
+    );
+  }
+
+  await openNetWorthCategory(page, 'property');
+  const persistedProperty = await page.evaluate(() => {
+    const remove = document.querySelector(
+      '[data-hh-action="net-worth-remove-entry"][data-entry-source="property"]',
+    );
+    const row = remove?.closest('.nw-saved-row');
+    return {
+      count: document.querySelectorAll(
+        '[data-hh-action="net-worth-remove-entry"][data-entry-source="property"]',
+      ).length,
+      name: row?.querySelector('.nw-saved-name')?.textContent.trim() || '',
+      meta: row?.querySelector('.nw-saved-meta')?.textContent.trim() || '',
+      value: row?.querySelector('.nw-saved-actions span')?.textContent.trim() || '',
+    };
+  });
+  requireCondition(
+    persistedProperty.count === 1
+      && persistedProperty.name === 'Verifier lake house'
+      && persistedProperty.meta === 'Second Home \u00b7 Joint'
+      && persistedProperty.value === '$500,000',
+    `Property metadata changed after reload: ${JSON.stringify(persistedProperty)}`,
+  );
+
   await openNetWorthCategory(page, 'mortgage');
   const persistedMortgage = await page.evaluate(() => {
     const remove = document.querySelector(
@@ -1023,31 +1450,67 @@ async function verifyNetWorthFlow(page){
     );
     const row = remove?.closest('.nw-saved-row');
     return {
+      count: document.querySelectorAll(
+        '[data-hh-action="net-worth-remove-entry"][data-entry-source="mortgage"]',
+      ).length,
+      name: row?.querySelector('.nw-saved-name')?.textContent.trim() || '',
       meta: row?.querySelector('.nw-saved-meta')?.textContent.trim() || '',
       value: row?.querySelector('.nw-saved-actions span')?.textContent.trim() || '',
     };
   });
   requireCondition(
-    persistedMortgage.meta.includes('Property 1')
+    persistedMortgage.count === 1
+      && persistedMortgage.name === 'Verifier lender'
+      && persistedMortgage.meta === 'Second Home \u00b7 Joint \u00b7 Verifier lake house'
       && persistedMortgage.value === '$120,001',
-    `Mortgage link/value changed after reload: ${JSON.stringify(persistedMortgage)}`,
+    `Mortgage metadata changed after reload: ${JSON.stringify(persistedMortgage)}`,
   );
 
-  await openNetWorthCategory(page, 'bank');
+  await clickWizardAction(page, '[data-net-worth-overlay] .nw-panel-close');
   await clickWizardAction(
     page,
-    `[data-hh-action="net-worth-remove-entry"][data-entry-source="account"][data-account-id="${account.id}"]`,
+    '.nw-rail [data-hh-action="net-worth-show-summary"]',
   );
+  const summary = await page.evaluate(() => {
+    const hero = document.querySelectorAll('.nw-summary-hero');
+    const categories = Object.fromEntries(
+      [...document.querySelectorAll('.nw-summary-card')].map(card => [
+        card.querySelector('strong')?.textContent.trim() || '',
+        card.querySelector('span')?.textContent.trim() || '',
+      ]),
+    );
+    const split = Object.fromEntries(
+      [...document.querySelectorAll('.nw-summary-hero p')].map(row => [
+        row.querySelector('span')?.textContent.trim() || '',
+        row.querySelector('b')?.textContent.trim() || '',
+      ]),
+    );
+    return {
+      heroCount: hero.length,
+      total: hero[0]?.querySelector(':scope > strong')?.textContent.trim() || '',
+      cardCount: document.querySelectorAll('.nw-summary-card').length,
+      split,
+      categories,
+    };
+  });
   requireCondition(
-    await countMatches(
-      page,
-      '[data-hh-action="net-worth-remove-entry"][data-entry-source="account"]',
-    ) === 0,
-    'Net Worth account removal did not target the stable account ID',
-  );
-  await clickWizardAction(
-    page,
-    '[data-net-worth-overlay] .nw-panel-close',
+    summary.heroCount === 1
+      && summary.total === '$758,000'
+      && summary.cardCount === 7
+      && JSON.stringify(summary.split) === JSON.stringify({
+        Assets: '$903,001',
+        Liabilities: '$145,001',
+      })
+      && JSON.stringify(summary.categories) === JSON.stringify({
+        Bank: '$253,001',
+        Investment: '$100,000',
+        Property: '$500,000',
+        Insurance: '$50,000',
+        'Credit Card': '$5,000',
+        Mortgage: '$120,001',
+        Loan: '$20,000',
+      }),
+    `Net Worth reload summary did not reconcile exactly: ${JSON.stringify(summary)}`,
   );
 }
 
@@ -1430,7 +1893,7 @@ async function verifyDuplicateRepair(page){
       && typeof repaired.rows[0]?.id === 'string'
       && repaired.archive.length === 1
       && repaired.archive[0]?.code === 'LEGACY_GPC_DUPLICATE_WAGE_REMOVED'
-      && repaired.version === 1,
+      && repaired.version === 2,
     `Legacy duplicate repair was not narrow/recoverable: ${JSON.stringify(repaired)}`,
   );
   await reloadWizard(page);
@@ -1630,6 +2093,7 @@ export async function runWizardBrowserContract(
   try{
     await openWizard(page);
     originalStorage = await snapshotStorage(page);
+    await verifyRuntimeTemplateDurableCopy(page);
     await prepareContractFixture(page);
     await assertFourStepStructure(page);
     await verifyFamilyPropagation(page);

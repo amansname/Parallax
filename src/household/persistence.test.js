@@ -1,9 +1,14 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { ACCOUNT_SCHEMA_VERSION } from './accountTypes.js';
 import { createBlankTaxProfiles } from './factEnvelope.js';
 import { SPENDING_SCHEMA_VERSION } from './migrateSpendingToGoals.js';
 import { HOUSEHOLD_RECORD_SCHEMA_VERSION } from './householdRecordSchema.js';
+import {
+  NET_WORTH_ONLY_TREATMENT,
+  createEmptyNetWorthRecords,
+} from './netWorthRecords.js';
 import {
   ACTIVE_KEY,
   HHDB_KEY,
@@ -28,6 +33,7 @@ function createBlankHousehold(id){
   p.income.other = [];
   p.incomeTax = { adjustments: [], deductions: [], credits: [] };
   p.taxProfiles = createBlankTaxProfiles();
+  p.netWorth = createEmptyNetWorthRecords();
   return p;
 }
 
@@ -345,6 +351,99 @@ test('durable save preparation validates stable row identity before cloning', ()
     () => prepareHouseholdRecordForSave(invalid, 'save'),
     /income\.other\[0\]\.id is required/,
   );
+});
+
+test('Net Worth shell records and Property/Mortgage metadata survive Save and reload exactly', () => {
+  const household = createBlankHousehold('net-worth-save');
+  household.netWorth.shellEntries.push({
+    id: 'nw-insurance',
+    categoryId: 'insurance',
+    name: 'Anonymized policy',
+    type: 'Whole Life',
+    owner: 'client',
+    tax: '',
+    value: 50000,
+    projectionTreatment: NET_WORTH_ONLY_TREATMENT,
+  });
+  household.properties = [{
+    name: 'Anonymized property',
+    value: 500000,
+    purchasePrice: 200000,
+    netWorthMeta: { type: 'Second Home', owner: 'joint' },
+    mortgage: {
+      balance: 120000,
+      rate: 5,
+      termYears: 30,
+      netWorthMeta: {
+        present: true,
+        name: 'Anonymized lender',
+        type: 'Second Home',
+        owner: 'joint',
+      },
+    },
+  }];
+  const preparedRecord = prepareHouseholdRecordForSave(
+    household,
+    'net-worth-save',
+  );
+  const storage = createMemoryStorage({
+    [HHDB_KEY]: JSON.stringify({ 'net-worth-save': preparedRecord }),
+    [ACTIVE_KEY]: 'net-worth-save',
+  });
+
+  const reloaded = prepareHouseholdStore(readHouseholdStore(storage), deps);
+  const record = reloaded.db['net-worth-save'];
+  assert.deepEqual(record.netWorth, preparedRecord.netWorth);
+  assert.deepEqual(record.properties, preparedRecord.properties);
+  assert.deepEqual(
+    prepareHouseholdRecordForSave(record, 'net-worth-save'),
+    record,
+  );
+});
+
+test('exact v1 Net Worth fixture migrates once and the committed bytes reload unchanged', () => {
+  const fixturePath = new URL(
+    '../../test/fixtures/persisted/legacy-net-worth-v1.json',
+    import.meta.url,
+  );
+  const fixtureBytes = readFileSync(fixturePath, 'utf8');
+  const fixture = JSON.parse(fixtureBytes);
+  const sourceDatabaseBytes = fixture.storage[HHDB_KEY];
+  const sourcePointerBytes = fixture.storage[ACTIVE_KEY];
+  const sourceRecord = JSON.parse(sourceDatabaseBytes)['anonymized-net-worth-v1'];
+  const storage = createCountingStorage(fixture.storage);
+
+  const read = readHouseholdStore(storage);
+  assert.equal(storage.getItem(HHDB_KEY), sourceDatabaseBytes);
+  assert.equal(storage.getItem(ACTIVE_KEY), sourcePointerBytes);
+  const first = prepareHouseholdStore(read, deps);
+  assert.equal(storage.getItem(HHDB_KEY), sourceDatabaseBytes);
+  assert.equal(storage.getItem(ACTIVE_KEY), sourcePointerBytes);
+  assert.equal(first.ok, true);
+  assert.equal(first.changed, true);
+  const migrated = first.db['anonymized-net-worth-v1'];
+  assert.equal(
+    migrated.meta.householdRecordSchemaVersion,
+    HOUSEHOLD_RECORD_SCHEMA_VERSION,
+  );
+  assert.deepEqual(migrated.netWorth, createEmptyNetWorthRecords());
+  assert.deepEqual(migrated.properties, sourceRecord.properties);
+  assert.ok(first.repairsByHousehold['anonymized-net-worth-v1'].some(repair =>
+    repair.code === 'NET_WORTH_RECORDS_INITIALIZED'));
+
+  const committed = commitPreparedHouseholdStore(storage, first);
+  assert.equal(committed.ok, true);
+  const destinationDatabaseBytes = storage.getItem(HHDB_KEY);
+  assert.notEqual(destinationDatabaseBytes, sourceDatabaseBytes);
+  const writesAfterMigration = storage.writeCount();
+
+  const second = prepareHouseholdStore(readHouseholdStore(storage), deps);
+  assert.equal(second.ok, true);
+  assert.equal(second.changed, false);
+  assert.deepEqual(second.repairsByHousehold['anonymized-net-worth-v1'], []);
+  assert.equal(commitPreparedHouseholdStore(storage, second).wrote, false);
+  assert.equal(storage.writeCount(), writesAfterMigration);
+  assert.equal(storage.getItem(HHDB_KEY), destinationDatabaseBytes);
 });
 
 test('Tax completion zeros and planning source overrides survive Save and reload', () => {

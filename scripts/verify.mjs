@@ -365,7 +365,36 @@ try {
 
   await step('enter funded Withdrawal Planner household through visible production controls', async () => {
     await stableClick('.htab[data-page="household"]');
-    await waitForWizard(page, { householdId: 'demo' });
+    const savedRuntimeEdit = await page.evaluate(() => {
+      const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+      const active = localStorage.getItem('parallax.activeHouseholdId');
+      const record = db?.[active];
+      const wages = (record?.income?.other || []).filter(row =>
+        row?.typeId === 'wages' && row?.owner === 'client');
+      const demoWages = (db?.demo?.income?.other || []).filter(row =>
+        row?.typeId === 'wages' && row?.owner === 'client');
+      return {
+        active,
+        rootHouseholdId: document.querySelector('[data-hh-wizard-root]')
+          ?.dataset.householdId || '',
+        runtimeSourceHouseholdId: record?.meta?.runtimeSourceHouseholdId || '',
+        wages,
+        demoWageCount: demoWages.length,
+        optionCount: [...document.querySelectorAll('#hh-switch option')]
+          .filter(option => option.value === active).length,
+      };
+    });
+    if(!savedRuntimeEdit.active
+        || savedRuntimeEdit.active === 'demo'
+        || savedRuntimeEdit.rootHouseholdId !== savedRuntimeEdit.active
+        || savedRuntimeEdit.runtimeSourceHouseholdId !== 'demo'
+        || savedRuntimeEdit.wages.length !== 1
+        || savedRuntimeEdit.wages[0]?.amount !== 50000
+        || savedRuntimeEdit.demoWageCount !== 0
+        || savedRuntimeEdit.optionCount !== 1){
+      throw new Error(`Runtime-template wages did not persist as one durable household: ${JSON.stringify(savedRuntimeEdit)}`);
+    }
+    await waitForWizard(page, { householdId: savedRuntimeEdit.active });
     await goToWizardStep(page, 'family');
     await stableClick('#hh-menu-btn');
     await stableClick('#hh-new');
@@ -1408,11 +1437,36 @@ try {
     await page.keyboard.up('Control');
     await page.keyboard.type(String(editedAge));
     await page.keyboard.press('Tab');
-    await page.waitForFunction(({ selector, editedAge }) => {
-      const input = document.querySelector(selector);
-      return input?.value === String(editedAge)
-        && input.closest('.cell--goal-detail')?.classList.contains('is-overridden');
-    }, { timeout: 10000 }, { selector, editedAge });
+    try{
+      await page.waitForFunction(({ selector, editedAge }) => {
+        const input = document.querySelector(selector);
+        return input?.value === String(editedAge)
+          && input.closest('.cell--goal-detail')?.classList.contains('is-overridden');
+      }, { timeout: 10000 }, { selector, editedAge });
+    }catch(error){
+      const observed = await page.evaluate(({ selector, scenarioId }) => {
+        const input = document.querySelector(selector);
+        const active = localStorage.getItem('parallax.activeHouseholdId');
+        return {
+          active,
+          rootHouseholdId: document.querySelector('[data-hh-wizard-root]')
+            ?.dataset.householdId || '',
+          status: document.querySelector('#status')?.textContent.trim() || '',
+          activePage: document.querySelector('.page.on')?.dataset.page || '',
+          value: input?.value ?? null,
+          focused: document.activeElement === input,
+          overridden: input?.closest('.cell--goal-detail')
+            ?.classList.contains('is-overridden') || false,
+          editedMarkerCount: input?.closest('.cell--goal-detail')
+            ?.querySelectorAll('.cmp-goal-edited').length ?? null,
+          scenarioStorage: localStorage.getItem(
+            `parallax.scenarios.${active}.v1`,
+          ),
+          targetScenarioId: scenarioId,
+        };
+      }, { selector, scenarioId: target.scnId });
+      throw new Error(`retirement-relative goal edit did not commit: ${JSON.stringify(observed)}; ${error.message}`);
+    }
 
     await page.focus(selector);
     await page.keyboard.down('Control');
@@ -2384,13 +2438,30 @@ try {
     };
     await goToWizardStep(page, 'family');
     await setFamilyField('primaryName', 'Transient Demo Edit');
-    const storedDemo = await page.evaluate(() => JSON.parse(
-      localStorage.getItem('parallax.households.v1') || 'null',
-    )?.demo);
-    if(storedDemo?.meta?.primaryName){
-      throw new Error(`runtime Demo edit entered persistent storage: ${JSON.stringify(storedDemo)}`);
+    const runtimeCopy = await page.evaluate(() => {
+      const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+      const active = localStorage.getItem('parallax.activeHouseholdId');
+      return {
+        active,
+        demo: db?.demo,
+        copy: db?.[active],
+        optionCount: [...document.querySelectorAll('#hh-switch option')]
+          .filter(option => option.value === active).length,
+      };
+    });
+    if(!runtimeCopy.active
+        || runtimeCopy.active === 'demo'
+        || runtimeCopy.demo?.meta?.primaryName
+        || runtimeCopy.copy?.meta?.primaryName !== 'Transient Demo Edit'
+        || runtimeCopy.copy?.meta?.runtimeSourceHouseholdId !== 'demo'
+        || runtimeCopy.optionCount !== 1){
+      throw new Error(`runtime Demo edit did not create one durable copy: ${JSON.stringify(runtimeCopy)}`);
     }
-    await page.evaluate(() => document.querySelector('#hh-new').click());
+    const demoCopyId = runtimeCopy.active;
+    const savedDemoCopyBytes = JSON.stringify(runtimeCopy.copy);
+    const menuHidden = await page.$eval('#hh-menu-pop', menu => menu.hidden);
+    if(menuHidden) await stableClick('#hh-menu-btn');
+    await stableClick('#hh-new');
     await page.waitForFunction(() => {
       const id = document.querySelector('#hh-switch')?.value;
       const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
@@ -2424,6 +2495,7 @@ try {
     const expectedCreatedIds = [
       'demo',
       ...Object.keys(WITHDRAWAL_PLANNER_ORACLE.households),
+      demoCopyId,
       customId,
     ].sort();
     const actualCreatedIds = Object.keys(created.db).sort();
@@ -2456,6 +2528,14 @@ try {
     if(afterReload.db[customId].meta.isDemo !== false) throw new Error('custom record overwritten by demo values on reload');
     if(JSON.stringify(afterReload.db[customId]) !== savedCustomBytes)
       throw new Error('saved custom household bytes changed during blank startup');
+    if(JSON.stringify(afterReload.db[demoCopyId]) !== savedDemoCopyBytes)
+      throw new Error('durable Demo copy bytes changed during blank startup');
+    await stableClick('#hh-menu-btn');
+    const visibleSwitcher = await page.$eval('#hh-switch', selector => {
+      const menu = selector.closest('#hh-menu-pop');
+      return menu?.hidden === false;
+    });
+    if(!visibleSwitcher) throw new Error('household switcher was not visible for saved-record selection');
     await page.select('#hh-switch', customId);
     await waitForWizard(page, { step: 'family', householdId: customId });
     const selectedCustom = await page.evaluate(() => ({
@@ -2503,6 +2583,9 @@ try {
       throw new Error(`bootstrap did not recreate the current-build blank Demo: ${JSON.stringify(merged.db.demo)}`);
     }
 
+    if(await page.$eval('#hh-menu-pop', menu => menu.hidden)){
+      await stableClick('#hh-menu-btn');
+    }
     await page.select('#hh-switch', customId);
     await waitForWizard(page, { householdId: customId });
     await goToWizardStep(page, 'family');
@@ -2510,7 +2593,10 @@ try {
       '[data-hh-wizard-root]',
       element => Number(element.dataset.renderRevision),
     );
-    await page.evaluate(() => document.querySelector('#hh-load-demo').click());
+    if(await page.$eval('#hh-menu-pop', menu => menu.hidden)){
+      await stableClick('#hh-menu-btn');
+    }
+    await stableClick('#hh-load-demo');
     await waitForWizard(page, {
       afterRevision: beforeDemo,
       householdId: 'demo',

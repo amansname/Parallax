@@ -6,6 +6,7 @@ import { buildCurrent1040Intake } from '../planning/tax/buildCurrent1040Intake.j
 import { ACCOUNT_SCHEMA_VERSION } from './accountTypes.js';
 import { createBlankTaxProfiles } from './factEnvelope.js';
 import { HOUSEHOLD_RECORD_SCHEMA_VERSION } from './householdRecordSchema.js';
+import { createEmptyNetWorthRecords } from './netWorthRecords.js';
 import { buildWizardIncomeTaxSummary } from './buildWizardIncomeTaxSummary.js';
 import {
   buildWizardTaxPlan,
@@ -55,6 +56,7 @@ function blankWizardPlan({
     income: { other: [], socialSecurity: { primary: { pia: 0, claimAge: 67 } } },
     incomeTax: {},
     portfolio: { accounts: {}, extraAccounts: [] },
+    netWorth: createEmptyNetWorthRecords(),
   };
 }
 

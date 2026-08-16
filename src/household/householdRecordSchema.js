@@ -1,6 +1,10 @@
 import { migrateSpendingToGoals } from './migrateSpendingToGoals.js';
+import {
+  migrateNetWorthRecords,
+  validateNetWorthRecords,
+} from './netWorthRecords.js';
 
-export const HOUSEHOLD_RECORD_SCHEMA_VERSION = 1;
+export const HOUSEHOLD_RECORD_SCHEMA_VERSION = 2;
 
 const ROW_COLLECTIONS = Object.freeze([
   Object.freeze({ path: ['income', 'other'], prefix: 'income' }),
@@ -139,6 +143,7 @@ export function validateHouseholdRecordSchema(plan, householdId = 'household'){
       throw new Error(`${householdId}: portfolio.extraAccounts[${index}].displayName is required`);
     }
   }
+  validateNetWorthRecords(plan, householdId);
   return true;
 }
 
@@ -147,6 +152,7 @@ export function migrateHouseholdRecordSchema(plan, householdId = plan?.meta?.hou
   const repairs = [];
   const priorVersion = migrated.meta?.householdRecordSchemaVersion;
   if(priorVersion != null
+      && priorVersion !== 1
       && priorVersion !== HOUSEHOLD_RECORD_SCHEMA_VERSION){
     throw new Error(`${householdId}: unsupported householdRecordSchemaVersion`);
   }
@@ -231,6 +237,14 @@ export function migrateHouseholdRecordSchema(plan, householdId = plan?.meta?.hou
     Object.assign(migrated, spending.plan);
     repairs.push({ code: 'SPENDING_MIGRATED_TO_GOALS' });
     changed = true;
+  }
+
+  if(priorVersion !== HOUSEHOLD_RECORD_SCHEMA_VERSION){
+    const netWorth = migrateNetWorthRecords(migrated);
+    if(netWorth.changed){
+      repairs.push({ code: 'NET_WORTH_RECORDS_INITIALIZED' });
+      changed = true;
+    }
   }
 
   migrated.meta.householdRecordSchemaVersion = HOUSEHOLD_RECORD_SCHEMA_VERSION;

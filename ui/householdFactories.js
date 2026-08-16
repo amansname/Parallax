@@ -3,6 +3,7 @@ import { createAccount } from '../src/household/createAccount.js';
 import { createBlankTaxProfiles, createFact } from '../src/household/factEnvelope.js';
 import { createIncomeTaxInputs } from '../src/household/incomeTaxModel.js';
 import { HOUSEHOLD_RECORD_SCHEMA_VERSION } from '../src/household/householdRecordSchema.js';
+import { createEmptyNetWorthRecords } from '../src/household/netWorthRecords.js';
 import {
   SPENDING_SCHEMA_VERSION,
   makeEssentialsGoal,
@@ -205,6 +206,7 @@ export function createBlankHousehold(pristinePlan, householdId, currentYear){
   p.portfolio.accounts.traditional = { balance: 0 };
   p.portfolio.accounts.roth        = { balance: 0 };
   p.portfolio.extraAccounts = [];
+  p.netWorth = createEmptyNetWorthRecords();
   p.meta.accountSchemaVersion = ACCOUNT_SCHEMA_VERSION;
   p.meta.householdRecordSchemaVersion = HOUSEHOLD_RECORD_SCHEMA_VERSION;
   p.taxProfiles = createBlankTaxProfiles();

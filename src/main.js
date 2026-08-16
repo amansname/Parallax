@@ -18,6 +18,7 @@ import { createIncomeSource } from './household/incomeTaxModel.js';
 import { bindHouseholdEditor } from './household/commit.js';
 import { createHouseholdWizardController } from './household/wizard.js';
 import { createHouseholdWizardCommitBoundary } from './household/wizardEdits.js';
+import { createDurableRuntimeCopy } from './household/runtimeHouseholdSave.js';
 import { invalidateWizardTaxCompletion } from './household/wizardIntake.js';
 import {
   ACTIVE_KEY,
@@ -86,6 +87,7 @@ let householdsDb = {};
 let activeHouseholdId = null;
 let accountMigrationState = { blocked: false, readOnly: false, message: null, issuesByHousehold: {} };
 let recoveryStatusPinned = false;
+let runtimeCopyPendingStatus = false;
 
 const householdStorage = {
   getItem(key){ return localStorage.getItem(key); },
@@ -112,7 +114,7 @@ function syncRecoveryStatus(message){
   syncHeaderCluster();
 }
 
-function guardPlanMutation(){
+function guardHouseholdStorageMutation(){
   if(isHouseholdStorageBlocked()){
     syncRecoveryStatus(accountMigrationState.message || getBlockedMessage());
     renderBlockedRecoverySurfaces();
@@ -124,6 +126,33 @@ function guardPlanMutation(){
     return false;
   }
   return true;
+}
+
+function ensureDurableActiveHousehold(){
+  if(!isRuntimeHousehold(activeHouseholdId)) return true;
+  const sourceHouseholdId = activeHouseholdId;
+  const targetHouseholdId = newHouseholdId();
+  const copy = createDurableRuntimeCopy(plan, {
+    sourceHouseholdId,
+    targetHouseholdId,
+  });
+  householdsDb[targetHouseholdId] = copy;
+  activeHouseholdId = targetHouseholdId;
+  hydratePlan(copy);
+  updateHouseholdControls();
+  if(!saveActiveHousehold()){
+    planSaveDirty = true;
+    saveFailed = true;
+    runtimeCopyPendingStatus = false;
+    syncHeaderStatus('Save as household failed · storage blocked or full');
+    return false;
+  }
+  runtimeCopyPendingStatus = true;
+  return true;
+}
+
+function guardPlanMutation(){
+  return guardHouseholdStorageMutation() && ensureDurableActiveHousehold();
 }
 
 function recoveryPanelHtml(){
@@ -168,11 +197,11 @@ function syncRecoveryControls(){
 }
 
 function persistHouseholdsDb(){
-  if(!guardPlanMutation()) return false;
+  if(!guardHouseholdStorageMutation()) return false;
   try{ localStorage.setItem(HHDB_KEY, JSON.stringify(householdsDb)); return true; }catch(e){ return false; }
 }
 function persistActiveId(){
-  if(!guardPlanMutation()) return false;
+  if(!guardHouseholdStorageMutation()) return false;
   try{
     localStorage.setItem(ACTIVE_KEY, activeHouseholdId);
     return true;
@@ -181,10 +210,10 @@ function persistActiveId(){
   }
 }
 function saveActiveHousehold(){
-  if(!guardPlanMutation()) return false;
-  // Demo and shipped defaults are immutable templates from the current build.
-  // Edits remain usable in-session but never become origin-specific startup data.
-  if(isRuntimeHousehold(activeHouseholdId)) return true;
+  if(!guardHouseholdStorageMutation()) return false;
+  // Runtime records are immutable templates. A real edit must first create a
+  // durable household copy through guardPlanMutation().
+  if(isRuntimeHousehold(activeHouseholdId)) return false;
   if(activeHouseholdId && plan && plan.meta){
     try{
       householdsDb[activeHouseholdId] = prepareHouseholdRecordForSave(
@@ -320,8 +349,8 @@ function syncPension(L){
 const SCEN_PREFIX='parallax.scenarios.';
 const scenKey=id=>SCEN_PREFIX + (id || activeHouseholdId || 'demo') + '.v1';
 function saveScenarios(){
-  if(!guardPlanMutation()) return false;
-  if(isRuntimeHousehold(activeHouseholdId)) return true;
+  if(!guardHouseholdStorageMutation()) return false;
+  if(isRuntimeHousehold(activeHouseholdId)) return false;
   try{
     const slim=scenarios.map(s=>({name:s.name, base:!!s.base, lev:s.lev}));
     localStorage.setItem(scenKey(), JSON.stringify(slim));
@@ -378,9 +407,17 @@ function autoSavePlan(){
   return ok;
 }
 function syncPlanEditStatus(message){
-  syncHeaderStatus(saveFailed
-    ? 'Automatic save failed · storage blocked or full'
-    : message);
+  if(saveFailed){
+    runtimeCopyPendingStatus = false;
+    syncHeaderStatus('Automatic save failed · storage blocked or full');
+    return;
+  }
+  if(runtimeCopyPendingStatus){
+    runtimeCopyPendingStatus = false;
+    syncHeaderStatus(`Saved as ${plan.meta?.name || 'new household'} · open Scenarios`);
+    return;
+  }
+  syncHeaderStatus(message);
 }
 function deriveHeaderClusterState(text){
   const msg = text ?? ($('#status')?.textContent || '');
@@ -943,8 +980,6 @@ function planForScenario(L){
    scenario then carries its own adjustment. Editing a base input re-seeds
    every column from the NEW base while PRESERVING each scenario's delta (its
    decision) — so "draw from base, then adjust" holds automatically. */
-if(!plan.income.socialSecurity.spouse && guardPlanMutation()) plan.income.socialSecurity.spouse={pia:0,claimAge:67};
-
 const RISK_NAMES={1:'Conservative',2:'Mod-Cons',3:'Moderate',4:'Mod-Agg',5:'Aggressive'};
 
 /* ── Sub-page registry ─────────────────────────────────────────────
@@ -1023,7 +1058,7 @@ uiState.baseSnapshot=defaultLevers();   // base lever values; used to preserve d
 // Re-seed scenarios from the current base, keeping each scenario's adjustment.
 // Every plan edit funnels through here, then persists the plan and scenarios.
 function reseedScenarios({ markDirty = true } = {}){
-  if(!guardPlanMutation()) return;
+  if(markDirty ? !guardPlanMutation() : !guardHouseholdStorageMutation()) return;
   const nb=defaultLevers();
   const LINKED=['retireAge','ssAge','spend','savings','pensionAge'];   // base-linked levers
   scenarios.forEach(s=>{
@@ -1202,7 +1237,7 @@ function loadDemoHousehold(){
 }
 // Create and immediately persist a brand-new blank household.
 function newHousehold(){
-  if(!guardPlanMutation()) return;
+  if(!guardHouseholdStorageMutation()) return;
   if(!canChangeActiveHousehold()) return;
   saveScenarios();                       // …and persist its scoped scenarios
   const blank = createBlankHousehold(PRISTINE_PLAN, newHouseholdId(), new Date().getFullYear());
