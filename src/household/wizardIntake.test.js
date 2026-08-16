@@ -184,7 +184,7 @@ test('IRMAA MFS lookback uses the explicit living-arrangement enum only for MFS'
   assert.equal(Object.hasOwn(subject.incomeTax, 'current1040'), false);
 });
 
-test('Tax member wages save as owner-specific planning rows and derive one 1040 total', () => {
+test('Tax member wages save only as owner-specific current-return facts', () => {
   const subject = plan('marriedFilingJointly');
   subject.meta.planningAsOfYear = 2026;
   subject.household.primary.retirementAge = 70;
@@ -194,31 +194,15 @@ test('Tax member wages save as owner-specific planning rows and derive one 1040 
   setWizardTaxField(subject, 'income.wages.client', 80_000);
   setWizardTaxField(subject, 'income.wages.spouse', 60_000);
 
-  assert.deepEqual(
-    subject.income.other.map(row => ({
-      owner: row.owner,
-      amount: row.amount,
-      startAge: row.startAge,
-      endAge: row.endAge,
-    })),
-    [
-      { owner: 'client', amount: 80_000, startAge: undefined, endAge: undefined },
-      { owner: 'spouse', amount: 60_000, startAge: undefined, endAge: undefined },
-    ],
-  );
-  assert.equal(
-    Object.hasOwn(subject.incomeTax.current1040.income, 'wages'),
-    false,
-  );
+  assert.deepEqual(subject.income.other, []);
+  assert.deepEqual(subject.incomeTax.current1040.wagesByOwner, {
+    client: 80_000,
+    spouse: 60_000,
+  });
+  assert.equal(subject.incomeTax.current1040.income.wages, 140_000);
   assert.equal(buildCurrent1040Intake(subject).intake.income.wages, 140_000);
-  assert.deepEqual(
-    readWizardPlanningIncome(subject).wagesByOwner.client.value,
-    80_000,
-  );
-  assert.deepEqual(
-    readWizardPlanningIncome(subject).wagesByOwner.spouse.value,
-    60_000,
-  );
+  assert.equal(readWizardPlanningIncome(subject).wagesByOwner.client.value, 0);
+  assert.equal(readWizardPlanningIncome(subject).wagesByOwner.spouse.value, 0);
 });
 
 test('prior-year member wages remain return facts and do not create projected wage rows', () => {
@@ -233,7 +217,7 @@ test('prior-year member wages remain return facts and do not create projected wa
   assert.deepEqual(subject.income.other, []);
   assert.deepEqual(current.wagesByOwner, { client: 70_000, spouse: 50_000 });
   assert.equal(current.income.wages, 120_000);
-  assert.deepEqual(current.planningIncomeOverrides, ['wages']);
+  assert.equal(Object.hasOwn(current, 'planningIncomeOverrides'), false);
 });
 
 test('current-year wages entered after retirement stay on the return but do not project', () => {
@@ -246,17 +230,10 @@ test('current-year wages entered after retirement stay on the return but do not 
 
   setWizardTaxField(subject, 'income.wages.client', 25_000);
 
-  assert.deepEqual(
-    subject.income.other.map(row => ({
-      owner: row.owner,
-      amount: row.amount,
-      startAge: row.startAge,
-      endAge: row.endAge,
-    })),
-    [{ owner: 'client', amount: 25_000, startAge: 65, endAge: 65 }],
-  );
+  assert.deepEqual(subject.income.other, []);
+  assert.deepEqual(subject.incomeTax.current1040.wagesByOwner, { client: 25_000 });
   assert.equal(buildCurrent1040Intake(subject).intake.income.wages, 25_000);
-  assert.equal(readWizardPlanningIncome(subject).wagesByOwner.client.value, 25_000);
+  assert.equal(readWizardPlanningIncome(subject).wagesByOwner.client.value, 0);
 });
 
 test('switches among standard, calculated itemized, and supplied line 12e without mixing sources', () => {
@@ -439,7 +416,7 @@ test('an untouched household uses canonical needs-facts readiness without mutati
   assert.deepEqual(subject, before);
 });
 
-test('planning income groups aggregate rows and override or revert one source atomically', () => {
+test('planning income grouping stays read-only while Tax writes its own source', () => {
   const subject = plan();
   subject.income.other = [
     {
@@ -475,18 +452,11 @@ test('planning income groups aggregate rows and override or revert one source at
   assert.equal(planning.groups.interest.values.taxExemptInterest, 250);
   assert.equal(planning.groups.wages.rowSourced, true);
 
-  overrideWizardIncomeGroup(subject, 'wages');
-  assert.deepEqual(current.planningIncomeOverrides, ['wages']);
-  assert.equal(current.income.wages, 65000);
-  assert.equal(readWizardPlanningIncome(subject, current).groups.wages.overridden, true);
-  assert.throws(
-    () => setWizardTaxField(subject, 'income.wages', ''),
-    /Enter 0 or use planning income again/,
-  );
-
-  revertWizardIncomeGroup(subject, 'wages');
-  assert.equal(Object.hasOwn(current, 'planningIncomeOverrides'), false);
-  assert.equal(Object.hasOwn(current.income, 'wages'), false);
+  const planningBefore = structuredClone(subject.income);
+  setWizardTaxField(subject, 'income.wages', 81000);
+  assert.deepEqual(subject.income, planningBefore);
+  assert.equal(current.income.wages, 81000);
+  assert.equal(buildCurrent1040Intake(subject).intake.income.wages, 81000);
   assert.equal(readWizardPlanningIncome(subject, current).groups.wages.rowSourced, true);
 });
 

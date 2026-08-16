@@ -5,6 +5,8 @@ export function renderHouseholdWizardTax(ctx){
     plan,
     esc,
     fieldValue,
+    optionList,
+    states,
     current,
     deductionMode,
     planningIncome,
@@ -22,55 +24,15 @@ export function renderHouseholdWizardTax(ctx){
   const schedule2 = current.schedule2 || {};
   const scheduleSE = current.scheduleSE?.[0] || {};
   const detailed = taxView === 'detailed';
-  const planningGroups = planningIncome?.groups || {};
-  const wagesByOwner = planningIncome?.wagesByOwner || {};
   const hasSpouse = Boolean(plan.household?.spouse);
   const irmaaLookback = readWizardIrmaaLookback(plan);
 
-  const groupState = groupId => planningGroups[groupId] || {
-    rowIds: [],
-    values: {},
-    rowSourced: false,
-    overridden: false,
-    invalid: false,
-  };
   const showTaxableIra = detailed
     || Number(income.iraDistributions) > 0
-    || Number(groupState('ira').values.iraDistributions) > 0
     || Object.hasOwn(income, 'taxableIra');
   const showTaxablePension = detailed
     || Number(income.pensionAmount) > 0
-    || Number(groupState('pension').values.pensionAmount) > 0
     || Object.hasOwn(income, 'taxablePensions');
-
-  const effectiveIncomeValue = (groupId, field, fallback) => {
-    const group = groupState(groupId);
-    return group.rowSourced ? group.values[field] : fallback;
-  };
-
-  const groupSourceControl = groupId => {
-    const group = groupState(groupId);
-    if(group.rowIds.length === 0) return '';
-    if(group.rowSourced){
-      return `
-        <span class="hh-tax-source">
-          <span>From planning income</span>
-          <button type="button" data-hh-action="override-income-group"
-            data-income-group="${esc(groupId)}">Use current-year amount</button>
-        </span>
-      `;
-    }
-    if(group.overridden){
-      return `
-        <span class="hh-tax-source hh-tax-source--override">
-          <span>Current-year amount</span>
-          <button type="button" data-hh-action="revert-income-group"
-            data-income-group="${esc(groupId)}">Use planning income</button>
-        </span>
-      `;
-    }
-    return '';
-  };
 
   const amountInput = (
     field,
@@ -91,28 +53,24 @@ export function renderHouseholdWizardTax(ctx){
   `;
 
   const wageValue = owner => {
-    const member = wagesByOwner[owner];
-    if(member?.present) return member.value;
+    const member = current.wagesByOwner?.[owner];
+    if(Number.isFinite(member)) return member;
     if(owner === 'client' && !hasSpouse
         && Object.prototype.hasOwnProperty.call(income, 'wages')){
       return income.wages;
     }
     return undefined;
   };
+  const hasUnallocatedHouseholdWages = hasSpouse
+    && Object.prototype.hasOwnProperty.call(income, 'wages')
+    && !Object.values(current.wagesByOwner || {}).some(Number.isFinite);
 
   const incomeRow = (
     label,
     field,
     value,
-    { groupId = null, showSource = false, help = '', ...options } = {},
+    { groupId = null, showSource: _showSource = false, help = '', ...options } = {},
   ) => {
-    const group = groupId ? groupState(groupId) : null;
-    const groupField = groupId === 'long-term-gain-loss'
-      ? 'netLongTermGainOrLoss'
-      : field.replace(/^income\./, '');
-    const displayed = groupId
-      ? effectiveIncomeValue(groupId, groupField, value)
-      : value;
     const inputId = `hh-tax-${field.replaceAll('.', '-')}`;
     return `
     <div class="hh-tax-row" data-tax-row="${esc(field)}"
@@ -122,12 +80,11 @@ export function renderHouseholdWizardTax(ctx){
           <span>${esc(label)}</span>
           ${help ? `<small>${esc(help)}</small>` : ''}
         </label>
-        ${showSource && groupId ? groupSourceControl(groupId) : ''}
       </div>
-      ${amountInput(field, displayed, {
+      ${amountInput(field, value, {
         ...options,
         id: inputId,
-        disabled: group?.rowSourced || options.disabled === true,
+        disabled: options.disabled === true,
       })}
     </div>
   `;
@@ -180,6 +137,12 @@ export function renderHouseholdWizardTax(ctx){
     single: 'Single',
     headOfHousehold: 'Head of household',
   }[plan.meta?.filingStatus] || 'Unsupported saved filing status';
+  const supportedFilingStatus = hasSpouse
+    ? plan.meta?.filingStatus === 'marriedFilingJointly'
+    : ['single', 'headOfHousehold'].includes(plan.meta?.filingStatus);
+  const filingOptions = hasSpouse
+    ? [['marriedFilingJointly', 'Married filing jointly']]
+    : [['single', 'Single'], ['headOfHousehold', 'Head of household']];
 
   const irmaaFilingOptions = (selected = '') => [
     ['single', 'Single'],
@@ -196,7 +159,7 @@ export function renderHouseholdWizardTax(ctx){
       aria-labelledby="hh-nav-tax">
       <header class="hh-screen-head hh-tax-title-row">
         <div>
-          <div class="hh-step-kicker">Step 03</div>
+          <div class="hh-step-kicker">Step 05</div>
           <h1>Tax</h1>
         </div>
         <div class="hh-tax-view-control">
@@ -218,10 +181,19 @@ export function renderHouseholdWizardTax(ctx){
             <option value="2026" ${current.taxYear === 2026 ? 'selected' : ''}>2026</option>
           </select>
         </label>
-        <div class="hh-tax-static">
+        <label class="hh-field">
           <span>Filing status</span>
-          <strong>${esc(filingLabel)}</strong>
-        </div>
+          <select data-wizard-scope="tax-profile" data-wizard-field="filingStatus">
+            ${supportedFilingStatus ? '' : `<option value="${esc(plan.meta?.filingStatus || '')}" selected disabled>${esc(filingLabel)}</option>`}
+            ${optionList(filingOptions, plan.meta?.filingStatus)}
+          </select>
+        </label>
+        <label class="hh-field">
+          <span>State of residence</span>
+          <select data-wizard-scope="tax-profile" data-wizard-field="state">
+            ${optionList(states, plan.meta?.state || 'VA')}
+          </select>
+        </label>
         <label class="hh-field hh-deduction-method">
           <span>Deduction method</span>
           <select data-hh-field="deductionMode" data-tax-field="deductionMode">
@@ -284,6 +256,9 @@ export function renderHouseholdWizardTax(ctx){
           ${incomeRow('Client wages', 'income.wages.client', wageValue('client'))}
           ${hasSpouse
             ? incomeRow('Co-client wages', 'income.wages.spouse', wageValue('spouse'))
+            : ''}
+          ${hasUnallocatedHouseholdWages
+            ? incomeRow('Household wages · allocation not supplied', 'income.wages', income.wages)
             : ''}
           ${incomeRow('Tax-exempt interest', 'income.taxExemptInterest', income.taxExemptInterest, {
             groupId: 'interest',

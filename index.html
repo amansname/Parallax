@@ -12,7 +12,7 @@
 <!-- ?v= cache-buster: bump on any CSS change so browsers fetch the new file
      instead of serving a stale cached copy (GitHub Pages caches CSS hard). -->
 <link rel="stylesheet" href="styles/main.css?v=16"/>
-<link rel="stylesheet" href="styles/household.css?v=37"/>
+<link rel="stylesheet" href="styles/household.css?v=41"/>
 <link rel="stylesheet" href="styles/scenarios.css?v=14"/>
 <link rel="stylesheet" href="styles/sequencing.css?v=1"/>
 <link rel="stylesheet" href="styles/goals.css?v=8"/>
@@ -77,28 +77,38 @@
           </div>
         </div>
         <div class="hh-progress">
-          <div><span id="hh-progress-copy">Step 1 of 4</span><span id="hh-progress-percent">25%</span></div>
+          <div><span id="hh-progress-copy">Step 1 of 6</span><span id="hh-progress-percent">17%</span></div>
           <div class="hh-progress-track"><span id="hh-progress-bar"></span></div>
         </div>
         <nav class="hh-stepper" role="tablist" aria-label="Household intake steps">
           <button class="hh-step" id="hh-nav-family" data-hh-wizard-nav="family"
                   type="button" role="tab" aria-controls="hh-panel-family">
             <span class="hh-step__num">01</span>
-            <span><strong>Family</strong><small>People and filing</small></span>
+            <span><strong>Family</strong><small>People and household</small></span>
           </button>
           <button class="hh-step" id="hh-nav-net-worth" data-hh-wizard-nav="net-worth"
                   type="button" role="tab" aria-controls="hh-panel-net-worth">
             <span class="hh-step__num">02</span>
             <span><strong>Net Worth</strong><small id="hh-nav-summary-net-worth">0 accounts</small></span>
           </button>
+          <button class="hh-step" id="hh-nav-income" data-hh-wizard-nav="income"
+                  type="button" role="tab" aria-controls="hh-panel-income">
+            <span class="hh-step__num">03</span>
+            <span><strong>Income</strong><small>Planning income</small></span>
+          </button>
+          <button class="hh-step" id="hh-nav-goals" data-hh-wizard-nav="goals"
+                  type="button" role="tab" aria-controls="hh-panel-goals">
+            <span class="hh-step__num">04</span>
+            <span><strong>Goals</strong><small>Spending and timing</small></span>
+          </button>
           <button class="hh-step" id="hh-nav-tax" data-hh-wizard-nav="tax"
                   type="button" role="tab" aria-controls="hh-panel-tax">
-            <span class="hh-step__num">03</span>
+            <span class="hh-step__num">05</span>
             <span><strong>Tax</strong><small>Federal 1040 inputs</small></span>
           </button>
           <button class="hh-step" id="hh-nav-summary" data-hh-wizard-nav="summary"
                   type="button" role="tab" aria-controls="hh-panel-summary">
-            <span class="hh-step__num">04</span>
+            <span class="hh-step__num">06</span>
             <span><strong>Summary</strong><small>Review intake</small></span>
           </button>
         </nav>

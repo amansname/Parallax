@@ -520,20 +520,53 @@ test('engine rows separate total required RMD from the forced top-up', () => {
 // ── Contribution split (Roth / brokerage contributions in accumulation) ─────
 // Savings can land in any of the three sleeves. Default is 100% pre-tax so old
 // plans are unchanged; a Roth/taxable split routes the money differently.
-test('savings split: default is all pre-tax; resolveInputs normalizes a custom split', () => {
+test('savings split: defaults to pre-tax and preserves exact valid percentages', () => {
   const p = JSON.parse(JSON.stringify(defaultPlan));
   p.savings = { annual: 30000 };                       // no split → back-compat default
   const d = resolveInputs(p, {});
   assert.ok(Math.abs(d.savingsSplit.traditional - 1) < 1e-9 && d.savingsSplit.roth === 0 && d.savingsSplit.taxable === 0,
     'missing split → 100% traditional');
   const q = JSON.parse(JSON.stringify(defaultPlan));
-  q.savings = { annual: 30000, split: { traditional: 1, roth: 1, taxable: 2 } };  // 1:1:2
+  q.household.spouse = {
+    currentAge: 50,
+    retirementAge: 65,
+    planEndAge: 95,
+    birthYear: 1976,
+  };
+  q.meta.filingStatus = 'marriedFilingJointly';
+  q.savings = {
+    annual: 30000,
+    split: {
+      traditional: 0.6,
+      roth: 0.2,
+      taxable: 0.2,
+      byOwner: { client: 0.55, spouse: 0.45 },
+    },
+  };
   const e = resolveInputs(q, {});
-  assert.ok(Math.abs(e.savingsSplit.taxable - 0.5) < 1e-9 && Math.abs(e.savingsSplit.roth - 0.25) < 1e-9,
-    'split normalizes to fractions');
+  assert.deepEqual(e.savingsSplit, {
+    traditional: 0.6,
+    roth: 0.2,
+    taxable: 0.2,
+    byOwner: { client: 0.55, spouse: 0.45 },
+  });
   // override beats the plan's split
   const o = resolveInputs(p, { savingsSplit: { roth: 1 } });
   assert.ok(o.savingsSplit.roth === 1 && o.savingsSplit.traditional === 0, 'ov.savingsSplit wins');
+
+  const invalidSleeves = JSON.parse(JSON.stringify(defaultPlan));
+  invalidSleeves.savings.split = { traditional: 0.6, roth: 0.3, taxable: 0.2 };
+  assert.throws(
+    () => resolveInputs(invalidSleeves, {}),
+    error => error?.code === 'SAVINGS_SPLIT_MUST_TOTAL_100',
+  );
+
+  const invalidOwners = JSON.parse(JSON.stringify(q));
+  invalidOwners.savings.split.byOwner = { client: 0.55, spouse: 0.35 };
+  assert.throws(
+    () => resolveInputs(invalidOwners, {}),
+    error => error?.code === 'SAVINGS_OWNER_SPLIT_MUST_TOTAL_100',
+  );
 });
 
 test('Roth contributions end higher than the same dollars pre-tax (split flows through)', () => {
@@ -1312,7 +1345,7 @@ test('spouse-owned working income uses the spouse timeline and stops at retireme
     'spouse wages stop after the spouse working window');
 });
 
-test('Tax-page member wages combine once and stop at each owner retirement age', () => {
+test('Income-step member wages combine once and stop at each owner retirement age', () => {
   const p = structuredClone(defaultPlan);
   p.meta.planningAsOfYear = 2026;
   p.meta.filingStatus = 'marriedFilingJointly';
@@ -1339,7 +1372,7 @@ test('Tax-page member wages combine once and stop at each owner retirement age',
   assert.strictEqual(householdIncomeAtYear(resolved, 5).wages, 0);
 });
 
-test('current-year single wage total is a safe projection fallback but a prior-year total is not', () => {
+test('Tax current-year wages stay out of planning until Income owns the wage', () => {
   const p = structuredClone(defaultPlan);
   p.meta.planningAsOfYear = 2026;
   p.meta.filingStatus = 'single';
@@ -1356,14 +1389,22 @@ test('current-year single wage total is a safe projection fallback but a prior-y
   };
 
   let resolved = resolveInputs(p, {});
-  assert.strictEqual(householdIncomeAtYear(resolved, 0).wages, 50_000);
-  assert.strictEqual(householdIncomeAtYear(resolved, 4).wages, 50_000);
-  assert.strictEqual(householdIncomeAtYear(resolved, 5).wages, 0);
-
-  p.incomeTax.current1040.taxYear = 2025;
-  resolved = resolveInputs(p, {});
   assert.strictEqual(householdIncomeAtYear(resolved, 0).wages, null);
+  assert.deepStrictEqual(resolved.otherIncome, []);
   assert.ok(resolved.incomeContractIssues.includes(
+    'INCOME_SOURCE_MISSING:client:wages',
+  ));
+
+  p.income.other = [{
+    typeId: 'wages', owner: 'client', amount: 42_000,
+    startAge: 60, endAge: 64, taxablePct: 1,
+  }];
+  p.incomeTax.current1040.income.wages = 900_000;
+  resolved = resolveInputs(p, {});
+  assert.strictEqual(householdIncomeAtYear(resolved, 0).wages, 42_000);
+  assert.strictEqual(householdIncomeAtYear(resolved, 4).wages, 42_000);
+  assert.strictEqual(householdIncomeAtYear(resolved, 5).wages, 0);
+  assert.ok(!resolved.incomeContractIssues.includes(
     'INCOME_SOURCE_MISSING:client:wages',
   ));
 });

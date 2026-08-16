@@ -7,10 +7,6 @@ import {
   CURRENT_1040_INCOME_SOURCE_GROUPS,
 } from './incomeTaxModel.js';
 import { ensureWizardCurrent1040 } from './wizardCurrent1040.js';
-import {
-  readWizardPlanningIncome,
-  validatePlanningIncomeOverrides,
-} from './wizardPlanningIncome.js';
 import { SCHEDULE_2_FIELDS } from './wizardTaxMutations.js';
 import {
   cloneWizardValue,
@@ -38,48 +34,9 @@ function missingWizardFact(message, field, code){
   throw wizardTaxError(message, normalizedWizardField(field), code);
 }
 
-function groupDirectFields(current, descriptor){
-  if(descriptor.id === 'long-term-gain-loss'){
-    return hasOwn(current.scheduleD, 'netLongTermGainOrLoss')
-      ? ['scheduleD.netLongTermGainOrLoss']
-      : [];
-  }
-  return descriptor.fields
-    .filter(field => hasOwn(current.income, field));
-}
-
-function ensureIncomeCompletionFacts(current, planning, { materialize }){
+function ensureIncomeCompletionFacts(current, { materialize }){
   for(const descriptor of CURRENT_1040_INCOME_SOURCE_GROUPS){
     if(descriptor.id === 'long-term-gain-loss') continue;
-    const group = planning.groups[descriptor.id];
-    if(group.invalid){
-      missingWizardFact(
-        'Review the planning income rows before confirming Tax',
-        `income.${descriptor.fields[0]}`,
-        'CURRENT_1040_INCOME_OVERRIDE_SOURCE_INVALID',
-      );
-    }
-    const directFields = groupDirectFields(current, descriptor);
-    if(group.rowSourced){
-      if(directFields.length > 0){
-        missingWizardFact(
-          'Choose planning income or a current-year amount for this tax item',
-          `income.${descriptor.fields[0]}`,
-          'CURRENT_1040_INCOME_SOURCE_CONFLICT',
-        );
-      }
-      continue;
-    }
-    if(group.overridden
-        && group.rowIds.length > 0
-        && directFields.length !== descriptor.fields.length){
-      missingWizardFact(
-        'Enter every current-year amount in this source group, including zero',
-        `income.${descriptor.fields.find(field =>
-          !hasOwn(current.income, field)) || descriptor.fields[0]}`,
-        'CURRENT_1040_INCOME_SOURCE_CONFLICT',
-      );
-    }
     for(const field of descriptor.fields){
       if(hasOwn(current.income, field)) continue;
       if(field === 'taxableIra'
@@ -110,15 +67,14 @@ function ensureIncomeCompletionFacts(current, planning, { materialize }){
   }
 }
 
-function ensureSocialSecurityCompletion(current, planning, { materialize }){
+function ensureSocialSecurityCompletion(current, { materialize }){
   const income = current.income;
   const socialSecurity = income.socialSecurity;
   const mode = socialSecurity?.mode;
   if(mode === undefined){
     const positiveBenefits = Number(income.socialSecurityBenefits) > 0;
     if(positiveBenefits
-        || hasOwn(income, 'taxableSS')
-        || planning.hasActivePlanningSocialSecurity){
+        || hasOwn(income, 'taxableSS')){
       missingWizardFact(
         'Enter complete current-year Social Security tax facts',
         'income.socialSecurityBenefits',
@@ -153,38 +109,7 @@ function ensureSocialSecurityCompletion(current, planning, { materialize }){
   }
 }
 
-function ensureScheduleDCompletion(current, planning, { materialize }){
-  const group = planning.groups['long-term-gain-loss'];
-  if(group.invalid){
-    missingWizardFact(
-      'Review the planning long-term gain or loss rows before confirming Tax',
-      'scheduleD.netLongTermGainOrLoss',
-      'CURRENT_1040_INCOME_OVERRIDE_SOURCE_INVALID',
-    );
-  }
-  if(planning.hasNonzeroShortTermCapitalGain){
-    missingWizardFact(
-      'A nonzero short-term gain or loss cannot use this long-term-only field',
-      'scheduleD.netLongTermGainOrLoss',
-      'CURRENT_1040_MANUAL_NET_LONG_TERM_SHORT_TERM_CONFLICT',
-    );
-  }
-  if(group.rowSourced){
-    if(!current.scheduleD && materialize){
-      current.scheduleD = { mode: 'manual-net-long-term' };
-      return;
-    }
-    if(current.scheduleD.mode === 'manual-net-long-term'
-        && !hasOwn(current.scheduleD, 'netLongTermGainOrLoss')){
-      return;
-    }
-    missingWizardFact(
-      'Choose planning income or a current-year long-term amount',
-      'scheduleD.netLongTermGainOrLoss',
-      'CURRENT_1040_SCHEDULE_D_SOURCE_CONFLICT',
-    );
-  }
-
+function ensureScheduleDCompletion(current, { materialize }){
   let scheduleD = current.scheduleD;
   if(!scheduleD
       || !hasOwn(scheduleD, 'netLongTermGainOrLoss')){
@@ -355,11 +280,9 @@ function assertCanonicalWizardCompletion(plan){
 
 function ensureWizardTaxCompletion(plan, { materialize }){
   const current = ensureWizardCurrent1040(plan);
-  validatePlanningIncomeOverrides(current);
-  const planning = readWizardPlanningIncome(plan, current);
-  ensureIncomeCompletionFacts(current, planning, { materialize });
-  ensureSocialSecurityCompletion(current, planning, { materialize });
-  ensureScheduleDCompletion(current, planning, { materialize });
+  ensureIncomeCompletionFacts(current, { materialize });
+  ensureSocialSecurityCompletion(current, { materialize });
+  ensureScheduleDCompletion(current, { materialize });
   ensureAdditionalCompletionFacts(current, { materialize });
   return current;
 }

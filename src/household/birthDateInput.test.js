@@ -5,9 +5,9 @@ import {
   splitIsoBirthDate,
 } from './birthDateInput.js';
 
-test('splitIsoBirthDate strips leading zeros for month and day', () => {
+test('splitIsoBirthDate preserves two-digit month and day segments', () => {
   assert.deepEqual(splitIsoBirthDate('1971-03-14'), {
-    month: '3',
+    month: '03',
     day: '14',
     year: '1971',
   });

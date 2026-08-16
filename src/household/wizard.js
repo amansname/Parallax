@@ -35,12 +35,14 @@ export function createHouseholdWizardController({
   onSwitchHousehold,
   onNewHousehold,
   onLoadDemoHousehold,
+  goalsController,
 }){
   let stepId = 'family';
   let renderRevision = 0;
   let wizard;
 
   const state = {
+    familyChildrenExpanded: false,
     netWorthView: 'entry',
     netWorthPanelCategory: null,
     netWorthMoreOpen: false,
@@ -58,6 +60,8 @@ export function createHouseholdWizardController({
   const uiState = {
     get stepId(){ return stepId; },
     get renderRevision(){ return renderRevision; },
+    get familyChildrenExpanded(){ return state.familyChildrenExpanded; },
+    set familyChildrenExpanded(value){ state.familyChildrenExpanded = value === true; },
     get netWorthView(){ return state.netWorthView; },
     set netWorthView(value){ state.netWorthView = value === 'summary' ? 'summary' : 'entry'; },
     get netWorthPanelCategory(){ return state.netWorthPanelCategory; },
@@ -95,11 +99,13 @@ export function createHouseholdWizardController({
       taxState: () => readWizardTaxState(getPlan()),
       taxBucketSnapshot: () => buildCurrentTaxBucketSnapshot(getPlan()),
       incomeTaxSummary: () => buildWizardIncomeTaxSummary(getPlan()),
+      goalsContent: () => goalsController?.render?.() || '',
     });
     return wizard;
   }
 
   function resetTransient(){
+    state.familyChildrenExpanded = false;
     state.netWorthView = 'entry';
     state.netWorthPanelCategory = null;
     state.netWorthMoreOpen = false;
@@ -167,6 +173,10 @@ export function createHouseholdWizardController({
     const plan = getPlan();
     const householdWizard = ensureWizard();
     view.innerHTML = householdWizard.render(stepId);
+    if(stepId === 'goals'){
+      const goalsMount = view.querySelector('[data-goals-horizon-mount]');
+      if(goalsMount) goalsController?.bind?.(goalsMount);
+    }
     const footer = $('#hh-wiz-footer');
     if(footer) footer.innerHTML = householdWizard.footer(stepId);
 

@@ -187,6 +187,10 @@ export function bindHouseholdEditor({
   root.addEventListener('input', event => {
     const birthPart = event.target.closest?.('[data-birth-part]');
     if(birthPart){
+      const maxLength = birthPart.dataset.birthPart === 'year' ? 4 : 2;
+      birthPart.value = String(birthPart.value || '')
+        .replace(/\D/g, '')
+        .slice(0, maxLength);
       const group = birthPart.closest('[data-birth-date-group]');
       clearBirthDateValidity(group);
       const hidden = group?.querySelector('[data-birth-date-value]');
@@ -194,6 +198,11 @@ export function bindHouseholdEditor({
       if(hidden && iso){
         hidden.value = iso;
         hidden.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      if(birthPart.value.length === maxLength){
+        const parts = Array.from(group?.querySelectorAll('[data-birth-part]') || []);
+        const next = parts[parts.indexOf(birthPart) + 1];
+        if(next) next.focus();
       }
       return;
     }
@@ -211,6 +220,18 @@ export function bindHouseholdEditor({
     if(event.target.classList.contains('hh-tax-amount')){
       if(event.target.dataset.signed !== 'true') liveCommas(event.target);
     }
+  });
+
+  root.addEventListener('keydown', event => {
+    const birthPart = event.target.closest?.('[data-birth-part]');
+    if(!birthPart || event.key !== 'Backspace' || birthPart.value !== '') return;
+    const group = birthPart.closest('[data-birth-date-group]');
+    const parts = Array.from(group?.querySelectorAll('[data-birth-part]') || []);
+    const previous = parts[parts.indexOf(birthPart) - 1];
+    if(!previous) return;
+    event.preventDefault();
+    previous.focus();
+    previous.setSelectionRange?.(previous.value.length, previous.value.length);
   });
 
   root.addEventListener('focusin', event => {
@@ -233,22 +254,32 @@ export function bindHouseholdEditor({
       return;
     }
 
-    const family = event.target.closest('[data-wizard-scope="family"][data-wizard-field]');
-    if(family){
-      const priorValue = family.matches?.('[data-birth-date-value]')
-        ? family.value
-        : family.querySelector?.('option[selected]')?.value;
+    const childrenToggle = event.target.closest?.('[data-family-children-toggle]');
+    if(childrenToggle){
+      transientState.familyChildrenExpanded = childrenToggle.checked;
+      syncHousehold();
+      return;
+    }
+
+    const wizardField = event.target.closest('[data-wizard-scope][data-wizard-field]');
+    if(wizardField){
+      const priorValue = wizardField.matches?.('[data-birth-date-value]')
+        ? wizardField.value
+        : wizardField.querySelector?.('option[selected]')?.value;
       const applied = commit({
-        scope: 'family',
-        field: family.dataset.wizardField,
-        value: valueFromControl(family),
-      }, family);
+        scope: wizardField.dataset.wizardScope,
+        field: wizardField.dataset.wizardField,
+        value: valueFromControl(wizardField),
+        ...(wizardField.dataset.incomeRowId
+          ? { rowId: wizardField.dataset.incomeRowId }
+          : {}),
+      }, wizardField);
       if(!applied && priorValue != null){
-        if(family.matches?.('[data-birth-date-value]')){
-          family.value = priorValue;
-          syncBirthDateParts(family.closest('[data-birth-date-group]'), priorValue);
+        if(wizardField.matches?.('[data-birth-date-value]')){
+          wizardField.value = priorValue;
+          syncBirthDateParts(wizardField.closest('[data-birth-date-group]'), priorValue);
         }else{
-          family.value = priorValue;
+          wizardField.value = priorValue;
         }
       }
       return;
@@ -277,7 +308,59 @@ export function bindHouseholdEditor({
       return;
     }
     if(kind === 'step-next'){
+      if(wizardRoot.dataset.wizardStep === 'income'){
+        try{
+          preflightWizardEdit({ scope: 'income', action: 'validate-step' });
+        }catch(error){
+          reportError(error, action);
+          return;
+        }
+      }
       navigateWizard('next');
+      return;
+    }
+    if(kind === 'add-spouse'){
+      commit({ scope: 'family', action: 'add-spouse' }, action);
+      return;
+    }
+    if(kind === 'add-child'){
+      commit({ scope: 'family', action: 'add-child' }, action);
+      return;
+    }
+    if(kind === 'remove-child'){
+      commit({
+        scope: 'family',
+        action: 'remove-child',
+        childIndex: Number(action.dataset.childIndex),
+      }, action);
+      return;
+    }
+    if(kind === 'add-income-source'){
+      commit({
+        scope: 'income',
+        action: 'add-income-source',
+        typeId: action.dataset.incomeTypeId || 'other',
+      }, action);
+      return;
+    }
+    if(kind === 'remove-income-source'){
+      commit({
+        scope: 'income',
+        action: 'remove-income-source',
+        rowId: action.dataset.incomeRowId,
+      }, action);
+      return;
+    }
+    if(kind === 'add-pension-age'){
+      commit({ scope: 'income', action: 'add-pension-age' }, action);
+      return;
+    }
+    if(kind === 'remove-pension-age'){
+      commit({
+        scope: 'income',
+        action: 'remove-pension-age',
+        age: action.dataset.pensionAge,
+      }, action);
       return;
     }
     if(kind === 'net-worth-show-summary'){
@@ -586,7 +669,7 @@ export function bindHouseholdEditor({
         return;
       }
       const confirmed = window.confirm(
-        'Remove co-client from this household? Co-client identity, Social Security, and tax facts will be discarded.',
+        'Remove co-client and change filing status to Single? Co-client identity, Social Security, and tax facts will be discarded.',
       );
       if(!confirmed) return;
       commit(command, action);
