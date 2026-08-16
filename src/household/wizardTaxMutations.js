@@ -3,10 +3,15 @@ import {
   restrictTaxpayersToBaseAndAge,
 } from './wizardCurrent1040.js';
 import {
+  INCOME_FIELD_GROUPS,
+  readWizardPlanningIncome,
+} from './wizardPlanningIncome.js';
+import {
   cloneWizardValue,
   hasOwn,
   wizardTaxError,
 } from './wizardIntakeSupport.js';
+import { newWizardRowId } from './householdRecordSchema.js';
 import { setWizardIrmaaLookbackField } from './wizardIrmaa.js';
 
 const INCOME_FIELDS = new Set([
@@ -112,9 +117,37 @@ function setDeductionMode(plan, current, mode){
   throw new Error('Unsupported deduction method');
 }
 
+function assertIncomeGroupEditable(plan, current, groupId, field, value){
+  const planning = readWizardPlanningIncome(plan, current);
+  const group = planning.groups[groupId];
+  if(group.rowSourced){
+    throw wizardTaxError(
+      'Use current-year amount before editing a planning-income value',
+      field,
+      'CURRENT_1040_INCOME_OVERRIDE_REQUIRED',
+    );
+  }
+  if(group.overridden
+      && group.rowIds.length > 0
+      && parseWizardNumber(value, {
+        signed: field === 'scheduleD.netLongTermGainOrLoss'
+          || SIGNED_INCOME_FIELDS.has(field.replace(/^income\./, '')),
+      }) === undefined){
+    throw wizardTaxError(
+      'Enter 0 or use planning income again',
+      field,
+      'CURRENT_1040_INCOME_OVERRIDE_VALUE_REQUIRED',
+    );
+  }
+}
+
 function setIncomeField(plan, current, field, value){
   if(!INCOME_FIELDS.has(field)){
     throw new Error(`Unsupported income field: ${field}`);
+  }
+  const groupId = INCOME_FIELD_GROUPS.get(field);
+  if(groupId){
+    assertIncomeGroupEditable(plan, current, groupId, `income.${field}`, value);
   }
   const parsed = parseWizardNumber(value, {
     signed: SIGNED_INCOME_FIELDS.has(field),
@@ -134,20 +167,67 @@ function setMemberWages(plan, current, owner, value){
     throw new Error('Co-client wages require a co-client');
   }
   const parsed = parseWizardNumber(value);
-  const byOwner = current.wagesByOwner
-    && typeof current.wagesByOwner === 'object'
-    && !Array.isArray(current.wagesByOwner)
-    ? current.wagesByOwner
-    : {};
-  setOrDelete(byOwner, owner, parsed);
-  if(Object.keys(byOwner).length > 0) current.wagesByOwner = byOwner;
-  else delete current.wagesByOwner;
-  const values = Object.values(byOwner).filter(Number.isFinite);
-  setOrDelete(
-    current.income,
-    'wages',
-    values.length > 0 ? values.reduce((sum, amount) => sum + amount, 0) : undefined,
-  );
+  const planningAsOfYear = Number.isInteger(plan.meta?.planningAsOfYear)
+    ? plan.meta.planningAsOfYear
+    : current.taxYear;
+  if(Number(current.taxYear) !== Number(planningAsOfYear)){
+    const byOwner = current.wagesByOwner
+      && typeof current.wagesByOwner === 'object'
+      && !Array.isArray(current.wagesByOwner)
+      ? current.wagesByOwner
+      : {};
+    setOrDelete(byOwner, owner, parsed);
+    if(Object.keys(byOwner).length > 0) current.wagesByOwner = byOwner;
+    else delete current.wagesByOwner;
+    const values = Object.values(byOwner).filter(Number.isFinite);
+    setOrDelete(
+      current.income,
+      'wages',
+      values.length > 0 ? values.reduce((sum, amount) => sum + amount, 0) : undefined,
+    );
+    const overrides = new Set(
+      Array.isArray(current.planningIncomeOverrides)
+        ? current.planningIncomeOverrides
+        : [],
+    );
+    overrides.add('wages');
+    current.planningIncomeOverrides = [...overrides];
+    current.incomeSourcesComplete = false;
+    return;
+  }
+  const rows = Array.isArray(plan.income?.other) ? plan.income.other : [];
+  plan.income.other = rows.filter(row => !(
+    row?.owner === owner && (row?.typeId === 'wages' || row?.typeId === 'bonus')
+  ));
+  if(parsed !== undefined){
+    const person = owner === 'spouse'
+      ? plan.household.spouse
+      : plan.household.primary;
+    const currentAge = Number(person?.currentAge);
+    const retirementAge = Number(person?.retirementAge);
+    const currentYearOnly = Number.isFinite(currentAge)
+      && (person?.employmentStatus === 'retired'
+        || (Number.isFinite(retirementAge) && currentAge >= retirementAge));
+    plan.income.other.push({
+      id: newWizardRowId('income'),
+      typeId: 'wages',
+      label: 'Wages or salary',
+      owner,
+      amount: parsed,
+      ...(currentYearOnly ? { startAge: currentAge, endAge: currentAge } : {}),
+      realGrowth: 0,
+      taxablePct: 1,
+    });
+  }
+  delete current.wagesByOwner;
+  delete current.income.wages;
+  if(Array.isArray(current.planningIncomeOverrides)){
+    current.planningIncomeOverrides = current.planningIncomeOverrides
+      .filter(groupId => groupId !== 'wages');
+    if(current.planningIncomeOverrides.length === 0){
+      delete current.planningIncomeOverrides;
+    }
+  }
   current.incomeSourcesComplete = false;
 }
 
@@ -190,6 +270,13 @@ function setSocialSecurityWorksheetField(current, field, value){
 }
 
 function setScheduleD(plan, current, value){
+  assertIncomeGroupEditable(
+    plan,
+    current,
+    'long-term-gain-loss',
+    'scheduleD.netLongTermGainOrLoss',
+    value,
+  );
   const parsed = parseWizardNumber(value, { signed: true });
   current.incomeSourcesComplete = false;
   if(parsed === undefined){

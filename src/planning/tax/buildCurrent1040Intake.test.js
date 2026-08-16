@@ -65,27 +65,7 @@ function plan(overrides = {}){
 
 const codes = result => result.gaps.map(gap => gap.code);
 
-test('current-return income never falls back to long-term planning income', () => {
-  const subject = plan();
-  subject.income.other.push({
-    typeId: 'interest',
-    owner: 'client',
-    amount: 1200,
-    taxablePct: 1,
-    startAge: 50,
-    endAge: 80,
-  });
-  subject.incomeTax.current1040.income = { wages: 81000 };
-
-  const result = buildCurrent1040Intake(subject);
-
-  assert.deepEqual(result.gaps, []);
-  assert.equal(result.intake.income.wages, 81000);
-  assert.equal(result.intake.income.taxableInterest, 0);
-  assert.equal(result.intake.income.taxExemptInterest, 0);
-});
-
-test('canonical current-return route is opt-in and keeps an explicit supported year', () => {
+test('canonical planning route is opt-in and keeps an explicit supported year', () => {
   const legacy = plan();
   delete legacy.incomeTax.current1040;
   assert.equal(hasCurrent1040PlanningEnvelope(legacy), false);
@@ -96,7 +76,7 @@ test('canonical current-return route is opt-in and keeps an explicit supported y
   assert.deepEqual(result.gaps, []);
   assert.equal(result.intake.schemaVersion, 1);
   assert.equal(result.intake.taxYear, 2026);
-  assert.equal(result.intake.income.wages, 0);
+  assert.equal(result.intake.income.wages, 75000);
   assert.equal(result.intake.income.taxableSS, 0);
   assert.deepEqual(result.intake.income.socialSecurity, {
     mode: 'supplied-form1040-lines',
@@ -156,7 +136,7 @@ test('explicit deduction authority and zero-valued supplied facts survive unchan
   }
 });
 
-test('explicit canonical income survives without merging planning fields', () => {
+test('explicit canonical income survives and merges only non-overlapping planning fields', () => {
   const subject = plan();
   subject.incomeTax.current1040.income = {
     taxExemptInterest: 5000,
@@ -166,21 +146,22 @@ test('explicit canonical income survives without merging planning fields', () =>
   };
   const result = buildCurrent1040Intake(subject);
   assert.deepEqual(result.gaps, []);
-  assert.equal(result.intake.income.wages, 0);
+  assert.equal(result.intake.income.wages, 75000);
   assert.equal(result.intake.income.taxExemptInterest, 5000);
   assert.equal(result.intake.income.socialSecurityBenefits, 20000);
   assert.equal(result.intake.income.taxableSS, 5000);
   assert.equal(result.intake.income.taxableInterest, 0);
-  assert.equal(result.totalIncome, 5000);
+  assert.equal(result.totalIncome, 80000);
 });
 
-test('canonical current-return fields are independent of matching planning rows', () => {
+test('same-field canonical and mapped income sources fail closed without precedence', () => {
   const wages = plan();
   wages.incomeTax.current1040.income = { wages: 75000 };
   const wageConflict = buildCurrent1040Intake(wages);
-  assert.deepEqual(wageConflict.gaps, []);
-  assert.equal(wageConflict.intake.income.wages, 75000);
-  assert.equal(wageConflict.totalIncome, 75000);
+  assert.ok(codes(wageConflict)
+    .includes('CURRENT_1040_INCOME_SOURCE_CONFLICT'));
+  assert.ok(!Object.hasOwn(wageConflict.intake.income, 'wages'));
+  assert.equal(wageConflict.totalIncome, null);
 
   const taxExempt = plan({
     income: {
@@ -196,9 +177,13 @@ test('canonical current-return fields are independent of matching planning rows'
   });
   taxExempt.incomeTax.current1040.income = { taxExemptInterest: 5000 };
   const taxExemptConflict = buildCurrent1040Intake(taxExempt);
-  assert.deepEqual(taxExemptConflict.gaps, []);
-  assert.equal(taxExemptConflict.intake.income.taxExemptInterest, 5000);
-  assert.equal(taxExemptConflict.totalIncome, 0);
+  assert.ok(codes(taxExemptConflict)
+    .includes('CURRENT_1040_INCOME_SOURCE_CONFLICT'));
+  assert.ok(!Object.hasOwn(
+    taxExemptConflict.intake.income,
+    'taxExemptInterest'
+  ));
+  assert.equal(taxExemptConflict.totalIncome, null);
 });
 
 test('complete canonical Social Security resolves active planning benefit sources', () => {
@@ -299,7 +284,7 @@ test('calculated MFS Social Security preserves true, false, and missing living s
   ));
 });
 
-test('MFS current-return facts do not inspect planning-income ownership', () => {
+test('MFS includes only the modeled owner and refuses joint or missing attribution', () => {
   const subject = plan({
     meta: { filingStatus: 'marriedFilingSeparately' },
     household: {
@@ -329,22 +314,26 @@ test('MFS current-return facts do not inspect planning-income ownership', () => 
     },
   });
   const result = buildCurrent1040Intake(subject);
-  assert.deepEqual(result.gaps, []);
-  assert.equal(result.intake.income.wages, 0);
-  assert.equal(result.intake.income.otherIncome, 0);
+  assert.equal(result.intake.income.wages, 40000);
+  assert.ok(codes(result).includes('CURRENT_1040_MFS_JOINT_INCOME_UNATTRIBUTED'));
+  assert.ok(codes(result).includes('CURRENT_1040_INCOME_OWNER_REQUIRED'));
+  assert.ok(!Object.values(result.intake.income).includes(90000));
 
-  subject.incomeTax.current1040.income = { wages: 40000 };
-  const currentReturn = buildCurrent1040Intake(subject);
-  assert.deepEqual(currentReturn.gaps, []);
-  assert.equal(currentReturn.intake.income.wages, 40000);
+  subject.income.other = subject.income.other.slice(0, 2);
+  const attributed = buildCurrent1040Intake(subject);
+  assert.deepEqual(attributed.gaps, []);
+  assert.equal(attributed.intake.income.wages, 40000);
+  assert.equal(attributed.intake.income.otherIncome, 0);
+  assert.equal(attributed.intake.income.taxableSS, 0);
 
   subject.incomeTax.current1040.returnScope.modeledTaxpayer = 'spouse';
   const spouseReturn = buildCurrent1040Intake(subject);
   assert.deepEqual(spouseReturn.gaps, []);
-  assert.equal(spouseReturn.intake.income.wages, 40000);
+  assert.equal(spouseReturn.intake.income.wages, 90000);
+  assert.equal(spouseReturn.intake.income.otherIncome, 0);
 });
 
-test('simple Schedule D uses its explicit current-return signed amount only', () => {
+test('simple Schedule D derives and preserves a signed owned long-term result', () => {
   const subject = plan();
   subject.income.other = [
     {
@@ -357,7 +346,6 @@ test('simple Schedule D uses its explicit current-return signed amount only', ()
   ];
   subject.incomeTax.current1040.scheduleD = {
     mode: 'simple-net-long-term',
-    netLongTermGainOrLoss: -5000,
     confirmations,
   };
   const result = buildCurrent1040Intake(subject);
@@ -373,12 +361,11 @@ test('simple Schedule D uses its explicit current-return signed amount only', ()
     startAge: 50,
     endAge: 50,
   });
-  const unchanged = buildCurrent1040Intake(subject);
-  assert.deepEqual(unchanged.gaps, []);
-  assert.equal(unchanged.intake.scheduleD.netLongTermGainOrLoss, -5000);
+  assert.ok(codes(buildCurrent1040Intake(subject))
+    .includes('CURRENT_1040_SIMPLE_SCHEDULE_D_SHORT_TERM_NOT_ZERO'));
 });
 
-test('manual long-term mode preserves only explicit current-return amounts', () => {
+test('manual long-term mode preserves blank, zero, signed rows, and source precedence', () => {
   const untouched = plan();
   delete untouched.incomeTax.current1040.scheduleD;
   const blank = buildCurrent1040Intake(untouched);
@@ -418,7 +405,7 @@ test('manual long-term mode preserves only explicit current-return amounts', () 
     mode: 'manual-net-long-term',
     netLongTermGainOrLoss: 0,
   });
-  assert.equal(zero.totalIncome, 0);
+  assert.equal(zero.totalIncome, 75000);
 
   const directLoss = plan();
   directLoss.incomeTax.current1040.scheduleD = {
@@ -451,13 +438,13 @@ test('manual long-term mode preserves only explicit current-return amounts', () 
     mode: 'manual-net-long-term',
   };
   const summed = buildCurrent1040Intake(rowDerived);
-  assert.ok(codes(summed).includes('CURRENT_1040_SCHEDULE_D_AMOUNT_REQUIRED'));
-  assert.equal(Object.hasOwn(summed.intake.scheduleD, 'netLongTermGainOrLoss'), false);
+  assert.deepEqual(summed.gaps, []);
+  assert.equal(summed.intake.scheduleD.netLongTermGainOrLoss, 1500);
+  assert.equal(summed.totalIncome, 76500);
 
   rowDerived.incomeTax.current1040.scheduleD.netLongTermGainOrLoss = 0;
-  const explicit = buildCurrent1040Intake(rowDerived);
-  assert.deepEqual(explicit.gaps, []);
-  assert.equal(explicit.intake.scheduleD.netLongTermGainOrLoss, 0);
+  assert.ok(codes(buildCurrent1040Intake(rowDerived))
+    .includes('CURRENT_1040_SCHEDULE_D_SOURCE_CONFLICT'));
 
   const shortTerm = plan();
   shortTerm.income.other.push({
@@ -472,8 +459,8 @@ test('manual long-term mode preserves only explicit current-return amounts', () 
     netLongTermGainOrLoss: -5000,
   };
   const conflict = buildCurrent1040Intake(shortTerm);
-  assert.deepEqual(conflict.gaps, []);
-  assert.equal(conflict.intake.scheduleD.netLongTermGainOrLoss, -5000);
+  assert.ok(codes(conflict)
+    .includes('CURRENT_1040_MANUAL_NET_LONG_TERM_SHORT_TERM_CONFLICT'));
   assert.equal(conflict.totalIncome, null);
 });
 
@@ -495,9 +482,8 @@ test('Schedule D uses explicit completeness for zero but never merges competing 
     endAge: 50,
   }];
   subject.incomeTax.current1040.scheduleD.netLongTermGainOrLoss = 0;
-  const explicitZero = buildCurrent1040Intake(subject);
-  assert.deepEqual(explicitZero.gaps, []);
-  assert.equal(explicitZero.intake.scheduleD.netLongTermGainOrLoss, 0);
+  assert.ok(codes(buildCurrent1040Intake(subject))
+    .includes('CURRENT_1040_SCHEDULE_D_SOURCE_CONFLICT'));
 
   subject.income.other = [];
   subject.incomeTax.current1040.scheduleD = {
@@ -515,19 +501,19 @@ test('Schedule D uses explicit completeness for zero but never merges competing 
   assert.equal(suppliedGain.totalIncome, 50000);
 });
 
-test('missing completeness is independent of planning Social Security', () => {
+test('missing completeness and active planning Social Security produce clear gaps', () => {
   const subject = plan();
   delete subject.incomeTax.current1040.incomeSourcesComplete;
   subject.household.primary.currentAge = 70;
   subject.income.socialSecurity.primary = { pia: 30000, claimAge: 67 };
   const result = buildCurrent1040Intake(subject);
   assert.ok(codes(result).includes('CURRENT_1040_INCOME_SOURCES_INCOMPLETE'));
-  assert.equal(codes(result)
-    .includes('CURRENT_1040_SOCIAL_SECURITY_RETURN_FACTS_REQUIRED'), false);
+  assert.ok(codes(result)
+    .includes('CURRENT_1040_SOCIAL_SECURITY_RETURN_FACTS_REQUIRED'));
   assert.equal(result.totalIncome, null);
 });
 
-test('a planning Social Security row is ignored by current-return income', () => {
+test('a planning Social Security row cannot become generic other income', () => {
   const subject = plan();
   subject.income.other = [{
     typeId: 'social_security',
@@ -537,9 +523,9 @@ test('a planning Social Security row is ignored by current-return income', () =>
     endAge: 999,
   }];
   const result = buildCurrent1040Intake(subject);
-  assert.deepEqual(result.gaps, []);
-  assert.equal(result.intake.income.otherIncome, 0);
-  assert.equal(result.intake.income.socialSecurityBenefits, 0);
+  assert.ok(codes(result)
+    .includes('CURRENT_1040_SOCIAL_SECURITY_RETURN_FACTS_REQUIRED'));
+  assert.equal(result.intake.income.otherIncome, undefined);
 });
 
 test('positive direct gross IRA and pension amounts never gain fabricated taxable companions', () => {
@@ -572,7 +558,7 @@ test('positive direct gross IRA and pension amounts never gain fabricated taxabl
   assert.equal(pensionResult.totalIncome, null);
 });
 
-test('legacy planning-income override metadata is preserved but inert', () => {
+test('planning income overrides suppress only the selected source group and stay outside canonical intake', () => {
   const subject = plan();
   subject.income.other.push({
     typeId: 'interest',
@@ -589,16 +575,16 @@ test('legacy planning-income override metadata is preserved but inert', () => {
 
   assert.deepEqual(result.gaps, []);
   assert.equal(result.intake.income.wages, 81000);
-  assert.equal(result.intake.income.taxableInterest, 0);
-  assert.equal(result.intake.income.taxExemptInterest, 0);
+  assert.equal(result.intake.income.taxableInterest, 750);
+  assert.equal(result.intake.income.taxExemptInterest, 250);
   assert.equal(Object.hasOwn(result.intake, 'planningIncomeOverrides'), false);
-  assert.deepEqual(subject.incomeTax.current1040.planningIncomeOverrides, ['wages']);
 });
 
-test('legacy planning-income metadata and planning gains cannot affect current-return facts', () => {
+test('planning income overrides fail closed when malformed and keep short-term blockers active', () => {
   const malformed = plan();
   malformed.incomeTax.current1040.planningIncomeOverrides = ['wages', 'wages'];
-  assert.deepEqual(buildCurrent1040Intake(malformed).gaps, []);
+  assert.ok(codes(buildCurrent1040Intake(malformed))
+    .includes('CURRENT_1040_INCOME_OVERRIDE_GROUP_INVALID'));
 
   const capital = plan();
   capital.income.other.push(
@@ -624,12 +610,11 @@ test('legacy planning-income metadata and planning gains cannot affect current-r
     mode: 'manual-net-long-term',
     netLongTermGainOrLoss: 7000,
   };
-  const result = buildCurrent1040Intake(capital);
-  assert.deepEqual(result.gaps, []);
-  assert.equal(result.intake.scheduleD.netLongTermGainOrLoss, 7000);
+  assert.ok(codes(buildCurrent1040Intake(capital))
+    .includes('CURRENT_1040_MANUAL_NET_LONG_TERM_SHORT_TERM_CONFLICT'));
 });
 
-test('planning IRA rows never become current-return IRA facts', () => {
+test('row-derived IRA gross and taxable amounts remain a complete paired source', () => {
   const subject = plan();
   subject.income.other = [{
     typeId: 'ira_distribution',
@@ -644,6 +629,6 @@ test('planning IRA rows never become current-return IRA facts', () => {
     codes(result).includes('CURRENT_1040_TAXABLE_IRA_REQUIRED'),
     false,
   );
-  assert.equal(result.intake.income.iraDistributions, 0);
-  assert.equal(result.intake.income.taxableIra, 0);
+  assert.equal(result.intake.income.iraDistributions, 20000);
+  assert.equal(result.intake.income.taxableIra, 8000);
 });

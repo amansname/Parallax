@@ -9,11 +9,7 @@ import {
   withdrawalAccountState,
   approveWithdrawalPlannerLeverChange,
 } from './taxEngineAdapter.js';
-import {
-  defaultPlan as plan,
-  householdIncomeAtYear,
-  resolveInputs,
-} from '../../../engine.js';
+import { defaultPlan as plan } from '../../../engine.js';
 import {
   buildDefaultTaxContext,
   runEngineYearTax,
@@ -290,13 +286,6 @@ test('Realized Gain uses taxable-investment balances without reporting filters o
 
 test('saved Tax-module Schedule D is the baseline and Planner Realized Gain is additive', async () => {
   let subject = createBlankHousehold(plan, 'hh_schedule_d_baseline', 2026);
-  subject = applyHouseholdWizardEdit(subject, {
-    scope: 'income', action: 'add-income-source', typeId: 'wages', owner: 'client',
-  });
-  const wageRowId = subject.income.other.at(-1).id;
-  subject = applyHouseholdWizardEdit(subject, {
-    scope: 'income', field: 'source.amount', rowId: wageRowId, value: 50_000,
-  });
   subject = applyHouseholdWizardEdit(subject, {
     scope: 'tax', action: 'set', field: 'income.wages.client', value: 50_000,
   });
@@ -1122,11 +1111,12 @@ test('household income advances from the saved planning as-of year', async () =>
   assert.strictEqual(facts.wages, 100_000);
 });
 
-test('Tax wages override the matching current return while Income wages own future years', async () => {
+test('Tax-page member wages remain engine-owned through the Withdrawal Planner adapter', async () => {
   let subject = createBlankHousehold(plan, 'hh_member_wages', 2026);
   subject = applyHouseholdWizardEdit(subject, {
     scope: 'family',
-    action: 'add-spouse',
+    field: 'filingStatus',
+    value: 'marriedFilingJointly',
   });
   subject.household.primary.currentAge = 60;
   subject.household.primary.retirementAge = 62;
@@ -1135,24 +1125,16 @@ test('Tax wages override the matching current return while Income wages own futu
   subject.household.spouse.retirementAge = 61;
   subject.household.spouse.planEndAge = 97;
   subject = applyHouseholdWizardEdit(subject, {
-    scope: 'income', action: 'add-income-source', typeId: 'wages', owner: 'client',
-  });
-  const clientRowId = subject.income.other.at(-1).id;
-  subject = applyHouseholdWizardEdit(subject, {
-    scope: 'income', field: 'source.amount', rowId: clientRowId, value: 81_000,
-  });
-  subject = applyHouseholdWizardEdit(subject, {
-    scope: 'income', action: 'add-income-source', typeId: 'wages', owner: 'spouse',
-  });
-  const spouseRowId = subject.income.other.at(-1).id;
-  subject = applyHouseholdWizardEdit(subject, {
-    scope: 'income', field: 'source.amount', rowId: spouseRowId, value: 39_000,
+    scope: 'tax',
+    action: 'set',
+    field: 'income.wages.client',
+    value: 81_000,
   });
   subject = applyHouseholdWizardEdit(subject, {
-    scope: 'tax', action: 'set', field: 'income.wages.client', value: 600_000,
-  });
-  subject = applyHouseholdWizardEdit(subject, {
-    scope: 'tax', action: 'set', field: 'income.wages.spouse', value: 399_999,
+    scope: 'tax',
+    action: 'set',
+    field: 'income.wages.spouse',
+    value: 39_000,
   });
   subject.incomeTax.current1040.income.wages = 999_999;
 
@@ -1160,7 +1142,7 @@ test('Tax wages override the matching current return while Income wages own futu
   const clientRetired = await householdIncome(subject, 2028, { baseYear: 2026 });
   const bothRetired = await householdIncome(subject, 2029, { baseYear: 2026 });
 
-  assert.strictEqual(current.wages, 999_999);
+  assert.strictEqual(current.wages, 120_000);
   assert.strictEqual(current.people.client.retired, false);
   assert.strictEqual(current.people.spouse.retired, false);
   assert.strictEqual(clientRetired.wages, 39_000);
@@ -1169,38 +1151,6 @@ test('Tax wages override the matching current return while Income wages own futu
   assert.strictEqual(bothRetired.wages, 0);
   assert.strictEqual(bothRetired.people.client.retired, true);
   assert.strictEqual(bothRetired.people.spouse.retired, true);
-});
-
-test('Tax-only wages remain unavailable to planning until Income supplies them', async () => {
-  let subject = createBlankHousehold(plan, 'hh_tax_only_wages', 2026);
-  subject = applyHouseholdWizardEdit(subject, {
-    scope: 'tax', action: 'set', field: 'income.wages.client', value: 50_000,
-  });
-
-  let planningFacts = householdIncomeAtYear(resolveInputs(subject, {}), 0);
-  assert.strictEqual(planningFacts.wages, null);
-  assert.ok(planningFacts.incomeIssues.includes('INCOME_SOURCE_MISSING:client:wages'));
-
-  const currentTaxFacts = await householdIncome(subject, 2026, { baseYear: 2026 });
-  assert.strictEqual(currentTaxFacts.wages, 50_000);
-
-  const futureFacts = await householdIncome(subject, 2027, { baseYear: 2026 });
-  assert.strictEqual(futureFacts.wages, null);
-
-  subject = applyHouseholdWizardEdit(subject, {
-    scope: 'income', action: 'add-income-source', typeId: 'wages', owner: 'client',
-  });
-  const rowId = subject.income.other.at(-1).id;
-  subject = applyHouseholdWizardEdit(subject, {
-    scope: 'income', field: 'source.amount', rowId, value: 50_000,
-  });
-
-  planningFacts = householdIncomeAtYear(resolveInputs(subject, {}), 0);
-  assert.strictEqual(planningFacts.wages, 50_000);
-  assert.ok(!planningFacts.incomeIssues.includes('INCOME_SOURCE_MISSING:client:wages'));
-
-  const currentFacts = await householdIncome(subject, 2026, { baseYear: 2026 });
-  assert.strictEqual(currentFacts.wages, 50_000);
 });
 
 test('live household people facts reject an incompatible filing-status override', async () => {
@@ -1296,10 +1246,10 @@ test('planning income keeps wages, interest, dividends, pension, and taxable oth
   subject.income.socialSecurity = { primary: { pia: 0, claimAge: 67 }, spouse: null };
   subject.income.other = [
     { typeId: 'wages', owner: 'client', amount: 50_000, startAge: 65, endAge: 65, taxablePct: 1 },
-    { typeId: 'interest', owner: 'client', amount: 10_000, startAge: 65, endAge: 65, taxablePct: 1 },
+    { typeId: 'interest', owner: 'client', amount: 10_000, startAge: 65, endAge: 65, taxablePct: 0.4 },
     { typeId: 'dividends', owner: 'client', amount: 20_000, startAge: 65, endAge: 65, taxablePct: 1, qualifiedPct: 0.5 },
     { typeId: 'pension', owner: 'client', amount: 12_000, startAge: 65, endAge: 65, taxablePct: 0.5 },
-    { typeId: 'other', owner: 'client', amount: 10_000, startAge: 65, endAge: 65, taxablePct: 0.5 },
+    { typeId: 'rental', owner: 'client', amount: 10_000, startAge: 65, endAge: 65, taxablePct: 0.5 },
   ];
   subject.income.pension = {
     benefitByAge: { 65: 8_000 }, base: 0, startAge: 65, colaPct: 0,
@@ -1324,8 +1274,8 @@ test('planning income keeps wages, interest, dividends, pension, and taxable oth
     grossOtherIncome: facts.grossOtherIncome,
   }, {
     wages: 50_000,
-    taxableInterest: 10_000,
-    taxExemptInterest: undefined,
+    taxableInterest: 4_000,
+    taxExemptInterest: 6_000,
     ordinaryDividends: 20_000,
     qualifiedDividends: 10_000,
     pensionAmount: 20_000,
@@ -1342,7 +1292,7 @@ test('planning income keeps wages, interest, dividends, pension, and taxable oth
       rothWithdrawal: 0, qcd: 0,
     },
   });
-  assert.strictEqual(result.totals.agi, 99_000);
+  assert.strictEqual(result.totals.agi, 93_000);
   assert.strictEqual(result.totals.qualifiedIncome, 10_000);
 });
 

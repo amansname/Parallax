@@ -153,10 +153,9 @@ function syncRecoveryControls(){
     '#hh-view [data-hh-action="net-worth-toggle-more"]','#hh-view [data-hh-action="net-worth-pick-type"]','#hh-view [data-hh-action="net-worth-pick-custom"]',
     '#hh-view [data-hh-action="net-worth-clear-type"]','#hh-view [data-hh-action="net-worth-save-entry"]','#hh-view [data-hh-action="net-worth-remove-entry"]',
     '#hh-view [data-hh-action="override-income-group"]','#hh-view [data-hh-action="revert-income-group"]','#hh-view [data-hh-action="remove-tax-item"]',
-    '#hh-view [data-hh-action="add-spouse"]','#hh-view [data-hh-action="remove-spouse"]','#hh-view [data-hh-action="add-child"]','#hh-view [data-hh-action="remove-child"]','#hh-view [data-hh-action="save-account"]',
+    '#hh-view [data-hh-action="add-spouse"]','#hh-view [data-hh-action="remove-spouse"]','#hh-view [data-hh-action="save-account"]',
     '#hh-view [data-hh-action="open-account-form"]','#hh-view [data-hh-action="open-add"]','#hh-view [data-hh-action="commit-add"]','#hh-view [data-hh-action="add-home"]','#hh-view [data-hh-action="add-mortgage"]',
-    '#hh-view [data-hh-action="add-income-source"]','#hh-view [data-hh-action="remove-income-source"]',
-    '#hh-view [data-hh-action="add-pension-age"]','#hh-view [data-hh-action="remove-pension-age"]','#np-content input','#np-content select','#np-content textarea','#np-content button',
+    '#hh-view [data-hh-action="add-pension-age"]','#np-content input','#np-content select','#np-content textarea','#np-content button',
     '#np-content .row-x','#np-content [data-add]','#np-content [data-act]','#scn-add','#scn-view [data-lever-key]','#scn-view .cmp-lev-in',
     '#scn-view .cmp-goal-in','#scn-view .scol__menu','#solve-panel .solve-load','#solve-panel .cc-load'
   ];
@@ -1149,7 +1148,6 @@ const householdWizardController = createHouseholdWizardController({
   onSwitchHousehold: switchHousehold,
   onNewHousehold: newHousehold,
   onLoadDemoHousehold: loadDemoHousehold,
-  goalsController: goalsHorizon,
 });
 const hhUiState = householdWizardController.uiState;
 const householdWizardCommitBoundary = createHouseholdWizardCommitBoundary({
@@ -1164,7 +1162,7 @@ const householdWizardCommitBoundary = createHouseholdWizardCommitBoundary({
     syncPlanEditStatus('Saved automatically · open Scenarios');
   },
 });
-/* Wizard state: Family · Net Worth · Income · Goals · Tax · Summary. */
+/* Wizard state: Family · Net Worth · Tax · Summary. */
 
 
 /* ── Household lifecycle helpers ───────────────────────────────────────────

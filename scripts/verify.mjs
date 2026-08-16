@@ -174,7 +174,7 @@ async function waitCashRows(page, min = 1, ms = 8000){
   return page.evaluate(() => document.querySelectorAll('#scn-view .cf-row').length);
 }
 
-/* Household verification now enters through the semantic six-step wizard.
+/* Household verification now enters through the semantic four-step wizard.
    The retired Balance-Sheet / Map editor and its numeric step selectors are
    intentionally absent from this verifier. */
 
@@ -423,27 +423,6 @@ try {
     await typeAndBlur(
       '[data-wizard-field="client.planEndAge"]',
       fixture.family.planEndAge,
-    );
-
-    await goToWizardStep(page, 'income');
-    let before = await currentRevision();
-    await stableClick('[data-hh-action="add-income-source"]');
-    await waitForWizard(page, { step: 'income', afterRevision: before });
-    const planningWageRow = await page.$eval(
-      '[data-income-source-row]',
-      row => row.dataset.incomeSourceRow,
-    );
-    const planningWageField = field => (
-      `[data-income-row-id="${planningWageRow}"][data-wizard-field="source.${field}"]`
-    );
-    before = await currentRevision();
-    await page.select(planningWageField('typeId'), 'wages');
-    await waitForWizard(page, { step: 'income', afterRevision: before });
-    await typeAndBlur(planningWageField('label'), 'Wages or salary');
-    await typeAndBlur(planningWageField('amount'), fixture.income.wages);
-    await typeAndBlur(
-      planningWageField('endAge'),
-      fixture.family.retirementAge - 1,
     );
 
     await goToWizardStep(page, 'tax');
@@ -1164,7 +1143,7 @@ try {
     }
   });
 
-  await step('household wizard: semantic six-step contract', async () => {
+  await step('household wizard: semantic four-step contract', async () => {
     await runWizardBrowserContract(page, { outDir: OUT });
   });
 
@@ -2385,26 +2364,26 @@ try {
   });
 
   await step('persistence: reload starts blank while saved households remain selectable', async () => {
-    const setWizardField = async (wizardStep, field, value) => {
+    const setFamilyField = async (field, value) => {
       const beforeRevision = await page.$eval(
         '[data-hh-wizard-root]',
         element => Number(element.dataset.renderRevision),
       );
-      await page.evaluate(({ wizardStep, field, value }) => {
+      await page.evaluate(({ field, value }) => {
         const control = document.querySelector(
-          `[data-hh-wizard-screen="${wizardStep}"] [data-wizard-field="${field}"]`,
+          `[data-hh-wizard-screen="family"] [data-wizard-field="${field}"]`,
         );
-        if(!control) throw new Error(`missing ${wizardStep} field: ${field}`);
+        if(!control) throw new Error(`missing Family field: ${field}`);
         control.value = value;
         control.dispatchEvent(new Event('change', { bubbles: true }));
-      }, { wizardStep, field, value });
+      }, { field, value });
       await waitForWizard(page, {
-        step: wizardStep,
+        step: 'family',
         afterRevision: beforeRevision,
       });
     };
     await goToWizardStep(page, 'family');
-    await setWizardField('family', 'primaryName', 'Transient Demo Edit');
+    await setFamilyField('primaryName', 'Transient Demo Edit');
     const storedDemo = await page.evaluate(() => JSON.parse(
       localStorage.getItem('parallax.households.v1') || 'null',
     )?.demo);
@@ -2430,9 +2409,8 @@ try {
     }));
     if(!created.active || created.active === 'demo') throw new Error(`New Household did not become active (active="${created.active}")`);
     const customId = created.active;
-    await setWizardField('family', 'primaryName', 'Saved Client');
-    await goToWizardStep(page, 'income');
-    await setWizardField('income', 'socialSecurity.primary.claimAge', '70');
+    await setFamilyField('primaryName', 'Saved Client');
+    await setFamilyField('client.socialSecurityAge', '70');
     await page.waitForFunction(id => {
       const record = JSON.parse(
         localStorage.getItem('parallax.households.v1') || 'null',
@@ -2834,9 +2812,7 @@ try {
         enabled: controls.filter(element => !element.disabled)
           .map(element => element.dataset.wizardField),
         primaryName: document.querySelector('[data-wizard-field="primaryName"]')?.value || '',
-        filingFields: document.querySelectorAll(
-          '[data-hh-wizard-screen="family"] [data-wizard-field="filingStatus"]',
-        ).length,
+        filingStatus: document.querySelector('[data-wizard-field="filingStatus"]')?.value || '',
         people: document.querySelectorAll('[data-person-owner]').length,
       };
     });
@@ -2847,118 +2823,26 @@ try {
       const name = document.querySelector('[data-wizard-field="primaryName"]');
       name.value = 'Changed despite read-only';
       name.dispatchEvent(new Event('change', { bubbles: true }));
+      const filing = document.querySelector('[data-wizard-field="filingStatus"]');
+      filing.value = 'single';
+      filing.dispatchEvent(new Event('change', { bubbles: true }));
     });
     await goToWizardStep(page, 'net-worth');
     await goToWizardStep(page, 'family');
     const familyAfter = await page.evaluate(() => ({
       primaryName: document.querySelector('[data-wizard-field="primaryName"]')?.value || '',
-      filingFields: document.querySelectorAll(
-        '[data-hh-wizard-screen="family"] [data-wizard-field="filingStatus"]',
-      ).length,
+      filingStatus: document.querySelector('[data-wizard-field="filingStatus"]')?.value || '',
       people: document.querySelectorAll('[data-person-owner]').length,
     }));
     if(JSON.stringify(familyAfter) !== JSON.stringify({
       primaryName: familyBefore.primaryName,
-      filingFields: familyBefore.filingFields,
+      filingStatus: familyBefore.filingStatus,
       people: familyBefore.people,
     })){
       throw new Error(`read-only Family edit changed immediate state: ${JSON.stringify({ familyBefore, familyAfter })}`);
     }
     await assertPinned('Family fields');
     await assertBytesUnchanged('Family fields');
-
-    // Income owns the long-term planning record in this wizard. Read-only mode
-    // keeps every field and row action visible for recovery context but inert.
-    await goToWizardStep(page, 'income');
-    const incomeBefore = await page.evaluate(() => {
-      const controls = [...document.querySelectorAll(
-        '[data-hh-wizard-screen="income"] [data-wizard-field],'
-        + '[data-hh-wizard-screen="income"] [data-hh-action="add-income-source"],'
-        + '[data-hh-wizard-screen="income"] [data-hh-action="remove-income-source"],'
-        + '[data-hh-wizard-screen="income"] [data-hh-action="add-pension-age"],'
-        + '[data-hh-wizard-screen="income"] [data-hh-action="remove-pension-age"]',
-      )];
-      const locked = element => element.disabled === true
-        || element.getAttribute('aria-disabled') === 'true';
-      return {
-        count: controls.length,
-        enabled: controls.filter(element => !locked(element))
-          .map(element => element.dataset.wizardField || element.dataset.hhAction),
-        primaryPia: document.querySelector(
-          '[data-wizard-field="socialSecurity.primary.pia"]',
-        )?.value || '',
-      };
-    });
-    if(!incomeBefore.count || incomeBefore.enabled.length){
-      throw new Error(`read-only Income controls must all be disabled: ${JSON.stringify(incomeBefore)}`);
-    }
-    await page.evaluate(() => {
-      const primaryPia = document.querySelector(
-        '[data-wizard-field="socialSecurity.primary.pia"]',
-      );
-      primaryPia.value = '99999';
-      primaryPia.dispatchEvent(new Event('change', { bubbles: true }));
-    });
-    await goToWizardStep(page, 'summary');
-    await goToWizardStep(page, 'income');
-    const incomeAfter = await page.evaluate(() => ({
-      primaryPia: document.querySelector(
-        '[data-wizard-field="socialSecurity.primary.pia"]',
-      )?.value || '',
-    }));
-    if(incomeAfter.primaryPia !== incomeBefore.primaryPia){
-      throw new Error(`read-only Income edit changed immediate state: ${JSON.stringify({ incomeBefore, incomeAfter })}`);
-    }
-    await assertPinned('Income fields');
-    await assertBytesUnchanged('Income fields');
-
-    // Tax owns filing status and residence. Those controls remain visible for
-    // recovery context, but the same read-only boundary rejects mutations.
-    await goToWizardStep(page, 'tax');
-    const taxProfileBefore = await page.evaluate(() => {
-      const controls = [...document.querySelectorAll(
-        '[data-hh-wizard-screen="tax"] [data-wizard-scope="tax-profile"]',
-      )];
-      return {
-        count: controls.length,
-        enabled: controls.filter(element => !element.disabled)
-          .map(element => element.dataset.wizardField),
-        filingStatus: document.querySelector(
-          '[data-wizard-scope="tax-profile"][data-wizard-field="filingStatus"]',
-        )?.value || '',
-        state: document.querySelector(
-          '[data-wizard-scope="tax-profile"][data-wizard-field="state"]',
-        )?.value || '',
-      };
-    });
-    if(taxProfileBefore.count !== 2 || taxProfileBefore.enabled.length){
-      throw new Error(`read-only Tax profile fields must all be disabled: ${JSON.stringify(taxProfileBefore)}`);
-    }
-    await page.evaluate(() => {
-      const filing = document.querySelector(
-        '[data-wizard-scope="tax-profile"][data-wizard-field="filingStatus"]',
-      );
-      filing.value = 'single';
-      filing.dispatchEvent(new Event('change', { bubbles: true }));
-    });
-    await goToWizardStep(page, 'summary');
-    await goToWizardStep(page, 'tax');
-    const taxProfileAfter = await page.evaluate(() => ({
-      filingStatus: document.querySelector(
-        '[data-wizard-scope="tax-profile"][data-wizard-field="filingStatus"]',
-      )?.value || '',
-      state: document.querySelector(
-        '[data-wizard-scope="tax-profile"][data-wizard-field="state"]',
-      )?.value || '',
-    }));
-    if(JSON.stringify(taxProfileAfter) !== JSON.stringify({
-      filingStatus: taxProfileBefore.filingStatus,
-      state: taxProfileBefore.state,
-    })){
-      throw new Error(`read-only Tax profile edit changed immediate state: ${JSON.stringify({ taxProfileBefore, taxProfileAfter })}`);
-    }
-    await assertPinned('Tax profile fields');
-    await assertBytesUnchanged('Tax profile fields');
 
     // Net Worth category navigation remains available, while every mutation
     // stays inert even when a synthetic event targets a disabled control.
@@ -3177,45 +3061,29 @@ try {
     await assertBytesUnchanged('switch to other');
 
     await goToWizardStep(page, 'family');
-    const otherFamily = await page.evaluate(() => ({
-      filingFields: document.querySelectorAll(
-        '[data-hh-wizard-screen="family"] [data-wizard-field="filingStatus"]',
-      ).length,
+    const otherFamilyBefore = await page.evaluate(() => ({
+      filingStatus: document.querySelector('[data-wizard-field="filingStatus"]')?.value || '',
+      filingDisabled: Boolean(document.querySelector('[data-wizard-field="filingStatus"]')?.disabled),
       people: document.querySelectorAll('[data-person-owner]').length,
     }));
-    if(otherFamily.filingFields !== 0 || otherFamily.people !== 1){
-      throw new Error(`read-only single household Family state is wrong: ${JSON.stringify(otherFamily)}`);
-    }
-    await goToWizardStep(page, 'tax');
-    const otherTaxBefore = await page.evaluate(() => {
-      const filing = document.querySelector(
-        '[data-wizard-scope="tax-profile"][data-wizard-field="filingStatus"]',
-      );
-      return {
-        filingStatus: filing?.value || '',
-        filingDisabled: Boolean(filing?.disabled),
-      };
-    });
-    if(otherTaxBefore.filingStatus !== 'single' || !otherTaxBefore.filingDisabled){
-      throw new Error(`read-only single household Tax state is wrong: ${JSON.stringify(otherTaxBefore)}`);
+    if(otherFamilyBefore.filingStatus !== 'single'
+      || !otherFamilyBefore.filingDisabled
+      || otherFamilyBefore.people !== 1){
+      throw new Error(`read-only single household Family state is wrong: ${JSON.stringify(otherFamilyBefore)}`);
     }
     await page.evaluate(() => {
-      const filing = document.querySelector(
-        '[data-wizard-scope="tax-profile"][data-wizard-field="filingStatus"]',
-      );
+      const filing = document.querySelector('[data-wizard-field="filingStatus"]');
       filing.value = 'marriedFilingJointly';
       filing.dispatchEvent(new Event('change', { bubbles: true }));
     });
+    await goToWizardStep(page, 'net-worth');
     await goToWizardStep(page, 'family');
-    const peopleAfterTaxEdit = await page.evaluate(() =>
-      document.querySelectorAll('[data-person-owner]').length);
-    await goToWizardStep(page, 'tax');
-    const otherTaxAfter = await page.evaluate(() =>
-      document.querySelector(
-        '[data-wizard-scope="tax-profile"][data-wizard-field="filingStatus"]',
-      )?.value || '');
-    if(otherTaxAfter !== 'single' || peopleAfterTaxEdit !== 1){
-      throw new Error(`read-only filing-status edit added a co-client: ${JSON.stringify({ otherTaxAfter, peopleAfterTaxEdit })}`);
+    const otherFamilyAfter = await page.evaluate(() => ({
+      filingStatus: document.querySelector('[data-wizard-field="filingStatus"]')?.value || '',
+      people: document.querySelectorAll('[data-person-owner]').length,
+    }));
+    if(otherFamilyAfter.filingStatus !== 'single' || otherFamilyAfter.people !== 1){
+      throw new Error(`read-only filing-status edit added a co-client: ${JSON.stringify(otherFamilyAfter)}`);
     }
     await assertPinned('co-client filing status');
     await assertBytesUnchanged('co-client filing status');

@@ -13,21 +13,21 @@ export function renderBirthDateField({
         data-wizard-scope="family"
         data-wizard-field="${esc(owner)}.birthDate"
         value="${esc(iso)}">
-      <input type="text" inputmode="numeric" maxlength="2" pattern="[0-9]{1,2}"
+      <input type="number" min="1" max="12" inputmode="numeric"
         class="hh-birth-date-part"
         aria-label="Birth month"
         placeholder="MM"
         data-birth-part="month"
         value="${esc(parts.month)}">
       <span class="hh-birth-date-sep" aria-hidden="true">/</span>
-      <input type="text" inputmode="numeric" maxlength="2" pattern="[0-9]{1,2}"
+      <input type="number" min="1" max="31" inputmode="numeric"
         class="hh-birth-date-part"
         aria-label="Birth day"
         placeholder="DD"
         data-birth-part="day"
         value="${esc(parts.day)}">
       <span class="hh-birth-date-sep" aria-hidden="true">/</span>
-      <input type="text" inputmode="numeric" maxlength="4" pattern="[0-9]{4}"
+      <input type="number" min="1900" max="2100" inputmode="numeric"
         class="hh-birth-date-part hh-birth-date-part--year"
         aria-label="Birth year"
         placeholder="YYYY"
