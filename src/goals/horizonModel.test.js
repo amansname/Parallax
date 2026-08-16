@@ -7,8 +7,11 @@ import {
   ensureGoalMetadata,
   formatGoalAmount,
   goalDisplayAmount,
+  goalHasFutureWorkingYears,
   goalPct,
   normalizeGoalCategory,
+  resolveEffectiveGoal,
+  resolveScenarioHouseholdRetirementAge,
   resolveGoalSpan,
   setGoalDisplayAmount,
   setGoalKind,
@@ -66,6 +69,49 @@ test('monthly display conversion preserves the annual engine contract', () => {
   assert.equal(goal.amount, 15000);
   setGoalPer(goal, 'yr');
   assert.equal(goalDisplayAmount(goal), 15000);
+});
+
+test('future working-year overlap follows the household retirement boundary', () => {
+  const span={ currentAge:64, retirementAge:69 };
+  assert.equal(goalHasFutureWorkingYears({startAge:67,endAge:67},span),true);
+  assert.equal(goalHasFutureWorkingYears({startAge:63,endAge:63},span),false);
+  assert.equal(goalHasFutureWorkingYears({startAge:69,endAge:70},span),false);
+  assert.equal(goalHasFutureWorkingYears({startAge:65,endAge:64},span),false);
+  assert.equal(goalHasFutureWorkingYears(
+    {startAge:64,endAge:65},
+    {currentAge:69,retirementAge:69}
+  ),false);
+});
+
+test('starts-at-retirement goals use the later household boundary', () => {
+  const plan={
+    household:{
+      primary:{currentAge:64,retirementAge:66,planEndAge:95},
+      spouse:{currentAge:63,retirementAge:68,planEndAge:95},
+    },
+  };
+  const span=resolveGoalSpan(plan);
+  const baselineHouseholdRetirementAge=resolveScenarioHouseholdRetirementAge(plan,66);
+  const delayedHouseholdRetirementAge=resolveScenarioHouseholdRetirementAge(plan,68);
+  const goal=resolveEffectiveGoal(
+    {amount:30000,startAge:66,endAge:95,startsAtRetirement:true},
+    null,
+    baselineHouseholdRetirementAge
+  );
+  assert.equal(baselineHouseholdRetirementAge,69);
+  assert.equal(delayedHouseholdRetirementAge,71);
+  assert.equal(goal.startAge,69);
+  assert.equal(goalHasFutureWorkingYears(goal,span),false);
+});
+
+test('changing cadence never rounds or rewrites the canonical annual amount', () => {
+  const goal={ amount:10000, per:'yr', startAge:65, endAge:74 };
+  setGoalPer(goal, 'mo');
+  assert.equal(goalDisplayAmount(goal), 833);
+  assert.equal(goal.amount, 10000);
+  setGoalPer(goal, 'yr');
+  assert.equal(goalDisplayAmount(goal), 10000);
+  assert.equal(goal.amount, 10000);
 });
 
 test('kind and ranges preserve one contiguous engine window', () => {

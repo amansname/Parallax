@@ -7,6 +7,7 @@ import {
   duplicateGoal,
   formatGoalAmount,
   goalDisplayAmount,
+  goalHasFutureWorkingYears,
   goalPct,
   goalTimingLabel,
   isOneTimeGoal,
@@ -128,6 +129,13 @@ function renderRail(goal,index,span,disabled){
   const categoryButtons=GOAL_CATEGORIES.map(item=>
     `<button class="gh-category${item.key===category?' is-selected':''}" type="button" data-action="category" data-category="${item.key}" title="${item.label}" aria-label="${item.label}" style="--goal-color:${item.color}"${disabledAttr(disabled)}>${icon(item.key,'gh-category__icon')}</button>`
   ).join('');
+  const hasWorkingYears=goalHasFutureWorkingYears(goal,span);
+  const portfolioFunded=goal.fundFromPortfolioBeforeRetirement===true;
+  const fundingSection=hasWorkingYears ? `<section class="gh-editor-section">
+        <div class="gh-field-label">Before retirement</div>
+        <div class="gh-seg gh-funding-seg" role="group" aria-label="Before retirement funding source"><button class="${portfolioFunded?'':'is-selected'}" type="button" data-action="fund-outside" aria-pressed="${portfolioFunded?'false':'true'}"${disabledAttr(disabled)}>Working income / outside portfolio</button><button class="${portfolioFunded?'is-selected':''}" type="button" data-action="fund-portfolio" aria-pressed="${portfolioFunded?'true':'false'}"${disabledAttr(disabled)}>Portfolio</button></div>
+        <div class="gh-funding-note">Choose Portfolio to include the pre-retirement years in plan funding and success.</div>
+      </section>` : '';
   const years=once
     ? `<div class="gh-once-age">
         <span>at age</span>
@@ -167,6 +175,7 @@ function renderRail(goal,index,span,disabled){
         <div class="gh-field-label">Which years</div>
         ${years}
       </section>
+      ${fundingSection}
       <section class="gh-editor-section">
         <div class="gh-field-label">Category</div>
         <div class="gh-categories">${categoryButtons}</div>
@@ -303,6 +312,15 @@ export function createGoalsHorizonController(deps){
   };
 
   const clickHandler=e=>{
+    const keyboardGoalChip=e.detail===0 ? e.target.closest('[data-goal-chip]') : null;
+    if(keyboardGoalChip){
+      const index=goalIndexByViewId(goals(),keyboardGoalChip.dataset.goalChip);
+      if(index<0) return;
+      state.selectedId=viewGoalId(goals()[index],index);
+      state.addOpen=false;
+      rerender();
+      return;
+    }
     const actionEl=e.target.closest('[data-action]');
     const addEl=e.target.closest('[data-add-category]');
     if(addEl){
@@ -355,6 +373,8 @@ export function createGoalsHorizonController(deps){
       setGoalDisplayAmount(goal,Math.max(0,goalDisplayAmount(goal)+(action==='amount-plus'?step:-step)));
     }else if(action==='per-year') setGoalPer(goal,'yr');
     else if(action==='per-month') setGoalPer(goal,'mo');
+    else if(action==='fund-outside') goal.fundFromPortfolioBeforeRetirement=false;
+    else if(action==='fund-portfolio') goal.fundFromPortfolioBeforeRetirement=true;
     else if(action==='kind-once') setGoalKind(goal,'once',currentSpan.planEndAge);
     else if(action==='kind-rec') setGoalKind(goal,'rec',currentSpan.planEndAge);
     else if(action==='preset'){
