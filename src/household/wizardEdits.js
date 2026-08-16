@@ -14,6 +14,7 @@ import {
   setWizardTaxField,
   syncWizardTaxpayerFacts,
 } from './wizardIntake.js';
+import { applyIncomeWizardEdit } from './wizardIncomeEdits.js';
 
 const hasOwn = (value, key) =>
   Boolean(value) && Object.prototype.hasOwnProperty.call(value, key);
@@ -147,7 +148,34 @@ function removeSpouseCurrent1040Facts(plan){
     if(retained.length > 0) current.scheduleSE = retained;
     else delete current.scheduleSE;
   }
+  const wagesByOwner = current.wagesByOwner;
+  if(wagesByOwner
+      && typeof wagesByOwner === 'object'
+      && !Array.isArray(wagesByOwner)
+      && hasOwn(wagesByOwner, 'spouse')){
+    delete wagesByOwner.spouse;
+    if(Object.keys(wagesByOwner).length > 0){
+      current.wagesByOwner = wagesByOwner;
+    }else{
+      delete current.wagesByOwner;
+    }
+    if(!current.income || typeof current.income !== 'object') current.income = {};
+    const retainedWages = Object.values(wagesByOwner).filter(Number.isFinite);
+    if(retainedWages.length > 0){
+      current.income.wages = retainedWages
+        .reduce((sum, amount) => sum + amount, 0);
+    }else{
+      delete current.income.wages;
+    }
+  }
   current.incomeSourcesComplete = false;
+}
+
+function removeSpouseContributionOwnership(plan){
+  const byOwner = plan.savings?.split?.byOwner;
+  if(!byOwner || typeof byOwner !== 'object' || Array.isArray(byOwner)) return;
+  delete byOwner.spouse;
+  if(Object.keys(byOwner).length === 0) delete plan.savings.split.byOwner;
 }
 
 function removeSpouse(plan, command){
@@ -172,6 +200,20 @@ function removeSpouse(plan, command){
       'CO_CLIENT_INCOME_REQUIRES_REASSIGNMENT',
     );
   }
+  const ownerSplit = plan.savings?.split?.byOwner;
+  if(ownerSplit
+      && typeof ownerSplit === 'object'
+      && !Array.isArray(ownerSplit)
+      && hasOwn(ownerSplit, 'spouse')){
+    const spouseShare = Number(ownerSplit.spouse);
+    if(!Number.isFinite(spouseShare) || spouseShare > 0){
+      throw wizardEditError(
+        'Set the co-client contribution share to 0% and the client share to 100% before removing the co-client.',
+        'savings.split.byOwner.spouse',
+        'CO_CLIENT_CONTRIBUTIONS_REQUIRE_REASSIGNMENT',
+      );
+    }
+  }
   if(command.confirmed !== true){
     throw wizardEditError(
       'Confirm removal before discarding Co-client information',
@@ -184,6 +226,7 @@ function removeSpouse(plan, command){
   plan.meta.filingStatus = 'single';
   plan.income.socialSecurity.spouse = null;
   plan.taxProfiles.spouse = createBlankTaxProfiles().spouse;
+  removeSpouseContributionOwnership(plan);
   syncHealthcareGoalToHousehold(plan);
   removeSpouseCurrent1040Facts(plan);
   ensureWizardCurrent1040(plan);
@@ -191,8 +234,36 @@ function removeSpouse(plan, command){
 }
 
 function applyFamilyEdit(plan, command, timestamp){
+  if(command.action === 'add-spouse'){
+    ensureSpouse(plan);
+    plan.meta.filingStatus = 'marriedFilingJointly';
+    ensureWizardCurrent1040(plan);
+    syncWizardTaxpayerFacts(plan);
+    return;
+  }
   if(command.action === 'remove-spouse'){
     removeSpouse(plan, command);
+    return;
+  }
+  if(command.action === 'add-child'){
+    if(!Array.isArray(plan.household.children)) plan.household.children = [];
+    if(plan.household.children.length >= 20){
+      throw new Error('A household can include up to 20 child rows');
+    }
+    plan.household.children.push({ name: '', birthYear: null });
+    return;
+  }
+  if(command.action === 'remove-child'){
+    if(!Array.isArray(plan.household.children)){
+      throw new Error('Child row must resolve exactly once');
+    }
+    const childIndex = Number(command.childIndex);
+    if(!Number.isInteger(childIndex)
+        || childIndex < 0
+        || childIndex >= plan.household.children.length){
+      throw new Error('Child row must resolve exactly once');
+    }
+    plan.household.children.splice(childIndex, 1);
     return;
   }
   const field = command.field;
@@ -206,34 +277,36 @@ function applyFamilyEdit(plan, command, timestamp){
     plan.meta.spouseName = normalizedText(command.value);
     return;
   }
-  if(field === 'filingStatus'){
-    if(!['single', 'headOfHousehold', 'marriedFilingJointly'].includes(command.value)){
-      throw new Error('Unsupported filing status');
+  const childMatch = /^children\.(\d+)\.(name|birthYear)$/.exec(field);
+  if(childMatch){
+    if(!Array.isArray(plan.household.children)){
+      throw new Error('Child row must resolve exactly once');
     }
-    if(command.value !== 'marriedFilingJointly' && plan.household?.spouse){
-      throw wizardEditError(
-        'Remove co-client first',
-        'filingStatus',
-        'CO_CLIENT_REMOVAL_REQUIRED',
-      );
+    const childIndex = Number(childMatch[1]);
+    if(!Number.isInteger(childIndex)
+        || childIndex < 0
+        || childIndex >= plan.household.children.length){
+      throw new Error('Child row must resolve exactly once');
     }
-    plan.meta.filingStatus = command.value;
-    if(command.value === 'marriedFilingJointly') ensureSpouse(plan);
-    ensureWizardCurrent1040(plan);
-    syncWizardTaxpayerFacts(plan);
+    const child = plan.household.children[childIndex];
+    if(!child || typeof child !== 'object' || Array.isArray(child)){
+      throw new Error('Child row must resolve exactly once');
+    }
+    if(childMatch[2] === 'name'){
+      child.name = normalizedText(command.value);
+    }else{
+      child.birthYear = command.value === ''
+        || command.value === null
+        || command.value === undefined
+        ? null
+        : integer(command.value, {
+          min: 1900,
+          max: new Date(timestamp).getUTCFullYear(),
+        });
+    }
     return;
   }
-  if(field === 'state'){
-    const state = normalizedText(command.value, { required: true }).toUpperCase();
-    if(!/^[A-Z]{2}$/.test(state)) throw new Error('Enter a valid state');
-    plan.meta.state = state;
-    return;
-  }
-  if(field === 'dependents'){
-    plan.household.dependentsCount = integer(command.value, { min: 0, max: 20 });
-    return;
-  }
-  const match = /^(client|spouse)\.(birthDate|status|retirementAge|socialSecurityAge|socialSecurityBenefit|planEndAge)$/.exec(field);
+  const match = /^(client|spouse)\.(birthDate|status|retirementAge|planEndAge)$/.exec(field);
   if(!match) throw new Error(`Unsupported family field: ${field}`);
   const [, owner, personField] = match;
   const person = personForOwner(plan, owner);
@@ -252,21 +325,40 @@ function applyFamilyEdit(plan, command, timestamp){
       throw new Error('Live-to age cannot precede current age');
     }
     person.planEndAge = planEndAge;
-  }else{
-    const key = owner === 'spouse' ? 'spouse' : 'primary';
-    if(!plan.income.socialSecurity[key]){
-      plan.income.socialSecurity[key] = { pia: null, claimAge: 67 };
-    }
-    if(personField === 'socialSecurityBenefit'){
-      plan.income.socialSecurity[key].pia = command.value === ''
-        || command.value === null
-        || command.value === undefined
-        ? null
-        : money(command.value);
-    }else{
-      plan.income.socialSecurity[key].claimAge = integer(command.value, { min: 62, max: 70 });
-    }
   }
+}
+
+function applyTaxProfileEdit(plan, command){
+  if(command.field === 'filingStatus'){
+    if(!['single', 'headOfHousehold', 'marriedFilingJointly'].includes(command.value)){
+      throw new Error('Unsupported filing status');
+    }
+    if(command.value === 'marriedFilingJointly' && !plan.household?.spouse){
+      throw wizardEditError(
+        'Add a co-client in Family first',
+        'filingStatus',
+        'CO_CLIENT_REQUIRED_FOR_MFJ',
+      );
+    }
+    if(command.value !== 'marriedFilingJointly' && plan.household?.spouse){
+      throw wizardEditError(
+        'Remove co-client first',
+        'filingStatus',
+        'CO_CLIENT_REMOVAL_REQUIRED',
+      );
+    }
+    plan.meta.filingStatus = command.value;
+    ensureWizardCurrent1040(plan);
+    syncWizardTaxpayerFacts(plan);
+    return;
+  }
+  if(command.field === 'state'){
+    const state = normalizedText(command.value, { required: true }).toUpperCase();
+    if(!/^[A-Z]{2}$/.test(state)) throw new Error('Enter a valid state');
+    plan.meta.state = state;
+    return;
+  }
+  throw new Error(`Unsupported tax-profile field: ${command.field}`);
 }
 
 function accountIndex(plan, accountId){
@@ -480,8 +572,8 @@ export function applyHouseholdWizardEdit(plan, command, options = {}){
   const next = structuredClone(plan);
   if(command.scope === 'family'){
     applyFamilyEdit(next, command, timestamp);
-    if((command.action === 'remove-spouse'
-        || command.field === 'filingStatus'
+    if((command.action === 'add-spouse'
+        || command.action === 'remove-spouse'
         || command.field === 'client.birthDate'
         || command.field === 'spouse.birthDate')
         && next.incomeTax?.current1040){
@@ -489,6 +581,13 @@ export function applyHouseholdWizardEdit(plan, command, options = {}){
     }
   }else if(command.scope === 'account'){
     applyAccountEdit(next, command, timestamp);
+  }else if(command.scope === 'income'){
+    applyIncomeWizardEdit(next, command);
+  }else if(command.scope === 'tax-profile'){
+    applyTaxProfileEdit(next, command);
+    if(command.field === 'filingStatus' && next.incomeTax?.current1040){
+      next.incomeTax.current1040.incomeSourcesComplete = false;
+    }
   }else if(command.scope === 'property'){
     applyPropertyEdit(next, command);
   }else if(command.scope === 'mortgage'){

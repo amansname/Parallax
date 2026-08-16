@@ -502,9 +502,8 @@ export function hasCurrent1040PlanningEnvelope(plan){
 }
 
 /**
- * Build canonical client-1040 intake from explicitly selected current-return
- * planning facts. The opt-in envelope is intentionally separate from the
- * legacy auto-summary so old Household records retain their existing route.
+ * Build canonical client-1040 intake from current-return facts only. Long-term
+ * planning income is a separate authority and is never inferred into Form 1040.
  */
 export function buildCurrent1040Intake(plan){
   const gaps = [];
@@ -540,7 +539,7 @@ export function buildCurrent1040Intake(plan){
     gaps.push(makeGap(
       'CURRENT_1040_INCOME_SOURCES_INCOMPLETE',
       'incomeTax.current1040.incomeSourcesComplete',
-      'Confirm that current1040 income and active owned planning rows completely describe this return'
+      'Confirm that current1040 income completely describes this return'
     ));
   }
 
@@ -560,38 +559,12 @@ export function buildCurrent1040Intake(plan){
   }
   const explicitSocialSecuritySource =
     hasExplicitSocialSecuritySource(explicitIncome);
-  const allRows = relevantActiveSources(
-    plan,
-    filingStatus,
-    modeledTaxpayer,
-    gaps
-  );
-  const overrideGroups = planningIncomeOverrides(source, gaps);
-  const rows = allRows.filter(({ normalized }) => {
-    const group = current1040IncomeSourceGroup(normalized.typeId);
-    return !group || !overrideGroups.has(group.id);
-  });
-  const mappedIncome = mapIncomeRows(
-    rows,
-    gaps,
-    explicitSocialSecuritySource
-  );
-  const income = mergeCanonicalIncome(explicitIncome, mappedIncome, gaps);
-  const owners = activeReturnOwners(filingStatus, modeledTaxpayer);
-  const hasActivePlanningSocialSecurity =
-    activePlanningSocialSecurity(plan, owners);
-  if(hasActivePlanningSocialSecurity
-      && !explicitSocialSecuritySource){
-    gaps.push(makeGap(
-      'CURRENT_1040_SOCIAL_SECURITY_RETURN_FACTS_REQUIRED',
-      'income.socialSecurity',
-      'SSA planning benefits cannot be used as Form 1040 Social Security facts'
-    ));
-  }
+  const rows = [];
+  const income = mergeCanonicalIncome(explicitIncome, {}, gaps);
   if(source.incomeSourcesComplete === true && !hasIncomeGap(gaps)){
     materializeConfirmedZeroIncome(income, {
       explicitSocialSecuritySource,
-      activePlanningSocialSecurity: hasActivePlanningSocialSecurity,
+      activePlanningSocialSecurity: false,
     });
     addTaxableCompanionGaps(income, gaps);
   }

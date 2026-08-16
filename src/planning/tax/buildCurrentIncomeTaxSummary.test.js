@@ -374,17 +374,15 @@ test('canonical calculated MFS Social Security preserves living-status semantics
   assert.equal(missing.federalTaxLiability, undefined);
 });
 
-test('canonical duplicate income sources block readiness without a partial total', () => {
+test('canonical current-return income is not duplicated by planning income', () => {
   const subject = plan();
   subject.incomeTax.current1040 = canonicalCurrent1040({
     income: { wages: 100000 },
   });
   const summary = buildCurrentIncomeTaxSummary(subject);
-  assert.equal(summary.status, 'needs_facts');
-  assert.ok(summary.reasonCodes
-    .includes('CURRENT_1040_INCOME_SOURCE_CONFLICT'));
-  assert.equal(summary.totalIncome, null);
-  assert.equal(summary.federalTaxLiability, undefined);
+  assert.equal(summary.status, 'ready');
+  assert.equal(summary.totalIncome, 100000);
+  assert.equal(typeof summary.federalTaxLiability, 'number');
 });
 
 test('canonical supplied Schedule D amount appears once in total income', () => {
@@ -481,7 +479,7 @@ test('canonical route rejects a law version that does not match its explicit yea
   assert.ok(summary.reasonCodes.includes('INTAKE_LAW_VERSION_MISMATCH'));
 });
 
-test('canonical route fails closed on missing year and unattributed MFS joint income', () => {
+test('canonical route fails on missing year but ignores planning ownership for MFS', () => {
   const missingYear = plan();
   missingYear.incomeTax.current1040 = canonicalCurrent1040();
   delete missingYear.incomeTax.current1040.taxYear;
@@ -517,8 +515,6 @@ test('canonical route fails closed on missing year and unattributed MFS joint in
     },
   });
   const blocked = buildCurrentIncomeTaxSummary(mfs);
-  assert.equal(blocked.status, 'needs_facts');
-  assert.ok(blocked.reasonCodes
-    .includes('CURRENT_1040_MFS_JOINT_INCOME_UNATTRIBUTED'));
-  assert.equal(blocked.totalIncome, null);
+  assert.equal(blocked.status, 'ready');
+  assert.equal(blocked.totalIncome, 0);
 });

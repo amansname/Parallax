@@ -1,6 +1,9 @@
 import { accountDisplayTreatment, getAccountTypeById } from '../src/household/accountTypes.js';
+import { PLANNING_INCOME_SOURCE_TYPES } from '../src/household/incomeTaxModel.js';
 import { renderHouseholdWizardFamily } from './householdWizardFamily.js';
 import { renderHouseholdWizardNetWorth } from './householdWizardNetWorth.js';
+import { renderHouseholdWizardIncome } from './householdWizardIncome.js';
+import { renderHouseholdWizardGoals } from './householdWizardGoals.js';
 import { renderHouseholdWizardTax } from './householdWizardTax.js';
 import { renderHouseholdWizardSummary } from './householdWizardSummary.js';
 import { escHtml } from './dom.js';
@@ -8,8 +11,10 @@ import { escHtml } from './dom.js';
 export const HOUSEHOLD_WIZARD_STEPS = Object.freeze([
   Object.freeze({ id: 'family', number: 1, label: 'Family' }),
   Object.freeze({ id: 'net-worth', number: 2, label: 'Net Worth' }),
-  Object.freeze({ id: 'tax', number: 3, label: 'Tax' }),
-  Object.freeze({ id: 'summary', number: 4, label: 'Summary' }),
+  Object.freeze({ id: 'income', number: 3, label: 'Income' }),
+  Object.freeze({ id: 'goals', number: 4, label: 'Goals' }),
+  Object.freeze({ id: 'tax', number: 5, label: 'Tax' }),
+  Object.freeze({ id: 'summary', number: 6, label: 'Summary' }),
 ]);
 
 function money(value){
@@ -36,7 +41,7 @@ function optionList(options, selected){
   return options.map(option => {
     const [value, label] = Array.isArray(option)
       ? option
-      : [option.value ?? option.typeId, option.label];
+      : [option.value ?? option.typeId ?? option.id, option.label];
     return `<option value="${escHtml(String(value))}" ${value === selected ? 'selected' : ''}>${escHtml(String(label))}</option>`;
   }).join('');
 }
@@ -106,6 +111,8 @@ export function createHouseholdWizard(dependencies){
   const renderers = {
     family: renderHouseholdWizardFamily,
     'net-worth': renderHouseholdWizardNetWorth,
+    income: renderHouseholdWizardIncome,
+    goals: renderHouseholdWizardGoals,
     tax: renderHouseholdWizardTax,
     summary: renderHouseholdWizardSummary,
   };
@@ -123,6 +130,7 @@ export function createHouseholdWizard(dependencies){
       money,
       states: dependencies.states,
       accountTypes: dependencies.accountTypes,
+      incomeSourceTypes: dependencies.incomeSourceTypes || PLANNING_INCOME_SOURCE_TYPES,
       accountTreatment: accountDisplayTreatment,
       accountBasis: account => accountBasis(plan, account),
       ageFor: owner => ageFor(plan, owner),
@@ -134,6 +142,9 @@ export function createHouseholdWizard(dependencies){
       taxView: dependencies.uiState.taxView,
       optionalItems: dependencies.uiState.optionalTaxItems,
       optionalMenuOpen: dependencies.uiState.optionalMenuOpen,
+      goalsContent: typeof dependencies.goalsContent === 'function'
+        ? dependencies.goalsContent()
+        : dependencies.goalsContent || '',
     };
   }
 

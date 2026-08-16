@@ -4,6 +4,8 @@ import { join } from 'node:path';
 export const WIZARD_STEP_IDS = Object.freeze([
   'family',
   'net-worth',
+  'income',
+  'goals',
   'tax',
   'summary',
 ]);
@@ -194,6 +196,23 @@ async function setWizardValue(
     `${selector} unexpectedly changed wizard state`,
   );
   return after;
+}
+
+async function setWizardChecked(page, selector, checked){
+  await requireUnique(page, selector);
+  const before = await wizardState(page);
+  await page.evaluate(({ fieldSelector, nextChecked }) => {
+    const control = document.querySelector(fieldSelector);
+    control.checked = nextChecked;
+    control.dispatchEvent(new Event('change', { bubbles: true }));
+  }, {
+    fieldSelector: selector,
+    nextChecked: checked,
+  });
+  return waitForWizard(page, {
+    step: before.step,
+    afterRevision: before.revision,
+  });
 }
 
 async function clickWizardAction(
@@ -555,7 +574,7 @@ async function prepareContractFixture(page){
   await reloadWizard(page);
 }
 
-async function assertFourStepStructure(page){
+async function assertSixStepStructure(page){
   const structure = await page.evaluate(() => {
     const root = document.querySelector('[data-hh-wizard-root]');
     const nav = [...document.querySelectorAll('[data-hh-wizard-nav]')];
@@ -587,7 +606,7 @@ async function assertFourStepStructure(page){
   );
   requireCondition(
     JSON.stringify(structure.labels)
-      === JSON.stringify(['Family', 'Net Worth', 'Tax', 'Summary']),
+      === JSON.stringify(['Family', 'Net Worth', 'Income', 'Goals', 'Tax', 'Summary']),
     `Wizard labels drifted: ${JSON.stringify(structure.labels)}`,
   );
   requireCondition(
@@ -609,50 +628,85 @@ async function assertFourStepStructure(page){
 
 async function verifyFamilyPropagation(page){
   await goToWizardStep(page, 'family');
+  const initialBoundary = await page.evaluate(() => ({
+    people: document.querySelectorAll('[data-person-owner]').length,
+    addSpouse: document.querySelectorAll('[data-hh-action="add-spouse"]').length,
+    filing: document.querySelectorAll(
+      '[data-hh-wizard-screen="family"] [data-wizard-field="filingStatus"]',
+    ).length,
+    state: document.querySelectorAll(
+      '[data-hh-wizard-screen="family"] [data-wizard-field="state"]',
+    ).length,
+    socialSecurity: [...document.querySelectorAll(
+      '[data-hh-wizard-screen="family"] [data-wizard-field]',
+    )].filter(control => /socialSecurity/i.test(control.dataset.wizardField || '')).length,
+  }));
+  requireCondition(
+    initialBoundary.people === 1
+      && initialBoundary.addSpouse === 1
+      && initialBoundary.filing === 0
+      && initialBoundary.state === 0
+      && initialBoundary.socialSecurity === 0,
+    `Family source boundary drifted: ${JSON.stringify(initialBoundary)}`,
+  );
   await setWizardValue(
     page,
     '[data-wizard-field="client.birthDate"]',
     '1960-01-01',
   );
-  await setWizardValue(
-    page,
-    '[data-wizard-field="filingStatus"]',
-    'marriedFilingJointly',
-  );
+  await setWizardValue(page, '[data-wizard-field="client.retirementAge"]', '68');
+  await setWizardValue(page, '[data-wizard-field="client.planEndAge"]', '102');
+  await clickWizardAction(page, '[data-hh-action="add-spouse"]');
   const family = await page.evaluate(() => ({
     people: document.querySelectorAll('[data-person-owner]').length,
     spouse: document.querySelectorAll('[data-person-owner="spouse"]').length,
+    filing: document.querySelectorAll(
+      '[data-hh-wizard-screen="family"] [data-wizard-field="filingStatus"]',
+    ).length,
   }));
   requireCondition(
-    family.people === 2 && family.spouse === 1,
-    `MFJ did not render the co-client: ${JSON.stringify(family)}`,
+    family.people === 2 && family.spouse === 1 && family.filing === 0,
+    `Family did not add the co-client without taking Tax ownership: ${JSON.stringify(family)}`,
   );
+  await setWizardValue(page, '[data-wizard-field="spouseName"]', 'Verifier Co-client');
   await setWizardValue(
     page,
     '[data-wizard-field="spouse.birthDate"]',
     '1961-01-01',
   );
-  for(const nextStatus of ['single', 'headOfHousehold']){
-    await setWizardValue(
-      page,
-      '[data-wizard-field="filingStatus"]',
-      nextStatus,
-      { expectRevision: false },
+  await setWizardValue(page, '[data-wizard-field="spouse.retirementAge"]', '70');
+  await setWizardValue(page, '[data-wizard-field="spouse.planEndAge"]', '101');
+
+  const spouseTransition = await page.evaluate(() => ({
+    removeActions: document.querySelectorAll(
+      '[data-person-owner="spouse"] [data-hh-action="remove-spouse"]',
+    ).length,
+    removeLabel: document.querySelector(
+      '[data-person-owner="spouse"] [data-hh-action="remove-spouse"]',
+    )?.getAttribute('aria-label') || '',
+  }));
+  requireCondition(
+    spouseTransition.removeActions === 1
+      && spouseTransition.removeLabel === 'Remove co-client',
+    `Family did not expose one guided co-client removal: ${JSON.stringify(spouseTransition)}`,
+  );
+
+  await goToWizardStep(page, 'tax');
+  const marriedTaxFiling = await page.evaluate(() => {
+    const control = document.querySelector(
+      '[data-wizard-scope="tax-profile"][data-wizard-field="filingStatus"]',
     );
-    const rejected = await page.evaluate(() => ({
-      status: document.querySelector('[data-wizard-field="filingStatus"]')
-        ?.value || '',
-      code: document.querySelector('[data-hh-wizard-root]')
-        ?.dataset.validationCode || '',
-      people: document.querySelectorAll('[data-person-owner]').length,
-    }));
-    requireCondition(
-      rejected.status === 'marriedFilingJointly'
-        && rejected.code === 'CO_CLIENT_REMOVAL_REQUIRED'
-        && rejected.people === 2,
-      `Direct co-client filing transition did not fail closed: ${JSON.stringify(rejected)}`,
-    );
-  }
+    return {
+      value: control?.value || '',
+      options: [...(control?.options || [])].map(option => option.value),
+    };
+  });
+  requireCondition(
+    marriedTaxFiling.value === 'marriedFilingJointly'
+      && JSON.stringify(marriedTaxFiling.options)
+        === JSON.stringify(['marriedFilingJointly']),
+    `Tax did not keep the co-client filing transition guarded: ${JSON.stringify(marriedTaxFiling)}`,
+  );
 
   await openNetWorthCategory(page, 'investment');
   await clickWizardAction(
@@ -713,6 +767,91 @@ async function verifyFamilyPropagation(page){
     page,
     '[data-net-worth-overlay] .nw-panel-close',
   );
+
+  await goToWizardStep(page, 'income');
+  await setWizardValue(
+    page,
+    '[data-income-row-id="verify_wage_two"][data-wizard-field="source.owner"]',
+    'spouse',
+  );
+  await page.evaluate(() => {
+    window.__coClientConfirmCalls = 0;
+    window.confirm = () => {
+      window.__coClientConfirmCalls += 1;
+      return true;
+    };
+  });
+  await goToWizardStep(page, 'family');
+  await clickWizardAction(page, '[data-hh-action="remove-spouse"]', {
+    expectRevision: false,
+  });
+  const incomeBlocked = await page.evaluate(() => ({
+    code: document.querySelector('[data-hh-wizard-root]')
+      ?.dataset.validationCode || '',
+    confirms: window.__coClientConfirmCalls,
+    people: document.querySelectorAll('[data-person-owner]').length,
+  }));
+  requireCondition(
+    incomeBlocked.code === 'CO_CLIENT_INCOME_REQUIRES_REASSIGNMENT'
+      && incomeBlocked.confirms === 0
+      && incomeBlocked.people === 2,
+    `Co-client income guard did not precede confirmation: ${JSON.stringify(incomeBlocked)}`,
+  );
+  await goToWizardStep(page, 'income');
+  await setWizardValue(
+    page,
+    '[data-income-row-id="verify_wage_two"][data-wizard-field="source.owner"]',
+    'client',
+  );
+
+  await setWizardValue(
+    page,
+    '[data-wizard-field="savings.split.byOwner.client"]',
+    '55',
+  );
+  await setWizardValue(
+    page,
+    '[data-wizard-field="savings.split.byOwner.spouse"]',
+    '45',
+  );
+  await page.evaluate(() => {
+    window.__coClientConfirmCalls = 0;
+    window.confirm = () => {
+      window.__coClientConfirmCalls += 1;
+      return true;
+    };
+  });
+  await goToWizardStep(page, 'family');
+  await clickWizardAction(page, '[data-hh-action="remove-spouse"]', {
+    expectRevision: false,
+  });
+  const contributionBlocked = await page.evaluate(() => ({
+    code: document.querySelector('[data-hh-wizard-root]')
+      ?.dataset.validationCode || '',
+    confirms: window.__coClientConfirmCalls,
+    people: document.querySelectorAll('[data-person-owner]').length,
+  }));
+  requireCondition(
+    contributionBlocked.code === 'CO_CLIENT_CONTRIBUTIONS_REQUIRE_REASSIGNMENT'
+      && contributionBlocked.confirms === 0
+      && contributionBlocked.people === 2,
+    `Co-client contribution guard did not precede confirmation: ${JSON.stringify(contributionBlocked)}`,
+  );
+  await goToWizardStep(page, 'income');
+  await setWizardValue(
+    page,
+    '[data-wizard-field="savings.split.byOwner.client"]',
+    '100',
+  );
+  await setWizardValue(
+    page,
+    '[data-wizard-field="savings.split.byOwner.spouse"]',
+    '0',
+  );
+  await goToWizardStep(page, 'tax');
+  await setWizardValue(page, '[data-tax-field="income.wages.client"]', '81000');
+  await setWizardValue(page, '[data-tax-field="income.wages.spouse"]', '39000');
+
   await goToWizardStep(page, 'family');
   await page.evaluate(() => {
     window.__coClientConfirmCalls = 0;
@@ -724,12 +863,15 @@ async function verifyFamilyPropagation(page){
   await clickWizardAction(page, '[data-hh-action="remove-spouse"]', {
     expectRevision: false,
   });
-  const cancelled = await page.evaluate(() => ({
-    confirms: window.__coClientConfirmCalls,
-    people: document.querySelectorAll('[data-person-owner]').length,
-    status: document.querySelector('[data-wizard-field="filingStatus"]')
-      ?.value || '',
-  }));
+  const cancelled = await page.evaluate(() => {
+    const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+    const active = localStorage.getItem('parallax.activeHouseholdId');
+    return {
+      confirms: window.__coClientConfirmCalls,
+      people: document.querySelectorAll('[data-person-owner]').length,
+      status: db?.[active]?.meta?.filingStatus || '',
+    };
+  });
   requireCondition(
     cancelled.confirms === 1
       && cancelled.people === 2
@@ -745,20 +887,48 @@ async function verifyFamilyPropagation(page){
     };
   });
   await clickWizardAction(page, '[data-hh-action="remove-spouse"]');
-  const removed = await page.evaluate(() => ({
-    confirms: window.__coClientConfirmCalls,
-    people: document.querySelectorAll('[data-person-owner]').length,
-    status: document.querySelector('[data-wizard-field="filingStatus"]')
-      ?.value || '',
-    removeAction: document.querySelectorAll(
-      '[data-hh-action="remove-spouse"]',
-    ).length,
-  }));
+  const removed = await page.evaluate(() => {
+    const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+    const active = localStorage.getItem('parallax.activeHouseholdId');
+    const saved = db?.[active];
+    return {
+      confirms: window.__coClientConfirmCalls,
+      people: document.querySelectorAll('[data-person-owner]').length,
+      status: saved?.meta?.filingStatus || '',
+      spouse: saved?.household?.spouse ?? null,
+      spouseAccounts: (saved?.portfolio?.extraAccounts || [])
+        .filter(account => account?.owner === 'spouse').length,
+      spouseIncome: (saved?.income?.other || [])
+        .filter(source => source?.owner === 'spouse').length,
+      socialSecuritySpouse: saved?.income?.socialSecurity?.spouse ?? null,
+      contributionOwners: saved?.savings?.split?.byOwner ?? null,
+      currentWages: saved?.incomeTax?.current1040?.wagesByOwner ?? null,
+      aggregateWages: saved?.incomeTax?.current1040?.income?.wages ?? null,
+      incomeSourcesComplete: saved?.incomeTax?.current1040?.incomeSourcesComplete,
+      currentTaxpayerSpouse: saved?.incomeTax?.current1040?.taxpayers?.spouse ?? null,
+      removeAction: document.querySelectorAll(
+        '[data-hh-action="remove-spouse"]',
+      ).length,
+      addAction: document.querySelectorAll(
+        '[data-hh-action="add-spouse"]',
+      ).length,
+    };
+  });
   requireCondition(
     removed.confirms === 1
       && removed.people === 1
       && removed.status === 'single'
-      && removed.removeAction === 0,
+      && removed.spouse === null
+      && removed.spouseAccounts === 0
+      && removed.spouseIncome === 0
+      && removed.socialSecuritySpouse === null
+      && JSON.stringify(removed.contributionOwners) === JSON.stringify({ client: 1 })
+      && JSON.stringify(removed.currentWages) === JSON.stringify({ client: 81000 })
+      && removed.aggregateWages === 81000
+      && removed.incomeSourcesComplete === false
+      && removed.currentTaxpayerSpouse === null
+      && removed.removeAction === 0
+      && removed.addAction === 1,
     `Confirmed co-client removal was not atomic: ${JSON.stringify(removed)}`,
   );
   await page.waitForFunction(() => {
@@ -772,13 +942,38 @@ async function verifyFamilyPropagation(page){
   await goToWizardStep(page, 'family');
   const persistedRemoval = await page.evaluate(() => ({
     people: document.querySelectorAll('[data-person-owner]').length,
-    status: document.querySelector('[data-wizard-field="filingStatus"]')
-      ?.value || '',
+    addAction: document.querySelectorAll('[data-hh-action="add-spouse"]').length,
   }));
   requireCondition(
-    persistedRemoval.people === 1 && persistedRemoval.status === 'single',
+    persistedRemoval.people === 1 && persistedRemoval.addAction === 1,
     `Co-client removal did not survive reload: ${JSON.stringify(persistedRemoval)}`,
   );
+
+  await goToWizardStep(page, 'tax');
+  const singleTaxFiling = await page.evaluate(() => {
+    const control = document.querySelector(
+      '[data-wizard-scope="tax-profile"][data-wizard-field="filingStatus"]',
+    );
+    return {
+      value: control?.value || '',
+      options: [...(control?.options || [])].map(option => option.value),
+      clientWages: document.querySelector(
+        '[data-tax-field="income.wages.client"]',
+      )?.value || '',
+      spouseWageFields: document.querySelectorAll(
+        '[data-tax-field="income.wages.spouse"]',
+      ).length,
+    };
+  });
+  requireCondition(
+    singleTaxFiling.value === 'single'
+      && JSON.stringify(singleTaxFiling.options)
+        === JSON.stringify(['single', 'headOfHousehold'])
+      && singleTaxFiling.clientWages === '81000'
+      && singleTaxFiling.spouseWageFields === 0,
+    `Tax did not expose the post-removal filing choices: ${JSON.stringify(singleTaxFiling)}`,
+  );
+
   await openNetWorthCategory(page, 'bank');
   await clickWizardAction(
     page,
@@ -804,36 +999,111 @@ async function verifyFamilyPropagation(page){
     page,
     '[data-net-worth-overlay] .nw-panel-close',
   );
+
+  await goToWizardStep(page, 'income');
+  const singleIncomeOwners = await page.evaluate(() => ({
+    spouseOptions: document.querySelectorAll(
+      '.hh-income-source-owner option[value="spouse"]',
+    ).length,
+    jointOptions: document.querySelectorAll(
+      '.hh-income-source-owner option[value="joint"]',
+    ).length,
+    owners: [...document.querySelectorAll(
+      '.hh-income-source-owner select',
+    )].map(control => control.value),
+  }));
+  requireCondition(
+    singleIncomeOwners.spouseOptions === 0
+      && singleIncomeOwners.jointOptions === 0
+      && singleIncomeOwners.owners.length === 2
+      && singleIncomeOwners.owners.every(owner => owner === 'client'),
+    `Single-household Income ownership is unsafe: ${JSON.stringify(singleIncomeOwners)}`,
+  );
+
   await goToWizardStep(page, 'family');
-  await setWizardValue(
-    page,
-    '[data-wizard-field="filingStatus"]',
-    'headOfHousehold',
-  );
-  await setWizardValue(
-    page,
-    '[data-wizard-field="filingStatus"]',
-    'marriedFilingJointly',
-  );
+  await clickWizardAction(page, '[data-hh-action="add-spouse"]');
+  await setWizardValue(page, '[data-wizard-field="spouseName"]', 'Verifier Co-client');
   await setWizardValue(
     page,
     '[data-wizard-field="spouse.birthDate"]',
     '1961-01-01',
   );
-  await setWizardValue(page, '[data-wizard-field="client.retirementAge"]', '68');
   await setWizardValue(page, '[data-wizard-field="spouse.retirementAge"]', '70');
-  await setWizardValue(page, '[data-wizard-field="client.socialSecurityAge"]', '67');
-  await setWizardValue(page, '[data-wizard-field="spouse.socialSecurityAge"]', '69');
-  await setWizardValue(page, '[data-wizard-field="client.socialSecurityBenefit"]', '32000');
-  await setWizardValue(page, '[data-wizard-field="spouse.socialSecurityBenefit"]', '22000');
-  await setWizardValue(page, '[data-wizard-field="client.planEndAge"]', '94');
   await setWizardValue(page, '[data-wizard-field="spouse.planEndAge"]', '101');
   await goToWizardStep(page, 'tax');
-  const filing = await page.evaluate(() =>
-    document.querySelector('.hh-tax-static strong')?.textContent.trim() || '');
+  const restoredFiling = await page.$eval(
+    '[data-wizard-scope="tax-profile"][data-wizard-field="filingStatus"]',
+    control => control.value,
+  );
   requireCondition(
-    filing === 'Married filing jointly',
-    `Family filing status did not reach Tax: "${filing}"`,
+    restoredFiling === 'marriedFilingJointly',
+    `Re-adding the co-client did not restore the guided Tax filing transition: "${restoredFiling}"`,
+  );
+
+  await goToWizardStep(page, 'family');
+  await setWizardChecked(page, '[data-family-children-toggle]', true);
+  await clickWizardAction(page, '[data-hh-action="add-child"]');
+  await setWizardValue(page, '[data-wizard-field="children.0.name"]', 'Avery');
+  await setWizardValue(page, '[data-wizard-field="children.0.birthYear"]', '2012');
+  await setWizardChecked(page, '[data-family-children-toggle]', false);
+  requireCondition(
+    await countMatches(page, '[data-family-children-block]') === 0,
+    'Collapsed Children block remained visible',
+  );
+  await setWizardChecked(page, '[data-family-children-toggle]', true);
+  const child = await page.evaluate(() => ({
+    rows: document.querySelectorAll('[data-child-row]').length,
+    name: document.querySelector('[data-wizard-field="children.0.name"]')?.value || '',
+    birthYear: document.querySelector('[data-wizard-field="children.0.birthYear"]')?.value || '',
+  }));
+  requireCondition(
+    child.rows === 1 && child.name === 'Avery' && child.birthYear === '2012',
+    `Children rows did not retain their canonical values: ${JSON.stringify(child)}`,
+  );
+
+  await goToWizardStep(page, 'tax');
+  const taxProfile = await page.evaluate(() => ({
+    filing: document.querySelector(
+      '[data-wizard-scope="tax-profile"][data-wizard-field="filingStatus"]',
+    )?.value || '',
+    state: document.querySelector(
+      '[data-wizard-scope="tax-profile"][data-wizard-field="state"]',
+    )?.value || '',
+  }));
+  requireCondition(
+    taxProfile.filing === 'marriedFilingJointly' && taxProfile.state === 'VA',
+    `Tax did not own the filing and residence controls: ${JSON.stringify(taxProfile)}`,
+  );
+  await setWizardValue(
+    page,
+    '[data-wizard-scope="tax-profile"][data-wizard-field="state"]',
+    'NY',
+  );
+  const saved = await page.evaluate(() => {
+    const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+    const active = localStorage.getItem('parallax.activeHouseholdId');
+    const plan = db?.[active];
+    return {
+      filingStatus: plan?.meta?.filingStatus,
+      state: plan?.meta?.state,
+      clientBirthDate: plan?.taxProfiles?.client?.birthDate?.value,
+      spouseBirthDate: plan?.taxProfiles?.spouse?.birthDate?.value,
+      primaryRetirementAge: plan?.household?.primary?.retirementAge,
+      spouseRetirementAge: plan?.household?.spouse?.retirementAge,
+      children: plan?.household?.children,
+    };
+  });
+  requireCondition(
+    saved.filingStatus === 'marriedFilingJointly'
+      && saved.state === 'NY'
+      && saved.clientBirthDate === '1960-01-01'
+      && saved.spouseBirthDate === '1961-01-01'
+      && saved.primaryRetirementAge === 68
+      && saved.spouseRetirementAge === 70
+      && JSON.stringify(saved.children) === JSON.stringify([
+        { name: 'Avery', birthYear: 2012 },
+      ]),
+    `Family and Tax facts did not reach their canonical owners: ${JSON.stringify(saved)}`,
   );
 }
 
@@ -1051,8 +1321,291 @@ async function verifyNetWorthFlow(page){
   );
 }
 
+async function verifyIncomeAndGoalsFlow(page){
+  const before = await page.evaluate(() => {
+    const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+    const active = localStorage.getItem('parallax.activeHouseholdId');
+    const plan = db?.[active];
+    return {
+      current1040: JSON.stringify(plan?.incomeTax?.current1040 ?? null),
+      income: JSON.stringify(plan?.income ?? null),
+    };
+  });
+
+  await goToWizardStep(page, 'income');
+  const initial = await page.evaluate(() => ({
+    rows: [...document.querySelectorAll('[data-income-source-row]')].map(row => ({
+      id: row.dataset.incomeSourceRow,
+      amount: row.querySelector('[data-wizard-field="source.amount"]')?.value || '',
+    })),
+    typeOptions: [...(document.querySelector(
+      '[data-income-source-row] [data-wizard-field="source.typeId"]',
+    )?.options || [])].map(option => option.value),
+    taxablePctFields: document.querySelectorAll(
+      '[data-income-source-row] [data-wizard-field="source.taxablePct"]',
+    ).length,
+    qualifiedPctFields: document.querySelectorAll(
+      '[data-income-source-row] [data-wizard-field="source.qualifiedPct"]',
+    ).length,
+    fullTaxTreatments: [...document.querySelectorAll(
+      '[data-income-source-row] [data-income-tax-treatment="fully-taxable"] strong',
+    )].map(element => element.textContent.trim()),
+    socialSecurity: document.querySelectorAll(
+      '[data-hh-wizard-screen="income"] [data-wizard-field^="socialSecurity."]',
+    ).length,
+    currentTaxFields: document.querySelectorAll(
+      '[data-hh-wizard-screen="income"] [data-tax-field]',
+    ).length,
+  }));
+  requireCondition(
+    JSON.stringify(initial.rows) === JSON.stringify([
+      { id: 'verify_wage_one', amount: '50,000' },
+      { id: 'verify_wage_two', amount: '25,000' },
+    ])
+      && JSON.stringify(initial.typeOptions) === JSON.stringify([
+        'wages', 'bonus', 'self_employment', 'annuity', 'rental',
+        'interest', 'dividends', 'deferred_comp', 'other',
+      ])
+      && initial.taxablePctFields === 0
+      && initial.qualifiedPctFields === 0
+      && initial.fullTaxTreatments.length === 2
+      && initial.fullTaxTreatments.every(value => value === '100% taxable')
+      && initial.socialSecurity === 4
+      && initial.currentTaxFields === 0,
+    `Income did not expose the existing planning record cleanly: ${JSON.stringify(initial)}`,
+  );
+
+  await setWizardValue(
+    page,
+    '[data-wizard-field="socialSecurity.primary.pia"]',
+    '32000',
+  );
+  await setWizardValue(
+    page,
+    '[data-wizard-field="socialSecurity.primary.claimAge"]',
+    '67',
+  );
+  await setWizardValue(
+    page,
+    '[data-wizard-field="socialSecurity.spouse.pia"]',
+    '22000',
+  );
+  await setWizardValue(
+    page,
+    '[data-wizard-field="socialSecurity.spouse.claimAge"]',
+    '69',
+  );
+  await setWizardValue(
+    page,
+    '[data-income-row-id="verify_wage_one"][data-wizard-field="source.amount"]',
+    '52000',
+  );
+  await setWizardValue(
+    page,
+    '[data-income-row-id="verify_wage_two"][data-wizard-field="source.owner"]',
+    'spouse',
+  );
+  await setWizardValue(
+    page,
+    '[data-income-row-id="verify_wage_two"][data-wizard-field="source.amount"]',
+    '26000',
+  );
+  await clickWizardAction(page, '[data-hh-action="add-income-source"]');
+  const rentalId = await page.evaluate(() => {
+    const rows = [...document.querySelectorAll('[data-income-source-row]')];
+    return rows.find(row => !['verify_wage_one', 'verify_wage_two']
+      .includes(row.dataset.incomeSourceRow))?.dataset.incomeSourceRow || '';
+  });
+  requireCondition(Boolean(rentalId), 'Add income did not create one stable row ID');
+  const rentalField = field => `[data-income-row-id="${rentalId}"][data-wizard-field="source.${field}"]`;
+  await setWizardValue(page, rentalField('typeId'), 'rental');
+  await setWizardValue(page, rentalField('label'), 'Rental income');
+  await setWizardValue(page, rentalField('owner'), 'joint');
+  await setWizardValue(page, rentalField('amount'), '12000');
+  await setWizardValue(page, rentalField('startAge'), '67');
+  await setWizardValue(page, rentalField('endAge'), '90');
+  await setWizardValue(page, rentalField('realGrowth'), '1');
+  const rentalTaxTreatment = await page.evaluate(rowId => ({
+    taxablePctFields: document.querySelectorAll(
+      `[data-income-row-id="${rowId}"][data-wizard-field="source.taxablePct"]`,
+    ).length,
+    qualifiedPctFields: document.querySelectorAll(
+      `[data-income-row-id="${rowId}"][data-wizard-field="source.qualifiedPct"]`,
+    ).length,
+    readout: document.querySelector(
+      `[data-income-source-row="${rowId}"] [data-income-tax-treatment="fully-taxable"] strong`,
+    )?.textContent.trim() || '',
+  }), rentalId);
+  requireCondition(
+    rentalTaxTreatment.taxablePctFields === 0
+      && rentalTaxTreatment.qualifiedPctFields === 0
+      && rentalTaxTreatment.readout === '100% taxable',
+    `Rental income exposed an inapplicable tax override: ${JSON.stringify(rentalTaxTreatment)}`,
+  );
+  await setWizardValue(page, '[data-wizard-field="pension.base"]', '24000');
+  await setWizardValue(page, '[data-wizard-field="pension.startAge"]', '65');
+  await setWizardValue(page, '[data-wizard-field="pension.colaPct"]', '2');
+  await setWizardValue(page, '[data-wizard-field="savings.annual"]', '15000');
+  await setWizardValue(page, '[data-wizard-field="savings.split.traditional"]', '60');
+  await setWizardValue(page, '[data-wizard-field="savings.split.roth"]', '20');
+  await setWizardValue(page, '[data-wizard-field="savings.split.taxable"]', '20');
+  await setWizardValue(page, '[data-wizard-field="savings.split.byOwner.client"]', '55');
+  await setWizardValue(page, '[data-wizard-field="savings.split.byOwner.spouse"]', '45');
+
+  const incomeResult = await page.evaluate(expectedRentalId => {
+    const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+    const active = localStorage.getItem('parallax.activeHouseholdId');
+    const plan = db?.[active];
+    return {
+      current1040: JSON.stringify(plan?.incomeTax?.current1040 ?? null),
+      rows: (plan?.income?.other || []).map(row => ({
+        id: row.id,
+        typeId: row.typeId,
+        owner: row.owner,
+        amount: row.amount,
+        startAge: row.startAge,
+        endAge: row.endAge,
+        taxablePct: row.taxablePct,
+      })),
+      rentalId: expectedRentalId,
+      socialSecurity: plan?.income?.socialSecurity,
+      pension: plan?.income?.pension,
+      savings: plan?.savings,
+    };
+  }, rentalId);
+  requireCondition(
+    incomeResult.current1040 === before.current1040,
+    'Income edits changed current-year Form 1040 bytes',
+  );
+  requireCondition(
+    JSON.stringify(incomeResult.rows) === JSON.stringify([
+      {
+        id: 'verify_wage_one', typeId: 'wages', owner: 'client', amount: 52000,
+        startAge: 0, endAge: 999, taxablePct: 1,
+      },
+      {
+        id: 'verify_wage_two', typeId: 'wages', owner: 'spouse', amount: 26000,
+        startAge: 0, endAge: 999, taxablePct: 1,
+      },
+      {
+        id: rentalId, typeId: 'rental', owner: 'joint', amount: 12000,
+        startAge: 67, endAge: 90, taxablePct: 1,
+      },
+    ])
+      && incomeResult.socialSecurity?.primary?.pia === 32000
+      && incomeResult.socialSecurity?.primary?.claimAge === 67
+      && incomeResult.socialSecurity?.spouse?.pia === 22000
+      && incomeResult.socialSecurity?.spouse?.claimAge === 69
+      && incomeResult.pension?.base === 24000
+      && incomeResult.pension?.startAge === 65
+      && incomeResult.pension?.colaPct === 2
+      && incomeResult.savings?.annual === 15000
+      && incomeResult.savings?.split?.traditional === 0.6
+      && incomeResult.savings?.split?.roth === 0.2
+      && incomeResult.savings?.split?.taxable === 0.2
+      && incomeResult.savings?.split?.byOwner?.client === 0.55
+      && incomeResult.savings?.split?.byOwner?.spouse === 0.45,
+    `Income edits did not reach the canonical planning record: ${JSON.stringify(incomeResult)}`,
+  );
+
+  await reloadWizard(page);
+  await goToWizardStep(page, 'income');
+  const reloadedIncome = await page.evaluate(expectedRentalId => ({
+    primaryPia: document.querySelector(
+      '[data-wizard-field="socialSecurity.primary.pia"]',
+    )?.value || '',
+    spousePia: document.querySelector(
+      '[data-wizard-field="socialSecurity.spouse.pia"]',
+    )?.value || '',
+    rentalAmount: document.querySelector(
+      `[data-income-row-id="${expectedRentalId}"][data-wizard-field="source.amount"]`,
+    )?.value || '',
+  }), rentalId);
+  requireCondition(
+    reloadedIncome.primaryPia === '32,000'
+      && reloadedIncome.spousePia === '22,000'
+      && reloadedIncome.rentalAmount === '12,000',
+    `Visible Income values did not survive reload: ${JSON.stringify(reloadedIncome)}`,
+  );
+
+  await goToWizardStep(page, 'goals');
+  const goalBefore = await page.evaluate(() => {
+    const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+    const active = localStorage.getItem('parallax.activeHouseholdId');
+    const goal = db?.[active]?.goals?.[0];
+    return { id: goal?.id || '', amount: goal?.amount };
+  });
+  requireCondition(Boolean(goalBefore.id), 'Goals step has no canonical goal to edit');
+  const intakeGoalChip = `[data-hh-wizard-screen="goals"] [data-goal-chip="${goalBefore.id}"]`;
+  await requireUnique(page, intakeGoalChip, 'canonical Intake goal chip');
+  await page.click(intakeGoalChip);
+  await clickWizardAction(
+    page,
+    `[data-hh-wizard-screen="goals"] [data-goal-rail="${goalBefore.id}"] [data-action="amount-plus"]`,
+    { expectRevision: false },
+  );
+  const goalAfter = await page.evaluate(goalId => {
+    const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+    const active = localStorage.getItem('parallax.activeHouseholdId');
+    const goals = db?.[active]?.goals || [];
+    const matches = goals.filter(goal => goal?.id === goalId);
+    return {
+      matches: matches.length,
+      amount: matches[0]?.amount,
+      totalGoals: goals.length,
+    };
+  }, goalBefore.id);
+  requireCondition(
+    goalAfter.matches === 1
+      && goalAfter.totalGoals > 0
+      && Number(goalAfter.amount) > Number(goalBefore.amount),
+    `Goals edit did not mutate the one canonical goal: ${JSON.stringify({ goalBefore, goalAfter })}`,
+  );
+
+  await goToWizardStep(page, 'summary');
+  const summary = await page.evaluate(({ incomeId, goalId }) => ({
+    incomeRows: document.querySelectorAll(
+      `[data-summary-income-source="${incomeId}"]`,
+    ).length,
+    goalRows: document.querySelectorAll(`[data-summary-goal="${goalId}"]`).length,
+    pensionRows: document.querySelectorAll('[data-summary-pension]').length,
+    annualSavingsRows: document.querySelectorAll(
+      '[data-summary-savings="annual"]',
+    ).length,
+    savingsMixRows: document.querySelectorAll(
+      '[data-summary-savings="mix"]',
+    ).length,
+    incomeText: document.querySelector('[data-summary-source="income"]')?.textContent || '',
+    goalText: document.querySelector(`[data-summary-goal="${goalId}"]`)?.textContent || '',
+  }), { incomeId: rentalId, goalId: goalBefore.id });
+  requireCondition(
+    summary.incomeRows === 1
+      && summary.goalRows === 1
+      && summary.pensionRows === 1
+      && summary.annualSavingsRows === 1
+      && summary.savingsMixRows === 1
+      && /Rental income/.test(summary.incomeText)
+      && /Client Social Security/.test(summary.incomeText)
+      && /Pension[\s\S]*\$24,000 at 65/.test(summary.incomeText)
+      && /Annual savings[\s\S]*\$15,000/.test(summary.incomeText)
+      && /60% traditional · 20% Roth · 20% taxable/.test(summary.incomeText)
+      && /\$/.test(summary.goalText)
+      && /retirement/.test(summary.goalText),
+    `Summary did not consume the canonical Income and Goals rows once: ${JSON.stringify(summary)}`,
+  );
+}
+
 async function verifyPlanningSourceAndTaxFlow(page){
+  const planningIncomeBeforeTax = await page.evaluate(() => {
+    const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+    const active = localStorage.getItem('parallax.activeHouseholdId');
+    return JSON.stringify(db?.[active]?.income ?? null);
+  });
   await goToWizardStep(page, 'tax');
+  // The earlier co-client-removal flow intentionally leaves the surviving
+  // client's current-return wage in Tax. Income now holds a different planning
+  // wage, so the two visible values prove that neither authority is borrowing
+  // the other's record.
   const initialWages = await page.evaluate(() => {
     const client = document.querySelector('[data-tax-field="income.wages.client"]');
     const spouse = document.querySelector('[data-tax-field="income.wages.spouse"]');
@@ -1067,12 +1620,12 @@ async function verifyPlanningSourceAndTaxFlow(page){
     };
   });
   requireCondition(
-    initialWages.client === '75000'
+    initialWages.client === '81000'
       && initialWages.spouse === ''
       && !initialWages.clientDisabled
       && !initialWages.spouseDisabled
       && initialWages.sourceButtons === 0,
-    `Member wage inputs were not independent: ${JSON.stringify(initialWages)}`,
+    `Tax did not preserve its separate current-return wage facts: ${JSON.stringify(initialWages)}`,
   );
 
   const irmaaInputs = await page.evaluate(() => {
@@ -1208,6 +1761,23 @@ async function verifyPlanningSourceAndTaxFlow(page){
   await goToWizardStep(page, 'tax');
   await setWizardValue(page, '[data-tax-field="income.wages.client"]', '81000');
   await setWizardValue(page, '[data-tax-field="income.wages.spouse"]', '39000');
+  const sourceSeparation = await page.evaluate(() => {
+    const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+    const active = localStorage.getItem('parallax.activeHouseholdId');
+    const plan = db?.[active];
+    return {
+      planningIncome: JSON.stringify(plan?.income ?? null),
+      wagesByOwner: plan?.incomeTax?.current1040?.wagesByOwner,
+      aggregateWages: plan?.incomeTax?.current1040?.income?.wages,
+    };
+  });
+  requireCondition(
+    sourceSeparation.planningIncome === planningIncomeBeforeTax
+      && sourceSeparation.wagesByOwner?.client === 81000
+      && sourceSeparation.wagesByOwner?.spouse === 39000
+      && sourceSeparation.aggregateWages === 120000,
+    `Tax current-year wages crossed into planning income: ${JSON.stringify(sourceSeparation)}`,
+  );
 
   await clickWizardAction(
     page,
@@ -1295,44 +1865,83 @@ async function verifyPlanningSourceAndTaxFlow(page){
     planningPage === 'scenarios',
     `Completed Summary did not enter Scenarios: "${planningPage}"`,
   );
+  await requireUnique(page, '[data-goals-toggle]', 'Scenarios goals toggle');
+  await page.waitForFunction(() => {
+    const toggle = document.querySelector('[data-goals-toggle]');
+    if(!toggle) return false;
+    if(toggle.getAttribute('aria-expanded') !== 'true'){
+      toggle.click();
+      return false;
+    }
+    return Boolean(document.querySelector(
+      '.cmp-goal-in[data-goal-idx="0"][data-goal-field="amount"]',
+    ));
+  }, { polling: 100, timeout: 8000 });
+  const scenarioGoal = await page.evaluate(() => {
+    const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+    const active = localStorage.getItem('parallax.activeHouseholdId');
+    const goal = db?.[active]?.goals?.[0];
+    const values = [...document.querySelectorAll(
+      '.cmp-goal-in[data-goal-idx="0"][data-goal-field="amount"]',
+    )].map(input => Number(String(input.value).replace(/[^0-9.-]/g, '')));
+    return { amount: goal?.amount, values };
+  });
+  requireCondition(
+    scenarioGoal.values.length > 0
+      && scenarioGoal.values.every(value => value === scenarioGoal.amount),
+    `Scenarios did not consume the canonical Goals amount once per plan: ${JSON.stringify(scenarioGoal)}`,
+  );
 }
 
-async function waitForAutoSave(page){
+async function waitForCanonicalIntakeSave(page){
   const saveCount = await page.$$eval('#save-btn', elements => elements.length);
   requireCondition(saveCount === 0, 'Manual Save control still rendered');
   await page.waitForFunction(() => {
     const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
     const active = localStorage.getItem('parallax.activeHouseholdId');
     const saved = db?.[active];
-    const rows = (saved?.income?.other || [])
-      .filter(row => row?.typeId === 'wages' || row?.typeId === 'bonus')
-      .map(row => ({ owner: row.owner, amount: row.amount }));
+    const rows = (saved?.income?.other || []).map(row => ({
+      typeId: row.typeId,
+      owner: row.owner,
+      amount: row.amount,
+    }));
     return JSON.stringify(rows) === JSON.stringify([
-      { owner: 'client', amount: 81000 },
-      { owner: 'spouse', amount: 39000 },
-    ]);
+      { typeId: 'wages', owner: 'client', amount: 52000 },
+      { typeId: 'wages', owner: 'spouse', amount: 26000 },
+      { typeId: 'rental', owner: 'joint', amount: 12000 },
+    ])
+      && saved?.incomeTax?.current1040?.wagesByOwner?.client === 81000
+      && saved?.incomeTax?.current1040?.wagesByOwner?.spouse === 39000
+      && saved?.incomeTax?.current1040?.income?.wages === 120000;
   }, { timeout: 10000 });
 }
 
-async function verifyAutoSaveReloadAndMemberWages(page){
-  await waitForAutoSave(page);
+async function verifyCanonicalIntakeReload(page){
+  await waitForCanonicalIntakeSave(page);
   await reloadWizard(page);
-  await goToWizardStep(page, 'tax');
-  const savedWages = await page.evaluate(() => {
-    const client = document.querySelector('[data-tax-field="income.wages.client"]');
-    const spouse = document.querySelector('[data-tax-field="income.wages.spouse"]');
+  await goToWizardStep(page, 'income');
+  const savedIntake = await page.evaluate(() => {
     const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
     const active = localStorage.getItem('parallax.activeHouseholdId');
     const saved = db?.[active];
-    const rows = (saved?.income?.other || [])
-      .filter(row => row?.typeId === 'wages' || row?.typeId === 'bonus')
-      .map(row => ({ owner: row.owner, amount: row.amount }));
+    const rows = (saved?.income?.other || []).map(row => ({
+      typeId: row.typeId,
+      owner: row.owner,
+      amount: row.amount,
+    }));
+    const rental = (saved?.income?.other || []).find(row => row?.typeId === 'rental');
     return {
-      client: client?.value || '',
-      spouse: spouse?.value || '',
-      clientDisabled: client?.disabled === true,
-      spouseDisabled: spouse?.disabled === true,
-      sourceButtons: document.querySelectorAll('[data-income-group="wages"]').length,
+      primaryPia: document.querySelector(
+        '[data-wizard-field="socialSecurity.primary.pia"]',
+      )?.value || '',
+      spousePia: document.querySelector(
+        '[data-wizard-field="socialSecurity.spouse.pia"]',
+      )?.value || '',
+      rentalAmount: rental?.id
+        ? document.querySelector(
+          `[data-income-row-id="${rental.id}"][data-wizard-field="source.amount"]`,
+        )?.value || ''
+        : '',
       rows,
       peopleFacts: {
         client: {
@@ -1348,31 +1957,31 @@ async function verifyAutoSaveReloadAndMemberWages(page){
           planEndAge: saved?.household?.spouse?.planEndAge,
         },
       },
-      storedAggregate: Object.prototype.hasOwnProperty.call(
-        saved?.incomeTax?.current1040?.income || {},
-        'wages',
-      ),
+      currentWages: saved?.incomeTax?.current1040?.wagesByOwner,
+      aggregateWages: saved?.incomeTax?.current1040?.income?.wages,
+      savingsAnnual: saved?.savings?.annual,
+      pensionBase: saved?.income?.pension?.base,
+      goals: saved?.goals?.length || 0,
     };
   });
   requireCondition(
-    savedWages.client === '81000'
-      && savedWages.spouse === '39000'
-      && !savedWages.clientDisabled
-      && !savedWages.spouseDisabled
-      && savedWages.sourceButtons === 0,
-    `Auto-save/reload lost member wages: ${JSON.stringify(savedWages)}`,
+    savedIntake.primaryPia === '32,000'
+      && savedIntake.spousePia === '22,000'
+      && savedIntake.rentalAmount === '12,000',
+    `Reload lost visible Income values: ${JSON.stringify(savedIntake)}`,
   );
   requireCondition(
-    JSON.stringify(savedWages.rows) === JSON.stringify([
-      { owner: 'client', amount: 81000 },
-      { owner: 'spouse', amount: 39000 },
+    JSON.stringify(savedIntake.rows) === JSON.stringify([
+      { typeId: 'wages', owner: 'client', amount: 52000 },
+      { typeId: 'wages', owner: 'spouse', amount: 26000 },
+      { typeId: 'rental', owner: 'joint', amount: 12000 },
     ])
-      && JSON.stringify(savedWages.peopleFacts) === JSON.stringify({
+      && JSON.stringify(savedIntake.peopleFacts) === JSON.stringify({
         client: {
           retirementAge: 68,
           socialSecurityAge: 67,
           socialSecurityBenefit: 32000,
-          planEndAge: 94,
+          planEndAge: 102,
         },
         spouse: {
           retirementAge: 70,
@@ -1381,8 +1990,28 @@ async function verifyAutoSaveReloadAndMemberWages(page){
           planEndAge: 101,
         },
       })
-      && savedWages.storedAggregate === false,
-    `Auto-saved wages did not use the member-owned contract: ${JSON.stringify(savedWages)}`,
+      && savedIntake.currentWages?.client === 81000
+      && savedIntake.currentWages?.spouse === 39000
+      && savedIntake.aggregateWages === 120000
+      && savedIntake.savingsAnnual === 15000
+      && savedIntake.pensionBase === 24000
+      && savedIntake.goals > 0,
+    `Reload crossed or dropped canonical Intake sources: ${JSON.stringify(savedIntake)}`,
+  );
+
+  await goToWizardStep(page, 'tax');
+  const currentTaxWages = await page.evaluate(() => ({
+    client: document.querySelector('[data-tax-field="income.wages.client"]')?.value || '',
+    spouse: document.querySelector('[data-tax-field="income.wages.spouse"]')?.value || '',
+    planningFields: document.querySelectorAll(
+      '[data-hh-wizard-screen="tax"] [data-wizard-scope="income"]',
+    ).length,
+  }));
+  requireCondition(
+    currentTaxWages.client === '81000'
+      && currentTaxWages.spouse === '39000'
+      && currentTaxWages.planningFields === 0,
+    `Tax reload did not remain current-return-only: ${JSON.stringify(currentTaxWages)}`,
   );
 }
 
@@ -1476,6 +2105,15 @@ async function assertViewport(page, viewport, step, outDir, filename){
       0,
       ...headerParts.map(element => element.getBoundingClientRect().bottom),
     );
+    const familyControls = [...document.querySelectorAll(
+      '[data-hh-field="client.status"],'
+      + '[data-hh-field="client.retirementAge"],'
+      + '[data-hh-field="client.planEndAge"],'
+      + '[data-hh-field="spouse.status"],'
+      + '[data-hh-field="spouse.retirementAge"],'
+      + '[data-hh-field="spouse.planEndAge"]',
+    )];
+    const goalsHorizon = document.querySelector('.hh-goals-horizon');
     const rendered = (element, elementRect) => {
       if(!element || !elementRect) return false;
       const style = getComputedStyle(element);
@@ -1498,6 +2136,14 @@ async function assertViewport(page, viewport, step, outDir, filename){
       netWorthNavigationVisible: netWorthNavigation.some(element =>
         rendered(element, element.getBoundingClientRect())),
       screenVisible: rendered(screen, screenRect),
+      familyControlsWithinViewport: familyControls.every(control => {
+        const controlRect = control.getBoundingClientRect();
+        return controlRect.left >= -1
+          && controlRect.right <= document.documentElement.clientWidth + 1;
+      }),
+      goalsHorizonAccessible: !goalsHorizon
+        || goalsHorizon.scrollWidth <= goalsHorizon.clientWidth + 1
+        || ['auto', 'scroll'].includes(getComputedStyle(goalsHorizon).overflowX),
       step: root?.dataset.wizardStep || '',
       screen: screen?.dataset.hhWizardScreen || '',
       nav: nav?.dataset.hhWizardNav || '',
@@ -1514,6 +2160,8 @@ async function assertViewport(page, viewport, step, outDir, filename){
         ? metrics.netWorthNavigationVisible
         : metrics.footerVisible)
       && metrics.screenVisible
+      && metrics.familyControlsWithinViewport
+      && metrics.goalsHorizonAccessible
       && metrics.step === step
       && metrics.screen === step
       && metrics.nav === step,
@@ -1631,11 +2279,12 @@ export async function runWizardBrowserContract(
     await openWizard(page);
     originalStorage = await snapshotStorage(page);
     await prepareContractFixture(page);
-    await assertFourStepStructure(page);
+    await assertSixStepStructure(page);
     await verifyFamilyPropagation(page);
     await verifyNetWorthFlow(page);
+    await verifyIncomeAndGoalsFlow(page);
     await verifyPlanningSourceAndTaxFlow(page);
-    await verifyAutoSaveReloadAndMemberWages(page);
+    await verifyCanonicalIntakeReload(page);
     await verifyDuplicateRepair(page);
 
     const viewports = [
@@ -1674,7 +2323,7 @@ export async function runWizardBrowserContract(
       failure = failure
         ? new AggregateError(
             [failure, error],
-            'Wizard contract and restoration diagnostics both failed',
+            `Wizard contract failed: ${failure.message}. Restoration diagnostics failed: ${error.message}`,
           )
         : error;
     }

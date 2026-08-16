@@ -114,7 +114,7 @@ test('blank income remains unavailable instead of becoming a modeled zero', () =
   assert.equal(summary.federalTaxLiability, null);
 });
 
-test('planning income reaches the available-input tax calculation', () => {
+test('planning income never becomes a current-return tax fact', () => {
   const saved = blankWizardPlan({ clientBirthDate: null });
   saved.income.other.push({
     id: 'planning_wages',
@@ -132,11 +132,9 @@ test('planning income reaches the available-input tax calculation', () => {
 
   const summary = buildWizardIncomeTaxSummary(saved);
 
-  assert.equal(summary.status, 'partial');
-  assert.equal(summary.calculationScope, 'available-inputs');
-  assert.equal(summary.totalIncome, 75000);
-  assert.equal(typeof summary.federalTaxLiability, 'number');
-  assert.ok(summary.federalTaxLiability > 0);
+  assert.equal(summary.status, 'needs_facts');
+  assert.equal(summary.totalIncome, null);
+  assert.equal(summary.federalTaxLiability, null);
   assert.deepEqual(saved, snapshot);
 });
 
