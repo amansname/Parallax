@@ -325,7 +325,6 @@ export async function householdIncome(plan, taxYear, options = {}) {
     const matchingCurrent1040 = matchingCurrent1040Intake?.income;
     if (matchingCurrent1040 && typeof matchingCurrent1040 === 'object') {
       for (const field of [
-        'wages',
         'taxableInterest',
         'taxExemptInterest',
         'otherIncome',

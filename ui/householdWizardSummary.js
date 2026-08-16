@@ -1,6 +1,5 @@
 export function renderHouseholdWizardSummary(ctx){
   const {
-    plan,
     esc,
     money,
     taxBucketSnapshot,
@@ -21,39 +20,13 @@ export function renderHouseholdWizardSummary(ctx){
     : taxSummary.status === 'ready'
       ? 'ready'
       : 'partial';
-  const planningIncome = Array.isArray(plan.income?.other) ? plan.income.other : [];
-  const goals = Array.isArray(plan.goals) ? plan.goals : [];
-  const children = Array.isArray(plan.household?.children) ? plan.household.children : [];
-  const socialSecurity = plan.income?.socialSecurity || {};
-  const pension = plan.income?.pension || {};
-  const pensionStartAge = Number(pension.startAge);
-  const pensionBenefitByAge = pension.benefitByAge || {};
-  const selectedPensionAmount = Number.isFinite(pensionStartAge)
-    && Object.prototype.hasOwnProperty.call(pensionBenefitByAge, pensionStartAge)
-    ? pensionBenefitByAge[pensionStartAge]
-    : pension.base;
-  const hasSelectedPension = Number.isFinite(pensionStartAge)
-    && Number.isFinite(Number(selectedPensionAmount));
-  const pctText = value => Number.isFinite(Number(value))
-    ? `${(Number(value) * 100).toFixed(0)}%`
-    : '—';
-  const goalStart = goal => goal?.startsAtRetirement === true
-    ? 'retirement'
-    : goal?.startAge ?? '—';
-  const goalIsOnce = goal => Number(goal?.startAge) === Number(goal?.endAge);
-  const goalDisplayAmount = goal => goal?.per === 'mo' && !goalIsOnce(goal)
-    ? Math.round((Number(goal?.amount) || 0) / 12)
-    : Number(goal?.amount) || 0;
-  const goalFrequency = goal => goalIsOnce(goal)
-    ? 'once'
-    : goal?.per === 'mo' ? 'per month' : 'per year';
 
   return `
     <div class="hh-screen hh-summary-screen" data-hh-wizard-screen="summary"
       id="hh-panel-summary" role="tabpanel" aria-labelledby="hh-nav-summary">
       <header class="hh-screen-head">
         <div>
-          <div class="hh-step-kicker">Step 06</div>
+          <div class="hh-step-kicker">Step 04</div>
           <h1>Summary</h1>
         </div>
       </header>
@@ -83,42 +56,6 @@ export function renderHouseholdWizardSummary(ctx){
             ? `<small>Effective rate ${(taxSummary.effectiveRate * 100).toFixed(1)}%</small>`
             : ''}
         </div>
-      </section>
-
-      <section class="hh-summary-review" aria-label="Canonical intake review">
-        <article data-summary-source="family">
-          <h2>Family</h2>
-          <dl>
-            <div><dt>Client</dt><dd>${esc(plan.meta?.primaryName || '—')}</dd></div>
-            ${plan.household?.spouse ? `<div><dt>Co-client</dt><dd>${esc(plan.meta?.spouseName || '—')}</dd></div>` : ''}
-            <div><dt>Children</dt><dd>${children.length}</dd></div>
-          </dl>
-        </article>
-        <article data-summary-source="income">
-          <h2>Income</h2>
-          <dl>
-            <div><dt>Client Social Security</dt><dd>${socialSecurity.primary?.pia == null ? '—' : `${money(socialSecurity.primary.pia)} at ${esc(socialSecurity.primary.claimAge ?? 67)}`}</dd></div>
-            ${plan.household?.spouse ? `<div><dt>Co-client Social Security</dt><dd>${socialSecurity.spouse?.pia == null ? '—' : `${money(socialSecurity.spouse.pia)} at ${esc(socialSecurity.spouse.claimAge ?? 67)}`}</dd></div>` : ''}
-            ${planningIncome.map(source => `<div data-summary-income-source="${esc(source.id || '')}"><dt>${esc(source.label || source.typeId || 'Income')}</dt><dd>${money(source.amount)} · ${esc(source.owner || 'unassigned')} · ages ${esc(source.startAge ?? '—')}–${esc(source.endAge ?? '—')}</dd></div>`).join('')}
-            ${hasSelectedPension ? `<div data-summary-pension><dt>Pension</dt><dd>${money(selectedPensionAmount)} at ${esc(pensionStartAge)} · ${esc(pension.colaPct ?? 0)}% COLA</dd></div>` : ''}
-            <div data-summary-savings="annual"><dt>Annual savings</dt><dd>${money(plan.savings?.annual || 0)}</dd></div>
-            <div data-summary-savings="mix"><dt>Savings mix</dt><dd>${pctText(plan.savings?.split?.traditional)} traditional · ${pctText(plan.savings?.split?.roth)} Roth · ${pctText(plan.savings?.split?.taxable)} taxable</dd></div>
-          </dl>
-        </article>
-        <article data-summary-source="goals">
-          <h2>Goals</h2>
-          <dl>
-            ${goals.length ? goals.map(goal => `<div data-summary-goal="${esc(goal.id || '')}"><dt>${esc(goal.name || 'Untitled goal')}</dt><dd>${money(goalDisplayAmount(goal))} ${goalFrequency(goal)} · ages ${esc(goalStart(goal))}–${esc(goal.endAge ?? goal.startAge ?? '—')}</dd></div>`).join('') : '<div><dt>Planning goals</dt><dd>None entered</dd></div>'}
-          </dl>
-        </article>
-        <article data-summary-source="tax">
-          <h2>Tax</h2>
-          <dl>
-            <div><dt>Filing status</dt><dd>${esc(plan.meta?.filingStatus || '—')}</dd></div>
-            <div><dt>Residence</dt><dd>${esc(plan.meta?.state || '—')}</dd></div>
-            <div><dt>Tax year</dt><dd>${esc(plan.incomeTax?.current1040?.taxYear ?? '—')}</dd></div>
-          </dl>
-        </article>
       </section>
 
       ${taxSummary.irmaa ? `

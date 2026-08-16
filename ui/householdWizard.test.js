@@ -21,7 +21,6 @@ function plan(){
     household: {
       primary: { currentAge: 55, retirementAge: 62, planEndAge: 94, employmentStatus: 'employed' },
       spouse: { currentAge: 55, retirementAge: 64, planEndAge: 101, employmentStatus: 'employed' },
-      children: [],
       dependentsCount: 0,
     },
     income: {
@@ -29,38 +28,7 @@ function plan(){
         primary: { pia: 31200, claimAge: 67 },
         spouse: { pia: 24600, claimAge: 68 },
       },
-      other: [{
-        id: 'income-wage-1',
-        typeId: 'wages',
-        label: 'Client salary',
-        owner: 'client',
-        amount: 125000,
-        startAge: 55,
-        endAge: 61,
-        realGrowth: 0,
-        taxablePct: 1,
-      }],
-      pension: {
-        benefitByAge: { 65: 30000 },
-        base: 0,
-        startAge: 65,
-        colaPct: 2,
-      },
     },
-    savings: {
-      annual: 24000,
-      split: { traditional: 0.5, roth: 0.25, taxable: 0.25 },
-    },
-    goals: [{
-      id: 'goal-travel',
-      name: 'Travel',
-      amount: 12000,
-      startAge: 65,
-      endAge: 74,
-      cat: 'travel',
-      area: 'travel',
-      per: 'yr',
-    }],
     incomeTax: {
       current1040: {
         schemaVersion: 1,
@@ -118,10 +86,6 @@ function wizard({
   netWorthPanelCategory = null,
   netWorthDraft = null,
   withoutSpouse = false,
-  withoutSpouseFilingStatus = 'single',
-  children = [],
-  goals = null,
-  familyChildrenExpanded = false,
   taxView = 'simplified',
   optionalMenuOpen = false,
   showScheduleSE = false,
@@ -131,19 +95,12 @@ function wizard({
   taxReady = true,
   partialIncome = false,
   partialTax = false,
-  sources = null,
-  savingsSplit = null,
 } = {}){
   const value = plan();
   if(withoutSpouse){
     value.household.spouse = null;
     value.meta.spouseName = '';
-    value.meta.filingStatus = withoutSpouseFilingStatus;
   }
-  value.household.children = children;
-  if(sources) value.income.other = sources;
-  if(savingsSplit) value.savings.split = savingsSplit;
-  if(goals) value.goals = goals;
   if(grossOnlyDistributions){
     value.incomeTax.current1040.income.iraDistributions = 20000;
     value.incomeTax.current1040.income.pensionAmount = 15000;
@@ -159,7 +116,6 @@ function wizard({
     }];
   }
   const uiState = {
-    familyChildrenExpanded,
     netWorthView: 'entry',
     netWorthPanelCategory,
     netWorthMoreOpen: false,
@@ -246,145 +202,33 @@ function wizard({
           reasonCodes: ['CURRENT_1040_LINE9_DEFERRED'],
           message: 'Additional tax facts are needed',
         }),
-    goalsContent: '<div class="gh-page"><div data-goal-lane="goal-travel">Travel</div></div>',
   });
 }
 
-test('production wizard exposes the six approved semantic steps in order', () => {
+test('production wizard exposes exactly the four approved semantic steps', () => {
   assert.deepEqual(
     HOUSEHOLD_WIZARD_STEPS.map(step => step.id),
-    ['family', 'net-worth', 'income', 'goals', 'tax', 'summary'],
+    ['family', 'net-worth', 'tax', 'summary'],
   );
 });
 
-test('Family matches the approved compact people, filing, and children contract', () => {
-  const html = wizard({
-    familyChildrenExpanded: true,
-    children: [{ name: 'Avery Calloway', birthYear: 2012 }],
-  }).render('family');
+test('Family is compact and omits MFS and survivor controls', () => {
+  const html = wizard().render('family');
   assert.match(html, /data-hh-wizard-screen="family"/);
   assert.match(html, /Johnny Calloway/);
   assert.match(html, /Joanie Calloway/);
-  assert.doesNotMatch(html, /<h1>|hh-card-head/);
+  assert.match(html, /Married filing jointly/);
   assert.match(html, /data-hh-action="remove-spouse"/);
-  assert.match(html, /aria-label="Remove co-client"/);
-  assert.doesNotMatch(html, /socialSecurity|Social Security|data-wizard-field="dependents"|data-wizard-field="filingStatus"|data-wizard-field="state"/);
+  assert.match(html, /Remove co-client/);
+  assert.match(html, /data-wizard-field="client\.socialSecurityBenefit"/);
+  assert.match(html, /data-wizard-field="spouse\.socialSecurityBenefit"/);
   assert.match(html, /data-wizard-field="client\.planEndAge"/);
   assert.match(html, /data-wizard-field="spouse\.planEndAge"/);
-  assert.match(html, /data-family-children-toggle/);
-  assert.match(html, /data-child-row="0"/);
-  assert.match(html, /data-wizard-field="children\.0\.name"/);
-  assert.match(html, /data-wizard-field="children\.0\.birthYear"/);
-  assert.match(html, /data-hh-action="remove-child"/);
-  assert.match(html, /data-hh-action="add-child"/);
-  assert.match(html, /Avery Calloway/);
-  assert.match(html, /2012/);
+  assert.match(html, /Annual Social Security at full retirement age/);
+  assert.match(html, /value="31,200"/);
+  assert.match(html, /value="24,600"/);
   assert.doesNotMatch(html, /Married filing separately/);
   assert.doesNotMatch(html, /Survivor assumption/i);
-});
-
-test('Income exposes every canonical planning-income family without current-year tax fields', () => {
-  const html = wizard().render('income');
-  assert.match(html, /data-hh-wizard-screen="income"/);
-  assert.match(html, /data-wizard-field="socialSecurity\.primary\.pia"/);
-  assert.match(html, /data-wizard-field="socialSecurity\.primary\.claimAge"/);
-  assert.match(html, /Annual benefit at full retirement age/);
-  assert.match(html, /data-income-source-row="income-wage-1"/);
-  assert.match(html, /data-wizard-field="pension\.benefitByAge\.65"/);
-  assert.match(html, /data-wizard-field="savings\.annual"/);
-  assert.match(html, /<option value="rental"[^>]*>Rental net income<\/option>/);
-  for(const forbidden of [
-    'social_security',
-    'pension',
-    'tax_exempt_interest',
-    'ira_distribution',
-    'roth_conversion',
-    'short_term_capital_gain',
-    'long_term_capital_gain',
-  ]){
-    assert.doesNotMatch(html, new RegExp(`<option value="${forbidden}"`));
-  }
-  assert.match(html, /data-income-tax-treatment="fully-taxable"/);
-  assert.doesNotMatch(html, /data-wizard-field="source\.taxablePct"/);
-  assert.doesNotMatch(html, /data-wizard-field="source\.qualifiedPct"/);
-  assert.doesNotMatch(html, /<option value="undefined"/);
-  assert.match(html, /125,000|125000/);
-  assert.match(html, /31,200|31200/);
-  assert.doesNotMatch(html, /data-tax-field=/);
-});
-
-test('Income renders only type-applicable tax attributes and preserves legacy rows visibly', () => {
-  const html = wizard({
-    sources: [
-      {
-        id: 'income-dividend', typeId: 'dividends', label: 'Dividends', owner: 'client',
-        amount: 10000, startAge: 55, endAge: 99, realGrowth: 0, taxablePct: 1,
-        qualifiedPct: 0.7,
-      },
-      {
-        id: 'income-annuity', typeId: 'annuity', label: 'Annuity', owner: 'client',
-        amount: 18000, startAge: 65, endAge: 99, realGrowth: 0, taxablePct: 0.6,
-      },
-      {
-        id: 'legacy-pension', typeId: 'pension', label: 'Saved pension row', owner: 'client',
-        amount: 9000, startAge: 65, endAge: 99, realGrowth: 0, taxablePct: 0.8,
-      },
-    ],
-    savingsSplit: {
-      traditional: 0.6,
-      roth: 0.3,
-      taxable: 0.2,
-      byOwner: { client: 0.55, spouse: 0.35 },
-    },
-  }).render('income');
-  assert.match(
-    html,
-    /data-income-row-id="income-dividend"[^>]*data-wizard-field="source\.qualifiedPct"|data-wizard-field="source\.qualifiedPct"[^>]*data-income-row-id="income-dividend"/,
-  );
-  assert.match(
-    html,
-    /data-income-row-id="income-annuity"[^>]*data-wizard-field="source\.taxablePct"|data-wizard-field="source\.taxablePct"[^>]*data-income-row-id="income-annuity"/,
-  );
-  assert.match(html, /data-income-source-row="legacy-pension"/);
-  assert.match(html, /Saved type/);
-  assert.match(html, /data-income-tax-treatment="saved"/);
-  assert.match(html, /data-savings-allocation="sleeves" data-allocation-status="invalid"/);
-  assert.match(html, /data-savings-allocation="owners" data-allocation-status="invalid"/);
-});
-
-test('Goals intake step mounts the existing canonical Goals Horizon content', () => {
-  const html = wizard().render('goals');
-  assert.match(html, /data-hh-wizard-screen="goals"/);
-  assert.match(html, /data-goals-horizon-mount/);
-  assert.match(html, /data-goal-lane="goal-travel"/);
-});
-
-test('Tax is the visible owner of filing status and residence', () => {
-  const html = wizard().render('tax');
-  assert.match(html, /data-wizard-scope="tax-profile" data-wizard-field="filingStatus"/);
-  assert.match(html, /data-wizard-scope="tax-profile" data-wizard-field="state"/);
-  assert.match(html, /data-tax-field="income\.wages\.client"/);
-});
-
-test('Family uses the dashed co-client slot and keeps children collapsed by default', () => {
-  const html = wizard({
-    withoutSpouse: true,
-    children: [{ name: 'Stored child', birthYear: 2014 }],
-  }).render('family');
-  assert.equal((html.match(/data-person-owner=/g) || []).length, 1);
-  assert.match(html, /data-hh-action="add-spouse"/);
-  assert.match(html, /data-family-children-toggle/);
-  assert.doesNotMatch(html, /data-child-row=|Stored child|data-hh-action="add-child"/);
-});
-
-test('Family derives co-client presence from the household relationship, not filing status', () => {
-  const html = wizard({
-    withoutSpouse: true,
-    withoutSpouseFilingStatus: 'marriedFilingJointly',
-  }).render('family');
-  assert.equal((html.match(/data-person-owner=/g) || []).length, 1);
-  assert.match(html, /data-hh-action="add-spouse"/);
-  assert.doesNotMatch(html, /data-person-owner="spouse"/);
 });
 
 test('Net Worth presents the approved category workflow and canonical portfolio total', () => {
@@ -483,7 +327,7 @@ test('legacy MFS is visible as unsupported instead of displaying MFJ', () => {
     incomeTaxSummary: () => ({ status: 'needs_facts', reasonCodes: [] }),
   });
 
-  assert.doesNotMatch(rendered.render('family'), /filing status/i);
+  assert.match(rendered.render('family'), /Unsupported saved filing status/);
   assert.doesNotMatch(rendered.render('family'), /value="marriedFilingJointly" selected/);
   assert.match(rendered.render('tax'), /Unsupported saved filing status/);
 });
@@ -494,11 +338,12 @@ test('Simplified Tax reveals taxable companions when gross distributions are ent
   assert.match(html, /data-tax-field="income\.taxablePensions"/);
 });
 
-test('Tax shows current-return wages without presenting planning wages as return facts', () => {
+test('Tax edits member wages directly without source or override controls', () => {
   const rowSourced = wizard({ planningWages: true }).render('tax');
-  assert.match(rowSourced, /value=""[\s\S]*data-tax-field="income\.wages\.client"/);
-  assert.match(rowSourced, /value="450000"[\s\S]*data-tax-field="income\.wages"/);
-  assert.doesNotMatch(rowSourced, /value="125000"/);
+  assert.match(
+    rowSourced,
+    /value="125000"[\s\S]*data-tax-field="income\.wages\.client"/,
+  );
   assert.doesNotMatch(rowSourced, /From planning income|Use current-year amount/);
   assert.doesNotMatch(rowSourced, /data-income-group="wages"/);
   assert.doesNotMatch(rowSourced, /income\.wages\.client"[\s\S]*disabled/);
@@ -528,15 +373,6 @@ test('Summary remains minimal and omits the rejected status and unlock sections'
   assert.match(html, /data-summary-income-status="ready"/);
   assert.match(html, /data-summary-tax-status="ready"/);
   assert.match(html, /data-summary-tax-scope="FULL_1040"/);
-  assert.equal((html.match(/data-summary-income-source="income-wage-1"/g) || []).length, 1);
-  assert.match(html, /Client salary[\s\S]*\$125,000/);
-  assert.match(html, /Client Social Security[\s\S]*\$31,200 at 67/);
-  assert.equal((html.match(/data-summary-pension/g) || []).length, 1);
-  assert.match(html, /Pension[\s\S]*\$30,000 at 65 · 2% COLA/);
-  assert.equal((html.match(/data-summary-savings="annual"/g) || []).length, 1);
-  assert.equal((html.match(/data-summary-savings="mix"/g) || []).length, 1);
-  assert.match(html, /Annual savings[\s\S]*\$24,000/);
-  assert.match(html, /50% traditional · 25% Roth · 25% taxable/);
   const unavailable = wizard({ taxReady: false }).render('summary');
   assert.match(unavailable, /data-summary-income-status="not-calculable"/);
   assert.match(unavailable, /data-summary-tax-status="not-calculable"/);
@@ -555,17 +391,6 @@ test('Summary remains minimal and omits the rejected status and unlock sections'
   assert.doesNotMatch(html, /What this intake unlocks/i);
   assert.doesNotMatch(html, /planning estimate|disclosure|timeline/i);
   assert.doesNotMatch(unavailable, /data-summary-irmaa/);
-});
-
-test('Summary preserves one-time and monthly goal display semantics', () => {
-  const html = wizard({
-    goals: [
-      { id: 'goal-once', name: 'Roof', amount: 25000, startAge: 70, endAge: 70, per: 'yr' },
-      { id: 'goal-monthly', name: 'Travel', amount: 12000, startAge: 65, endAge: 75, per: 'mo' },
-    ],
-  }).render('summary');
-  assert.match(html, /Roof[\s\S]*\$25,000 once/);
-  assert.match(html, /Travel[\s\S]*\$1,000 per month/);
 });
 
 test('Summary shows available-input income and tax without incompleteness flags', () => {

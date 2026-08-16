@@ -80,19 +80,20 @@ test('family DOB is one atomic edit across profile, plan age, and canonical taxp
   assert.equal(boundary.revision, 1);
 });
 
-test('Income owns each person\'s Social Security amount while Family owns live-to age', () => {
+test('family preserves each person\'s Social Security amount and live-to age', () => {
   let current = applyHouseholdWizardEdit(plan(), {
     scope: 'family',
-    action: 'add-spouse',
+    field: 'filingStatus',
+    value: 'marriedFilingJointly',
   });
   current = applyHouseholdWizardEdit(current, {
-    scope: 'income',
-    field: 'socialSecurity.primary.pia',
+    scope: 'family',
+    field: 'client.socialSecurityBenefit',
     value: '31,200',
   });
   current = applyHouseholdWizardEdit(current, {
-    scope: 'income',
-    field: 'socialSecurity.spouse.pia',
+    scope: 'family',
+    field: 'spouse.socialSecurityBenefit',
     value: '24,600',
   });
   current = applyHouseholdWizardEdit(current, {
@@ -124,373 +125,27 @@ test('family rejects a live-to age before that person\'s current age', () => {
   );
 });
 
-test('Income rejects a negative Social Security amount without changing the plan', () => {
+test('family rejects a negative Social Security amount without changing the plan', () => {
   const subject = plan();
   const before = structuredClone(subject);
   assert.throws(
     () => applyHouseholdWizardEdit(subject, {
-      scope: 'income',
-      field: 'socialSecurity.primary.pia',
+      scope: 'family',
+      field: 'client.socialSecurityBenefit',
       value: -1,
     }),
-    /value from 0 through/,
+    /zero or a positive amount/,
   );
   assert.deepEqual(subject, before);
 });
 
 test('clearing Social Security keeps the amount unknown instead of inventing zero', () => {
   const current = applyHouseholdWizardEdit(plan(), {
-    scope: 'income',
-    field: 'socialSecurity.primary.pia',
+    scope: 'family',
+    field: 'client.socialSecurityBenefit',
     value: '',
   });
   assert.equal(current.income.socialSecurity.primary.pia, null);
-});
-
-test('Family rejects fields owned by Income and Tax without changing the plan', () => {
-  const subject = plan();
-  for(const field of [
-    'client.socialSecurityBenefit',
-    'client.socialSecurityAge',
-    'filingStatus',
-    'state',
-    'dependents',
-  ]){
-    const before = structuredClone(subject);
-    assert.throws(
-      () => applyHouseholdWizardEdit(subject, {
-        scope: 'family',
-        field,
-        value: field === 'state' ? 'MD' : 1,
-      }),
-      /Unsupported family field/,
-    );
-    assert.deepEqual(subject, before);
-  }
-});
-
-test('Family child rows add, edit, remove, and preserve displaced inputs', () => {
-  const subject = plan();
-  subject.household.dependentsCount = 3;
-  subject.income.socialSecurity.primary = { pia: 31200, claimAge: 70 };
-
-  let edited = applyHouseholdWizardEdit(subject, {
-    scope: 'family',
-    action: 'add-child',
-  });
-  assert.deepEqual(edited.household.children, [{ name: '', birthYear: null }]);
-
-  edited = applyHouseholdWizardEdit(edited, {
-    scope: 'family',
-    field: 'children.0.name',
-    value: ' Avery ',
-  });
-  edited = applyHouseholdWizardEdit(edited, {
-    scope: 'family',
-    field: 'children.0.birthYear',
-    value: '2012',
-  });
-  edited = applyHouseholdWizardEdit(edited, {
-    scope: 'family',
-    action: 'add-child',
-  });
-  edited = applyHouseholdWizardEdit(edited, {
-    scope: 'family',
-    field: 'children.1.name',
-    value: 'Jordan',
-  });
-  edited = applyHouseholdWizardEdit(edited, {
-    scope: 'family',
-    action: 'remove-child',
-    childIndex: 0,
-  });
-
-  assert.deepEqual(edited.household.children, [{ name: 'Jordan', birthYear: null }]);
-  assert.equal(edited.household.dependentsCount, 3);
-  assert.deepEqual(edited.income.socialSecurity.primary, { pia: 31200, claimAge: 70 });
-});
-
-test('Family child edits fail atomically when the row does not resolve', () => {
-  const subject = plan();
-  subject.household.children = [{ name: 'Avery', birthYear: 2012 }];
-  const before = structuredClone(subject);
-
-  assert.throws(
-    () => applyHouseholdWizardEdit(subject, {
-      scope: 'family',
-      field: 'children.4.name',
-      value: 'Wrong row',
-    }),
-    /Child row must resolve exactly once/,
-  );
-  assert.deepEqual(subject, before);
-});
-
-test('Income edits the canonical planning record without changing current-year tax facts', () => {
-  let subject = plan();
-  subject.household.spouse = {
-    currentAge: 58,
-    retirementAge: 65,
-    planEndAge: 96,
-  };
-  subject.meta.spouseName = 'Co-client';
-  subject.meta.filingStatus = 'marriedFilingJointly';
-  subject.income.socialSecurity.spouse = { pia: 18000, claimAge: 68 };
-  subject.income.other = [{
-    id: 'income_salary',
-    typeId: 'wages',
-    label: 'Client salary',
-    owner: 'client',
-    amount: 75000,
-    startAge: 60,
-    endAge: 64,
-    realGrowth: 0.01,
-    taxablePct: 1,
-    provenance: 'fixture-kept-byte-for-byte',
-  }];
-  subject.income.pension = {
-    benefitByAge: { 65: 24000, 67: 30000 },
-    base: 12000,
-    startAge: 65,
-    colaPct: 2,
-  };
-  subject.savings = {
-    annual: 18000,
-    split: {
-      traditional: 0.6,
-      roth: 0.25,
-      taxable: 0.15,
-      byOwner: { client: 0.7, spouse: 0.3 },
-    },
-  };
-  subject.incomeTax.current1040 = {
-    schemaVersion: 1,
-    taxYear: 2026,
-    incomeSourcesComplete: true,
-    income: { wages: 91000, taxableInterest: 1200 },
-  };
-  const current1040Before = structuredClone(subject.incomeTax.current1040);
-
-  subject = applyHouseholdWizardEdit(subject, {
-    scope: 'income',
-    field: 'socialSecurity.primary.pia',
-    value: '32,000',
-  });
-  subject = applyHouseholdWizardEdit(subject, {
-    scope: 'income',
-    field: 'socialSecurity.primary.claimAge',
-    value: '70',
-  });
-  subject = applyHouseholdWizardEdit(subject, {
-    scope: 'income',
-    field: 'source.amount',
-    rowId: 'income_salary',
-    value: '81,000',
-  });
-  subject = applyHouseholdWizardEdit(subject, {
-    scope: 'income',
-    field: 'pension.benefitByAge.67',
-    value: '31,500',
-  });
-  subject = applyHouseholdWizardEdit(subject, {
-    scope: 'income',
-    field: 'savings.annual',
-    value: '24,000',
-  });
-  subject = applyHouseholdWizardEdit(subject, {
-    scope: 'income',
-    field: 'savings.split.roth',
-    value: '30',
-  });
-
-  assert.deepEqual(subject.income.socialSecurity.primary, {
-    pia: 32000,
-    claimAge: 70,
-  });
-  assert.equal(subject.income.other[0].amount, 81000);
-  assert.equal(subject.income.other[0].provenance, 'fixture-kept-byte-for-byte');
-  assert.equal(subject.income.pension.benefitByAge[67], 31500);
-  assert.equal(subject.income.pension.benefitByAge[65], 24000);
-  assert.equal(subject.income.pension.base, 12000);
-  assert.equal(subject.savings.annual, 24000);
-  assert.equal(subject.savings.split.roth, 0.3);
-  assert.equal(subject.savings.split.traditional, 0.6);
-  assert.deepEqual(subject.incomeTax.current1040, current1040Before);
-});
-
-test('Income accepts sequential allocation edits but rejects a final total other than 100%', () => {
-  let subject = applyHouseholdWizardEdit(plan(), {
-    scope: 'family',
-    action: 'add-spouse',
-  });
-  subject = applyHouseholdWizardEdit(subject, {
-    scope: 'income',
-    field: 'savings.split.traditional',
-    value: 60,
-  });
-  assert.throws(
-    () => applyHouseholdWizardEdit(subject, {
-      scope: 'income',
-      action: 'validate-step',
-    }),
-    error => error?.code === 'SAVINGS_SPLIT_MUST_TOTAL_100',
-  );
-  subject = applyHouseholdWizardEdit(subject, {
-    scope: 'income', field: 'savings.split.roth', value: 20,
-  });
-  subject = applyHouseholdWizardEdit(subject, {
-    scope: 'income', field: 'savings.split.taxable', value: 20,
-  });
-  subject = applyHouseholdWizardEdit(subject, {
-    scope: 'income', field: 'savings.split.byOwner.client', value: 55,
-  });
-  assert.throws(
-    () => applyHouseholdWizardEdit(subject, {
-      scope: 'income', action: 'validate-step',
-    }),
-    error => error?.code === 'SAVINGS_OWNER_SPLIT_MUST_TOTAL_100',
-  );
-  subject = applyHouseholdWizardEdit(subject, {
-    scope: 'income', field: 'savings.split.byOwner.spouse', value: 45,
-  });
-  const validated = applyHouseholdWizardEdit(subject, {
-    scope: 'income', action: 'validate-step',
-  });
-  assert.deepEqual(validated.savings.split, {
-    traditional: 0.6,
-    roth: 0.2,
-    taxable: 0.2,
-    byOwner: { client: 0.55, spouse: 0.45 },
-  });
-});
-
-test('Income recurring rows use the planning-only type and tax-attribute contract', () => {
-  const forbidden = [
-    'social_security',
-    'pension',
-    'tax_exempt_interest',
-    'ira_distribution',
-    'roth_conversion',
-    'short_term_capital_gain',
-    'long_term_capital_gain',
-  ];
-  for(const typeId of forbidden){
-    const subject = plan();
-    const before = structuredClone(subject);
-    assert.throws(
-      () => applyHouseholdWizardEdit(subject, {
-        scope: 'income', action: 'add-income-source', typeId,
-      }),
-      /Unsupported planning income source type/,
-    );
-    assert.deepEqual(subject, before);
-  }
-
-  let subject = applyHouseholdWizardEdit(plan(), {
-    scope: 'income', action: 'add-income-source', typeId: 'wages',
-  });
-  const rowId = subject.income.other[0].id;
-  assert.equal(subject.income.other[0].taxablePct, 1);
-  assert.throws(
-    () => applyHouseholdWizardEdit(subject, {
-      scope: 'income', field: 'source.taxablePct', rowId, value: 25,
-    }),
-    /does not use a taxable percentage/,
-  );
-  subject = applyHouseholdWizardEdit(subject, {
-    scope: 'income', field: 'source.typeId', rowId, value: 'self_employment',
-  });
-  assert.equal(subject.income.other[0].taxablePct, 1);
-  subject = applyHouseholdWizardEdit(subject, {
-    scope: 'income', field: 'source.typeId', rowId, value: 'dividends',
-  });
-  subject = applyHouseholdWizardEdit(subject, {
-    scope: 'income', field: 'source.qualifiedPct', rowId, value: 65,
-  });
-  assert.equal(subject.income.other[0].taxablePct, 1);
-  assert.equal(subject.income.other[0].qualifiedPct, 0.65);
-  assert.throws(
-    () => applyHouseholdWizardEdit(subject, {
-      scope: 'income', field: 'source.typeId', rowId, value: 'pension',
-    }),
-    /Unsupported planning income source type/,
-  );
-
-  const legacy = plan();
-  legacy.income.other = [{
-    id: 'legacy-ira',
-    typeId: 'ira_distribution',
-    label: 'Saved IRA row',
-    owner: 'client',
-    amount: 12000,
-    startAge: 70,
-    endAge: 72,
-    taxablePct: 0.8,
-  }];
-  const editedLegacy = applyHouseholdWizardEdit(legacy, {
-    scope: 'income', field: 'source.amount', rowId: 'legacy-ira', value: 13000,
-  });
-  assert.equal(editedLegacy.income.other[0].typeId, 'ira_distribution');
-  assert.equal(editedLegacy.income.other[0].amount, 13000);
-  assert.equal(editedLegacy.income.other[0].taxablePct, 0.8);
-});
-
-test('Tax current-year wages stay separate from canonical planning wages', () => {
-  const subject = plan();
-  subject.income.other = [{
-    id: 'planning_wages',
-    typeId: 'wages',
-    owner: 'client',
-    label: 'Long-term salary',
-    amount: 75000,
-    startAge: 60,
-    endAge: 64,
-    realGrowth: 0,
-    taxablePct: 1,
-  }];
-  const planningIncomeBefore = structuredClone(subject.income);
-
-  const edited = applyHouseholdWizardEdit(subject, {
-    scope: 'tax',
-    action: 'set',
-    field: 'income.wages.client',
-    value: '91,000',
-  });
-
-  assert.deepEqual(edited.income, planningIncomeBefore);
-  assert.equal(edited.incomeTax.current1040.income.wages, 91000);
-  assert.deepEqual(edited.incomeTax.current1040.wagesByOwner, {
-    client: 91000,
-  });
-});
-
-test('Tax-profile edits own filing status and residence without creating people', () => {
-  const subject = plan();
-  const incomeBefore = structuredClone(subject.income);
-
-  let edited = applyHouseholdWizardEdit(subject, {
-    scope: 'tax-profile',
-    field: 'state',
-    value: 'md',
-  });
-  edited = applyHouseholdWizardEdit(edited, {
-    scope: 'tax-profile',
-    field: 'filingStatus',
-    value: 'headOfHousehold',
-  });
-
-  assert.equal(edited.meta.state, 'MD');
-  assert.equal(edited.meta.filingStatus, 'headOfHousehold');
-  assert.equal(edited.household.spouse, null);
-  assert.deepEqual(edited.income, incomeBefore);
-  assert.throws(
-    () => applyHouseholdWizardEdit(edited, {
-      scope: 'tax-profile',
-      field: 'filingStatus',
-      value: 'marriedFilingJointly',
-    }),
-    /Add a co-client in Family first/,
-  );
 });
 
 test('invalid edits leave the live plan untouched and emit no commit transition', () => {
@@ -507,7 +162,7 @@ test('invalid edits leave the live plan untouched and emit no commit transition'
 
   assert.throws(
     () => boundary.commit({
-      scope: 'tax-profile',
+      scope: 'family',
       field: 'filingStatus',
       value: 'marriedFilingSeparately',
     }),
@@ -521,13 +176,14 @@ test('invalid edits leave the live plan untouched and emit no commit transition'
 test('filing status cannot leave MFJ while a co-client record exists', () => {
   const subject = applyHouseholdWizardEdit(plan(), {
     scope: 'family',
-    action: 'add-spouse',
+    field: 'filingStatus',
+    value: 'marriedFilingJointly',
   });
   const before = structuredClone(subject);
 
   assert.throws(
     () => applyHouseholdWizardEdit(subject, {
-      scope: 'tax-profile',
+      scope: 'family',
       field: 'filingStatus',
       value: 'headOfHousehold',
     }),
@@ -541,7 +197,8 @@ test('filing status cannot leave MFJ while a co-client record exists', () => {
 test('cancelled co-client removal leaves every spouse fact untouched', () => {
   const subject = applyHouseholdWizardEdit(plan(), {
     scope: 'family',
-    action: 'add-spouse',
+    field: 'filingStatus',
+    value: 'marriedFilingJointly',
   });
   const before = structuredClone(subject);
   assert.throws(
@@ -558,7 +215,8 @@ test('cancelled co-client removal leaves every spouse fact untouched', () => {
 test('co-client removal blocks on spouse-owned accounts without partial mutation', () => {
   const subject = applyHouseholdWizardEdit(plan(), {
     scope: 'family',
-    action: 'add-spouse',
+    field: 'filingStatus',
+    value: 'marriedFilingJointly',
   });
   subject.portfolio.extraAccounts.push(createAccount('roth_ira', {
     displayName: 'Co-client Roth IRA',
@@ -598,7 +256,8 @@ test('co-client removal blocks one or many spouse-owned income rows only', () =>
   ]){
     const subject = applyHouseholdWizardEdit(plan(), {
       scope: 'family',
-      action: 'add-spouse',
+      field: 'filingStatus',
+      value: 'marriedFilingJointly',
     });
     subject.income.other = rows;
     const before = structuredClone(subject);
@@ -616,7 +275,8 @@ test('co-client removal blocks one or many spouse-owned income rows only', () =>
 
   let allowed = applyHouseholdWizardEdit(plan(), {
     scope: 'family',
-    action: 'add-spouse',
+    field: 'filingStatus',
+    value: 'marriedFilingJointly',
   });
   allowed.income.other = [
     { ...spouseRow('income-client', 50000), owner: 'client' },
@@ -634,45 +294,11 @@ test('co-client removal blocks one or many spouse-owned income rows only', () =>
   );
 });
 
-test('co-client removal blocks a contribution share until it is visibly reassigned', () => {
-  let subject = applyHouseholdWizardEdit(plan(), {
-    scope: 'family', action: 'add-spouse',
-  });
-  subject.savings = {
-    annual: 18000,
-    split: {
-      traditional: 0.6,
-      roth: 0.2,
-      taxable: 0.2,
-      byOwner: { client: 0.55, spouse: 0.45 },
-    },
-  };
-  const before = structuredClone(subject);
-  assert.throws(
-    () => applyHouseholdWizardEdit(subject, {
-      scope: 'family', action: 'remove-spouse', confirmed: true,
-    }),
-    error => error?.code === 'CO_CLIENT_CONTRIBUTIONS_REQUIRE_REASSIGNMENT'
-      && /co-client contribution share to 0%/.test(error.message),
-  );
-  assert.deepEqual(subject, before);
-
-  subject = applyHouseholdWizardEdit(subject, {
-    scope: 'income', field: 'savings.split.byOwner.client', value: 100,
-  });
-  subject = applyHouseholdWizardEdit(subject, {
-    scope: 'income', field: 'savings.split.byOwner.spouse', value: 0,
-  });
-  subject = applyHouseholdWizardEdit(subject, {
-    scope: 'family', action: 'remove-spouse', confirmed: true,
-  });
-  assert.deepEqual(subject.savings.split.byOwner, { client: 1 });
-});
-
 test('confirmed co-client removal is one atomic transition and clears spouse facts', () => {
   let current = applyHouseholdWizardEdit(plan(), {
     scope: 'family',
-    action: 'add-spouse',
+    field: 'filingStatus',
+    value: 'marriedFilingJointly',
   });
   current.meta.spouseName = 'Joanie Calloway';
   current.taxProfiles.spouse.birthDate = {
@@ -688,13 +314,6 @@ test('confirmed co-client removal is one atomic transition and clears spouse fac
     socialSecurityWagesAndTips: 0,
     socialSecurityWagesAndTipsIsScheduleSELine8d: true,
   }];
-  current = applyHouseholdWizardEdit(current, {
-    scope: 'tax', action: 'set', field: 'income.wages.client', value: 81000,
-  });
-  current = applyHouseholdWizardEdit(current, {
-    scope: 'tax', action: 'set', field: 'income.wages.spouse', value: 39000,
-  });
-  current.incomeTax.current1040.income.taxableInterest = 1200;
   current.incomeTax.current1040.incomeSourcesComplete = true;
   let replacements = 0;
   let transitions = 0;
@@ -722,9 +341,6 @@ test('confirmed co-client removal is one atomic transition and clears spouse fac
   assert.deepEqual(current.taxProfiles.spouse, createBlankTaxProfiles().spouse);
   assert.deepEqual(current.incomeTax.current1040.taxpayers, {});
   assert.equal(Object.hasOwn(current.incomeTax.current1040, 'scheduleSE'), false);
-  assert.deepEqual(current.incomeTax.current1040.wagesByOwner, { client: 81000 });
-  assert.equal(current.incomeTax.current1040.income.wages, 81000);
-  assert.equal(current.incomeTax.current1040.income.taxableInterest, 1200);
   assert.equal(current.incomeTax.current1040.incomeSourcesComplete, false);
 });
 

@@ -1773,67 +1773,26 @@ function resolveInputs(plan, ov){
   // high earners model Roth (backdoor) and post-tax brokerage contributions. The
   // ov.savingsSplit override (if given) wins over the plan's split.
   const rawSplit = ov.savingsSplit || (plan.savings && plan.savings.split) || null;
-  const splitError = (code, message) => {
-    const error = new RangeError(message);
-    error.code = code;
-    throw error;
-  };
-  const hasSplitKey = (value, key) =>
-    Boolean(value) && Object.prototype.hasOwnProperty.call(value, key);
-  const sleeveKeys = ['traditional', 'roth', 'taxable'];
-  const hasSleeveSplit = sleeveKeys.some(key => hasSplitKey(rawSplit, key));
   let savingsSplit;
-  if(!rawSplit || !hasSleeveSplit){
+  if(!rawSplit){
     savingsSplit = { traditional: 1, roth: 0, taxable: 0 };   // back-compat default
   } else {
     // A split object is given (plan or override): missing keys are 0, not 1.
-    const shares = sleeveKeys.map(key => Number(rawSplit[key] ?? 0));
-    const total = shares.reduce((sum, value) => sum + value, 0);
-    if(shares.some(value => !Number.isFinite(value) || value < 0 || value > 1)
-        || Math.abs(total - 1) > 1e-9){
-      splitError(
-        'SAVINGS_SPLIT_MUST_TOTAL_100',
-        'Traditional, Roth, and Taxable savings percentages must total 100%',
-      );
-    }
-    savingsSplit = {
-      traditional: shares[0],
-      roth: shares[1],
-      taxable: shares[2],
-    };
+    const _st = Math.max(0, rawSplit.traditional || 0);
+    const _sr = Math.max(0, rawSplit.roth || 0);
+    const _sx = Math.max(0, rawSplit.taxable || 0);
+    const _ssum = _st + _sr + _sx;
+    savingsSplit = _ssum > 0
+      ? { traditional: _st/_ssum, roth: _sr/_ssum, taxable: _sx/_ssum }
+      : { traditional: 1, roth: 0, taxable: 0 };
     // Optional per-person allocation of the traditional contribution. Absent
     // in every plan today (no UI writes it), so the projection falls back to a
     // stated assumption — see allocateTraditionalContribution.
-  }
-  const rawOwnerSplit = rawSplit?.byOwner;
-  const hasOwnerSplit = ['client', 'spouse']
-    .some(key => hasSplitKey(rawOwnerSplit, key));
-  if(hasOwnerSplit){
-    const ownerShares = ['client', 'spouse']
-      .map(key => Number(rawOwnerSplit[key] ?? 0));
-    const ownerTotal = ownerShares.reduce((sum, value) => sum + value, 0);
-    if(ownerShares.some(value => !Number.isFinite(value) || value < 0 || value > 1)
-        || Math.abs(ownerTotal - 1) > 1e-9){
-      splitError(
-        'SAVINGS_OWNER_SPLIT_MUST_TOTAL_100',
-        'Client and co-client contribution shares must total 100%',
-      );
-    }
-    if(!timeline.people.spouse && ownerShares[1] > 0){
-      splitError(
-        'SAVINGS_OWNER_UNAVAILABLE',
-        'Co-client contribution ownership requires a co-client',
-      );
-    }
-    savingsSplit.byOwner = {
-      client: ownerShares[0],
-      spouse: ownerShares[1],
-    };
+    if(rawSplit.byOwner) savingsSplit.byOwner = rawSplit.byOwner;
   }
   const traditionalContributionOwnerKnown = !(timeline.people.spouse
     && savingsAnnual > 0
-    && savingsSplit.traditional > 0
-    && !savingsSplit.byOwner);
+    && savingsSplit.traditional > 0);
   const traditionalRmdStartAge = traditionalRmdOwner
     ? timeline.people[traditionalRmdOwner]?.rmdStartAge ?? null
     : null;
@@ -1873,12 +1832,33 @@ function resolveInputs(plan, ov){
     ? plan.income.other
     : (plan.income.other ? [plan.income.other] : []);
   const current1040 = plan.incomeTax?.current1040;
+  const current1040MatchesPlanYear = Number(current1040?.taxYear)
+    === Number(planningAsOfYear);
+  const hasExplicitCurrentWages = current1040?.income
+    && Object.prototype.hasOwnProperty.call(current1040.income, 'wages')
+    && Number.isFinite(current1040.income.wages)
+    && current1040.income.wages >= 0;
   const savedMemberWageOwners = new Set(savedOtherIncome
     .filter(source => source?.typeId === 'wages' || source?.typeId === 'bonus')
     .map(source => source?.owner)
     .filter(owner => owner === 'client' || owner === 'spouse'));
-  const rawOtherIncome = savedOtherIncome;
-  const wageOwners = savedMemberWageOwners;
+  const singleCurrentWageFallback = !spousePlan
+    && savedMemberWageOwners.size === 0
+    && current1040MatchesPlanYear
+    && hasExplicitCurrentWages
+    ? [{
+        typeId: 'wages',
+        owner: 'client',
+        amount: current1040.income.wages,
+        realGrowth: 0,
+        taxablePct: 1,
+      }]
+    : [];
+  const rawOtherIncome = [...savedOtherIncome, ...singleCurrentWageFallback];
+  const wageOwners = new Set([
+    ...savedMemberWageOwners,
+    ...singleCurrentWageFallback.map(source => source.owner),
+  ]);
   if(current1040 && current1040.incomeSourcesComplete !== true){
     for(const [owner, personPlan, personTimeline] of [
       ['client', plan.household.primary, timeline.people.client],
@@ -2442,22 +2422,14 @@ function allocateTraditionalContribution(traditional, amount, explicitSplit, has
   if(!(amount > 0)) return { byOwner, assumption: null };
 
   if(explicitSplit){
-    const shares = TRADITIONAL_PERSON_OWNERS
-      .map(owner => Number(explicitSplit[owner] ?? 0));
-    const total = shares.reduce((sum, value) => sum + value, 0);
-    if(shares.some(value => !Number.isFinite(value) || value < 0 || value > 1)
-        || Math.abs(total - 1) > 1e-9
-        || (!hasSpouse && shares[1] > 0)){
-      const error = new RangeError('Client and co-client contribution shares must total 100%');
-      error.code = !hasSpouse && shares[1] > 0
-        ? 'SAVINGS_OWNER_UNAVAILABLE'
-        : 'SAVINGS_OWNER_SPLIT_MUST_TOTAL_100';
-      throw error;
+    let weight = 0;
+    for(const owner of TRADITIONAL_PERSON_OWNERS) weight += Math.max(0, explicitSplit[owner] ?? 0);
+    if(weight > 0){
+      for(const owner of TRADITIONAL_PERSON_OWNERS){
+        byOwner[owner] = amount * (Math.max(0, explicitSplit[owner] ?? 0) / weight);
+      }
+      return { byOwner, assumption: null };
     }
-    for(const [index, owner] of TRADITIONAL_PERSON_OWNERS.entries()){
-      byOwner[owner] = amount * shares[index];
-    }
-    return { byOwner, assumption: null };
   }
 
   // No co-client: pre-tax contributions can only be the client's. Determinate,

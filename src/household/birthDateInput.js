@@ -5,8 +5,8 @@ export function splitIsoBirthDate(iso){
   }
   const [year, month, day] = iso.split('-');
   return {
-    month,
-    day,
+    month: String(Number(month)),
+    day: String(Number(day)),
     year,
   };
 }

@@ -21,26 +21,6 @@ export const INCOME_SOURCE_TYPES = freezeRows([
   { id: 'other', label: 'Other income', timing: 'ongoing', taxablePct: 1 },
 ]);
 
-// The Income step owns recurring planning cash flows, not current-year Form
-// 1040 lines. Social Security and pension also have dedicated canonical
-// controls on that step, so neither belongs in this add/type-change catalog.
-// `taxTreatment` controls which tax attribute, if any, is editable in the UI.
-export const PLANNING_INCOME_SOURCE_TYPES = freezeRows([
-  { id: 'wages', label: 'Wages or salary', timing: 'working', taxablePct: 1, taxTreatment: 'fully-taxable' },
-  { id: 'bonus', label: 'Bonus', timing: 'working', taxablePct: 1, taxTreatment: 'fully-taxable' },
-  { id: 'self_employment', label: 'Self-employment', timing: 'working', taxablePct: 1, taxTreatment: 'fully-taxable' },
-  { id: 'annuity', label: 'Annuity', timing: 'retirement', taxablePct: 1, taxTreatment: 'taxable-share' },
-  { id: 'rental', label: 'Rental net income', timing: 'ongoing', taxablePct: 1, taxTreatment: 'fully-taxable' },
-  { id: 'interest', label: 'Taxable interest', timing: 'ongoing', taxablePct: 1, taxTreatment: 'fully-taxable' },
-  { id: 'dividends', label: 'Dividends', timing: 'ongoing', taxablePct: 1, taxTreatment: 'qualified-share' },
-  { id: 'deferred_comp', label: 'Deferred compensation', timing: 'retirement', taxablePct: 1, taxTreatment: 'fully-taxable' },
-  { id: 'other', label: 'Other income', timing: 'ongoing', taxablePct: 1, taxTreatment: 'taxable-share' },
-]);
-
-export function planningIncomeType(id){
-  return PLANNING_INCOME_SOURCE_TYPES.find(type => type.id === id) || null;
-}
-
 export const CURRENT_1040_INCOME_SOURCE_GROUPS = Object.freeze([
   Object.freeze({
     id: 'wages',
@@ -167,7 +147,6 @@ export function ownerLabel(plan, owner){
 
 export function normalizedIncomeSource(plan, source = {}){
   const type = incomeType(source.typeId || source.type || 'other');
-  const planningType = planningIncomeType(type.id);
   const owner = source.owner === 'spouse' || source.owner === 'joint' ? source.owner : 'client';
   const currentAge = currentAgeForOwner(plan, owner);
   const retirementAge = retirementAgeForOwner(plan, owner);
@@ -186,10 +165,7 @@ export function normalizedIncomeSource(plan, source = {}){
       ? retirementAge - 1
       : type.timing === 'current' ? currentAge : 999),
     realGrowth: Number(source.realGrowth) || 0,
-    taxablePct: planningType?.taxTreatment === 'fully-taxable'
-      || planningType?.taxTreatment === 'qualified-share'
-      ? 1
-      : (source.taxablePct == null ? type.taxablePct : source.taxablePct),
+    taxablePct: source.taxablePct == null ? type.taxablePct : source.taxablePct,
     qualifiedPct: source.qualifiedPct == null ? 0 : source.qualifiedPct,
     timing: type.timing,
   };
