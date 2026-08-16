@@ -44,6 +44,39 @@ export function resolveGoalSpan(plan){
   };
 }
 
+export function resolveScenarioHouseholdRetirementAge(plan, scenarioPrimaryRetirementAge){
+  const planPrimaryRetirementAge = Number(plan?.household?.primary?.retirementAge);
+  const scenarioRetirementAge = Number(scenarioPrimaryRetirementAge);
+  const householdRetirementAge = resolveGoalSpan(plan).retirementAge;
+  if(!Number.isFinite(planPrimaryRetirementAge) || !Number.isFinite(scenarioRetirementAge)){
+    return householdRetirementAge;
+  }
+  return householdRetirementAge + (scenarioRetirementAge - planPrimaryRetirementAge);
+}
+
+export function goalHasFutureWorkingYears(goal, span){
+  const currentAge = Number(span?.currentAge);
+  const retirementAge = Number(span?.retirementAge);
+  const startAge = Number(goal?.startAge);
+  const endAge = Number(goal?.endAge);
+  if(![currentAge, retirementAge, startAge, endAge].every(Number.isFinite)){
+    return false;
+  }
+  return Math.max(currentAge,startAge) <= Math.min(endAge,retirementAge - 1);
+}
+
+export function resolveEffectiveGoal(baseGoal, override, householdRetirementAge){
+  return {
+    amount: override?.amount != null ? override.amount : (baseGoal.amount || 0),
+    startAge: override?.startAge != null
+      ? override.startAge
+      : (baseGoal.startsAtRetirement === true
+          ? householdRetirementAge
+          : baseGoal.startAge),
+    endAge: override?.endAge != null ? override.endAge : baseGoal.endAge,
+  };
+}
+
 export function normalizeGoalCategory(goal){
   const requested = goal?.cat || goal?.area || '';
   if(GOAL_CATEGORY_MAP[requested]) return requested;
@@ -101,13 +134,9 @@ export function setGoalPer(goal, nextPer){
     goal.per = 'yr';
     return goal;
   }
-  if(nextPer === 'mo' && goal.per !== 'mo'){
-    const monthly = Math.max(50, Math.round(goalAnnualAmount(goal) / 12 / 50) * 50);
-    goal.amount = monthly * 12;
-    goal.per = 'mo';
-  }else if(nextPer === 'yr'){
-    goal.per = 'yr';
-  }
+  // Cadence is presentation only. The canonical amount always remains annual;
+  // switching views must never round or rewrite the plan's economics.
+  goal.per = nextPer === 'mo' ? 'mo' : 'yr';
   return goal;
 }
 

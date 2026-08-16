@@ -157,7 +157,8 @@ export function renderCompare(scns, baseline, { plan, goalsExpandedState, esc, d
       : '<div class="cell--goal lever"><span class="lever__name">Goals</span></div>';
     const goalDetailRows = goalsExpanded ? baseGoals.map((bg, gi) => {
       const baseWin = bg.once ? ('at age ' + bg.startAge) : ('age ' + bg.startAge + '–' + bg.endAge);
-      const gut = '<div class="lever goal-detail"><span class="goal-detail__name">' + esc(bg.name) + '</span><span class="goal-detail__meta">base: ' + esc(baseWin) + '</span></div>';
+      const baseFunding = bg.fundingNote ? (' · ' + bg.fundingNote) : '';
+      const gut = '<div class="lever goal-detail"><span class="goal-detail__name">' + esc(bg.name) + '</span><span class="goal-detail__meta">base: ' + esc(baseWin + baseFunding) + '</span></div>';
       const cells = scns.map((s) => {
         const g = s.goals[gi];
         if (!g) return '<div class="cell cell--goal-detail"></div>';
@@ -174,9 +175,11 @@ export function renderCompare(scns, baseline, { plan, goalsExpandedState, esc, d
         }
         const editedDot = g.overridden ? '<span class="cmp-goal-edited" title="Edited in this plan" aria-label="Edited in this plan"></span>' : '';
         const deltaChip = (!s.isBaseline && g.amountDelta) ? '<span class="cell__delta">' + (g.amountDelta > 0 ? '+' : '−') + '$' + Math.abs(g.amountDelta).toLocaleString('en-US') + '</span>' : '';
+        const fundingNote = g.fundingNote ? '<div class="goal-detail__meta">' + esc(g.fundingNote) + '</div>' : '';
         return (
           '<div class="cell cell--goal-detail' + (g.overridden ? ' is-overridden' : '') + '">' +
             '<div class="cmp-goal-row">' + editedDot + amtIn + ageIn + '</div>' +
+            fundingNote +
             (deltaChip ? '<div class="cmp-delta-row">' + deltaChip + '</div>' : '') +
           '</div>'
         );
@@ -235,7 +238,7 @@ export function renderFocus(scns, baseline, focusedId, showRange, {
       return (
         '<div class="goal-row ' + (g.on ? 'is-on' : 'is-off') + '">' +
           '<div class="goal-row__left">' +
-            '<button class="goal-toggle" type="button" role="switch" aria-checked="' + (g.on ? 'true' : 'false') + '" aria-label="Toggle ' + esc(g.name) + '"><span class="goal-toggle__knob"></span></button>' +
+            '<span class="goal-state goal-state--' + (g.on ? 'on' : 'off') + '">' + (g.on ? 'Active' : 'Off') + '</span>' +
             '<div class="goal-row__body"><div><div class="goal-row__name">' + esc(g.name) + '</div><div class="goal-row__meta">' + esc(g.meta) + '</div></div></div>' +
           '</div>' +
           '<div class="goal-row__amt"><b>' + amt + '</b><div class="goal-row__sub">' + sub + '</div></div>' +

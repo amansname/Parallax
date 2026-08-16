@@ -3004,6 +3004,41 @@ function cloneEngineAccounts(accounts){
   };
 }
 
+function midyearWithdrawalFactor(returnRate){
+  return Math.abs(returnRate) < 1e-7
+    ? 12
+    : returnRate / (Math.pow(1 + returnRate, 1 / 12) - 1);
+}
+
+// Ordinary retirement draws are spread through the year. With a negative
+// annual return, less than the opening balance can actually be delivered under
+// that timing convention. Scale every sleeve (and taxable basis) by the same
+// capacity factor so fundGap reports the deliverable draw and explicit
+// shortfall instead of funding from money lost before later installments.
+function buildMidyearFundingProxy(accounts, returnRate, factor){
+  const rawScale = Number.isFinite(factor) && factor > 0
+    ? ((1 + returnRate) * 12) / factor
+    : 0;
+  const scale = Math.max(0, Math.min(1, rawScale));
+  const traditionalByOwner = Object.fromEntries(
+    TRADITIONAL_OWNER_KEYS.map(owner => [
+      owner,
+      Math.max(0, accounts.traditional.byOwner[owner] ?? 0) * scale,
+    ])
+  );
+  return {
+    taxable: {
+      balance: Math.max(0, accounts.taxable.balance) * scale,
+      basis: Math.max(0, accounts.taxable.basis) * scale,
+    },
+    traditional: {
+      balance: Object.values(traditionalByOwner).reduce((sum, value) => sum + value, 0),
+      byOwner: traditionalByOwner,
+    },
+    roth: { balance: Math.max(0, accounts.roth.balance) * scale },
+  };
+}
+
 function emptyFunding(){
   return {
     totalWithdrawn: 0,
@@ -3018,6 +3053,21 @@ function accountTotal(accounts){
   return accounts.taxable.balance
     + accounts.traditional.balance
     + accounts.roth.balance;
+}
+
+function appendFailedTailRows(rows, p, failedYearIndex){
+  for(let z = failedYearIndex + 1; z < p.horizonYears; z++){
+    rows.push({
+      year:z+1, age:p.currentAge+z, source:null, returnRate:0, returnDollars:0,
+      ...householdStateAtYear(p, z),
+      socialSecurity:0, otherIncome:0, withdrawal:0,
+      expenses:0, goals:0, taxes:0,
+      startBalance:0, wdRate:0, netCashflow:0, balance:0, failed:true,
+      fundingShortfall:0,
+      accountBreakdown: { taxable:0, traditional:0, roth:0 },
+      accountBalances:  { taxable:0, traditional:0, roth:0 }
+    });
+  }
 }
 
 /**
@@ -3066,12 +3116,13 @@ function buildFederalFundingCandidate({
   const rmdRequiredByOwner = openingRmd.requiredByOwner;
   const rmdRequired = openingRmd.required;
 
+  const factor = midyearWithdrawalFactor(r);
+  const fundingAccounts = buildMidyearFundingProxy(accounts, r, factor);
   const adjustedGap = gap + taxFundingAdjustment;
   const funding = adjustedGap > 0
-    ? fundGap(accounts, adjustedGap, p.taxRates, p.withdrawalStrategy)
+    ? fundGap(fundingAccounts, adjustedGap, p.taxRates, p.withdrawalStrategy)
     : emptyFunding();
   const withdrawal = funding.totalWithdrawn;
-  const factor = Math.abs(r) < 1e-7 ? 12 : r / (Math.pow(1 + r, 1/12) - 1);
 
   accounts.taxable.balance = accounts.taxable.balance * (1 + r)
     - (funding.breakdown.taxable / 12) * factor;
@@ -3079,7 +3130,7 @@ function buildFederalFundingCandidate({
   // withdrawal counts against the owner who actually owes it), then apply the
   // engine's existing mid-year timing to each bucket.
   const traditionalGrossByOwner = allocateTraditionalDistribution({
-    traditional: accounts.traditional,
+    traditional: fundingAccounts.traditional,
     grossAmount: funding.breakdown.traditional,
     requiredByOwner: rmdRequiredByOwner,
   });
@@ -3194,6 +3245,7 @@ function buildFederalFundingCandidate({
       - (expenses + goalsY + liabCost + shortcutTax),
     balance: accountTotal(accounts),
     failed: false,
+    fundingShortfall: funding.shortfall,
     accountBreakdown: { ...funding.breakdown },
     preTaxDeltaAccountBreakdown: { ...preFederalFunding.breakdown },
     accountStartingBalances: { ...accountStartingBalances },
@@ -3224,8 +3276,14 @@ function buildFederalFundingCandidate({
 }
 
 function solveFederalFundingYear(args, taxPolicy){
+  const factor = midyearWithdrawalFactor(args.r);
+  const fundingAccounts = buildMidyearFundingProxy(
+    args.openingAccounts,
+    args.r,
+    factor
+  );
   const preFederalFunding = args.gap > 0
-    ? fundGap(args.openingAccounts, args.gap, args.p.taxRates, args.p.withdrawalStrategy)
+    ? fundGap(fundingAccounts, args.gap, args.p.taxRates, args.p.withdrawalStrategy)
     : emptyFunding();
   let adjustment = 0;
   let lowerBracket = null;
@@ -3251,7 +3309,7 @@ function solveFederalFundingYear(args, taxPolicy){
       if(accounts.taxable.balance < 0) accounts.taxable.balance = 0;
       clampTraditionalNonNegative(accounts.traditional);
       if(accounts.roth.balance < 0) accounts.roth.balance = 0;
-      let failed = accountTotal(accounts) <= 0.01 || candidate.funding.shortfall > 0.01;
+      const failed = candidate.funding.shortfall > 0.01;
       if(failed){
         accounts.taxable.balance = 0;
         accounts.taxable.basis = 0;
@@ -3476,17 +3534,47 @@ function runSinglePath(p, returnPath, options = {}){
         }
       }
       const outlayA = lumpA + goalsA;
+      // Working-year portfolio outlays use the same explicit funding result as
+      // retirement. Zero tax rates preserve the existing principal-only
+      // simplification while exposing every draw and unmet required dollar.
+      const accumulationFunding = outlayA > 0
+        ? fundGap(accounts, outlayA, { ordinary: 0, capitalGains: 0 }, 'taxable-first')
+        : emptyFunding();
+      const taxableFundingStartBalanceA = accounts.taxable.balance;
+      const taxableStartingBasisA = accounts.taxable.basis;
+      const taxableGainFractionA = accumulationFunding.breakdown.taxable > 0.01
+        && taxableFundingStartBalanceA > 0.01
+        ? Math.max(0, Math.min(
+            1,
+            (taxableFundingStartBalanceA - taxableStartingBasisA)
+              / taxableFundingStartBalanceA
+          ))
+        : undefined;
+      const taxableCapitalGainA = accumulationFunding.breakdown.taxable
+        * (taxableGainFractionA ?? 0);
       if(outlayA > 0){
-        let rem = outlayA;
-        if(rem > 0 && accounts.taxable.balance > 0){
-          const take = Math.min(accounts.taxable.balance, rem);
+        if(accumulationFunding.breakdown.taxable > 0 && accounts.taxable.balance > 0){
+          const take = accumulationFunding.breakdown.taxable;
           accounts.taxable.basis *= (accounts.taxable.balance - take) / accounts.taxable.balance;
-          accounts.taxable.balance -= take; rem -= take;
+          accounts.taxable.balance -= take;
         }
         // Liquidation for a capital outlay — no RMD is in play here (it was
         // already satisfied above), so this draws pro rata across owners.
-        if(rem > 0){ rem -= withdrawTraditionalProRata(accounts.traditional, rem); }
-        if(rem > 0){ const take = Math.min(accounts.roth.balance, rem);        accounts.roth.balance        -= take; rem -= take; }
+        if(accumulationFunding.breakdown.traditional > 0){
+          withdrawTraditionalProRata(accounts.traditional, accumulationFunding.breakdown.traditional);
+        }
+        if(accumulationFunding.breakdown.roth > 0){
+          accounts.roth.balance -= accumulationFunding.breakdown.roth;
+        }
+      }
+      const accumulationFailed = accumulationFunding.shortfall > 0.01;
+      if(accumulationFailed){
+        accounts.taxable.balance = 0;
+        accounts.taxable.basis = 0;
+        zeroTraditionalOwners(accounts.traditional);
+        accounts.roth.balance = 0;
+        failed = true;
+        if(depletionAge === null) depletionAge = age;
       }
       const endBalanceA = totalBalance();
       if(y === 9) balanceAt10 = endBalanceA;
@@ -3500,7 +3588,7 @@ function runSinglePath(p, returnPath, options = {}){
         ...householdTaxStatusAtAge(p, age),
         returnDollars: startBalanceA * r,
         socialSecurity: ssInc, otherIncome: oiInc, pension: penInc,
-        incomeTaxFacts: { ...taxIncome }, withdrawal: 0,
+        incomeTaxFacts: { ...taxIncome }, withdrawal: accumulationFunding.totalWithdrawn,
         rmd: rmdForcedA,
         rmdRequired: openingRmd.required,
         rmdAvailable: true,
@@ -3511,8 +3599,12 @@ function runSinglePath(p, returnPath, options = {}){
         expenses: 0, goals: goalsA, liabilities: 0, taxes: rowShortcutTax, savings: p.savingsAnnual, lumpSum: lumpA,
         startBalance: startBalanceA, wdRate: 0,
         netCashflow: saleProceeds - lumpA - goalsA,
-        balance: endBalanceA, failed: false,
-        accountBreakdown: { taxable: 0, traditional: 0, roth: 0 },
+        balance: endBalanceA, failed: accumulationFailed,
+        fundingShortfall: accumulationFunding.shortfall,
+        accountBreakdown: { ...accumulationFunding.breakdown },
+        taxableStartingBasis: taxableStartingBasisA,
+        taxableCapitalGain: taxableCapitalGainA,
+        ...(taxableGainFractionA !== undefined ? { taxableGainFraction: taxableGainFractionA } : {}),
         accountBalances: { taxable: accounts.taxable.balance, traditional: accounts.traditional.balance, roth: accounts.roth.balance },
         taxableEndingBasis: accounts.taxable.basis,
         taxBySource: { ss: taxOnSS, oi: taxOnOI, traditional: rmdTaxA, taxable: 0 }
@@ -3531,6 +3623,10 @@ function runSinglePath(p, returnPath, options = {}){
         lifetimeTax += rowShortcutTax;
       }
       rows.push(row);
+      if(accumulationFailed){
+        appendFailedTailRows(rows, p, y);
+        break;
+      }
       continue;
     }
 
@@ -3657,25 +3753,19 @@ function runSinglePath(p, returnPath, options = {}){
       rows.push(solved.row);
 
       if(failed){
-        for(let z = y + 1; z < p.horizonYears; z++){
-          rows.push({
-            year:z+1, age:p.currentAge+z, source:null, returnRate:0, returnDollars:0,
-            ...householdStateAtYear(p, z),
-            socialSecurity:0, otherIncome:0, withdrawal:0,
-            expenses:0, goals:0, taxes:0,
-            startBalance:0, wdRate:0, netCashflow:0, balance:0, failed:true,
-            accountBreakdown: { taxable:0, traditional:0, roth:0 },
-            accountBalances:  { taxable:0, traditional:0, roth:0 }
-          });
-        }
+        appendFailedTailRows(rows, p, y);
         break;
       }
       continue;
     }
 
-    // Compute the withdrawal breakdown without mutating accounts.
+    // Compute the withdrawal breakdown without mutating accounts. Capacity is
+    // adjusted for the same mid-year timing used below so a negative return
+    // cannot turn an undeliverable draw into a funded result.
+    const factor = midyearWithdrawalFactor(r);
+    const fundingAccounts = buildMidyearFundingProxy(accounts, r, factor);
     const funding = gap > 0
-      ? fundGap(accounts, gap, p.taxRates, p.withdrawalStrategy)
+      ? fundGap(fundingAccounts, gap, p.taxRates, p.withdrawalStrategy)
       : { totalWithdrawn: 0, totalTax: 0, breakdown: { taxable: 0, traditional: 0, roth: 0 }, taxBySource: { taxable: 0, traditional: 0 }, shortfall: 0 };
     // Preserve the spending/goal draw before a later federal-tax delta can add
     // a second funding tranche to the same mutable breakdown.
@@ -3693,8 +3783,6 @@ function runSinglePath(p, returnPath, options = {}){
     // Mid-year withdrawal factor — spreads withdrawals across the year while
     // the balance is earning the annual return. Same formula as the original
     // single-account engine; we just apply it per-account now.
-    const factor = Math.abs(r) < 1e-7 ? 12 : r / (Math.pow(1 + r, 1/12) - 1);
-
     // Capture the START-of-year values for basis math. We need these before
     // we modify the balance, because basis consumption is based on the
     // withdrawal's share of the starting balance — not the ending balance.
@@ -3707,7 +3795,7 @@ function runSinglePath(p, returnPath, options = {}){
     // RMD-first split of the ordinary traditional draw, then the same mid-year
     // math per owner bucket.
     const traditionalGrossByOwner = allocateTraditionalDistribution({
-      traditional: accounts.traditional,
+      traditional: fundingAccounts.traditional,
       grossAmount: funding.breakdown.traditional,
       requiredByOwner: openingRmd.requiredByOwner,
     });
@@ -3779,8 +3867,9 @@ function runSinglePath(p, returnPath, options = {}){
     clampTraditionalNonNegative(accounts.traditional);
     if(accounts.roth.balance < 0)        accounts.roth.balance = 0;
 
-    // Total depletion check — plan failed if no account can cover need.
-    if(totalBalance() <= 0.01 || funding.shortfall > 0.01){
+    // A path fails only when a required cash flow is not funded. Reaching
+    // exactly zero after the terminal obligation is a valid funded outcome.
+    if(funding.shortfall > 0.01){
       accounts.taxable.balance = 0; accounts.taxable.basis = 0;
       zeroTraditionalOwners(accounts.traditional);
       accounts.roth.balance = 0;
@@ -3831,6 +3920,7 @@ function runSinglePath(p, returnPath, options = {}){
       netCashflow: (ssInc + oiInc + penInc + saleProceeds)
                    - (expenses + goalsY + liabCost + resolvedTax),
       balance: endBalance, failed,
+      fundingShortfall: funding.shortfall,
       accountBreakdown: { ...funding.breakdown },
       preTaxDeltaAccountBreakdown: { ...preTaxDeltaAccountBreakdown },
       accountStartingBalances: { ...accountStartingBalances },
@@ -3868,17 +3958,7 @@ function runSinglePath(p, returnPath, options = {}){
     rows.push(row);
 
     if(failed){
-      for(let z = y+1; z < p.horizonYears; z++){
-        rows.push({
-          year:z+1, age:p.currentAge+z, source:null, returnRate:0, returnDollars:0,
-          ...householdStateAtYear(p, z),
-          socialSecurity:0, otherIncome:0, withdrawal:0,
-          expenses:0, goals:0, taxes:0,
-          startBalance:0, wdRate:0, netCashflow:0, balance:0, failed:true,
-          accountBreakdown: { taxable:0, traditional:0, roth:0 },
-          accountBalances:  { taxable:0, traditional:0, roth:0 }
-        });
-      }
+      appendFailedTailRows(rows, p, y);
       break;
     }
   }

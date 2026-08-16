@@ -12,7 +12,9 @@ const RECONCILIATION_TOLERANCE = 0.01;
 const SEMANTICS = Object.freeze({
   taxSource: 'federal-form-1040-line-24',
   fundingMethod: 'signed-fixed-point',
-  phaseScope: 'retirement-only',
+  phaseScope: 'all-modeled-years',
+  fundingScope: 'all-modeled-required-cash-flows',
+  taxConvergenceScope: 'retirement-only',
   lowerTaxTreatment: 'reduce-withdrawals-then-reinvest-excess-tax-saving',
   convergence: 'per-year-to-one-cent',
   pathSelection: 'federal-funded-selected-anchors',
@@ -158,6 +160,10 @@ function compactRow(row, expectedSourceYear, path, previous, counterfactualConte
   const withdrawalBuckets = freezeBuckets(row.accountBreakdown, `${path}.accountBreakdown`);
   const endingTotal = assertFiniteNonNegative(row.balance, `${path}.balance`);
   const grossWithdrawal = assertFiniteNonNegative(row.withdrawal ?? 0, `${path}.withdrawal`);
+  const fundingShortfall = assertFiniteNonNegative(
+    row.fundingShortfall,
+    `${path}.fundingShortfall`
+  );
   const rmdForced = assertFiniteNonNegative(row.rmd ?? 0, `${path}.rmd`);
   assertClose(sumBuckets(endingBuckets), endingTotal, `${path}.accountBalances`);
   assertClose(sumBuckets(withdrawalBuckets), grossWithdrawal, `${path}.accountBreakdown`);
@@ -179,16 +185,17 @@ function compactRow(row, expectedSourceYear, path, previous, counterfactualConte
       throw new TaxInputError(`${path}.source must match the funded return path`);
     }
   }
-  if(phase === 'accumulation' && (grossWithdrawal !== 0 || rmdForced !== 0)){
-    throw new TaxInputError(`${path} accumulation funding must be zero`);
-  }
   if(phase === 'depleted' && (
     endingTotal !== 0
     || grossWithdrawal !== 0
+    || fundingShortfall !== 0
     || sumBuckets(endingBuckets) !== 0
     || sumBuckets(withdrawalBuckets) !== 0
   )){
     throw new TaxInputError(`${path} depleted filler must be zero`);
+  }
+  if(phase !== 'depleted' && row.failed !== (fundingShortfall > RECONCILIATION_TOLERANCE)){
+    throw new TaxInputError(`${path}.failed must match fundingShortfall`);
   }
 
   const convergedFederalTax = phase === 'retirement'
@@ -201,6 +208,19 @@ function compactRow(row, expectedSourceYear, path, previous, counterfactualConte
   let preTaxDeltaWithdrawalBuckets = null;
   let withdrawalTaxCounterfactual = null;
   let convergence = null;
+  if(phase !== 'depleted'){
+    taxableCapitalGain = assertFiniteNonNegative(
+      row.taxableCapitalGain,
+      `${path}.taxableCapitalGain`
+    );
+    if(taxableCapitalGain > withdrawalBuckets.taxable + RECONCILIATION_TOLERANCE){
+      throw new TaxInputError(`${path}.taxableCapitalGain exceeds taxable withdrawals`);
+    }
+    rmdRequired = assertFiniteNonNegative(row.rmdRequired, `${path}.rmdRequired`);
+    if(rmdForced > rmdRequired + RECONCILIATION_TOLERANCE){
+      throw new TaxInputError(`${path}.rmd exceeds the required distribution`);
+    }
+  }
   if(phase === 'retirement'){
     preTaxDeltaWithdrawalBuckets = freezeBuckets(
       row.preTaxDeltaAccountBreakdown,
@@ -216,14 +236,6 @@ function compactRow(row, expectedSourceYear, path, previous, counterfactualConte
       row.taxableStartingBasis,
       `${path}.taxableStartingBasis`
     );
-    taxableCapitalGain = assertFiniteNonNegative(
-      row.taxableCapitalGain,
-      `${path}.taxableCapitalGain`
-    );
-    if(taxableCapitalGain > withdrawalBuckets.taxable + RECONCILIATION_TOLERANCE){
-      throw new TaxInputError(`${path}.taxableCapitalGain exceeds taxable withdrawals`);
-    }
-    rmdRequired = assertFiniteNonNegative(row.rmdRequired, `${path}.rmdRequired`);
     const maximumRmdForced = Math.max(
       0,
       rmdRequired - withdrawalBuckets.traditional
@@ -283,14 +295,17 @@ function compactRow(row, expectedSourceYear, path, previous, counterfactualConte
     failed: row.failed,
     convergedFederalTax,
     grossWithdrawal,
+    fundingShortfall,
     grossWithdrawalsByBucket: withdrawalBuckets,
-    ...(phase === 'retirement' ? {
+    ...(phase !== 'depleted' ? {
+      taxableCapitalGain,
       rmdForced,
       rmdRequired,
+    } : {}),
+    ...(phase === 'retirement' ? {
       preTaxDeltaGrossWithdrawalsByBucket: preTaxDeltaWithdrawalBuckets,
       startingBalances,
       taxableStartingBasis,
-      taxableCapitalGain,
       withdrawalTaxCounterfactual,
       convergence,
     } : {}),
@@ -475,7 +490,7 @@ export function buildFederalFundingPathSidecar(
   }
 
   return Object.freeze({
-    schemaVersion: 3,
+    schemaVersion: 4,
     successRate,
     survived,
     total,

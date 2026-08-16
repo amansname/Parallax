@@ -39,7 +39,9 @@ export function buildPathRows(s, {
         draw: r.withdrawal || 0,
         wdRate: (r.wdRate != null) ? r.wdRate : 0,
         ending: r.balance || 0,
-        shortfall: (r.balance != null && r.balance <= 0),
+        fundingShortfall: Number.isFinite(r.fundingShortfall) ? r.fundingShortfall : 0,
+        shortfall: (Number.isFinite(r.fundingShortfall) && r.fundingShortfall > 0.01)
+          || r.failed === true,
         startPort: r.startBalance || 0,
         goalTag: goalTagFor(plan, r, age),
       };
@@ -254,8 +256,11 @@ export function renderCashflow(scn, allScns, {
 
     const rowHtml = (r) => {
       const tax = resolveRowTax(r, sidecar);
-      const ending = (r.shortfall || r.ending <= 0) ? '$0' : fmtMoney(r.ending);
-      const endColor = (r.shortfall || r.ending <= 0) ? 'var(--down-deep)' : 'var(--text-2)';
+      const ending = r.ending === 0 ? '$0' : fmtMoney(r.ending);
+      const endColor = r.shortfall ? 'var(--down-deep)' : 'var(--text-2)';
+      const shortfallNote = r.fundingShortfall > 0.01
+        ? '<span class="cf-row__shortfall">Short ' + fmtMoney(r.fundingShortfall) + '</span>'
+        : '';
       const goalsColor = r.goals > 0 ? (r.goalTag ? '#d8c084' : '#c6a662') : 'var(--text-mute)';
       const isRetStart = retStartAge != null && !r.accum && r.age === retStartAge;
       const isRmdStart = rmdStartAge != null && r.age === rmdStartAge;
@@ -263,7 +268,7 @@ export function renderCashflow(scn, allScns, {
         ? '<span class="cf-row__mark-dot cf-row__mark-dot--ret"></span>'
         : (isRmdStart ? '<span class="cf-row__mark-dot cf-row__mark-dot--rmd"></span>' : '');
       return (
-        '<div class="cf-row cf-grid">' +
+        '<div class="cf-row cf-grid" data-age="' + esc(r.age) + '" data-funding-shortfall="' + r.fundingShortfall + '">' +
           '<span class="cf-row__year">' +
             '<span class="cf-row__mark" aria-hidden="true">' + yearMark + '</span>' +
             esc(r.year) +
@@ -280,7 +285,7 @@ export function renderCashflow(scn, allScns, {
           '<span class="cf-cell ' + (r.draw > 0 ? 'cf-cell--draw' : 'cf-cell--zero') + '">' + fmtParenMoney(r.draw, fmtMoney) + '</span>' +
           '<span class="cf-cell cf-cell--ret" style="color:' + (r.ret == null ? 'var(--text-mute)' : (r.ret < 0 ? 'var(--down)' : 'var(--tone-green)')) + ';">' + (r.ret == null ? '—' : (r.ret < 0 ? '−' : '+') + num(Math.abs(r.ret) * 100, 1) + '%') + '</span>' +
           '<span class="cf-cell cf-cell--wd" style="color:' + (!r.accum && r.startPort > 0 ? cfWdColor(r.wdRate, r.shortfall) : 'var(--text-mute)') + ';">' + (!r.accum && r.startPort > 0 ? num(r.wdRate, 1) + '%' : '—') + '</span>' +
-          '<span class="cf-cell cf-cell--ending" style="color:' + endColor + ';">' + ending + '</span>' +
+          '<span class="cf-cell cf-cell--ending" style="color:' + endColor + ';"><span>' + ending + '</span>' + shortfallNote + '</span>' +
         '</div>'
       );
     };

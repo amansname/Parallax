@@ -31,7 +31,12 @@ import {
   readHouseholdStore,
 } from './household/persistence.js';
 import { createGoalsHorizonController } from '../ui/goalsHorizon.js';
-import { resolveGoalSpan } from './goals/horizonModel.js';
+import {
+  goalHasFutureWorkingYears,
+  resolveEffectiveGoal,
+  resolveScenarioHouseholdRetirementAge,
+  resolveGoalSpan,
+} from './goals/horizonModel.js';
 import { createTaxBucketsController } from '../ui/taxBuckets.js';
 import { pathModeLabel, drawSeqChart, renderPrints, syncPathControls, updatePathReplayMode } from '../ui/sequencing.js';
 import { buildPathRows, buildCashSummary, renderCashflow } from '../ui/cashflow.js';
@@ -2604,14 +2609,7 @@ $('#path-mode').onchange=e=>{
   // Effective goal (base value with this scenario's override applied) — the Goals
   // page defines the base inventory; each scenario carries amount/startAge/endAge
   // overrides only. `idx` is the goal's index in the base inventory (the override key).
-  function effGoal(baseGoal, ov, retirementAge) {
-    return {
-      amount:   (ov && ov.amount   != null) ? ov.amount   : (baseGoal.amount || 0),
-      startAge: (ov && ov.startAge != null) ? ov.startAge
-        : (baseGoal.startsAtRetirement === true ? retirementAge : baseGoal.startAge),
-      endAge:   (ov && ov.endAge   != null) ? ov.endAge   : baseGoal.endAge,
-    };
-  }
+  const effGoal = resolveEffectiveGoal;
   // Compare goal rows = base goals with a base amount > 0, keeping their original
   // index so overrides and engine goals stay aligned.
   function goalRowsBase() {
@@ -2625,23 +2623,43 @@ $('#path-mode').onchange=e=>{
     const baseScn = scenarios.find((x) => x.base);
     const baseOvMap = (baseScn && baseScn.lev && baseScn.lev.goalOv) || {};
     const planRetirementAge = plan.household.primary.retirementAge;
+    const planGoalSpan = resolveGoalSpan(plan);
     const scenarioRetirementAge = Number.isFinite(s?.lev?.retireAge) ? s.lev.retireAge : planRetirementAge;
     const baselineRetirementAge = Number.isFinite(baseScn?.lev?.retireAge) ? baseScn.lev.retireAge : planRetirementAge;
+    const scenarioHouseholdRetirementAge = resolveScenarioHouseholdRetirementAge(
+      plan,
+      scenarioRetirementAge,
+    );
+    const baselineHouseholdRetirementAge = resolveScenarioHouseholdRetirementAge(
+      plan,
+      baselineRetirementAge,
+    );
     return goalRowsBase().map(({ g, i }) => {
-      const e = effGoal(g, ovMap[i], scenarioRetirementAge);
+      const e = effGoal(g, ovMap[i], scenarioHouseholdRetirementAge);
       const once = (e.startAge === e.endAge);
+      const scenarioGoalSpan = {
+        currentAge: planGoalSpan.currentAge,
+        retirementAge: scenarioHouseholdRetirementAge,
+      };
+      const fundingNote = goalHasFutureWorkingYears(e,scenarioGoalSpan)
+        ? (g.fundFromPortfolioBeforeRetirement === true
+            ? 'portfolio funded before retirement'
+            : 'outside portfolio before retirement')
+        : '';
       const ov = ovMap[i];
       const overridden = !!(ov && (ov.amount != null || ov.startAge != null || ov.endAge != null));
       // Δ vs the baseline scenario's effective values for this goal.
-      const be = effGoal(g, baseOvMap[i], baselineRetirementAge);
+      const be = effGoal(g, baseOvMap[i], baselineHouseholdRetirementAge);
       const aDelta = (e.amount || 0) - (be.amount || 0);
       const sameAsBase = (e.amount === be.amount && e.startAge === be.startAge && e.endAge === be.endAge);
       return {
         idx: i,
         name: g.name || 'Goal',
-        meta: once ? ('at age ' + e.startAge) : ('age ' + e.startAge + '–' + e.endAge),
+        meta: (once ? ('at age ' + e.startAge) : ('age ' + e.startAge + '–' + e.endAge))
+          + (fundingNote ? (' · ' + fundingNote) : ''),
         amount: e.amount || 0, startAge: e.startAge, endAge: e.endAge,
         cadence: once ? 'one-time' : '/yr', once: once,
+        fundingNote,
         on: (e.amount || 0) > 0, added: false,
         overridden: overridden,
         amountDelta: aDelta, sameAsBase: sameAsBase,
@@ -2711,7 +2729,8 @@ $('#path-mode').onchange=e=>{
     const sc = scenarios[ci]; if (!sc || !sc.lev) return;
     const base = (Array.isArray(plan.goals) ? plan.goals : [])[idx]; if (!base) return;
     const retirementAge = Number.isFinite(sc.lev.retireAge) ? sc.lev.retireAge : plan.household.primary.retirementAge;
-    const resolvedBase = effGoal(base, null, retirementAge);
+    const householdRetirementAge = resolveScenarioHouseholdRetirementAge(plan, retirementAge);
+    const resolvedBase = effGoal(base, null, householdRetirementAge);
     const raw = parseFloat(String(inp.value).replace(/[^0-9.]/g, ''));
     if (!isFinite(raw) || raw < 0) return;
     const lo = plan.household.primary.currentAge, hi = resolveGoalSpan(plan).planEndAge;

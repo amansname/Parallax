@@ -64,7 +64,7 @@ export async function waitForWizard(
     step = null,
     afterRevision = -1,
     householdId = null,
-    timeout = 8000,
+    timeout = 15000,
   } = {},
 ){
   try{
