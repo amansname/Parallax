@@ -390,6 +390,146 @@ test('pre-retirement goals stay off-book unless portfolio funding is explicit', 
   assert.ok(end2 < end0, 'explicitly funded working-year goal lowers ending wealth');
 });
 
+test('an underfunded pre-retirement portfolio goal fails when the required cash flow is missed', () => {
+  const p = structuredClone(defaultPlan);
+  p.meta = { ...p.meta, spendingSchemaVersion: 1 };
+  p.household.primary = { currentAge: 55, retirementAge: 58, planEndAge: 58 };
+  p.household.spouse = null;
+  p.portfolio.accounts = {
+    taxable: { balance: 0, basisPct: 1 },
+    traditional: { balance: 0 },
+    roth: { balance: 0 },
+  };
+  p.savings = { ...p.savings, annual: 10_000 };
+  p.income.socialSecurity = { primary: { pia: 0, claimAge: 70 }, spouse: null };
+  p.income.pension = { benefitByAge: {}, base: 0, startAge: 99, colaPct: 0 };
+  p.income.other = [];
+  p.expenses = {
+    living: 0, housing: 0, debt: 0, healthcare: 0,
+    healthcareRealGrowth: 0, extra: [],
+  };
+  p.liabilities = [];
+  p.properties = [];
+  p.goals = [{
+    name: 'College', amount: 50_000, startAge: 55, endAge: 55,
+    fundFromPortfolioBeforeRetirement: true,
+  }];
+  p.ltc = { amount: 0, onsetAge: 99 };
+  p.taxes = { ordinary: 0, capitalGains: 0 };
+
+  const inputs = resolveInputs(p, {});
+  const path = Array.from({ length: inputs.horizonYears }, (_, index) => ({
+    y: 2026 + index,
+    proxyReturn: 0,
+  }));
+  const sim = runSinglePath(inputs, path);
+  const result = analyzeResults([sim], inputs);
+  const goalYear = sim.rows[0];
+
+  assert.equal(goalYear.goals, 50_000);
+  assert.equal(goalYear.withdrawal, 10_000, 'available savings must be reported as the portfolio draw');
+  assert.deepEqual(goalYear.accountBreakdown, { taxable: 0, traditional: 10_000, roth: 0 });
+  assert.equal(goalYear.fundingShortfall, 40_000, 'the unmet required cash flow must not disappear');
+  assert.equal(goalYear.failed, true);
+  assert.equal(sim.failed, true);
+  assert.equal(sim.depletionAge, 55);
+  assert.equal(result.successRate, 0);
+  assert.ok(sim.rows.slice(1).every(row => row.failed), 'later savings cannot erase an earlier missed obligation');
+});
+
+test('terminal funding distinguishes exact zero from a negative-return shortfall', () => {
+  const p = structuredClone(defaultPlan);
+  p.meta = { ...p.meta, spendingSchemaVersion: 1 };
+  p.household.primary = { currentAge: 65, retirementAge: 65, planEndAge: 65 };
+  p.household.spouse = null;
+  p.portfolio.accounts = {
+    taxable: { balance: 100_000, basisPct: 1 },
+    traditional: { balance: 0 },
+    roth: { balance: 0 },
+  };
+  p.savings = { ...p.savings, annual: 0 };
+  p.income.socialSecurity = { primary: { pia: 0, claimAge: 70 }, spouse: null };
+  p.income.pension = { benefitByAge: {}, base: 0, startAge: 99, colaPct: 0 };
+  p.income.other = [];
+  p.expenses = {
+    living: 0, housing: 0, debt: 0, healthcare: 0,
+    healthcareRealGrowth: 0, extra: [],
+  };
+  p.liabilities = [];
+  p.properties = [];
+  p.goals = [{ name: 'Final gift', amount: 100_000, startAge: 65, endAge: 65 }];
+  p.ltc = { amount: 0, onsetAge: 99 };
+  p.taxes = { ordinary: 0, capitalGains: 0 };
+
+  const inputs = resolveInputs(p, {});
+  const path = [{ y: 2026, proxyReturn: 0 }];
+  const ordinary = runSinglePath(inputs, path);
+  const federal = runSinglePath(inputs, path, {
+    taxPolicy: () => 0,
+    fundTaxPolicyDelta: true,
+  });
+
+  for(const sim of [ordinary, federal]){
+    assert.equal(sim.rows[0].withdrawal, 100_000);
+    assert.equal(sim.rows[0].fundingShortfall, 0);
+    assert.equal(sim.rows[0].balance, 0);
+    assert.equal(sim.rows[0].failed, false);
+    assert.equal(sim.failed, false);
+    assert.equal(analyzeResults([sim], inputs).successRate, 100);
+  }
+
+  const negativePath = [{ y: 2026, proxyReturn: -0.5 }];
+  const negativeOrdinary = runSinglePath(inputs, negativePath);
+  const negativeFederal = runSinglePath(inputs, negativePath, {
+    taxPolicy: () => 0,
+    fundTaxPolicyDelta: true,
+  });
+
+  for(const sim of [negativeOrdinary, negativeFederal]){
+    const row = sim.rows[0];
+    assert.ok(row.withdrawal > 0 && row.withdrawal < 100_000);
+    assert.ok(row.fundingShortfall > 0);
+    assert.ok(Math.abs(row.withdrawal + row.fundingShortfall - 100_000) <= 0.01);
+    assert.equal(row.balance, 0);
+    assert.equal(row.failed, true);
+    assert.equal(sim.failed, true);
+    assert.equal(analyzeResults([sim], inputs).successRate, 0);
+  }
+});
+
+test('a zero-asset terminal year succeeds when no modeled cash flow is required', () => {
+  const p = structuredClone(defaultPlan);
+  p.meta = { ...p.meta, spendingSchemaVersion: 1 };
+  p.household.primary = { currentAge: 65, retirementAge: 65, planEndAge: 65 };
+  p.household.spouse = null;
+  p.portfolio.accounts = {
+    taxable: { balance: 0, basisPct: 1 },
+    traditional: { balance: 0 },
+    roth: { balance: 0 },
+  };
+  p.savings = { ...p.savings, annual: 0 };
+  p.income.socialSecurity = { primary: { pia: 0, claimAge: 70 }, spouse: null };
+  p.income.pension = { benefitByAge: {}, base: 0, startAge: 99, colaPct: 0 };
+  p.income.other = [];
+  p.expenses = {
+    living: 0, housing: 0, debt: 0, healthcare: 0,
+    healthcareRealGrowth: 0, extra: [],
+  };
+  p.liabilities = [];
+  p.properties = [];
+  p.goals = [];
+  p.ltc = { amount: 0, onsetAge: 99 };
+  p.taxes = { ordinary: 0, capitalGains: 0 };
+
+  const inputs = resolveInputs(p, {});
+  const sim = runSinglePath(inputs, [{ y: 2026, proxyReturn: 0 }]);
+
+  assert.equal(sim.rows[0].fundingShortfall, 0);
+  assert.equal(sim.rows[0].balance, 0);
+  assert.equal(sim.failed, false);
+  assert.equal(analyzeResults([sim], inputs).successRate, 100);
+});
+
 test('a legacy { vacation, property, gifts } goals object still resolves', () => {
   const p = JSON.parse(JSON.stringify(defaultPlan));
   p.goals = { vacation: 15000, property: 10000, gifts: 5000 };

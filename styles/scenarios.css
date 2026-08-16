@@ -419,10 +419,8 @@
 .page[data-page="scenarios"] .goal-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; }
 .page[data-page="scenarios"] .goal-row.is-off { opacity: 0.42; }
 .page[data-page="scenarios"] .goal-row__left { display: flex; align-items: center; gap: 14px; }
-.page[data-page="scenarios"] .goal-toggle { position: relative; width: 34px; height: 19px; border-radius: var(--r-pill); flex: none; background: var(--line-08); border: 0; cursor: pointer; padding: 0; }
-.page[data-page="scenarios"] .goal-toggle__knob { position: absolute; top: 2.5px; left: 2.5px; width: 14px; height: 14px; border-radius: 50%; background: var(--text-6); }
-.page[data-page="scenarios"] .goal-row.is-on .goal-toggle { background: rgba(127,176,140,0.32); }
-.page[data-page="scenarios"] .goal-row.is-on .goal-toggle__knob { left: 17px; background: #9FCBA9; }
+.page[data-page="scenarios"] .goal-state { min-width: 42px; padding: 3px 8px; border-radius: var(--r-pill); flex: none; font-size: 10px; line-height: 1.2; text-align: center; color: var(--text-5); background: var(--line-08); }
+.page[data-page="scenarios"] .goal-state--on { color: #b8d6bf; background: rgba(127,176,140,0.22); }
 .page[data-page="scenarios"] .goal-row__body { display: flex; align-items: center; gap: 8px; }
 .page[data-page="scenarios"] .goal-added-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--gold); flex: none; }
 .page[data-page="scenarios"] .goal-row__name { font-size: 14.5px; color: var(--text-2); }
@@ -590,7 +588,8 @@
 .page[data-page="scenarios"] .cf-cell--draw { color: var(--text-2); }
 .page[data-page="scenarios"] .cf-cell--zero { color: var(--text-mute); }
 .page[data-page="scenarios"] .cf-cell--wd { font-size: 13px; }
-.page[data-page="scenarios"] .cf-cell--ending { font-size: 13px; font-weight: 500; color: var(--text-2); }
+.page[data-page="scenarios"] .cf-cell--ending { display: flex; flex-direction: column; align-items: flex-end; font-size: 13px; font-weight: 500; color: var(--text-2); }
+.page[data-page="scenarios"] .cf-row__shortfall { font-family: var(--font-sans); font-size: 10px; font-weight: 600; letter-spacing: .02em; color: var(--down-deep); }
 .page[data-page="scenarios"] .cf-row__goals-wrap { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; }
 .page[data-page="scenarios"] .cf-row__goaltag { font-family: var(--font-sans); font-size: 12px; letter-spacing: 0.02em; white-space: nowrap; color: #CDA877; }
 

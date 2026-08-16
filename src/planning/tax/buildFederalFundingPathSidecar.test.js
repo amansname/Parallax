@@ -79,16 +79,19 @@ function compactExpected(row, counterfactualContext){
     failed: row.failed,
     convergedFederalTax: phase === 'retirement' ? row.taxes : null,
     grossWithdrawal: row.withdrawal ?? 0,
+    fundingShortfall: row.fundingShortfall,
     grossWithdrawalsByBucket: Object.fromEntries(
       BUCKET_KEYS.map(bucket => [bucket, row.accountBreakdown[bucket]])
     ),
-    ...(phase === 'retirement' ? {
+    ...(phase !== 'depleted' ? {
+      taxableCapitalGain: row.taxableCapitalGain,
       rmdForced: row.rmd ?? 0,
       rmdRequired: row.rmdRequired,
+    } : {}),
+    ...(phase === 'retirement' ? {
       preTaxDeltaGrossWithdrawalsByBucket: row.preTaxDeltaAccountBreakdown,
       startingBalances: row.accountStartingBalances,
       taxableStartingBasis: row.taxableStartingBasis,
-      taxableCapitalGain: row.taxableCapitalGain,
       withdrawalTaxCounterfactual: runWithdrawalTaxCounterfactual(
         row,
         counterfactualContext
@@ -130,11 +133,14 @@ test('sidecar preserves compact converged federal-funded bucket paths', () => {
     shortcut.params
   );
 
-  assert.equal(sidecar.schemaVersion, 3);
+  assert.equal(sidecar.schemaVersion, 4);
   assert.equal(sidecar.successRate, federal.successRate);
   assert.equal(sidecar.total, federal.total);
   assert.equal(sidecar.survived, federal.survived);
   assert.equal(sidecar.semantics.fundingMethod, 'signed-fixed-point');
+  assert.equal(sidecar.semantics.phaseScope, 'all-modeled-years');
+  assert.equal(sidecar.semantics.fundingScope, 'all-modeled-required-cash-flows');
+  assert.equal(sidecar.semantics.taxConvergenceScope, 'retirement-only');
   assert.equal(sidecar.semantics.convergence, 'per-year-to-one-cent');
   assert.equal(sidecar.semantics.pathSelection, 'federal-funded-selected-anchors');
   assert.equal(
@@ -332,6 +338,109 @@ test('zero delta preserves funding while lower federal tax reduces the final-fun
     assert.ok(fundedRetirement.endingBalances.total > shortcutRetirement.balance);
     assert.ok(fundedRetirement.convergence.fundingAdjustment < 0);
   }
+});
+
+test('sidecar preserves funded and missed pre-retirement portfolio obligations', () => {
+  const fundedPlan = fixturePlan();
+  fundedPlan.expenses.living = 0;
+  fundedPlan.portfolio.accounts.taxable = { balance: 50000, basisPct: 0.6 };
+  fundedPlan.portfolio.extraAccounts = [];
+  fundedPlan.goals = [{
+    id: 'pre-retirement-goal',
+    name: 'Pre-retirement goal',
+    amount: 10000,
+    startAge: 63,
+    endAge: 63,
+    fundFromPortfolioBeforeRetirement: true,
+  }];
+  const fundedPaths = returnPaths(fundedPlan);
+  const fundedShortcut = runSimulation(fundedPlan, {}, fundedPaths);
+  const fundedFederal = runSimulation(fundedPlan, {}, fundedPaths, {
+    taxPolicy: (_row, context) => context.shortcutTax,
+    fundTaxPolicyDelta: true,
+  });
+  const fundedSidecar = buildFederalFundingPathSidecar(
+    fundedShortcut,
+    fundedFederal,
+    fundedPlan
+  );
+  const fundedRow = fundedSidecar.paths.p50.rows[0];
+
+  assert.equal(fundedRow.phase, 'accumulation');
+  assert.equal(fundedRow.grossWithdrawal, 10000);
+  assert.equal(fundedRow.fundingShortfall, 0);
+  assert.equal(fundedRow.taxableCapitalGain, 4000);
+  assert.equal(fundedRow.failed, false);
+  assert.equal(
+    BUCKET_KEYS.reduce((sum, bucket) => sum + fundedRow.grossWithdrawalsByBucket[bucket], 0),
+    fundedRow.grossWithdrawal
+  );
+
+  const missedPlan = structuredClone(fundedPlan);
+  missedPlan.portfolio.accounts.taxable = { balance: 0, basisPct: 1 };
+  missedPlan.portfolio.extraAccounts = [{
+    id: '401k', typeId: '401k', type: '401(k)', bucket: 'traditional', balance: 5000,
+  }];
+  const missedPaths = returnPaths(missedPlan);
+  const missedShortcut = runSimulation(missedPlan, {}, missedPaths);
+  const missedFederal = runSimulation(missedPlan, {}, missedPaths, {
+    taxPolicy: (_row, context) => context.shortcutTax,
+    fundTaxPolicyDelta: true,
+  });
+  const missedSidecar = buildFederalFundingPathSidecar(
+    missedShortcut,
+    missedFederal,
+    missedPlan
+  );
+  const missedRow = missedSidecar.paths.p50.rows[0];
+
+  assert.equal(missedSidecar.successRate, 0);
+  assert.equal(missedRow.phase, 'accumulation');
+  assert.equal(missedRow.grossWithdrawal, 5000);
+  assert.equal(missedRow.fundingShortfall, 5000);
+  assert.equal(missedRow.failed, true);
+});
+
+test('sidecar preserves a valid forced RMD during household accumulation', () => {
+  const plan = structuredClone(defaultPlan);
+  plan.meta.filingStatus = 'marriedFilingJointly';
+  plan.household.primary = { currentAge: 73, retirementAge: 75, planEndAge: 75 };
+  plan.household.spouse = { currentAge: 65, retirementAge: 67, planEndAge: 67 };
+  plan.income.socialSecurity = {
+    primary: { pia: 0, claimAge: 67 },
+    spouse: { pia: 0, claimAge: 67 },
+  };
+  plan.income.other = [];
+  plan.savings.annual = 0;
+  plan.portfolio.accounts = {
+    taxable: { balance: 0, basisPct: 1 },
+    traditional: { balance: 0 },
+    roth: { balance: 0 },
+  };
+  plan.portfolio.extraAccounts = [
+    createAccount('traditional_ira', { owner: 'client', balance: 265000 }),
+  ];
+  plan.expenses = {
+    living: 0, housing: 0, debt: 0, healthcare: 0,
+    healthcareRealGrowth: 0, extra: [],
+  };
+  plan.goals = [];
+  plan.simulation.iterations = 20;
+
+  const paths = returnPaths(plan);
+  const shortcut = runSimulation(plan, {}, paths);
+  const federal = runSimulation(plan, {}, paths, {
+    taxPolicy: (_row, context) => context.shortcutTax,
+    fundTaxPolicyDelta: true,
+  });
+  const sidecar = buildFederalFundingPathSidecar(shortcut, federal, plan);
+  const row = sidecar.paths.p50.rows[0];
+
+  assert.equal(row.phase, 'accumulation');
+  assert.ok(Math.abs(row.rmdRequired - 10000) <= 0.01);
+  assert.ok(Math.abs(row.rmdForced - 10000) <= 0.01);
+  assert.equal(row.fundingShortfall, 0);
+  assert.equal(row.failed, false);
 });
 
 test('sidecar rejects retirement rows without proven convergence metadata', () => {

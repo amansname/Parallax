@@ -453,6 +453,10 @@
   font-weight: 600;
 }
 
+.gh-funding-seg { grid-template-columns: minmax(0,1.45fr) minmax(0,.75fr); }
+.gh-funding-seg button { min-height: 48px; padding: 7px 10px; line-height: 1.25; }
+.gh-funding-note { margin-top: 8px; color: var(--ink-faint); font-size: 12px; line-height: 1.45; }
+
 .gh-presets {
   display: grid;
   margin-top: 11px;
