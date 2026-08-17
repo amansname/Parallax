@@ -12,10 +12,22 @@ import {
 
 const clonePristinePlan = pristinePlan => JSON.parse(JSON.stringify(pristinePlan));
 
+// One-shot UI signal. The app's normal boot path still receives a blank demo
+// record. Only an explicit Load demo action arms the next demo-factory call to
+// return the populated sample. Module state disappears on refresh by design.
+let populatedDemoRequested = false;
+export function requestPopulatedDemoHousehold(){
+  populatedDemoRequested = true;
+}
+
 /* Persistent first-run slot. It is intentionally blank: "demo" identifies a
    convenient record, not a fictional household whose values can overwrite the
    advisor's saved work. */
 export function createDemoHousehold(pristinePlan, currentYear){
+  if(populatedDemoRequested){
+    populatedDemoRequested = false;
+    return createPopulatedDemoHousehold(pristinePlan, currentYear);
+  }
   const p = createBlankHousehold(pristinePlan, 'demo', currentYear);
   p.meta.name = 'Demo Household';
   p.meta.isDemo = true;
@@ -177,6 +189,78 @@ function createPreRetirementCouple(pristinePlan, currentYear){
     startAge: 60,
     endAge: 64,
   });
+  return plan;
+}
+
+function createPopulatedDemoHousehold(pristinePlan, currentYear){
+  const plan = createPreRetirementCouple(pristinePlan, currentYear);
+  plan.meta.householdId = 'demo';
+  plan.meta.name = 'Demo Household';
+  plan.meta.primaryName = 'Alex Morgan';
+  plan.meta.spouseName = 'Jordan Morgan';
+  plan.meta.isDemo = true;
+  plan.meta.isSelectableDefault = false;
+
+  plan.household.primary.retirementAge = 67;
+  plan.household.spouse.retirementAge = 65;
+  plan.income.socialSecurity.primary = { pia: 44_000, claimAge: 70 };
+  plan.income.socialSecurity.spouse = { pia: 32_000, claimAge: 67 };
+  plan.savings.annual = 35_000;
+  plan.portfolio.riskProfile = 3;
+
+  const clientWages = plan.income.other.find(source => source.id === 'default-couple-client-wages');
+  const spouseWages = plan.income.other.find(source => source.id === 'default-couple-spouse-wages');
+  if(clientWages) clientWages.amount = 150_000;
+  if(spouseWages) spouseWages.amount = 95_000;
+
+  const clientTraditional = plan.portfolio.extraAccounts.find(account => account.id === 'default-couple-traditional');
+  const taxable = plan.portfolio.extraAccounts.find(account => account.id === 'default-couple-taxable');
+  const clientRoth = plan.portfolio.extraAccounts.find(account => account.id === 'default-couple-roth');
+  if(clientTraditional) clientTraditional.balance = 1_200_000;
+  if(taxable){
+    taxable.balance = 700_000;
+    taxable.basis = {
+      amount: 420_000,
+      method: 'reported',
+      status: 'confirmed',
+      source: 'household-entry',
+      confirmedAt: `${currentYear}-01-01T12:00:00Z`,
+      version: 1,
+    };
+  }
+  if(clientRoth) clientRoth.balance = 300_000;
+
+  addDefaultAccount(plan, {
+    id: 'demo-spouse-traditional',
+    typeId: 'traditional_ira',
+    displayName: 'Jordan Traditional IRA',
+    owner: 'spouse',
+    balance: 650_000,
+  });
+  addDefaultAccount(plan, {
+    id: 'demo-spouse-roth',
+    typeId: 'roth_ira',
+    displayName: 'Jordan Roth IRA',
+    owner: 'spouse',
+    balance: 250_000,
+  });
+
+  const essentials = plan.goals.find(goal => goal.system === 'essentials');
+  if(essentials) essentials.amount = 90_000;
+  plan.goals.push(
+    {
+      name: 'Travel',
+      amount: 15_000,
+      startAge: 67,
+      endAge: 80,
+    },
+    {
+      name: 'Vehicle replacement',
+      amount: 60_000,
+      startAge: 70,
+      endAge: 70,
+    },
+  );
   return plan;
 }
 
