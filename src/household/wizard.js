@@ -3,6 +3,7 @@ import {
   createHouseholdWizard,
   HOUSEHOLD_WIZARD_STEPS,
 } from '../../ui/householdWizard.js';
+import { requestPopulatedDemoHousehold } from '../../ui/householdFactories.js';
 import { escHtml } from '../../ui/dom.js';
 import { getWizardAccountTypes } from './accountTypes.js';
 import {
@@ -234,7 +235,10 @@ export function createHouseholdWizardController({
     const newButton = $('#hh-new');
     if(newButton) newButton.addEventListener('click', () => onNewHousehold());
     const demoButton = $('#hh-load-demo');
-    if(demoButton) demoButton.addEventListener('click', () => onLoadDemoHousehold());
+    if(demoButton) demoButton.addEventListener('click', () => {
+      requestPopulatedDemoHousehold();
+      onLoadDemoHousehold();
+    });
     updateHouseholdControls();
   }
 
