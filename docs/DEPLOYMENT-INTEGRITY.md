@@ -23,6 +23,8 @@ returns to the stable root when a newer artifact is active.
 port. The CI artifact job builds and uploads the exact pull-request head. Full
 browser verification downloads that same artifact and fails if the browser
 requests an application byte without the artifact ID or receipt headers.
+Because the artifact directory begins with a dot, CI must explicitly include
+hidden files when uploading it; otherwise the browser job has no candidate.
 
 ## GitHub Pages
 
