@@ -1,4 +1,5 @@
 import { getAccountTypeById } from '../src/household/accountTypes.js';
+import { NET_WORTH_ONLY_TREATMENT } from '../src/household/netWorthRecords.js';
 
 const ALL_OWNERS = Object.freeze(['client', 'spouse', 'joint']);
 const BANK_TYPE_IDS = new Set([
@@ -125,9 +126,6 @@ const TAX_LABELS = Object.freeze({
   Roth: 'Tax-Free',
 });
 
-const hasOwn = (value, key) =>
-  Boolean(value) && Object.prototype.hasOwnProperty.call(value, key);
-
 function number(value){
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
@@ -171,7 +169,12 @@ function displayTypeForAccount(account){
 }
 
 function renderSavedRow(entry, esc){
-  const meta = [entry.type, entry.owner, entry.tax, entry.link].filter(Boolean).join(' · ');
+  const scope = entry.projectionTreatment === NET_WORTH_ONLY_TREATMENT
+    ? 'Net worth only · not projected'
+    : '';
+  const meta = [entry.type, entry.owner, entry.tax, entry.link, scope]
+    .filter(Boolean)
+    .join(' · ');
   const sourceAttrs = entry.source === 'account'
     ? `data-entry-source="account" data-account-id="${esc(entry.id)}"`
     : entry.source === 'property'
@@ -385,38 +388,34 @@ export function renderHouseholdWizardNetWorth(ctx){
   } = ctx;
   const accounts = plan.portfolio?.extraAccounts || [];
   const properties = plan.properties || [];
-  const shellEntries = uiState.netWorthShellEntries || [];
-  const accountMeta = uiState.netWorthAccountMeta || {};
-  const propertyMeta = uiState.netWorthPropertyMeta || [];
-  const mortgageMeta = uiState.netWorthMortgageMeta || [];
+  const shellEntries = plan.netWorth?.shellEntries || [];
+  const mortgageMeta = properties.map(property =>
+    property?.mortgage?.netWorthMeta || {});
   const entriesByCategory = Object.fromEntries(CATEGORIES.map(category => [category.id, []]));
 
   for(const account of accounts){
-    const meta = accountMeta[account.id] || {};
     const treatment = treatmentLabel(accountTreatment(account.typeId)?.label);
     const categoryId = categoryForAccount(account);
     entriesByCategory[categoryId].push({
       source: 'account',
       id: account.id,
       name: account.displayName,
-      type: meta.type || displayTypeForAccount(account),
-      owner: hasOwn(meta, 'owner') ? ownerLabel(meta.owner) : ownerLabel(account.owner),
-      tax: categoryId === 'investment'
-        ? hasOwn(meta, 'tax') ? meta.tax : treatment
-        : '',
-      value: hasOwn(meta, 'value') ? meta.value : money(account.balance),
+      type: displayTypeForAccount(account),
+      owner: ownerLabel(account.owner),
+      tax: categoryId === 'investment' ? treatment : '',
+      value: money(account.balance),
     });
   }
 
   properties.forEach((property, index) => {
-    const meta = propertyMeta[index] || {};
+    const meta = property?.netWorthMeta || {};
     entriesByCategory.property.push({
       source: 'property',
       index,
       name: property?.name,
       type: meta.type || '',
       owner: ownerLabel(meta.owner),
-      value: hasOwn(meta, 'value') ? meta.value : money(property?.value || 0),
+      value: money(property?.value || 0),
     });
     const balance = number(property?.mortgage?.balance);
     const mortgage = mortgageMeta[index] || {};
@@ -427,8 +426,8 @@ export function renderHouseholdWizardNetWorth(ctx){
         name: mortgage.name || '',
         type: mortgage.type || '',
         owner: ownerLabel(mortgage.owner),
-        link: mortgage.link || property?.name || `Property ${index + 1}`,
-        value: hasOwn(mortgage, 'value') ? mortgage.value : money(balance),
+        link: property?.name || `Property ${index + 1}`,
+        value: money(balance),
       });
     }
   });
@@ -441,37 +440,50 @@ export function renderHouseholdWizardNetWorth(ctx){
       name: entry.name,
       type: entry.type,
       owner: ownerLabel(entry.owner),
-      tax: entry.tax || entry.canonicalTax || '',
-      link: entry.linkLabel || '',
-      value: entry.value,
+      tax: entry.tax || '',
+      value: money(entry.value),
+      projectionTreatment: entry.projectionTreatment,
     });
   }
 
-  const bankTotal = accounts
+  const shellTotals = Object.fromEntries(CATEGORIES.map(category => [category.id, 0]));
+  for(const entry of shellEntries){
+    if(entry?.categoryId in shellTotals){
+      shellTotals[entry.categoryId] += number(entry.value);
+    }
+  }
+  const canonicalBankTotal = accounts
     .filter(account => BANK_TYPE_IDS.has(account.typeId))
     .reduce((sum, account) => sum + number(account.balance), 0);
   const portfolioTotal = number(taxBucketSnapshot.totalBalance);
-  const investmentTotal = Math.max(0, portfolioTotal - bankTotal);
-  const propertyTotal = properties.reduce((sum, property) => sum + number(property?.value), 0);
-  const mortgageTotal = properties.reduce((sum, property) => sum + number(property?.mortgage?.balance), 0);
-  const assetTotal = portfolioTotal + propertyTotal;
-  const liabilityTotal = mortgageTotal;
-  const netWorthTotal = assetTotal - liabilityTotal;
+  const canonicalInvestmentTotal = Math.max(0, portfolioTotal - canonicalBankTotal);
+  const canonicalPropertyTotal = properties
+    .reduce((sum, property) => sum + number(property?.value), 0);
+  const canonicalMortgageTotal = properties
+    .reduce((sum, property) => sum + number(property?.mortgage?.balance), 0);
   const basePortfolioTotal = Object.values(plan.portfolio?.accounts || {})
     .reduce((sum, sleeve) => sum + number(sleeve?.balance), 0);
-  const presence = {
-    bank: accounts.some(account => BANK_TYPE_IDS.has(account.typeId)),
-    investment: accounts.some(account => !BANK_TYPE_IDS.has(account.typeId)) || basePortfolioTotal > 0,
-    property: properties.length > 0,
-    mortgage: properties.some((property, index) =>
-      number(property?.mortgage?.balance) > 0 || mortgageMeta[index]?.present === true),
-  };
   const categoryAmounts = {
-    bank: bankTotal,
-    investment: investmentTotal,
-    property: propertyTotal,
-    mortgage: mortgageTotal,
+    bank: canonicalBankTotal + shellTotals.bank,
+    investment: canonicalInvestmentTotal + shellTotals.investment,
+    property: canonicalPropertyTotal + shellTotals.property,
+    insurance: shellTotals.insurance,
+    card: shellTotals.card,
+    mortgage: canonicalMortgageTotal + shellTotals.mortgage,
+    loan: shellTotals.loan,
   };
+  const presence = Object.fromEntries(CATEGORIES.map(category => [
+    category.id,
+    entriesByCategory[category.id].length > 0
+      || (category.id === 'investment' && basePortfolioTotal > 0),
+  ]));
+  const assetTotal = CATEGORIES
+    .filter(category => category.group === 'Assets')
+    .reduce((sum, category) => sum + number(categoryAmounts[category.id]), 0);
+  const liabilityTotal = CATEGORIES
+    .filter(category => category.group === 'Liabilities')
+    .reduce((sum, category) => sum + number(categoryAmounts[category.id]), 0);
+  const netWorthTotal = assetTotal - liabilityTotal;
   const hasWiredData = Object.values(presence).some(Boolean);
   const amountForCategory = categoryId =>
     presence[categoryId] ? money(categoryAmounts[categoryId]) : '—';

@@ -5,6 +5,10 @@ import { syncHealthcareGoalToHousehold } from './migrateSpendingToGoals.js';
 import { validateCurrentSchemaHousehold } from './migrateAccounts.js';
 import { validateHouseholdRecordSchema } from './householdRecordSchema.js';
 import {
+  NET_WORTH_ONLY_TREATMENT,
+  NET_WORTH_SHELL_CATEGORIES,
+} from './netWorthRecords.js';
+import {
   clearWizardTaxConfirmation,
   confirmWizardTaxInputs,
   ensureWizardCurrent1040,
@@ -427,6 +431,10 @@ function applyPropertyEdit(plan, command){
       name: normalizedText(command.name),
       value: money(command.value),
       purchasePrice: 0,
+      netWorthMeta: {
+        type: normalizedText(command.type),
+        owner: normalizedText(command.owner),
+      },
       mortgage: {
         balance: 0,
         rate: 0,
@@ -448,11 +456,58 @@ function applyMortgageEdit(plan, command){
   }
   if(command.action === 'set-balance'){
     mortgage.balance = money(command.value);
+    mortgage.netWorthMeta = {
+      present: true,
+      name: normalizedText(command.name),
+      type: normalizedText(command.type),
+      owner: normalizedText(command.owner),
+    };
   }else if(command.action === 'remove'){
     mortgage.balance = 0;
+    delete mortgage.netWorthMeta;
   }else{
     throw new Error('Unsupported mortgage action');
   }
+}
+
+function applyNetWorthEdit(plan, command){
+  if(!plan.netWorth || !Array.isArray(plan.netWorth.shellEntries)){
+    throw new Error('netWorth.shellEntries must be an array');
+  }
+  if(command.action === 'add-shell-entry'){
+    const entry = asRecord(command.entry, 'entry');
+    const id = normalizedText(entry.id, { required: true });
+    if(plan.netWorth.shellEntries.some(candidate => candidate?.id === id)){
+      throw new Error(`Duplicate Net Worth record id: ${id}`);
+    }
+    const categoryId = normalizedText(entry.categoryId, { required: true });
+    if(!NET_WORTH_SHELL_CATEGORIES.includes(categoryId)){
+      throw new Error('Unsupported Net Worth record category');
+    }
+    plan.netWorth.shellEntries.push({
+      id,
+      categoryId,
+      name: normalizedText(entry.name),
+      type: normalizedText(entry.type, { required: true }),
+      owner: normalizedText(entry.owner),
+      tax: normalizedText(entry.tax),
+      value: money(entry.value),
+      projectionTreatment: NET_WORTH_ONLY_TREATMENT,
+    });
+    return;
+  }
+  if(command.action === 'remove-shell-entry'){
+    const entryId = normalizedText(command.entryId, { required: true });
+    const matches = plan.netWorth.shellEntries
+      .map((entry, index) => ({ entry, index }))
+      .filter(({ entry }) => entry?.id === entryId);
+    if(matches.length !== 1){
+      throw new Error(`Net Worth record id must resolve exactly once: ${entryId}`);
+    }
+    plan.netWorth.shellEntries.splice(matches[0].index, 1);
+    return;
+  }
+  throw new Error('Unsupported Net Worth record action');
 }
 
 function applyTaxEdit(plan, command){
@@ -493,6 +548,8 @@ export function applyHouseholdWizardEdit(plan, command, options = {}){
     applyPropertyEdit(next, command);
   }else if(command.scope === 'mortgage'){
     applyMortgageEdit(next, command);
+  }else if(command.scope === 'net-worth'){
+    applyNetWorthEdit(next, command);
   }else if(command.scope === 'tax'){
     applyTaxEdit(next, command);
   }else{

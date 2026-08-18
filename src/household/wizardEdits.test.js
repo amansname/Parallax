@@ -4,6 +4,7 @@ import { ACCOUNT_SCHEMA_VERSION } from './accountTypes.js';
 import { createAccount } from './createAccount.js';
 import { createBlankTaxProfiles } from './factEnvelope.js';
 import { HOUSEHOLD_RECORD_SCHEMA_VERSION } from './householdRecordSchema.js';
+import { createEmptyNetWorthRecords } from './netWorthRecords.js';
 import {
   applyHouseholdWizardEdit,
   createHouseholdWizardCommitBoundary,
@@ -39,6 +40,7 @@ function plan(){
       },
       extraAccounts: [],
     },
+    netWorth: createEmptyNetWorthRecords(),
     taxProfiles: createBlankTaxProfiles(),
     income: {
       other: [],
@@ -494,6 +496,72 @@ test('Net Worth canonical mutations round decimal display values once', () => {
     value: '$120,000.75',
   });
   assert.equal(edited.properties[0].mortgage.balance, 120001);
+});
+
+test('Net Worth shell records and canonical metadata mutate the household record atomically', () => {
+  const subject = plan();
+  subject.netWorth = { schemaVersion: 1, shellEntries: [] };
+  subject.properties = [];
+
+  let edited = applyHouseholdWizardEdit(subject, {
+    scope: 'net-worth',
+    action: 'add-shell-entry',
+    entry: {
+      id: 'nw-insurance',
+      categoryId: 'insurance',
+      name: 'Audit Insurance',
+      type: 'Whole Life',
+      owner: 'client',
+      tax: '',
+      value: '$50,000.40',
+    },
+  });
+  assert.deepEqual(edited.netWorth.shellEntries, [{
+    id: 'nw-insurance',
+    categoryId: 'insurance',
+    name: 'Audit Insurance',
+    type: 'Whole Life',
+    owner: 'client',
+    tax: '',
+    value: 50000,
+    projectionTreatment: 'net-worth-only',
+  }]);
+
+  edited = applyHouseholdWizardEdit(edited, {
+    scope: 'property',
+    action: 'add',
+    name: 'Audit Lake House',
+    type: 'Second Home',
+    owner: 'joint',
+    value: '$500,000',
+  });
+  assert.deepEqual(edited.properties[0].netWorthMeta, {
+    type: 'Second Home',
+    owner: 'joint',
+  });
+
+  edited = applyHouseholdWizardEdit(edited, {
+    scope: 'mortgage',
+    action: 'set-balance',
+    propertyIndex: 0,
+    name: 'Audit Lake Lender',
+    type: 'Second Home',
+    owner: 'joint',
+    value: '$120,000',
+  });
+  assert.deepEqual(edited.properties[0].mortgage.netWorthMeta, {
+    present: true,
+    name: 'Audit Lake Lender',
+    type: 'Second Home',
+    owner: 'joint',
+  });
+
+  edited = applyHouseholdWizardEdit(edited, {
+    scope: 'net-worth',
+    action: 'remove-shell-entry',
+    entryId: 'nw-insurance',
+  });
+  assert.deepEqual(edited.netWorth.shellEntries, []);
 });
 
 test('tax edits route only through canonical current1040 and preserve explicit zero', () => {

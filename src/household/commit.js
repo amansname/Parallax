@@ -1,4 +1,5 @@
 import { readBirthDateGroup, splitIsoBirthDate } from './birthDateInput.js';
+import { newWizardRowId } from './householdRecordSchema.js';
 
 function valueFromControl(control){
   if(control.type === 'checkbox') return control.checked;
@@ -27,12 +28,6 @@ function formatNetWorthCurrency(raw){
   return parts.length > 1
     ? `$${grouped}.${parts[1].slice(0, 2)}`
     : `$${grouped}`;
-}
-
-function formatCanonicalCurrency(raw){
-  const value = Number(raw);
-  const rounded = Number.isFinite(value) && value >= 0 ? Math.round(value) : 0;
-  return `$${rounded.toLocaleString('en-US')}`;
 }
 
 function blankNetWorthDraft(categoryId){
@@ -390,9 +385,6 @@ export function bindHouseholdEditor({
           }
         : currentDraft;
       if(!draft.name && !hasDigits(draft.value)) return;
-      const savedValue = hasDigits(draft.value)
-        ? formatNetWorthCurrency(draft.value)
-        : '';
       const restoreDraft = () => {
         transientState.netWorthDraft = draft;
         syncHousehold();
@@ -420,19 +412,6 @@ export function bindHouseholdEditor({
           restoreDraft();
           return;
         }
-        const createdAccounts = result.plan.portfolio.extraAccounts;
-        const account = createdAccounts[createdAccounts.length - 1];
-        if(account){
-          transientState.netWorthAccountMeta = {
-            ...transientState.netWorthAccountMeta,
-            [account.id]: {
-              type: draft.type,
-              owner: draft.owner,
-              tax: draft.categoryId === 'investment' ? draft.canonicalTax : '',
-              value: formatCanonicalCurrency(account.balance),
-            },
-          };
-        }
         syncHousehold();
         return;
       }
@@ -442,20 +421,14 @@ export function bindHouseholdEditor({
           scope: 'property',
           action: 'add',
           name: draft.name,
+          type: draft.type,
+          owner: draft.owner,
           value: draft.value,
         }, action, true);
         if(!result){
           restoreDraft();
           return;
         }
-        const index = result.plan.properties.length - 1;
-        const meta = [...transientState.netWorthPropertyMeta];
-        meta[index] = {
-          type: draft.type,
-          owner: draft.owner,
-          value: formatCanonicalCurrency(result.plan.properties[index]?.value),
-        };
-        transientState.netWorthPropertyMeta = meta;
         syncHousehold();
         return;
       }
@@ -468,23 +441,15 @@ export function bindHouseholdEditor({
           scope: 'mortgage',
           action: 'set-balance',
           propertyIndex: draft.link,
+          name: draft.name,
+          type: draft.type,
+          owner: draft.owner,
           value: draft.value,
         }, action, true);
         if(!result){
           restoreDraft();
           return;
         }
-        const index = Number(draft.link);
-        const meta = [...transientState.netWorthMortgageMeta];
-        meta[index] = {
-          present: true,
-          name: draft.name,
-          type: draft.type,
-          owner: draft.owner,
-          link: draft.linkLabel,
-          value: formatCanonicalCurrency(result.plan.properties[index]?.mortgage?.balance),
-        };
-        transientState.netWorthMortgageMeta = meta;
         syncHousehold();
         return;
       }
@@ -494,21 +459,22 @@ export function bindHouseholdEditor({
         return;
       }
 
-      transientState.netWorthShellEntries = [
-        ...transientState.netWorthShellEntries,
-        {
-          id: transientState.nextNetWorthShellId(),
+      if(!commit({
+        scope: 'net-worth',
+        action: 'add-shell-entry',
+        entry: {
+          id: newWizardRowId('net_worth'),
           categoryId: draft.categoryId,
           name: draft.name,
           type: draft.type,
           owner: draft.owner,
           tax: draft.categoryId === 'investment' ? draft.canonicalTax : '',
-          canonicalTax: draft.categoryId === 'investment' ? draft.canonicalTax : '',
-          link: draft.link,
-          linkLabel: draft.linkLabel,
-          value: savedValue,
+          value: draft.value,
         },
-      ];
+      }, action)){
+        restoreDraft();
+        return;
+      }
       syncHousehold();
       return;
     }
@@ -516,59 +482,38 @@ export function bindHouseholdEditor({
       if(!guardPlanMutation()) return;
       const source = action.dataset.entrySource;
       if(source === 'shell'){
-        transientState.netWorthShellEntries = transientState.netWorthShellEntries
-          .filter(entry => entry.id !== action.dataset.shellId);
-        syncHousehold();
+        commit({
+          scope: 'net-worth',
+          action: 'remove-shell-entry',
+          entryId: action.dataset.shellId,
+        }, action);
         return;
       }
       if(source === 'account'){
         const accountId = action.dataset.accountId;
-        const priorMeta = transientState.netWorthAccountMeta;
-        const nextMeta = { ...priorMeta };
-        delete nextMeta[accountId];
-        transientState.netWorthAccountMeta = nextMeta;
-        if(!commit({
+        commit({
           scope: 'account',
           action: 'remove',
           accountId,
-        }, action)){
-          transientState.netWorthAccountMeta = priorMeta;
-        }
+        }, action);
         return;
       }
       if(source === 'property'){
         const index = Number(action.dataset.propertyIndex);
-        const priorPropertyMeta = transientState.netWorthPropertyMeta;
-        const priorMortgageMeta = transientState.netWorthMortgageMeta;
-        const nextPropertyMeta = [...priorPropertyMeta];
-        const nextMortgageMeta = [...priorMortgageMeta];
-        nextPropertyMeta.splice(index, 1);
-        nextMortgageMeta.splice(index, 1);
-        transientState.netWorthPropertyMeta = nextPropertyMeta;
-        transientState.netWorthMortgageMeta = nextMortgageMeta;
-        if(!commit({
+        commit({
           scope: 'property',
           action: 'remove',
           propertyIndex: index,
-        }, action)){
-          transientState.netWorthPropertyMeta = priorPropertyMeta;
-          transientState.netWorthMortgageMeta = priorMortgageMeta;
-        }
+        }, action);
         return;
       }
       if(source === 'mortgage'){
         const index = Number(action.dataset.propertyIndex);
-        const priorMeta = transientState.netWorthMortgageMeta;
-        const nextMeta = [...priorMeta];
-        delete nextMeta[index];
-        transientState.netWorthMortgageMeta = nextMeta;
-        if(!commit({
+        commit({
           scope: 'mortgage',
           action: 'remove',
           propertyIndex: index,
-        }, action)){
-          transientState.netWorthMortgageMeta = priorMeta;
-        }
+        }, action);
         return;
       }
     }
