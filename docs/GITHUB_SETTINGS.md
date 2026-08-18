@@ -35,6 +35,19 @@ statuses.
    on every PR and confirm a separate review result appears.
 5. The authoring session must not count its own review as independent.
 
+## GitHub Pages
+
+1. In **Settings > Pages**, set **Build and deployment > Source** to
+   **GitHub Actions**.
+2. Do not retain the legacy branch/root Pages publisher. The only authorized
+   deploy workflow is `.github/workflows/pages.yml`.
+3. Confirm `Deploy verified Pages artifact` runs only after a successful
+   `Parallax quality` push run for the exact current `main` commit.
+4. Require the deploy run's `Verify every live byte` step to pass before
+   reporting the live site current.
+5. Follow [`DEPLOYMENT-INTEGRITY.md`](DEPLOYMENT-INTEGRITY.md) for artifact and
+   cache-boundary details.
+
 ## Manual verification record
 
 An administrator should record the date, actor, ruleset URL or identifier,

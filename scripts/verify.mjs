@@ -12,6 +12,8 @@ import { join, resolve, sep } from 'node:path';
 import { generateReturnPath, resetSeed, resolveInputs, runSimulation } from '../engine.js';
 import { runMonteCarloWithFederalFunding } from '../src/planning/tax/runMonteCarloWithFederalFunding.js';
 import { createBlankTaxProfiles } from '../src/household/factEnvelope.js';
+import { assertCleanCandidateWorktree, buildSiteArtifact } from './build-site-artifact.mjs';
+import { verifyArtifactBundle } from './site-integrity-lib.mjs';
 import {
   goToWizardStep,
   openNetWorthCategory,
@@ -21,6 +23,36 @@ import {
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const OUT = join(ROOT, 'verify-out');
+
+function currentCommit(){
+  const result = spawnSync('git', ['-C', ROOT, 'rev-parse', 'HEAD'], {
+    encoding: 'utf8',
+    windowsHide: true,
+  });
+  if(result.status !== 0) throw new Error(`could not resolve verifier commit: ${result.stderr?.trim() || 'git failed'}`);
+  return result.stdout.trim();
+}
+
+function prepareVerifiedArtifact(){
+  const configuredRoot = process.env.PARALLAX_ARTIFACT_ROOT;
+  if(!configuredRoot){
+    assertCleanCandidateWorktree();
+    buildSiteArtifact({ commit: 'HEAD' });
+  }
+  const artifactRoot = configuredRoot
+    ? resolve(ROOT, configuredRoot)
+    : join(ROOT, '.parallax-artifact');
+  const verified = verifyArtifactBundle(artifactRoot);
+  const head = currentCommit();
+  if(verified.attestation.sourceCommit !== head){
+    throw new Error(
+      `browser artifact commit ${verified.attestation.sourceCommit} does not match checked-out candidate ${head}`,
+    );
+  }
+  return verified;
+}
+
+const VERIFIED_ARTIFACT = prepareVerifiedArtifact();
 const WITHDRAWAL_PLANNER_FIXTURE = JSON.parse(readFileSync(
   join(ROOT, 'test', 'fixtures', 'withdrawal-planner-visible-entry.v1.json'),
   'utf8',
@@ -55,7 +87,7 @@ function contentType(filePath){
 }
 
 function startStaticServer(){
-  const serverRoot = resolve(ROOT);
+  const serverRoot = resolve(VERIFIED_ARTIFACT.siteRoot);
   const server = createServer((req, res) => {
     const rawPath = req.url === '/' ? '/index.html' : req.url.split('?')[0];
     const relPath = decodeURIComponent(rawPath).replace(/^\/+/, '');
@@ -73,7 +105,12 @@ function startStaticServer(){
         res.end();
         return;
       }
-      res.writeHead(200, { 'content-type': contentType(filePath) });
+      res.writeHead(200, {
+        'content-type': contentType(filePath),
+        'cache-control': 'no-store',
+        'x-parallax-artifact-id': VERIFIED_ARTIFACT.manifest.artifactId,
+        'x-parallax-source-commit': VERIFIED_ARTIFACT.attestation.sourceCommit,
+      });
       res.end(body);
     });
   });
@@ -120,8 +157,8 @@ function verifyTaxBuckets(){
   const withdrawalDom = read(join(ROOT, 'ui', 'taxAwareWithdrawalDom.js'));
   const css = read(join(ROOT, 'styles', 'tax-buckets.css'));
 
-  ok(/styles\/tax-buckets\.css\?v=1/.test(html), 'Tax Buckets stylesheet is not linked');
-  ok(/styles\/tax-aware-withdrawal\.css\?v=1/.test(html), 'Tax-Aware Withdrawal stylesheet is not linked');
+  ok(html.includes('styles/tax-buckets.css?v=__PARALLAX_ARTIFACT_ID__'), 'Tax Buckets stylesheet is not artifact-bound');
+  ok(html.includes('styles/tax-aware-withdrawal.css?v=__PARALLAX_ARTIFACT_ID__'), 'Tax-Aware Withdrawal stylesheet is not artifact-bound');
   ok(
     SKIP_SEQUENCING
       ? /data-page="scenarios"[\s\S]*data-page="tax-buckets"/.test(html)
@@ -269,6 +306,27 @@ try {
   const stableGoto = (url, options) => retryDetachedFrame(`navigate ${url}`, () => rawPage.goto(url, options));
   const stableReload = options => retryDetachedFrame('reload page', () => rawPage.reload(options));
   const errs = [];
+  const artifactRequests = [];
+  const artifactResponses = [];
+  const isMutableAppAsset = url => {
+    const parsed = new URL(url);
+    return parsed.origin === `http://127.0.0.1:${PORT}` && (
+      parsed.pathname === '/app.html'
+      || parsed.pathname === '/engine.js'
+      || /^\/(?:assets|src|styles|ui)\//.test(parsed.pathname)
+    );
+  };
+  rawPage.on('request', request => {
+    if(isMutableAppAsset(request.url())) artifactRequests.push(request.url());
+  });
+  rawPage.on('response', response => {
+    if(!isMutableAppAsset(response.url())) return;
+    artifactResponses.push({
+      url: response.url(),
+      artifactId: response.headers()['x-parallax-artifact-id'] || null,
+      sourceCommit: response.headers()['x-parallax-source-commit'] || null,
+    });
+  });
   page.on('pageerror', e => errs.push('PAGE: ' + e.message));
   page.on('console', m => {
     if(m.type() !== 'error') return;
@@ -299,6 +357,20 @@ try {
     if(blank.meta?.name !== 'Demo Household' || blank.meta?.isDemo !== true) throw new Error('blank demo metadata is wrong');
     if(blank.meta?.primaryName || blank.household?.spouse || blank.income?.socialSecurity?.primary?.pia !== null || blank.income?.socialSecurity?.primary?.claimAge !== 67)
       throw new Error(`first-run demo contains fictional values: ${JSON.stringify(blank)}`);
+
+    const expectedId = VERIFIED_ARTIFACT.manifest.artifactId;
+    const expectedCommit = VERIFIED_ARTIFACT.attestation.sourceCommit;
+    const wrongVersion = artifactRequests.filter(url => new URL(url).searchParams.get('v') !== expectedId);
+    const wrongReceipt = artifactResponses.filter(response => (
+      response.artifactId !== expectedId || response.sourceCommit !== expectedCommit
+    ));
+    if(!artifactRequests.some(url => new URL(url).pathname === '/app.html')
+      || !artifactRequests.some(url => new URL(url).pathname === '/src/main.js')){
+      throw new Error(`browser did not load the artifact application entrypoints: ${JSON.stringify(artifactRequests)}`);
+    }
+    if(wrongVersion.length || wrongReceipt.length){
+      throw new Error(`browser loaded bytes outside the verified artifact: ${JSON.stringify({ wrongVersion, wrongReceipt })}`);
+    }
   });
 
   await step('Tax wizard: Wages flow through to Withdrawal Planner tax dollars', async () => {
@@ -1277,7 +1349,14 @@ try {
     }));
     if(!m.start || !m.end || +m.start >= +m.end) throw new Error(`later preset produced an invalid range (${JSON.stringify(m)})`);
     await page.click('[data-action="category"][data-category="home"]'); await sleep(250);
-    if(!await page.evaluate(() => document.querySelector('.gh-rail__icon img')?.getAttribute('src')?.endsWith('/home.svg')))
+    if(!await page.evaluate(() => {
+      const src = document.querySelector('.gh-rail__icon img')?.getAttribute('src');
+      if(!src) return false;
+      const iconUrl = new URL(src, location.href);
+      const artifactId = new URL(location.href).searchParams.get('v');
+      return iconUrl.pathname.endsWith('/assets/goals-horizon/home.svg')
+        && iconUrl.searchParams.get('v') === artifactId;
+    }))
       throw new Error('category change did not update the source icon');
 
     const beforeDuplicate = await page.evaluate(() => document.querySelectorAll('.gh-lane').length);
@@ -2989,9 +3068,8 @@ try {
       throw new Error(`Load Demo altered the saved custom household: ${JSON.stringify(after.db[customId])}`);
   });
 
-  await step('persistence: BLOCKED is inert, truthful, and preserves every recovery byte', async () => {
-    const sleep = ms => new Promise(r => setTimeout(r, ms));
-    const blocked = 'Household data could not be safely upgraded. No saved data was changed.';
+  await step('persistence: corrupt origin bytes are preserved while current defaults remain usable', async () => {
+    const readOnly = 'Household storage could not be upgraded. Viewing a read-only copy; reload after storage is available.';
     const corrupt = '{not-json';
     const seededScenarios = JSON.stringify([
       { name:'Baseline', base:true, lev:{} },
@@ -3004,20 +3082,10 @@ try {
       localStorage.setItem('parallax.scenarios.demo.v1', scenarios);
     }, { raw: corrupt, scenarios: seededScenarios });
     await stableReload({ waitUntil: 'networkidle2', timeout: 20000 });
-    await page.waitForFunction(expected => {
-      const status = document.querySelector('#status')?.textContent.trim() || '';
-      const root = document.querySelector('[data-hh-wizard-root]');
-      const editor = document.querySelector(
-        '#hh-view [data-hh-wizard-screen],'
-          + ' #hh-view [data-wizard-field],'
-          + ' #hh-view [data-account-field],'
-          + ' #hh-view [data-tax-field],'
-          + ' #hh-view [data-tax-confirmation]',
-      );
-      return status === expected
-        && (!root || root.dataset.wizardReady !== 'true')
-        && !editor;
-    }, { timeout: 10000 }, blocked);
+    await waitForWizard(page, { householdId: 'demo' });
+    await page.waitForFunction(expected => (
+      document.querySelector('#status')?.textContent.trim() === expected
+    ), { timeout: 10000 }, readOnly);
 
     const readRecoveryBytes = () => page.evaluate(() => {
       const scenarios = {};
@@ -3034,103 +3102,76 @@ try {
       };
     });
     const beforeBytes = await readRecoveryBytes();
-    if(beforeBytes.db !== corrupt) throw new Error('blocked bootstrap replaced corrupt household bytes');
-    if(beforeBytes.active !== 'demo') throw new Error(`blocked bootstrap changed the active pointer to "${beforeBytes.active}"`);
-    if(beforeBytes.scenarios['parallax.scenarios.demo.v1'] !== seededScenarios) throw new Error('blocked bootstrap changed scenario bytes');
+    if(beforeBytes.db !== corrupt) throw new Error('read-only bootstrap replaced corrupt household bytes');
+    if(beforeBytes.active !== 'demo') throw new Error(`read-only bootstrap changed the active pointer to "${beforeBytes.active}"`);
+    if(beforeBytes.scenarios['parallax.scenarios.demo.v1'] !== seededScenarios) throw new Error('read-only bootstrap changed scenario bytes');
 
-    const assertPinned = async label => {
-      const status = await page.$eval('#status', el => el.textContent.trim());
-      if(status !== blocked) throw new Error(`${label}: blocked status was not pinned (got "${status}")`);
-    };
-    await assertPinned('initial load');
-    const blockedWizardEditor = await page.$(
-      '#hh-view [data-hh-wizard-screen],'
-      + ' #hh-view [data-wizard-field],'
-      + ' #hh-view [data-account-field],'
-      + ' #hh-view [data-tax-field],'
-      + ' #hh-view [data-tax-confirmation]',
-    );
-    if(blockedWizardEditor) throw new Error('blocked Household surface exposed wizard inputs');
-
-    const blockedControls = await page.evaluate(includeSequencing => {
-      const disabled = selector => {
-        const el = document.querySelector(selector);
-        return { selector, exists: !!el, disabled: !!el?.disabled };
-      };
-      const controls = [
-        disabled('#run-btn'), disabled('#hh-menu-btn'), disabled('#hh-switch'),
-        disabled('#hh-new'), disabled('#hh-load-demo'), disabled('#scn-add'), disabled('#scn-solve'),
-      ];
-      if(includeSequencing) controls.push(disabled('#path-mode'), disabled('#seq-select'));
-      return controls;
-    }, !SKIP_SEQUENCING);
-    const missingBlockedControls = blockedControls.filter(x => !x.exists || !x.disabled);
-    if(missingBlockedControls.length) throw new Error(`blocked mutation controls must exist and be disabled: ${JSON.stringify(missingBlockedControls)}`);
-
-    // Every product surface may still be navigated for recovery context, but no
-    // default-plan input or prior financial result may leak into a blocked view.
-    const recoverySurfaces = [
-      '.htab[data-page="household"]',
-      '.htab[data-sub-target="goals"]',
-      '.htab[data-page="scenarios"]',
-      '.htab[data-page="tax-buckets"]',
-    ];
-    if(!SKIP_SEQUENCING) recoverySurfaces.push('.htab[data-page="sequencing"]');
-    for(const selector of recoverySurfaces){
-      await stableClick(selector);
-      await sleep(400);
-      const exposed = await page.evaluate(() => {
-        const active = document.querySelector('.page.on');
-        if(!active) return { missingPage:true, controls:[], financialText:'' };
-        const visible = el => !!(el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden');
-        const controls = [...active.querySelectorAll(
-          '[data-wizard-field], [data-account-field], [data-tax-field],'
-          + ' [data-tax-confirmation], input[type="number"], input[inputmode="numeric"]',
-        )]
-          .filter(visible)
-          .map(el => ({
-            tag:el.tagName,
-            field:el.dataset.wizardField
-              || el.dataset.accountField
-              || el.dataset.taxField
-              || '',
-            value:el.value || '',
-          }));
-        const textOnly = active.cloneNode(true);
-        textOnly.querySelectorAll('.hh-progress').forEach(element => element.remove());
-        const financialText = (textOnly.textContent || '').match(/\$\s*[\d,]+|\b\d+(?:\.\d+)?\s*%/g) || [];
-        return { missingPage:false, controls, financialText };
-      });
-      if(exposed.missingPage) throw new Error(`${selector}: active page did not render`);
-      if(exposed.controls.length) throw new Error(`${selector}: blocked mode exposed fake financial inputs: ${JSON.stringify(exposed.controls.slice(0, 5))}`);
-      if(exposed.financialText.length) throw new Error(`${selector}: blocked mode exposed fake financial results: ${JSON.stringify(exposed.financialText.slice(0, 8))}`);
-      await assertPinned(selector);
+    const startup = await page.evaluate(() => ({
+      status: document.querySelector('#status')?.textContent.trim() || '',
+      selected: document.querySelector('#hh-switch')?.value || '',
+      options: Array.from(document.querySelector('#hh-switch')?.options || [], option => ({
+        value: option.value,
+        label: option.textContent.trim(),
+      })),
+      switchDisabled: Boolean(document.querySelector('#hh-switch')?.disabled),
+      loadDemoDisabled: Boolean(document.querySelector('#hh-load-demo')?.disabled),
+      newDisabled: Boolean(document.querySelector('#hh-new')?.disabled),
+      enabledFields: document.querySelectorAll('#hh-view input:not(:disabled), #hh-view select:not(:disabled), #hh-view textarea:not(:disabled)').length,
+    }));
+    for(const expected of [
+      ['demo', 'Demo Household'],
+      ['default-pre-retirement-solo', 'Pre-Retirement Solo'],
+      ['default-pre-retirement-couple', 'Pre-Retirement Couple'],
+    ]){
+      if(!startup.options.some(option => option.value === expected[0] && option.label === expected[1])){
+        throw new Error(`corrupt-origin recovery omitted current default ${expected[0]}: ${JSON.stringify(startup)}`);
+      }
+    }
+    if(startup.status !== readOnly || startup.selected !== 'demo'
+      || startup.switchDisabled || startup.loadDemoDisabled || !startup.newDisabled
+      || startup.enabledFields){
+      throw new Error(`corrupt-origin runtime state is not safely usable: ${JSON.stringify(startup)}`);
     }
 
-    await stableClick('.htab[data-page="scenarios"]');
-    await sleep(300);
-    await page.evaluate(() => {
-      document.querySelector('#run-btn')?.click();
-      document.querySelector('#scn-add')?.click();
-      document.querySelector('#scn-solve')?.click();
-    });
-    await sleep(500);
-    const blockedEngine = await page.evaluate(() => ({
-      status: document.querySelector('#status')?.textContent.trim() || '',
-      probs: [...document.querySelectorAll('#scn-view .scol__prob')].map(el => el.textContent.trim()),
-      medians: [...document.querySelectorAll('#scn-view .scol__median b')].map(el => el.textContent.trim()),
-      solverStarted: !!document.querySelector('#solver-form, #solve-panel .solve-searching'),
-      scenarioColumns: document.querySelectorAll('#scn-view .scol').length,
+    await page.select('#hh-switch', 'default-pre-retirement-solo');
+    await waitForWizard(page, { householdId: 'default-pre-retirement-solo' });
+    await stableClick('.htab[data-page="tax-buckets"]');
+    await page.waitForFunction(() => {
+      const root = document.querySelector('[data-taw-root]');
+      return root?.dataset.tawHouseholdId === 'default-pre-retirement-solo'
+        && root.getAttribute('aria-busy') === 'false'
+        && document.querySelectorAll('.taw-range:not(:disabled)').length === 5
+        && document.querySelector('[data-taw-federal-tax]')?.textContent.trim() !== '\u2014';
+    }, { timeout: 15000 });
+    const beforeSlider = await page.evaluate(() => ({
+      revision: Number(document.querySelector('[data-taw-root]')?.dataset.tawRenderRevision || -1),
+      geometry: Array.from(document.querySelectorAll('[data-taw-col]'), column => (
+        column.querySelector('.taw-col-fill')?.style.height || ''
+      )),
     }));
-    if(blockedEngine.status !== blocked) throw new Error(`blocked engine attempt replaced pinned status with "${blockedEngine.status}"`);
-    if(blockedEngine.solverStarted) throw new Error('blocked recovery allowed solver startup');
-    if(blockedEngine.scenarioColumns) throw new Error('blocked recovery rendered scenario columns from fake/default state');
-    if(blockedEngine.probs.some(p => /\d/.test(p))) throw new Error(`blocked recovery showed probabilities: ${JSON.stringify(blockedEngine.probs)}`);
-    if(blockedEngine.medians.some(m => /\$[\d,]/.test(m))) throw new Error(`blocked recovery showed medians: ${JSON.stringify(blockedEngine.medians)}`);
+    await stableClick('[data-taw-lever="realizedGain"]');
+    await page.keyboard.press('End');
+    await page.waitForFunction(previousRevision => {
+      const root = document.querySelector('[data-taw-root]');
+      const input = document.querySelector('[data-taw-lever="realizedGain"]');
+      return root?.getAttribute('aria-busy') === 'false'
+        && Number(root.dataset.tawRenderRevision || -1) > previousRevision
+        && input?.value === input?.max;
+    }, { timeout: 15000 }, beforeSlider.revision);
+    const afterSlider = await page.evaluate(() => ({
+      geometry: Array.from(document.querySelectorAll('[data-taw-col]'), column => (
+        column.querySelector('.taw-col-fill')?.style.height || ''
+      )),
+      federalTax: document.querySelector('[data-taw-federal-tax]')?.textContent.trim() || '',
+    }));
+    if(JSON.stringify(afterSlider.geometry) === JSON.stringify(beforeSlider.geometry)
+      || afterSlider.federalTax === '\u2014'){
+      throw new Error(`default-household Withdrawal Planner did not update column fill: ${JSON.stringify({ beforeSlider, afterSlider })}`);
+    }
 
     const afterBytes = await readRecoveryBytes();
     if(JSON.stringify(afterBytes) !== JSON.stringify(beforeBytes)){
-      throw new Error(`blocked interactions changed recovery bytes: ${JSON.stringify({ beforeBytes, afterBytes })}`);
+      throw new Error(`read-only default use changed recovery bytes: ${JSON.stringify({ beforeBytes, afterBytes })}`);
     }
   });
 

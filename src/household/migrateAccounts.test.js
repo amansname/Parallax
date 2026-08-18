@@ -16,7 +16,6 @@ import {
 } from './factEnvelope.js';
 import {
   ACCOUNT_SCHEMA_VERSION_UNSUPPORTED,
-  BLOCKED_MESSAGE,
   deriveHouseholdIssues,
   deterministicLegacyAccountId,
   mergeNonAccountDefaults,
@@ -530,12 +529,15 @@ test('deriveHouseholdIssues reports overlap and bucket conflict without changing
   assert.equal(plan.portfolio.accounts.taxable.balance, 1000);
 });
 
-test('corrupt JSON performs zero writes', () => {
+test('corrupt JSON preserves bytes and serves runtime defaults read-only', () => {
   const storage = createMemoryStorage({ [HHDB_KEY]: '{not json', [ACTIVE_KEY]: 'demo' });
   const read = readHouseholdStore(storage);
   assert.equal(read.kind, 'corrupt');
   const prepared = prepareHouseholdStore(read, deps);
-  assert.equal(prepared.ok, false);
+  assert.equal(prepared.ok, true);
+  assert.equal(prepared.mode, 'read_only');
+  assert.deepEqual(Object.keys(prepared.db), ['demo']);
+  assert.equal(commitPreparedHouseholdStore(storage, prepared).readOnly, true);
   assert.equal(storage.snapshot()[HHDB_KEY], '{not json');
 });
 
@@ -549,11 +551,14 @@ test('missing key creates one current-schema demo and can persist', () => {
   assert.ok(storage.getItem(HHDB_KEY));
 });
 
-test('empty stored database blocks rather than reseeding', () => {
+test('empty stored database seeds the current runtime defaults', () => {
   const storage = createMemoryStorage({ [HHDB_KEY]: '{}', [ACTIVE_KEY]: 'demo' });
   const prepared = prepareHouseholdStore(readHouseholdStore(storage), deps);
-  assert.equal(prepared.ok, false);
-  assert.equal(prepared.message, BLOCKED_MESSAGE);
+  assert.equal(prepared.ok, true);
+  assert.equal(prepared.mode, 'normal');
+  assert.deepEqual(Object.keys(prepared.db), ['demo']);
+  assert.equal(commitPreparedHouseholdStore(storage, prepared).ok, true);
+  assert.equal(JSON.parse(storage.getItem(HHDB_KEY)).demo.meta.name, 'Demo Household');
 });
 
 test('write failure preserves original database and enters read-only clone', () => {

@@ -34,7 +34,7 @@ explain a client decision:
 - `src/state.js` — mutable UI state (scenarios, replay, solver flags).
 - `ui/*.js` — view modules (household, goals, scenarios, cashflow, sequencing, etc.).
 - `scripts/verify.mjs` — visual verification: runs the full `npm test` suite, serves
-  the repo, drives headless Chromium through `index.html`, and writes
+  the exact committed site artifact, drives headless Chromium through it, and writes
   screenshots to `verify-out/`. Requires Chrome (or `npx puppeteer browsers install chrome`).
 - `assets/` — the logo.
 - `PRINCIPLES.md` — doctrine.
@@ -50,11 +50,14 @@ npm run governance:check # validate governing docs, PR/CI contracts, links, and 
 npm test                  # engine tests
 npm run verify            # full browser verification + screenshots
 npm run preview           # canonical manual preview at http://127.0.0.1:8825/
+npm run site:build        # immutable site artifact from the clean HEAD commit
+npm run site:verify       # verify every artifact byte and its commit attestation
 ```
 
 ## Shipping
 
-GitHub Pages serves `main` from the repository root; `index.html` is the live
-entry file. Required CI exposes separate Governance safeguards, Unit tests, and
-Full browser verification checks. Follow `docs/CODEX_WORKFLOW.md`; a deployment
-is availability evidence and does not prove behavior.
+GitHub Pages deploys the immutable commit artifact only after the complete
+`Parallax quality` workflow succeeds on `main`, then compares every live byte to
+the artifact manifest. Required CI exposes separate Governance safeguards, Unit
+tests, and Full browser verification checks. See
+[`docs/DEPLOYMENT-INTEGRITY.md`](docs/DEPLOYMENT-INTEGRITY.md).

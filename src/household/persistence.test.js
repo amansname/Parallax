@@ -72,15 +72,30 @@ test('readHouseholdStore distinguishes missing, corrupt, and valid data', () => 
   assert.equal(read.kind, 'valid');
 });
 
-test('invalid root shapes and an empty database block with zero writes', () => {
-  for(const raw of ['null', '[]', '"text"', '{}']){
+test('invalid root shapes preserve stored bytes and expose runtime defaults read-only', () => {
+  for(const raw of ['null', '[]', '"text"']){
     const storage = createCountingStorage({ [HHDB_KEY]: raw, [ACTIVE_KEY]: 'demo' });
     const prepared = prepareHouseholdStore(readHouseholdStore(storage), deps);
-    assert.equal(prepared.ok, false);
+    assert.equal(prepared.ok, true);
+    assert.equal(prepared.mode, 'read_only');
+    assert.equal(prepared.activeHouseholdId, 'demo');
+    assert.deepEqual(Object.keys(prepared.db), ['demo']);
+    const commit = commitPreparedHouseholdStore(storage, prepared);
+    assert.equal(commit.readOnly, true);
     assert.equal(storage.writeCount(), 0);
     assert.equal(storage.getItem(HHDB_KEY), raw);
     assert.equal(storage.getItem(ACTIVE_KEY), 'demo');
   }
+});
+
+test('an empty database is seeded with current runtime defaults', () => {
+  const storage = createCountingStorage({ [HHDB_KEY]: '{}', [ACTIVE_KEY]: 'demo' });
+  const prepared = prepareHouseholdStore(readHouseholdStore(storage), deps);
+  assert.equal(prepared.ok, true);
+  assert.equal(prepared.mode, 'normal');
+  assert.deepEqual(Object.keys(prepared.db), ['demo']);
+  assert.equal(commitPreparedHouseholdStore(storage, prepared).ok, true);
+  assert.equal(JSON.parse(storage.getItem(HHDB_KEY)).demo.meta.name, 'Demo Household');
 });
 
 test('storage read exception is unreadable', () => {
@@ -91,7 +106,11 @@ test('storage read exception is unreadable', () => {
   };
   const read = readHouseholdStore(storage);
   assert.equal(read.kind, 'unreadable');
-  assert.equal(prepareHouseholdStore(read, deps).ok, false);
+  const prepared = prepareHouseholdStore(read, deps);
+  assert.equal(prepared.ok, true);
+  assert.equal(prepared.mode, 'read_only');
+  assert.deepEqual(Object.keys(prepared.db), ['demo']);
+  assert.equal(commitPreparedHouseholdStore(storage, prepared).readOnly, true);
   assert.equal(writes, 0);
 });
 
@@ -220,18 +239,21 @@ test('a valid saved pointer is ignored after all households migrate', () => {
   assert.equal(prepared.db.two.meta.accountSchemaVersion, 1);
 });
 
-test('a mixed valid and malformed database blocks as a whole with zero writes', () => {
+test('a mixed valid and malformed database preserves bytes and uses runtime defaults read-only', () => {
   const valid = createBlankHousehold('valid');
   const raw = JSON.stringify({ valid, malformed: null });
   const storage = createCountingStorage({ [HHDB_KEY]: raw, [ACTIVE_KEY]: 'valid' });
   const prepared = prepareHouseholdStore(readHouseholdStore(storage), deps);
-  assert.equal(prepared.ok, false);
+  assert.equal(prepared.ok, true);
+  assert.equal(prepared.mode, 'read_only');
+  assert.deepEqual(Object.keys(prepared.db), ['demo']);
+  assert.equal(commitPreparedHouseholdStore(storage, prepared).readOnly, true);
   assert.equal(storage.writeCount(), 0);
   assert.equal(storage.getItem(HHDB_KEY), raw);
   assert.equal(storage.getItem(ACTIVE_KEY), 'valid');
 });
 
-test('current v1 required account and tax-profile fields are validated before defaults', () => {
+test('invalid current-schema records cannot overwrite storage and fall back read-only', () => {
   const cases = [
     plan => { delete plan.portfolio.extraAccounts; },
     plan => { delete plan.portfolio.accounts.roth; },
@@ -243,7 +265,10 @@ test('current v1 required account and tax-profile fields are validated before de
     const raw = JSON.stringify({ strict: plan });
     const storage = createCountingStorage({ [HHDB_KEY]: raw, [ACTIVE_KEY]: 'strict' });
     const prepared = prepareHouseholdStore(readHouseholdStore(storage), deps);
-    assert.equal(prepared.ok, false);
+    assert.equal(prepared.ok, true);
+    assert.equal(prepared.mode, 'read_only');
+    assert.deepEqual(Object.keys(prepared.db), ['demo']);
+    assert.equal(commitPreparedHouseholdStore(storage, prepared).readOnly, true);
     assert.equal(storage.writeCount(), 0);
     assert.equal(storage.getItem(HHDB_KEY), raw);
   }

@@ -39,11 +39,15 @@ npm test                       full unit suite
 npm run verify                 full browser verifier and screenshots
 npm run governance:check       repository-governance and static checks
 npm run preview                manual preview at http://127.0.0.1:8825/
+npm run site:build             immutable site artifact from the clean HEAD commit
+npm run site:verify            verify the artifact manifest and commit receipt
 ```
 
-There is no build, lint, or formatter command. Do not claim one ran. The app
-must be served over HTTP. Port 8825 is the only local origin: if it is occupied,
-identify and stop the stale Parallax preview instead of selecting another port.
+There is no lint or formatter command. The app must be served over HTTP. Port
+8825 is the only local origin: if it is occupied, identify and stop the stale
+Parallax preview instead of selecting another port. Preview and browser
+verification must serve the immutable artifact from the exact candidate commit;
+they must never serve mutable worktree files.
 
 ## Working rules
 
@@ -97,7 +101,8 @@ Work is done only when every acceptance row is complete; the base failure and
 branch result are recorded; targeted and full required checks succeed; the full
 diff is reviewed against `main`; no production behavior outside scope changed;
 and a separate reviewer completed `docs/CODE_REVIEW.md`. A deployment is only
-availability evidence, never behavioral proof.
+availability evidence, never behavioral proof. Shipping additionally requires
+the exact artifact workflow and live-byte receipt in `docs/DEPLOYMENT-INTEGRITY.md`.
 
 Every PR must include base and branch SHAs, exact reproduction, root cause,
 production files changed, fail-before/pass-after evidence, exact commands and
