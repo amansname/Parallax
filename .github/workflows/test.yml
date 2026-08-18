@@ -64,6 +64,7 @@ jobs:
           name: parallax-site-${{ env.CANDIDATE_SHA }}
           path: .parallax-artifact/
           if-no-files-found: error
+          include-hidden-files: true
           retention-days: 14
 
   browser:
