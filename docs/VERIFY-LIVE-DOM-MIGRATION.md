@@ -42,7 +42,7 @@ that path.
 | `visual contract: flush 56px header rail...` | Header visual contract | Wait for fonts and the final computed layout state before an optional bounded screenshot settle. |
 | `theme: product pages...` | Shared-theme visual contract | Wait for the target page and final computed theme styles before an optional bounded screenshot settle. |
 | `tax-funded probability is the only probability...` | Tax-funded probability after Run | Wait for the completed Run status and exact tax-funded probability DOM. |
-| `persistence: BLOCKED is inert...` | Blocked persistence recovery | Wait for the blocked state and byte-preservation result after each attempted action. |
+| `persistence: corrupt origin bytes...` | Corrupt persistence recovery | Wait for current code-owned defaults, read-only status, working Withdrawal Planner fill, and exact source-byte preservation. |
 | `persistence: READ_ONLY disables...` | Read-only persistence recovery | Wait for the read-only state, disabled mutations, navigable target, and byte-preservation result after each action. |
 
 Browser-harness retry delays around reload and detached-frame recovery are not

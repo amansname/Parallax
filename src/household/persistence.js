@@ -1,7 +1,6 @@
 import {
   ACCOUNT_MIGRATION_BLOCKED,
   ACCOUNT_MIGRATION_READ_ONLY,
-  ACCOUNT_SCHEMA_VERSION_UNSUPPORTED,
   BLOCKED_MESSAGE,
   READ_ONLY_MESSAGE,
   mergeNonAccountDefaults,
@@ -75,17 +74,7 @@ export function prepareHouseholdStore(readResult, dependencies){
     preparationYear,
   );
 
-  if(readResult.kind === 'unreadable' || readResult.kind === 'corrupt' || readResult.kind === 'empty_database'){
-    return {
-      ok: false,
-      mode: 'blocked',
-      code: ACCOUNT_MIGRATION_BLOCKED,
-      message: BLOCKED_MESSAGE,
-      hydrate: false,
-    };
-  }
-
-  if(readResult.kind === 'missing'){
+  function prepareRuntimeDefaults(){
     const demo = createDemoHousehold(pristinePlan, preparationYear);
     const defaults = selectableDefaults();
     const seededDb = Object.fromEntries(
@@ -117,12 +106,8 @@ export function prepareHouseholdStore(readResult, dependencies){
     }
     return {
       ok: true,
-      mode: 'normal',
       db: recordMigration.db,
       activeHouseholdId: demo.meta.householdId,
-      changed: true,
-      pointerChanged: true,
-      hydrate: true,
       issuesByHousehold: Object.fromEntries(
         Object.keys(recordMigration.db).map(householdId => [householdId, []]),
       ),
@@ -130,15 +115,40 @@ export function prepareHouseholdStore(readResult, dependencies){
     };
   }
 
+  const runtimeDefaults = prepareRuntimeDefaults();
+  if(!runtimeDefaults.ok) return runtimeDefaults;
+
+  function readOnlyRuntimeFallback(error){
+    return {
+      ...runtimeDefaults,
+      mode: 'read_only',
+      code: ACCOUNT_MIGRATION_READ_ONLY,
+      message: READ_ONLY_MESSAGE,
+      changed: false,
+      pointerChanged: false,
+      hydrate: true,
+      error: error || readResult.error,
+    };
+  }
+
+  if(readResult.kind === 'unreadable' || readResult.kind === 'corrupt'){
+    return readOnlyRuntimeFallback();
+  }
+
+  if(readResult.kind === 'missing' || readResult.kind === 'empty_database'){
+    return {
+      ...runtimeDefaults,
+      mode: 'normal',
+      changed: true,
+      pointerChanged: readResult.activePointer !== runtimeDefaults.activeHouseholdId,
+      hydrate: true,
+    };
+  }
+
   // Reserved records are application templates, never browser-owned truth.
   // Recreate them from the current build on every boot so localhost and the
   // deployed site cannot hydrate different copies from origin-scoped storage.
-  const demo = createDemoHousehold(pristinePlan, preparationYear);
-  const runtimeDefaults = [demo, ...selectableDefaults()];
-  const runtimeDefaultsById = Object.fromEntries(runtimeDefaults.map(household => [
-    household.meta.householdId,
-    household,
-  ]));
+  const runtimeDefaultsById = runtimeDefaults.db;
   const reservedIds = new Set(Object.keys(runtimeDefaultsById));
   const savedHouseholds = Object.fromEntries(
     Object.entries(readResult.database).filter(([householdId]) => !reservedIds.has(householdId)),
@@ -147,50 +157,38 @@ export function prepareHouseholdStore(readResult, dependencies){
     ...runtimeDefaultsById,
     ...savedHouseholds,
   };
-  const defaultsRefreshed = runtimeDefaults.some(household => (
-    JSON.stringify(readResult.database[household.meta.householdId])
-      !== JSON.stringify(household)
+  const defaultsRefreshed = Object.entries(runtimeDefaultsById).some(([householdId, household]) => (
+    JSON.stringify(readResult.database[householdId]) !== JSON.stringify(household)
   ));
 
   const migration = migrateHouseholdsDb(databaseWithDefaults);
   if(!migration.ok){
-    return {
-      ok: false,
-      mode: 'blocked',
-      code: migration.code || ACCOUNT_MIGRATION_BLOCKED,
-      message: migration.code === ACCOUNT_SCHEMA_VERSION_UNSUPPORTED
-        ? BLOCKED_MESSAGE
-        : BLOCKED_MESSAGE,
-      hydrate: false,
-      error: migration.error,
-    };
+    return readOnlyRuntimeFallback(migration.error);
   }
 
   let recordMigration;
   try{
     recordMigration = migrateHouseholdRecordDatabase(migration.db);
   }catch(error){
-    return {
-      ok: false,
-      mode: 'blocked',
-      code: ACCOUNT_MIGRATION_BLOCKED,
-      message: BLOCKED_MESSAGE,
-      hydrate: false,
-      error: error instanceof Error ? error.message : String(error),
-    };
+    return readOnlyRuntimeFallback(error instanceof Error ? error.message : String(error));
   }
 
-  const mergedDb = Object.fromEntries(Object.entries(recordMigration.db).map(([recordId, record]) => {
-    if(runtimeDefaultsById[recordId]){
-      return [recordId, structuredClone(runtimeDefaultsById[recordId])];
-    }
-    const defaults = createBlankHousehold(pristinePlan, recordId, preparationYear);
-    return [recordId, mergeNonAccountDefaults(record, defaults)];
-  }));
+  let mergedDb;
+  try{
+    mergedDb = Object.fromEntries(Object.entries(recordMigration.db).map(([recordId, record]) => {
+      if(runtimeDefaultsById[recordId]){
+        return [recordId, structuredClone(runtimeDefaultsById[recordId])];
+      }
+      const defaults = createBlankHousehold(pristinePlan, recordId, preparationYear);
+      return [recordId, mergeNonAccountDefaults(record, defaults)];
+    }));
+  }catch(error){
+    return readOnlyRuntimeFallback(error instanceof Error ? error.message : String(error));
+  }
 
   // Startup is deliberately origin-independent. Saved households remain in
   // the selector, but only an explicit visible selection may activate one.
-  const activeHouseholdId = demo.meta.householdId;
+  const activeHouseholdId = runtimeDefaults.activeHouseholdId;
   const pointerChanged = readResult.activePointer !== activeHouseholdId;
   const schemaFilled = JSON.stringify(migration.db) !== JSON.stringify(mergedDb);
 

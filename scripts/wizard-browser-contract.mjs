@@ -781,6 +781,7 @@ async function assertFourStepStructure(page){
         complete: logo?.complete === true,
         naturalWidth: logo?.naturalWidth || 0,
       },
+      artifactId: new URL(location.href).searchParams.get('v') || '',
     };
   });
   requireCondition(
@@ -802,7 +803,8 @@ async function assertFourStepStructure(page){
     `Wizard must render one semantic screen: ${JSON.stringify(structure.panels)}`,
   );
   requireCondition(
-    structure.logo.src === 'assets/parallax-logo.png'
+    /^[a-f0-9]{64}$/.test(structure.artifactId)
+      && structure.logo.src === `assets/parallax-logo.png?v=${structure.artifactId}`
       && structure.logo.complete
       && structure.logo.naturalWidth > 0,
     `Canonical logo did not load: ${JSON.stringify(structure.logo)}`,

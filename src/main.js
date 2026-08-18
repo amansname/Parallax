@@ -3,7 +3,7 @@ import { runFederalFundingSimulation } from './planning/tax/runMonteCarloWithFed
 import { runHistoricalPathWithFederalTax } from './planning/tax/runHistoricalPathWithFederalTax.js';
 import { buildReadyCurrent1040Intake } from './planning/tax/buildCurrent1040Intake.js';
 import { fmtM, fmtMoney } from '../ui/formatters.js';
-import { storyChart, seqChartSvg } from '../ui/charts.js?v=2';
+import { storyChart, seqChartSvg } from '../ui/charts.js';
 import { escHtml } from '../ui/dom.js';
 import { CHART_LAYOUT } from '../ui/chartLayout.js';
 import {
@@ -264,25 +264,23 @@ function bootstrapHouseholds(){
   }
 
   const commit = commitPreparedHouseholdStore(householdStorage, prepared);
-  if(!commit.ok){
-    if(commit.readOnly){
-      prepared = applyPreparedReadOnlyFallback(prepared);
-      accountMigrationState = {
-        blocked: false,
-        readOnly: true,
-        message: getReadOnlyMessage(),
-        issuesByHousehold: prepared.issuesByHousehold || {},
-      };
-    } else {
-      accountMigrationState = {
-        blocked: true,
-        readOnly: false,
-        message: getBlockedMessage(),
-        issuesByHousehold: {},
-      };
-      syncRecoveryStatus(accountMigrationState.message);
-      return;
-    }
+  if(commit.readOnly){
+    prepared = applyPreparedReadOnlyFallback(prepared);
+    accountMigrationState = {
+      blocked: false,
+      readOnly: true,
+      message: prepared.message || getReadOnlyMessage(),
+      issuesByHousehold: prepared.issuesByHousehold || {},
+    };
+  } else if(!commit.ok){
+    accountMigrationState = {
+      blocked: true,
+      readOnly: false,
+      message: getBlockedMessage(),
+      issuesByHousehold: {},
+    };
+    syncRecoveryStatus(accountMigrationState.message);
+    return;
   } else {
     accountMigrationState.issuesByHousehold = prepared.issuesByHousehold || {};
   }

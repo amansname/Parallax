@@ -21,10 +21,11 @@ import {
 } from '../src/goals/horizonModel.js';
 
 const ICON_ROOT = 'assets/goals-horizon';
+const ARTIFACT_ID = '__PARALLAX_ARTIFACT_ID__';
 
 const disabledAttr = disabled => disabled ? ' disabled aria-disabled="true"' : '';
 const icon = (category, className = 'gh-icon') =>
-  `<img class="${className}" src="${ICON_ROOT}/${category}.svg" alt="" aria-hidden="true">`;
+  `<img class="${className}" src="${ICON_ROOT}/${category}.svg?v=${ARTIFACT_ID}" alt="" aria-hidden="true">`;
 
 const inputMoney = value => Math.max(0, Math.round(+value || 0)).toLocaleString('en-US');
 

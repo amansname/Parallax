@@ -210,6 +210,10 @@ These pre-existing repository requirements remain in force:
 - Manual preview, capture, and browser verification use only
   `http://127.0.0.1:8825/`. Stop a stale preview rather than changing origin.
   Browser storage is origin-scoped; deployed HTTPS never shares local data.
+- Preview and browser verification serve only the immutable artifact built from
+  the exact clean candidate commit. GitHub Pages deploys that artifact only
+  after required quality succeeds and verifies every live byte afterward. See
+  [DEPLOYMENT-INTEGRITY.md](DEPLOYMENT-INTEGRITY.md).
 - Passing `scripts/verify.mjs` remains required but is not sufficient evidence
   for a touched UI flow. The legacy transition in
   [EXECUTION-PROTOCOL.md](EXECUTION-PROTOCOL.md) section 8 may not expand.

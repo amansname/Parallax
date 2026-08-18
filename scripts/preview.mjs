@@ -2,7 +2,12 @@ import { createReadStream, existsSync, statSync } from "node:fs";
 import { createServer } from "node:http";
 import { extname, join, normalize, resolve, sep } from "node:path";
 
-const root = process.cwd();
+import {
+  assertCleanCandidateWorktree,
+  buildSiteArtifact,
+} from "./build-site-artifact.mjs";
+import { verifyArtifactBundle } from "./site-integrity-lib.mjs";
+
 const host = "127.0.0.1";
 const port = 8825;
 const requestedHost = process.env.HOST || host;
@@ -12,6 +17,17 @@ if (requestedHost !== host || requestedPort !== port) {
   console.error(`Parallax manual preview is fixed at http://${host}:${port}/ so saved browser data stays on one origin.`);
   process.exit(1);
 }
+
+assertCleanCandidateWorktree();
+const artifact = buildSiteArtifact({ commit: "HEAD" });
+verifyArtifactBundle(artifact.artifactRoot);
+
+const root = artifact.root;
+const responseHeaders = {
+  "Cache-Control": "no-store",
+  "X-Parallax-Artifact-Id": artifact.artifactId,
+  "X-Parallax-Source-Commit": artifact.sourceCommit,
+};
 
 const types = new Map([
   [".css", "text/css; charset=utf-8"],
@@ -29,7 +45,7 @@ const types = new Map([
 function send(res, status, body, type = "text/plain; charset=utf-8") {
   res.writeHead(status, {
     "Content-Type": type,
-    "Cache-Control": "no-store",
+    ...responseHeaders,
   });
   res.end(body);
 }
@@ -57,13 +73,15 @@ const server = createServer((req, res) => {
 
   res.writeHead(200, {
     "Content-Type": types.get(extname(filePath).toLowerCase()) || "application/octet-stream",
-    "Cache-Control": "no-store",
+    ...responseHeaders,
   });
   createReadStream(filePath).pipe(res);
 });
 
 server.listen(port, host, () => {
   console.log(`Parallax preview running at http://${host}:${port}/`);
-  console.log(`Serving ${root}`);
-  console.log(`Wizard layout rev: 4 (household.css?v=19 — pinned footer, in-card step scroll)`);
+  console.log(`Serving verified artifact ${artifact.artifactId}`);
+  console.log(`Source commit ${artifact.sourceCommit}`);
+  console.log(`Source tree ${artifact.sourceTree}`);
+  console.log(`Artifact root ${root}`);
 });

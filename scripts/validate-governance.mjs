@@ -63,6 +63,18 @@ requireText('docs/GITHUB_SETTINGS.md', [
   '`Full browser verification`',
   '`@codex review`',
   'This document does not claim they are currently active.',
+  'Build and deployment > Source',
+  'GitHub Actions',
+  'Verify every live byte',
+]);
+
+requireText('docs/DEPLOYMENT-INTEGRITY.md', [
+  'one immutable site artifact',
+  'refuses a dirty worktree',
+  'browser verification downloads that same artifact',
+  'GitHub Actions',
+  'compares every live',
+  'preserved byte-for-byte',
 ]);
 
 requireText('docs/templates/CODEX_BUG_FIX_PROMPT.md', [
@@ -99,10 +111,13 @@ if((prTemplate.match(/Every behavior described as fixed was reproduced/g) || [])
 
 const packageJson = JSON.parse(read('package.json') || '{}');
 const expectedScripts = {
-  'governance:check': 'node --test scripts/validate-pr-body.test.mjs && node scripts/validate-governance.mjs',
+  'governance:check': 'node --test scripts/validate-pr-body.test.mjs scripts/site-integrity.test.mjs && node scripts/validate-governance.mjs',
   'governance:pr': 'node scripts/validate-pr-body.mjs',
   verify: 'node scripts/verify.mjs',
   preview: 'node scripts/preview.mjs',
+  'site:build': 'node scripts/build-site-artifact.mjs',
+  'site:verify': 'node scripts/verify-site-artifact.mjs',
+  'site:verify-live': 'node scripts/verify-live-site.mjs',
 };
 for(const [name, command] of Object.entries(expectedScripts)){
   if(packageJson.scripts?.[name] !== command){
@@ -118,12 +133,18 @@ const workflowFiles = readdirSync(workflowsDirectory)
   .filter(name => ['.yml', '.yaml'].includes(extname(name)));
 for(const name of workflowFiles){
   const relativePath = `.github/workflows/${name}`;
-  const document = parseDocument(read(relativePath), { prettyErrors: true });
+  const workflowSource = read(relativePath);
+  const document = parseDocument(workflowSource, { prettyErrors: true });
   for(const error of document.errors){
     failures.push(`${relativePath} has invalid YAML: ${error.message}`);
   }
   if(document.contents?.type === 'SEQ'){
     failures.push(`${relativePath} must have a mapping at the document root`);
+  }
+  for(const match of workflowSource.matchAll(/\buses:\s*[^\s@]+@([^\s#]+)/g)){
+    if(!/^[a-f0-9]{40}$/.test(match[1])){
+      failures.push(`${relativePath} action must be pinned to a full commit SHA: ${match[0]}`);
+    }
   }
 }
 if(!workflowFiles.length){
@@ -139,8 +160,13 @@ const workflow = requireText('.github/workflows/test.yml', [
   'run: npm run governance:pr',
   'run: npm test',
   'run: npm run verify',
+  'name: Build deployable site artifact',
+  'run: npm run site:build',
+  'run: npm run site:verify',
+  'needs: artifact',
+  'PARALLAX_ARTIFACT_ROOT: .parallax-artifact',
   'PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome',
-  'actions/upload-artifact@v4',
+  'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a',
 ]);
 const workflowConfig = parseDocument(workflow).toJS();
 const requiredPullRequestTypes = ['opened', 'synchronize', 'reopened', 'edited'];
@@ -154,6 +180,37 @@ for(const forbidden of ['continue-on-error', '|| true', '&& true']){
     failures.push(`required workflow must not contain ${forbidden}`);
   }
 }
+
+const pagesWorkflow = requireText('.github/workflows/pages.yml', [
+  'name: Deploy verified Pages artifact',
+  'workflow_run:',
+  'workflows: [Parallax quality]',
+  "github.event.workflow_run.conclusion == 'success'",
+  "github.event.workflow_run.event == 'push'",
+  "github.event.workflow_run.head_branch == 'main'",
+  'DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}',
+  'Refuse a stale main deployment',
+  'npm run site:build',
+  'npm run site:verify',
+  'actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9',
+  'actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128',
+  'Verify every live byte',
+  'npm run site:verify-live',
+]);
+if(pagesWorkflow.includes('workflow_dispatch:')){
+  failures.push('.github/workflows/pages.yml must not expose an ungated manual deployment path');
+}
+
+const artifactIndex = read('index.html');
+if((artifactIndex.match(/__PARALLAX_ARTIFACT_ID__/g) || []).length !== 10){
+  failures.push('index.html must bind exactly ten entry assets to the site artifact ID');
+}
+requireText('scripts/preview.mjs', [
+  'assertCleanCandidateWorktree()',
+  'buildSiteArtifact({ commit: "HEAD" })',
+  'verifyArtifactBundle(artifact.artifactRoot)',
+  'Serving verified artifact',
+]);
 
 function validateFixture(relativePath, requiredKind){
   let fixture;
@@ -209,6 +266,7 @@ const markdownFiles = [
   'docs/CODEX_WORKFLOW.md',
   'docs/CODE_REVIEW.md',
   'docs/GITHUB_SETTINGS.md',
+  'docs/DEPLOYMENT-INTEGRITY.md',
   'docs/templates/CODEX_BUG_FIX_PROMPT.md',
   'test/fixtures/persisted/README.md',
 ];
