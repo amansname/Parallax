@@ -71,7 +71,6 @@ test('artifact verifier rejects an unmanifested or changed byte', () => {
     const id = 'b'.repeat(64);
     const sourceTree = 'c'.repeat(40);
     const entries = [
-      { path: '.nojekyll', bytes: Buffer.alloc(0) },
       { path: 'app.html', bytes: Buffer.from(`<script src="src/main.js?v=${id}"></script>`) },
       { path: 'index.html', bytes: createStableBootstrapHtml() },
       { path: SITE_METADATA_FILE, bytes: createSiteMetadata(id, sourceTree) },

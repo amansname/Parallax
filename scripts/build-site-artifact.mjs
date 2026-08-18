@@ -102,7 +102,6 @@ export function buildSiteArtifact({ commit = 'HEAD', output = DEFAULT_SITE_ROOT 
       bytes: bindArtifactId(entry.bytes, artifactId),
     }));
   artifactEntries.push(
-    { path: '.nojekyll', bytes: Buffer.alloc(0) },
     { path: 'app.html', bytes: appHtml },
     { path: 'index.html', bytes: createStableBootstrapHtml() },
     { path: SITE_METADATA_FILE, bytes: createSiteMetadata(artifactId, sourceTree) },
