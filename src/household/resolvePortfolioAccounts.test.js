@@ -139,13 +139,16 @@ test('fold is deterministic, frozen, and does not mutate its source plan', () =>
   assert.throws(() => { first.taxBuckets.taxable.balance = 0; }, TypeError);
 });
 
-test('malformed balances and basis percentages fail closed', () => {
+test('malformed balances fail closed while bare basisPct is not basis evidence', () => {
   for(const balance of ['100', null, -1, NaN, Infinity]){
     const plan = planWithBase();
     plan.portfolio.extraAccounts = [{ bucket: 'taxable', balance }];
     assert.throws(() => resolvePortfolioAccounts(plan), /finite nonnegative number/);
   }
-  const plan = planWithBase();
+  const plan = planWithBase(100);
   plan.portfolio.accounts.taxable.basisPct = null;
-  assert.throws(() => resolvePortfolioAccounts(plan), /basisPct/);
+  const resolved = resolvePortfolioAccounts(plan);
+  const taxable = resolved.accounts.find(account => account.id === 'base-taxable');
+  assert.equal(taxable.basis.amount, 50);
+  assert.equal(taxable.basis.method, 'assumed-50-50');
 });

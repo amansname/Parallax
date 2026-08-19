@@ -377,7 +377,7 @@ const plan = {
     riskProfile: 3,
     withdrawalStrategy: 'taxable-first',
     accounts: {
-      taxable:     { balance: 2000000, basisPct: 0.60 },  // 60% basis, 40% gain
+      taxable:     { balance: 2000000, basisPct: 0.50 },  // 50% basis, 50% gain
       traditional: { balance: 2000000 },                   // pre-tax retirement
       roth:        { balance: 1000000 }                     // tax-free
     },

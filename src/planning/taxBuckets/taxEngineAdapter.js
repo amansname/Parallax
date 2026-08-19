@@ -10,6 +10,7 @@ const PATHS = {
   constants: '../../tax/core/constants.js',
   attribution: '../tax/attributeWithdrawalTaxByBucket.js',
   current1040: '../tax/buildCurrent1040Intake.js',
+  currentTaxBaseline: '../../household/buildWizardIncomeTaxSummary.js',
   irmaaPlanning: '../tax/buildIrmaaPlanningResult.js',
   engine: '../../../engine.js',
   portfolio: '../../household/resolvePortfolioAccounts.js',
@@ -22,11 +23,12 @@ async function load() {
   if (mods) return mods;
   if (loadError) throw loadError;
   try {
-    const [annual1040, constants, attribution, current1040, irmaaPlanning, engine, portfolio] = await Promise.all([
+    const [annual1040, constants, attribution, current1040, currentTaxBaseline, irmaaPlanning, engine, portfolio] = await Promise.all([
       import(PATHS.annual1040),
       import(PATHS.constants),
       import(PATHS.attribution),
       import(PATHS.current1040),
+      import(PATHS.currentTaxBaseline),
       import(PATHS.irmaaPlanning),
       import(PATHS.engine),
       import(PATHS.portfolio),
@@ -36,6 +38,7 @@ async function load() {
       constants,
       attribution,
       current1040,
+      currentTaxBaseline,
       irmaaPlanning,
       engine,
       portfolio,
@@ -56,7 +59,6 @@ export const NOT_MODELED = Object.freeze({
 });
 
 const REALIZED_GAIN_MAX = 500_000;
-
 function toEngineLevers(levers = {}) {
   return {
     // Realized Gain is a tax-only input. The engine's taxableWithdrawal lever
@@ -451,6 +453,33 @@ function irmaaMfsLivingArrangement(facts){
     : 'lived-apart-all-year';
 }
 
+function containedIrmaaResult(irmaaPlanning, input){
+  if(input.filingStatus === 'marriedFilingSeparately'
+      && !input.mfsLivingArrangement){
+    return Object.freeze({
+      result: null,
+      issue: Object.freeze({
+        code: 'IRMAA_MFS_LIVING_ARRANGEMENT_UNMODELED',
+        field: 'livedWithSpouse',
+      }),
+    });
+  }
+  try{
+    return Object.freeze({
+      result: irmaaPlanning.buildIrmaaPlanningResult(input),
+      issue: null,
+    });
+  }catch(error){
+    return Object.freeze({
+      result: null,
+      issue: Object.freeze({
+        code: error?.code ?? 'IRMAA_CALCULATION_UNAVAILABLE',
+        field: error?.field ?? null,
+      }),
+    });
+  }
+}
+
 function medicareEligibleMembers(plan, facts, taxYear){
   const premiumYear = taxYear + 2;
   const planYear = Number.isInteger(plan?.meta?.planningAsOfYear)
@@ -705,8 +734,253 @@ function toYearFacts({ facts, levers, taxYear, deductionContract }) {
   return out;
 }
 
-export async function evaluateYear({ plan, taxYear, facts, levers }) {
+function addPlannerIncome(input, field, amount) {
+  if (!(amount > 0)) return;
+  input.income[field] = (num(input.income[field]) ?? 0) + amount;
+}
+
+function socialSecurityCounterfactualIssue(baselineInput, levers) {
+  const benefits = Math.max(
+    0,
+    num(baselineInput?.income?.socialSecurityBenefits) ?? 0,
+  );
+  const affectedIncome = Math.max(0, num(levers.realizedGain) ?? 0)
+    + Math.max(0, num(levers.deferredWithdrawal) ?? 0)
+    + Math.max(0, num(levers.rothConversion) ?? 0);
+  if (!(benefits > 0) || !(affectedIncome > 0)) return null;
+  return baselineInput.income?.socialSecurity?.mode === 'calculate-taxable-benefits'
+    ? null
+    : {
+        code: 'WITHDRAWAL_SOCIAL_SECURITY_COUNTERFACTUAL_UNAVAILABLE',
+        reason: 'current-return-taxable-social-security-was-supplied',
+        missingFields: Object.freeze([
+          'income.socialSecurity.excludedIncomeAddBacks',
+          'income.socialSecurity.adjustments',
+        ]),
+      };
+}
+
+function plannerInputError(code, message, issues = []) {
+  const error = new Error(message);
+  error.code = code;
+  error.issues = Object.freeze(issues.map(issue => Object.freeze({ ...issue })));
+  error.sourceMode = 'current-tax-baseline';
+  return error;
+}
+
+function applyPlannerLeversToCurrentInput(baselineInput, levers) {
+  const selected = structuredClone(baselineInput);
+  selected.income = { ...(selected.income ?? {}) };
+  const deferredWithdrawal = Math.max(0, num(levers.deferredWithdrawal) ?? 0);
+  const rothConversion = Math.max(0, num(levers.rothConversion) ?? 0);
+  addPlannerIncome(selected, 'iraDistributions', deferredWithdrawal);
+  addPlannerIncome(selected, 'taxableIra', deferredWithdrawal);
+  addPlannerIncome(selected, 'iraDistributions', rothConversion);
+  addPlannerIncome(selected, 'rothConversion', rothConversion);
+
+  const realizedGain = Math.max(0, num(levers.realizedGain) ?? 0);
+  if (selected.income.socialSecurity?.mode === 'calculate-taxable-benefits') {
+    selected.income.socialSecurity = {
+      ...selected.income.socialSecurity,
+      otherIncome:
+        (num(selected.income.socialSecurity.otherIncome) ?? 0)
+        + deferredWithdrawal
+        + rothConversion
+        + realizedGain,
+    };
+  }
+  return selected;
+}
+
+function withoutSocialSecurityInput(selectedInput) {
+  const input = structuredClone(selectedInput);
+  input.income = { ...(input.income ?? {}), socialSecurityBenefits: 0 };
+  if (input.income.socialSecurity?.mode === 'calculate-taxable-benefits') {
+    delete input.income.taxableSS;
+  } else {
+    input.income.taxableSS = 0;
+  }
+  return input;
+}
+
+function currentInputMatchesPlanner(plan, taxYear, input) {
+  if (!input
+      || Number(input.taxYear) !== Number(taxYear)
+      || input.filingStatus !== plan?.meta?.filingStatus) return false;
+  const expectedModeledTaxpayer = input.filingStatus === 'marriedFilingJointly'
+    ? 'jointReturn'
+    : (input.filingStatus === 'single' || input.filingStatus === 'headOfHousehold')
+      ? 'client'
+      : null;
+  if (input.filingStatus === 'marriedFilingSeparately') {
+    return input.returnScope?.modeledTaxpayer === 'client'
+      || input.returnScope?.modeledTaxpayer === 'spouse';
+  }
+  return input.returnScope?.modeledTaxpayer === expectedModeledTaxpayer;
+}
+
+function liveCurrentBaselineFacts(plan, taxYear, facts, currentTaxBaseline) {
+  const baseline = currentTaxBaseline.buildCurrentAnnualFederalTaxBaseline(plan);
+  const input = baseline.input;
+  return {
+    ...(facts ?? {}),
+    available: true,
+    filingStatus: input?.filingStatus ?? plan?.meta?.filingStatus ?? null,
+    taxYear: Number(taxYear),
+    survivingOwner: plan?.incomeTax?.current1040?.survivingOwner
+      ?? facts?.survivingOwner
+      ?? null,
+  };
+}
+
+function buildCurrentWithdrawalPlannerFederalTaxInputsWithDependencies({
+  plan,
+  taxYear,
+  facts,
+  levers,
+  annual1040,
+  currentTaxBaseline,
+  portfolio,
+}) {
+  const currentBaseline = currentTaxBaseline
+    .buildCurrentAnnualFederalTaxBaseline(plan);
+  if (!currentBaseline.input) {
+    throw plannerInputError(
+      'WITHDRAWAL_CURRENT_TAX_BASELINE_UNAVAILABLE',
+      'Withdrawal Planner needs a complete current-year Tax baseline',
+      currentBaseline.issues,
+    );
+  }
+  if (!currentInputMatchesPlanner(plan, taxYear, currentBaseline.input)) {
+    throw plannerInputError(
+      'WITHDRAWAL_CURRENT_TAX_BASELINE_IDENTITY_MISMATCH',
+      'Withdrawal Planner tax year and return identity must match the current Tax baseline',
+      [{
+        code: 'WITHDRAWAL_CURRENT_TAX_BASELINE_IDENTITY_MISMATCH',
+        taxYear,
+        baselineTaxYear: currentBaseline.input.taxYear ?? null,
+        filingStatus: plan?.meta?.filingStatus ?? null,
+        baselineFilingStatus: currentBaseline.input.filingStatus ?? null,
+      }],
+    );
+  }
+  const socialSecurityIssue = socialSecurityCounterfactualIssue(
+    currentBaseline.input,
+    levers,
+  );
+  if (socialSecurityIssue) {
+    throw plannerInputError(
+      socialSecurityIssue.code,
+      'Withdrawal Planner cannot recompute taxable Social Security from supplied line 6b facts',
+      [socialSecurityIssue],
+    );
+  }
+  const baselineContext = annual1040.buildDefaultTaxContext({ taxYear });
+  let baselineRun;
+  try {
+    baselineRun = annual1040.calculateAnnualFederalTax(
+      currentBaseline.input,
+      baselineContext,
+    );
+  } catch (error) {
+    const validationIssues = error?.validation?.errors ?? [];
+    throw plannerInputError(
+      'WITHDRAWAL_CURRENT_TAX_BASELINE_UNAVAILABLE',
+      error?.message || 'Withdrawal Planner current Tax baseline is unavailable',
+      validationIssues.length > 0
+        ? validationIssues
+        : [{ code: 'WITHDRAWAL_CURRENT_TAX_BASELINE_INVALID' }],
+    );
+  }
+  const baselineLine24 = baselineRun.annual1040Result
+    ?.federalSummary?.federalTaxLiability;
+  if (!Number.isFinite(baselineLine24)) {
+    throw plannerInputError(
+      'WITHDRAWAL_CURRENT_TAX_BASELINE_UNAVAILABLE',
+      'Withdrawal Planner current Tax baseline does not have a calculable federal result',
+      [{ code: 'CURRENT_1040_TAX_RESULT_NOT_CALCULABLE' }],
+    );
+  }
+  const baselineInput = structuredClone(currentBaseline.input);
+  const selectedInput = applyPlannerLeversToCurrentInput(baselineInput, levers);
+  return Object.freeze({
+    sourceMode: 'current-tax-baseline',
+    baselineInput,
+    selectedInput,
+    withoutSocialSecurityInput: withoutSocialSecurityInput(selectedInput),
+    calculationOptions: Object.freeze({
+      selected: Object.freeze({
+        additionalNetLongTermCapitalGain:
+          Math.max(0, num(levers.realizedGain) ?? 0),
+      }),
+      withoutSocialSecurity: Object.freeze({
+        additionalNetLongTermCapitalGain:
+          Math.max(0, num(levers.realizedGain) ?? 0),
+      }),
+    }),
+  });
+}
+
+function buildProjectedWithdrawalPlannerFederalTaxInputsWithDependencies({
+  taxYear,
+  facts,
+  levers,
+  deductionContract,
+  annual1040,
+}) {
+  const zeroLevers = {
+    realizedGain: 0,
+    deferredWithdrawal: 0,
+    rothConversion: 0,
+    rothWithdrawal: 0,
+    qcd: 0,
+  };
+  const selectedFacts = toYearFacts({
+    facts, levers, taxYear, deductionContract,
+  });
+  const baselineFacts = toYearFacts({
+    facts, levers: zeroLevers, taxYear, deductionContract,
+  });
+  const withoutSocialSecurityFacts = toYearFacts({
+    facts: { ...facts, socialSecurityBenefits: 0 },
+    levers,
+    taxYear,
+    deductionContract,
+  });
+  return Object.freeze({
+    sourceMode: 'projected-year-facts',
+    baselineInput: annual1040.engineYearTo1040Input(baselineFacts),
+    selectedInput: annual1040.engineYearTo1040Input(selectedFacts),
+    withoutSocialSecurityInput:
+      annual1040.engineYearTo1040Input(withoutSocialSecurityFacts),
+  });
+}
+
+/** Current Tax baseline -> immutable planner overlays -> normalized inputs. */
+export async function buildWithdrawalPlannerFederalTaxInputs({
+  plan,
+  taxYear,
+  facts,
+  levers,
+}) {
   const dependencies = await load();
+  return buildCurrentWithdrawalPlannerFederalTaxInputsWithDependencies({
+    plan,
+    taxYear,
+    facts,
+    levers,
+    annual1040: dependencies.annual1040,
+    currentTaxBaseline: dependencies.currentTaxBaseline,
+    portfolio: dependencies.portfolio,
+  });
+}
+
+async function evaluateYearWithFederalTaxInputBuilder(
+  { plan, taxYear, facts, levers },
+  dependencies,
+  buildFederalTaxInputs,
+  federalTaxInputSource,
+) {
   const { annual1040, constants, engine, irmaaPlanning } = dependencies;
   if (!facts || !facts.filingStatus) return null;
 
@@ -733,6 +1007,7 @@ export async function evaluateYear({ plan, taxYear, facts, levers }) {
   if (!accountState && requestedAccountUse > 0) {
     return {
       code: 'WITHDRAWAL_ACCOUNT_STATE_UNAVAILABLE',
+      federalTaxInputSource,
       accountState,
       accountIssues,
     };
@@ -740,6 +1015,7 @@ export async function evaluateYear({ plan, taxYear, facts, levers }) {
   if (accountState && !accountState.valid) {
     return {
       code: 'WITHDRAWAL_ACCOUNT_LIMIT_EXCEEDED',
+      federalTaxInputSource,
       accountState,
       accountIssues,
     };
@@ -759,18 +1035,24 @@ export async function evaluateYear({ plan, taxYear, facts, levers }) {
     || ((fs === 'marriedFilingJointly' || fs === 'marriedFilingSeparately')
       && !bothHouseholdMembersAlive)
   );
+  const usesProjectedIncomeFacts =
+    federalTaxInputSource === 'projected-year-facts';
   let unavailableCode = null;
-  if (facts.available === false) {
+  if (usesProjectedIncomeFacts && facts.available === false) {
     unavailableCode = 'HOUSEHOLD_INCOME_UNAVAILABLE';
-  } else if (filingStatusHouseholdMismatch) {
+  } else if (usesProjectedIncomeFacts && filingStatusHouseholdMismatch) {
     unavailableCode = 'FILING_STATUS_HOUSEHOLD_MISMATCH';
-  } else if (fs === 'marriedFilingSeparately' && plan?.household?.spouse) {
+  } else if (usesProjectedIncomeFacts
+      && fs === 'marriedFilingSeparately'
+      && plan?.household?.spouse) {
     unavailableCode = 'MFS_RETURN_TAXPAYER_UNATTRIBUTED';
-  } else if ((num(facts.pensionAmount) ?? 0) > 0
+  } else if (usesProjectedIncomeFacts
+      && (num(facts.pensionAmount) ?? 0) > 0
       && (!Object.prototype.hasOwnProperty.call(facts, 'taxablePensions')
         || num(facts.taxablePensions) === null)) {
     unavailableCode = 'TAXABLE_PENSION_PORTION_MISSING';
-  } else if ((num(facts.iraDistributions) ?? 0) > 0
+  } else if (usesProjectedIncomeFacts
+      && (num(facts.iraDistributions) ?? 0) > 0
       && (!Object.prototype.hasOwnProperty.call(facts, 'taxableIra')
         || num(facts.taxableIra) === null)) {
     unavailableCode = 'TAXABLE_IRA_PORTION_MISSING';
@@ -808,6 +1090,7 @@ export async function evaluateYear({ plan, taxYear, facts, levers }) {
         taxTotalScope: null,
       },
       comparisonIssues: [{ code: unavailableCode }],
+      federalTaxInputSource,
       deductionCoverage: null,
       rmd: accountState?.rmd ?? null,
       accountState,
@@ -816,36 +1099,35 @@ export async function evaluateYear({ plan, taxYear, facts, levers }) {
     };
   }
 
-  const zeroLevers = {
-    realizedGain: 0,
-    deferredWithdrawal: 0,
-    rothConversion: 0,
-    rothWithdrawal: 0,
-    qcd: 0,
-  };
   const deductionContract = baseAndAgeTaxFacts(plan, facts, taxYear);
-  const selectedFacts = toYearFacts({
-    facts, levers: effectiveLevers, taxYear, deductionContract,
-  });
-  const baselineFacts = toYearFacts({
-    facts, levers: zeroLevers, taxYear, deductionContract,
-  });
-  const withoutSocialSecurityFacts = toYearFacts({
-    facts: { ...facts, socialSecurityBenefits: 0 },
-    levers: effectiveLevers,
-    taxYear,
-    deductionContract,
-  });
   let analysis;
+  let federalTaxInputs;
   try {
+    federalTaxInputs = buildFederalTaxInputs({
+      plan,
+      taxYear,
+      facts,
+      levers: effectiveLevers,
+      deductionContract,
+      annual1040,
+      currentTaxBaseline: dependencies.currentTaxBaseline,
+      portfolio: dependencies.portfolio,
+    });
     analysis = annual1040.runWithdrawalPlannerTaxAnalysis({
-      selectedFacts,
-      baselineFacts,
-      withoutSocialSecurityFacts,
+      selectedInput: federalTaxInputs.selectedInput,
+      baselineInput: federalTaxInputs.baselineInput,
+      withoutSocialSecurityInput: federalTaxInputs.withoutSocialSecurityInput,
       context,
+      calculationOptions: federalTaxInputs.calculationOptions,
     });
   } catch (e) {
-    return { error: String(e.message || e), accountState };
+    return {
+      code: e.code ?? 'WITHDRAWAL_TAX_INPUT_UNAVAILABLE',
+      error: String(e.message || e),
+      inputIssues: e.issues ?? [],
+      federalTaxInputSource: e.sourceMode ?? federalTaxInputSource,
+      accountState,
+    };
   }
   const main = analysis.selectedRun;
 
@@ -904,7 +1186,6 @@ export async function evaluateYear({ plan, taxYear, facts, levers }) {
   const eligibleMembers = medicareEligibleMembers(plan, facts, taxYear);
   const mfsLivingArrangement = irmaaMfsLivingArrangement(facts);
   const irmaaCommon = {
-    taxExemptInterest: facts.taxExemptInterest ?? 0,
     uncommonAddbacks:
       plan?.incomeTax?.irmaa?.uncommonAddbacksByTaxYear?.[taxYear] ?? 0,
     filingStatus: fs,
@@ -914,14 +1195,25 @@ export async function evaluateYear({ plan, taxYear, facts, levers }) {
     eligibleMembers,
     context,
   };
-  const selectedIrmaa = irmaaPlanning.buildIrmaaPlanningResult({
+  const selectedIrmaaOutcome = containedIrmaaResult(irmaaPlanning, {
     ...irmaaCommon,
     adjustedGrossIncome: num(sum.adjustedGrossIncome),
+    taxExemptInterest:
+      num(federalTaxInputs.selectedInput?.income?.taxExemptInterest)
+        ?? num(facts.taxExemptInterest)
+        ?? 0,
   });
-  const baselineIrmaa = irmaaPlanning.buildIrmaaPlanningResult({
+  const baselineIrmaaOutcome = containedIrmaaResult(irmaaPlanning, {
     ...irmaaCommon,
     adjustedGrossIncome: num(zeroSummary.adjustedGrossIncome),
+    taxExemptInterest:
+      num(federalTaxInputs.baselineInput?.income?.taxExemptInterest)
+        ?? num(facts.taxExemptInterest)
+        ?? 0,
   });
+  const selectedIrmaa = selectedIrmaaOutcome.result;
+  const baselineIrmaa = baselineIrmaaOutcome.result;
+  const irmaaIssue = selectedIrmaaOutcome.issue ?? baselineIrmaaOutcome.issue;
   const selectedIrmaaAnnual = selectedIrmaa?.annualHouseholdAdjustment ?? null;
   const baselineIrmaaAnnual = baselineIrmaa?.annualHouseholdAdjustment ?? null;
   const incrementalIrmaaAnnual = selectedIrmaaAnnual === null
@@ -979,6 +1271,7 @@ export async function evaluateYear({ plan, taxYear, facts, levers }) {
       roomToNext: sub(ssNextAt, ssProvisional),
     },
     irmaa: irmaaResult,
+    irmaaIssue,
     niit: { scope: NOT_MODELED.niit },
     rmd: accountState?.rmd
       ? {
@@ -1010,6 +1303,7 @@ export async function evaluateYear({ plan, taxYear, facts, levers }) {
       warnings: res.warnings || [],
     },
     comparisonIssues: analysis.comparisonIssues,
+    federalTaxInputSource: federalTaxInputs.sourceMode,
     deductionCoverage: deductionContract.coverage,
     accountState,
     accountIssues,
@@ -1019,9 +1313,47 @@ export async function evaluateYear({ plan, taxYear, facts, levers }) {
   };
 }
 
+/** Live Withdrawal Planner authority: the canonical current Tax baseline only. */
+export async function evaluateYear(args) {
+  const dependencies = await load();
+  const facts = liveCurrentBaselineFacts(
+    args.plan,
+    args.taxYear,
+    args.facts,
+    dependencies.currentTaxBaseline,
+  );
+  return evaluateYearWithFederalTaxInputBuilder(
+    { ...args, facts },
+    dependencies,
+    buildCurrentWithdrawalPlannerFederalTaxInputsWithDependencies,
+    'current-tax-baseline',
+  );
+}
+
+/**
+ * Lower-level projected-year domain seam. The live Withdrawal Planner does not
+ * receive an authority selector and cannot choose this path.
+ */
+export async function evaluateProjectedYearFacts(args) {
+  const dependencies = await load();
+  return evaluateYearWithFederalTaxInputBuilder(
+    args,
+    dependencies,
+    buildProjectedWithdrawalPlannerFederalTaxInputsWithDependencies,
+    'projected-year-facts',
+  );
+}
+
 export async function attributeSleeves({ plan, taxYear, facts, levers }) {
   const dependencies = await load();
   const { annual1040, attribution } = dependencies;
+  const federalTaxInputSource = 'current-tax-baseline';
+  facts = liveCurrentBaselineFacts(
+    plan,
+    taxYear,
+    facts,
+    dependencies.currentTaxBaseline,
+  );
   if (!facts || !facts.filingStatus) return null;
   let accountState = null;
   try {
@@ -1033,17 +1365,23 @@ export async function attributeSleeves({ plan, taxYear, facts, levers }) {
       taxYear,
     );
   } catch {
-    return { code: 'WITHDRAWAL_ACCOUNT_STATE_UNAVAILABLE', accountState: null };
+    return {
+      code: 'WITHDRAWAL_ACCOUNT_STATE_UNAVAILABLE',
+      federalTaxInputSource,
+      accountState: null,
+    };
   }
   if (!accountState.valid) {
     return {
       code: 'WITHDRAWAL_ACCOUNT_LIMIT_EXCEEDED',
+      federalTaxInputSource,
       accountState,
     };
   }
   if (accountState.rmd?.status === 'unavailable') {
     return {
       code: accountState.rmd.issue || 'RMD_CONTRACT_UNAVAILABLE',
+      federalTaxInputSource,
       accountState,
     };
   }
@@ -1051,7 +1389,6 @@ export async function attributeSleeves({ plan, taxYear, facts, levers }) {
   const context = annual1040.buildDefaultTaxContext({
     taxYear, runId: 'tax_aware_withdrawal', scenarioId: 'sleeve_attribution',
   });
-  const deductionContract = baseAndAgeTaxFacts(plan, facts, taxYear);
 
   const held = {
     rothConversion: effectiveLevers.rothConversion || 0,
@@ -1063,37 +1400,68 @@ export async function attributeSleeves({ plan, taxYear, facts, levers }) {
     roth: Math.max(0, effectiveLevers.rothWithdrawal || 0),
   };
 
-  const taxFor = buckets => {
-    const lv = {
-      ...held,
-      realizedGain: buckets.includes('taxable') ? amounts.taxable : 0,
-      deferredWithdrawal: buckets.includes('traditional') ? amounts.traditional : 0,
-      rothWithdrawal: buckets.includes('roth') ? amounts.roth : 0,
-    };
-    const out = annual1040.runEngineYearTax(
-      toYearFacts({ facts, levers: lv, taxYear, deductionContract }),
-      context
-    );
-    const tax = num(out?.annual1040Result?.federalSummary?.federalTaxLiability);
-    if (tax === null) throw new Error('Modeled federal tax is unavailable for this coalition');
-    return tax;
-  };
-
+  let federalTaxInputs;
   try {
+    federalTaxInputs = buildCurrentWithdrawalPlannerFederalTaxInputsWithDependencies({
+      plan,
+      taxYear,
+      facts,
+      levers: effectiveLevers,
+      annual1040,
+      currentTaxBaseline: dependencies.currentTaxBaseline,
+      portfolio: dependencies.portfolio,
+    });
+    const taxFor = buckets => {
+      const coalitionLevers = {
+        ...held,
+        realizedGain: buckets.includes('taxable') ? amounts.taxable : 0,
+        deferredWithdrawal: buckets.includes('traditional') ? amounts.traditional : 0,
+        rothWithdrawal: buckets.includes('roth') ? amounts.roth : 0,
+      };
+      const coalitionInput = applyPlannerLeversToCurrentInput(
+        federalTaxInputs.baselineInput,
+        coalitionLevers,
+      );
+      const out = annual1040.calculateAnnualFederalTax(
+        coalitionInput,
+        context,
+        {
+          additionalNetLongTermCapitalGain:
+            Math.max(0, num(coalitionLevers.realizedGain) ?? 0),
+        },
+      );
+      const tax = num(out?.annual1040Result?.federalSummary?.federalTaxLiability);
+      if (tax === null) {
+        throw plannerInputError(
+          'WITHDRAWAL_TAX_RESULT_UNAVAILABLE',
+          'Modeled federal tax is unavailable for this coalition',
+        );
+      }
+      return tax;
+    };
     const coalitionTaxes = {};
     for (const c of attribution.WITHDRAWAL_TAX_COALITIONS) coalitionTaxes[c.id] = taxFor(c.buckets);
     const att = attribution.attributeWithdrawalTaxByBucket(coalitionTaxes);
     return {
       method: att.method,
       baselineTax: att.baselineTax,
+      fullCoalitionTax: att.fullCoalitionTax,
       incrementalTax: att.incrementalTax,
       byBucket: att.displayByBucket,
       exactByBucket: att.byBucket,
       residual: att.displayReconciliation.difference,
       withdrawals: amounts,
       heldFixed: held,
+      federalTaxInputSource: federalTaxInputs.sourceMode,
     };
   } catch (e) {
-    return { error: String(e && e.message || e) };
+    return {
+      code: e.code ?? 'WITHDRAWAL_TAX_INPUT_UNAVAILABLE',
+      error: String(e?.message || e),
+      inputIssues: e.issues ?? e?.validation?.errors ?? [],
+      federalTaxInputSource:
+        e.sourceMode ?? federalTaxInputs?.sourceMode ?? federalTaxInputSource,
+      accountState,
+    };
   }
 }

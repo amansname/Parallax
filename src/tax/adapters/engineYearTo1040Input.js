@@ -244,10 +244,6 @@ export function mapSimulationRowToYearFacts(row, planMeta){
       if(rowTaxFacts[key] !== undefined) income[key] = rowTaxFacts[key];
     }
   }
-  if(planMeta.current1040Income){
-    assertPlainObject(planMeta.current1040Income, 'planMeta.current1040Income');
-    copyDefinedIncome(income, planMeta.current1040Income);
-  }
   if(planMeta.wages !== undefined && income.wages === undefined){
     income.wages = planMeta.wages;
   }
@@ -259,8 +255,7 @@ export function mapSimulationRowToYearFacts(row, planMeta){
     }
   }
 
-  let netLongTermGainOrLoss = planMeta.currentNetLongTermGainOrLoss
-    ?? rowTaxFacts?.capitalGain;
+  let netLongTermGainOrLoss = rowTaxFacts?.capitalGain;
   if(netLongTermGainOrLoss !== undefined){
     delete income.capitalGain;
   }
@@ -296,15 +291,6 @@ export function mapSimulationRowToYearFacts(row, planMeta){
   }
   if(rowTaxFacts?.taxablePensions !== undefined){
     resolved.taxablePensions = rowTaxFacts.taxablePensions;
-  }
-  if(planMeta.current1040Income?.taxableIra !== undefined){
-    resolved.taxableIra = planMeta.current1040Income.taxableIra;
-  }
-  if(planMeta.current1040Income?.taxablePensions !== undefined){
-    resolved.taxablePensions = planMeta.current1040Income.taxablePensions;
-  }
-  if(planMeta.current1040Income?.taxableSS !== undefined){
-    resolved.taxableSS = planMeta.current1040Income.taxableSS;
   }
   const fullyTaxable = planMeta.treatWithdrawalsAsFullyTaxable !== false;
   if(fullyTaxable){
@@ -349,4 +335,9 @@ export function mapSimulationRowToYearFacts(row, planMeta){
     facts.socialSecurityWorksheet = { ...planMeta.socialSecurityWorksheet };
   }
   return facts;
+}
+
+/** Projected engine row -> normalized, year-explicit federal tax input. */
+export function buildProjectedAnnualFederalTaxInput(row, planMeta){
+  return engineYearTo1040Input(mapSimulationRowToYearFacts(row, planMeta));
 }

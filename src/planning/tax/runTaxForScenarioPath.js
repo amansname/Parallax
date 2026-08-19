@@ -3,8 +3,9 @@
 
 import {
   buildDefaultTaxContext,
+  calculateAnnualFederalTax,
+  engineYearTo1040Input,
   mapSimulationRowToYearFacts,
-  runEngineYearTax,
 } from '../../tax/annual1040.js';
 import { TaxInputError } from '../../tax/core/errors.js';
 
@@ -61,18 +62,21 @@ export function runTaxForScenarioPath(rows, planMeta, options = {}){
     const meta = resolveRowPlanMeta(row, index, planMeta, rowPlanMeta);
     const yearKey = resolveYearKey(row, index);
     const taxYear = meta.taxYear ?? contextOverrides.taxYear ?? 2026;
+    const yearMeta = { ...meta, taxYear };
     const context = buildDefaultTaxContext({
       ...contextOverrides,
       taxYear,
       scenarioId: `${contextOverrides.scenarioId ?? 'scenario_path'}_${yearKey}`,
     });
 
-    const facts = mapSimulationRowToYearFacts(row, meta);
-    const pipeline = runEngineYearTax(facts, context);
+    const facts = mapSimulationRowToYearFacts(row, yearMeta);
+    const input = engineYearTo1040Input(facts);
+    const pipeline = calculateAnnualFederalTax(input, context);
     const entry = {
       year: yearKey,
       rowIndex: index,
       facts,
+      input,
       context,
       ...pipeline,
     };

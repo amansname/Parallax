@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
+import { createFederalTaxResolver } from './createFederalTaxResolver.js';
 import { runTaxForScenarioPath } from './runTaxForScenarioPath.js';
 
 test('runTaxForScenarioPath returns annual1040Result keyed by row year', () => {
@@ -97,4 +98,48 @@ test('runTaxForScenarioPath calculates zero-income years and skips failed filler
   assert.strictEqual(byYear[1].lines.line24.value, 0);
   assert.strictEqual(byYear[2].lines.line24.value, 0);
   assert.strictEqual(byYear[3], undefined);
+});
+
+test('runTaxForScenarioPath injects the resolved context year into normalized input', () => {
+  const { results } = runTaxForScenarioPath([{
+    year: 1,
+    source: 2026,
+    socialSecurity: 0,
+    pension: 0,
+    otherIncome: 0,
+    incomeTaxFacts: { wages: 10_000 },
+    accountBreakdown: { taxable: 0, traditional: 0, roth: 0 },
+    rmd: 0,
+  }], {
+    filingStatus: 'single',
+  }, {
+    contextOverrides: { taxYear: 2026, scenarioId: 'context_year_only' },
+  });
+
+  assert.strictEqual(results[0].facts.taxYear, 2026);
+  assert.strictEqual(results[0].input.taxYear, 2026);
+  assert.strictEqual(results[0].context.taxYear, 2026);
+});
+
+test('createFederalTaxResolver injects context taxYear before normalizing a row', () => {
+  const resolveFederalTax = createFederalTaxResolver({
+    meta: { filingStatus: 'single' },
+    incomeContractAvailable: true,
+  }, {
+    contextOverrides: { taxYear: 2026 },
+    scenarioId: 'resolver_context_year_only',
+  });
+
+  const tax = resolveFederalTax({
+    year: 1,
+    source: 2026,
+    socialSecurity: 0,
+    pension: 0,
+    otherIncome: 0,
+    incomeTaxFacts: { wages: 10_000 },
+    accountBreakdown: { taxable: 0, traditional: 0, roth: 0 },
+    rmd: 0,
+  });
+
+  assert.strictEqual(typeof tax, 'number');
 });

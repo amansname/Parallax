@@ -3,6 +3,9 @@ import {
   getAccountTypeById,
   isValidEngineBucket,
 } from './accountTypes.js';
+import {
+  readTransientCalculatedTaxableBasis,
+} from './transientCalculatedTaxableBasis.js';
 
 const BUCKET_KEYS = Object.freeze(['taxable', 'traditional', 'roth']);
 
@@ -63,10 +66,6 @@ export function resolvePortfolioAccounts(plan){
   if(!base || typeof base !== 'object' || Array.isArray(base)){
     throw new Error('portfolio.accounts is required');
   }
-  const basisPct = base.taxable?.basisPct;
-  if(typeof basisPct !== 'number' || !Number.isFinite(basisPct) || basisPct < 0){
-    throw new Error('portfolio.accounts.taxable.basisPct must be a finite nonnegative number');
-  }
   const extras = portfolio.extraAccounts ?? [];
   if(!Array.isArray(extras)){
     throw new Error('portfolio.extraAccounts must be an array');
@@ -76,6 +75,8 @@ export function resolvePortfolioAccounts(plan){
   const issues = [];
   const engineBuckets = emptyBuckets();
   const taxBuckets = emptyBuckets();
+  const transientCalculatedTaxableBasis =
+    readTransientCalculatedTaxableBasis(plan);
 
   let baseTotal = 0;
   for(const bucket of BUCKET_KEYS){
@@ -99,7 +100,17 @@ export function resolvePortfolioAccounts(plan){
       balance,
       valuationDate: null,
       basis: bucket === 'taxable'
-        ? Object.freeze({ amount: balance * basisPct, method: 'legacy-basis-percent', status: 'assumed' })
+        ? Object.freeze(transientCalculatedTaxableBasis === null
+          ? {
+              amount: balance * 0.5,
+              method: 'assumed-50-50',
+              status: 'assumed',
+            }
+          : {
+              amount: transientCalculatedTaxableBasis,
+              method: 'calculated-carried-forward',
+              status: 'calculated',
+            })
         : null,
       classificationStatus: 'included',
       exclusionReason: null,

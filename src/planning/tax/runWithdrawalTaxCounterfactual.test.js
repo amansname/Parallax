@@ -344,35 +344,45 @@ test('RMD accumulation gate follows the resolved retirement window, not raw plan
   assert.ok(delayed.reasonCodes.includes('RMD_BEFORE_RETIREMENT_NOT_MODELED'));
 });
 
-test('readiness is bucket-specific and unsupported tax character fails closed', () => {
+test('approved taxable-basis assumption remains usable while unsupported tax character fails closed', () => {
   const unknownBasis = readyPlan();
   unknownBasis.portfolio.extraAccounts[0].basis = {
     amount: null, method: 'unknown', status: 'unknown', source: null,
     confirmedAt: null, version: 1,
   };
-  const blockedTaxable = runWithdrawalTaxCounterfactual(row(), context(unknownBasis));
-  assert.equal(blockedTaxable.status, 'partial');
-  assert.ok(blockedTaxable.reasonCodes.includes('TAXABLE_BASIS_UNKNOWN'));
-  assert.ok(blockedTaxable.baselineModeledFederalIncomeTax >= 0);
-  assert.equal(blockedTaxable.fullCoalitionModeledFederalIncomeTax, null);
-  assert.equal(blockedTaxable.attributedModeledFederalIncomeTaxByBucket, null);
-  assert.ok(blockedTaxable.coalitions.find(item => item.id === 'traditional').status === 'modeled');
-  assert.ok(blockedTaxable.coalitions.find(item => item.id === 'taxable')
-    .reasonCodes.includes('TAXABLE_BASIS_UNKNOWN'));
+  const assumedContext = context(unknownBasis);
+  const assumedTaxable = runWithdrawalTaxCounterfactual(row(), assumedContext);
+  assert.equal(assumedTaxable.status, 'modeled-only');
+  assert.equal(
+    assumedContext.taxFacts.calculationInputs.taxableBasisMode,
+    'assumed-50-50'
+  );
+  assert.deepEqual(
+    assumedContext.taxFacts.calculationInputs.taxableBasisAssumptions
+      .map(item => item.code),
+    ['TAXABLE_BASIS_ASSUMED_50_50']
+  );
+  assert.ok(assumedTaxable.baselineModeledFederalIncomeTax >= 0);
+  assert.ok(assumedTaxable.fullCoalitionModeledFederalIncomeTax >= 0);
+  assert.ok(assumedTaxable.coalitions.find(item => item.id === 'taxable')
+    .status === 'modeled');
 
   const traditionalOnly = runWithdrawalTaxCounterfactual(row({
     accountBreakdown: { taxable: 0, traditional: 80_000, roth: 0 },
     withdrawal: 80_000,
     taxableCapitalGain: 0,
-  }), context(unknownBasis));
+  }), assumedContext);
   assert.equal(traditionalOnly.status, 'modeled-only',
     'an unused Taxable gap must not block a supported Traditional result');
 
   const iraBasis = readyPlan();
   iraBasis.taxProfiles.client.traditionalIra.priorYearCarryforwardBasis = confirmed(1_000);
-  const blockedTraditional = runWithdrawalTaxCounterfactual(row(), context(iraBasis));
-  assert.equal(blockedTraditional.status, 'partial');
-  assert.ok(blockedTraditional.reasonCodes.includes('TRADITIONAL_IRA_BASIS_RULE_REQUIRED'));
+  const fullyTaxableTraditional = runWithdrawalTaxCounterfactual(row(), context(iraBasis));
+  assert.equal(fullyTaxableTraditional.status, 'modeled-only');
+  assert.equal(
+    fullyTaxableTraditional.reasonCodes.includes('TRADITIONAL_IRA_BASIS_RULE_REQUIRED'),
+    false,
+  );
 
   const unqualifiedRoth = readyPlan();
   unqualifiedRoth.taxProfiles.client.rothIra.firstContributionYear = confirmed(2024);

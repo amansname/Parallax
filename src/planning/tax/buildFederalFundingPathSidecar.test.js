@@ -369,7 +369,7 @@ test('sidecar preserves funded and missed pre-retirement portfolio obligations',
   assert.equal(fundedRow.phase, 'accumulation');
   assert.equal(fundedRow.grossWithdrawal, 10000);
   assert.equal(fundedRow.fundingShortfall, 0);
-  assert.equal(fundedRow.taxableCapitalGain, 4000);
+  assert.equal(fundedRow.taxableCapitalGain, 5000);
   assert.equal(fundedRow.failed, false);
   assert.equal(
     BUCKET_KEYS.reduce((sum, bucket) => sum + fundedRow.grossWithdrawalsByBucket[bucket], 0),

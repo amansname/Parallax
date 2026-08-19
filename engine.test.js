@@ -16,6 +16,22 @@ import { createAccount } from './src/household/createAccount.js';
 import { resolvePortfolioAccounts } from './src/household/resolvePortfolioAccounts.js';
 import { migrateSpendingToGoals } from './src/household/migrateSpendingToGoals.js';
 
+function explicitlyBasedBrokerage(balance, basisAmount){
+  const account = createAccount('brokerage_taxable', {
+    owner: 'client',
+    balance,
+  });
+  account.basis = {
+    amount: basisAmount,
+    method: 'reported-cost-basis',
+    status: 'confirmed',
+    source: 'household-entry',
+    confirmedAt: '2026-08-19T12:00:00.000Z',
+    version: 1,
+  };
+  return account;
+}
+
 test('return data spans the full history', () => {
   assert.ok(RETURN_DATA.length >= 90, 'expected ~98 years of returns');
 });
@@ -720,7 +736,7 @@ test('extra typed accounts sum into their bucket; empty = unchanged', () => {
   assert.ok(rt.accounts.taxable.basis > baseR.accounts.taxable.basis, 'taxable add lifts basis');
 });
 
-test('confirmed taxable account basis replaces the legacy percentage only when coverage is complete', () => {
+test('confirmed taxable basis is preserved and unknown basis uses the approved 50/50 assumption', () => {
   const p = structuredClone(defaultPlan);
   p.portfolio.accounts = {
     taxable: { balance: 0, basisPct: 0.6 },
@@ -750,8 +766,9 @@ test('confirmed taxable account basis replaces the legacy percentage only when c
     confirmedAt: null,
     version: 1,
   };
-  assert.strictEqual(resolveInputs(p, {}).accounts.taxable.basis, 60000,
-    'unknown basis leaves the existing legacy percentage behavior unchanged');
+  const assumed = resolveInputs(p, {});
+  assert.strictEqual(assumed.accounts.taxable.basis, 50000,
+    'unknown basis uses 50% of the applicable taxable balance');
 });
 
 test('inherited accounts appear in current folds but stay out of engine inputs until rules exist', () => {
@@ -933,11 +950,13 @@ test('tax-policy funding mode grosses up a positive delta before depletion', () 
     p.household.primary = { currentAge: 65, retirementAge: 65, planEndAge: 65 };
     p.household.spouse = null;
     p.portfolio.accounts = {
-      taxable: { balance: bucket === 'taxable' ? balance : 0, basisPct: 1 },
+      taxable: { balance: 0, basisPct: 1 },
       traditional: { balance: bucket === 'traditional' ? balance : 0 },
       roth: { balance: 0 },
     };
-    p.portfolio.extraAccounts = [];
+    p.portfolio.extraAccounts = bucket === 'taxable'
+      ? [explicitlyBasedBrokerage(balance, balance)]
+      : [];
     p.income.socialSecurity = { primary: { pia: 0, claimAge: 67 }, spouse: null };
     p.income.other = [];
     p.income.pension = { benefitByAge: {}, base: 0, startAge: 65, colaPct: 0 };
@@ -1181,10 +1200,17 @@ test('converged taxable funding rebuilds exact final gain facts from the opening
   const p = structuredClone(defaultPlan);
   p.household.primary = { currentAge: 73, retirementAge: 73, planEndAge: 73 };
   p.portfolio.accounts = {
-    taxable: { balance: 1_000_000, basisPct: 0.20 },
-    traditional: { balance: 10_000_000 },
+    taxable: { balance: 0, basisPct: 1 },
+    traditional: { balance: 0 },
     roth: { balance: 0 },
   };
+  p.portfolio.extraAccounts = [
+    explicitlyBasedBrokerage(1_000_000, 200_000),
+    createAccount('traditional_ira', {
+      owner: 'client',
+      balance: 10_000_000,
+    }),
+  ];
   p.portfolio.withdrawalStrategy = 'taxable-first';
   p.expenses = {
     living: 100_000, housing: 0, debt: 0, healthcare: 0,
@@ -1230,10 +1256,13 @@ test('lower federal tax beyond a zero draw retains only the incremental saving a
   p.household.primary = { currentAge: 65, retirementAge: 65, planEndAge: 65 };
   p.household.spouse = null;
   p.portfolio.accounts = {
-    taxable: { balance: 100_000, basisPct: 1 },
+    taxable: { balance: 0, basisPct: 1 },
     traditional: { balance: 0 },
     roth: { balance: 0 },
   };
+  p.portfolio.extraAccounts = [
+    explicitlyBasedBrokerage(100_000, 100_000),
+  ];
   p.income.socialSecurity = { primary: { pia: 0, claimAge: 67 }, spouse: null };
   p.income.other = [{
     label: 'Pension-like income', amount: 100_000,
