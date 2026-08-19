@@ -4,6 +4,7 @@ import { createBlankTaxProfiles, createFact } from '../src/household/factEnvelop
 import { createIncomeTaxInputs } from '../src/household/incomeTaxModel.js';
 import { HOUSEHOLD_RECORD_SCHEMA_VERSION } from '../src/household/householdRecordSchema.js';
 import { createEmptyNetWorthRecords } from '../src/household/netWorthRecords.js';
+import { confirmWizardTaxInputs } from '../src/household/wizardTaxCompletion.js';
 import {
   SPENDING_SCHEMA_VERSION,
   makeEssentialsGoal,
@@ -108,6 +109,7 @@ function createPreRetirementSolo(pristinePlan, currentYear){
     startAge: 64,
     endAge: 65,
   });
+  confirmWizardTaxInputs(plan);
   return plan;
 }
 
@@ -178,6 +180,7 @@ function createPreRetirementCouple(pristinePlan, currentYear){
     startAge: 60,
     endAge: 64,
   });
+  confirmWizardTaxInputs(plan);
   return plan;
 }
 
