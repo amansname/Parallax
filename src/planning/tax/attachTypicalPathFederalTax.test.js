@@ -62,7 +62,7 @@ test('buildPlanMetaFromEngineParams requires filing status and optional override
   assert.deepStrictEqual(rowPlanMeta({ year: 99 }), { taxYear: 2026 });
 });
 
-test('row tax metadata applies current-return facts only to the matching calendar year', () => {
+test('row tax metadata never copies current-return facts into projected years', () => {
   const current1040Intake = {
     taxYear: 2026,
     income: { wages: 90_000 },
@@ -75,16 +75,7 @@ test('row tax metadata applies current-return facts only to the matching calenda
     current1040Intake,
   });
 
-  assert.deepStrictEqual(rowPlanMeta({ year: 1 }), {
-    taxYear: 2026,
-    current1040Income: { wages: 90_000 },
-    deductions: current1040Intake.deductions,
-    adjustments: undefined,
-    taxpayers: current1040Intake.taxpayers,
-    returnScope: current1040Intake.returnScope,
-    passThrough: undefined,
-    currentNetLongTermGainOrLoss: undefined,
-  });
+  assert.deepStrictEqual(rowPlanMeta({ year: 1 }), { taxYear: 2026 });
   assert.deepStrictEqual(rowPlanMeta({ year: 2 }), { taxYear: 2026 });
 });
 

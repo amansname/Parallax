@@ -5,7 +5,12 @@ import { validateClient1040Intake } from './adapters/client1040IntakeValidate.js
 import { buildIntakeReport, runClient1040Intake as runClient1040IntakePipeline } from './adapters/intakeReport.js';
 import { resolvePreferentialComponents } from './federal/composers/form1040Spine.js';
 import { buildTaxContext, resolveLawVersionForTaxYear, supportedTaxYears } from './core/lawRegistry.js';
-import { engineYearTo1040Input, mapSimulationRowToYearFacts } from './adapters/engineYearTo1040Input.js';
+import {
+  buildProjectedAnnualFederalTaxInput,
+  engineYearTo1040Input,
+  mapSimulationRowToYearFacts,
+} from './adapters/engineYearTo1040Input.js';
+import { TaxInputError } from './core/errors.js';
 import {
   CAPITAL_GAINS_TAX_RATES,
   SOCIAL_SECURITY_TAXATION_RATES,
@@ -14,7 +19,11 @@ import {
 export { validateClient1040Intake, client1040IntakeToComposerInput };
 export { buildIntakeReport };
 export { resolveLawVersionForTaxYear, supportedTaxYears, buildTaxContext };
-export { engineYearTo1040Input, mapSimulationRowToYearFacts };
+export {
+  buildProjectedAnnualFederalTaxInput,
+  engineYearTo1040Input,
+  mapSimulationRowToYearFacts,
+};
 export {
   CLIENT_1040_INTAKE_CONTRACT_ID,
   CLIENT_1040_INTAKE_SCHEMA_VERSION,
@@ -166,12 +175,40 @@ export function runClient1040Intake(intake, context, options = {}){
 }
 
 /**
+ * Source-agnostic authority for one normalized federal tax year.
+ * Adapters own source translation; this contract owns the federal calculation.
+ */
+export function calculateAnnualFederalTax(input, context, options = {}){
+  if(input === null || typeof input !== 'object' || Array.isArray(input)){
+    throw new TaxInputError('annual federal tax input must be a plain object');
+  }
+  if(!Number.isInteger(input.taxYear)){
+    throw new TaxInputError('annual federal tax input requires an explicit integer taxYear', {
+      taxYear: input.taxYear ?? null,
+    });
+  }
+  if(context === null || typeof context !== 'object' || Array.isArray(context)){
+    throw new TaxInputError('annual federal tax context must be a plain object');
+  }
+  if(input.taxYear !== context.taxYear){
+    throw new TaxInputError('annual federal tax input.taxYear must match context.taxYear', {
+      inputTaxYear: input.taxYear,
+      contextTaxYear: context.taxYear ?? null,
+    });
+  }
+  return runClient1040Intake(input, context, options);
+}
+
+/**
  * One engine/planning year → client1040 intake → annual1040Result.
  * Stable entry for future engine.js integration (adapter only, no live wiring).
  */
 export function runEngineYearTax(engineYearFacts, context, options = {}){
-  const intake = engineYearTo1040Input(engineYearFacts);
-  return runClient1040Intake(intake, context, options);
+  const adapted = engineYearTo1040Input(engineYearFacts);
+  const input = adapted.taxYear === undefined && Number.isInteger(context?.taxYear)
+    ? { ...adapted, taxYear: context.taxYear }
+    : adapted;
+  return calculateAnnualFederalTax(input, context, options);
 }
 
 const roundTaxDollar = (value) => Math.round((value + Number.EPSILON) * 100) / 100;
@@ -250,7 +287,6 @@ function taxRunsAreComparable({
   comparison,
   issues,
 }){
-  if(!selectedRun || !comparisonRun) return false;
   const selected = comparisonIdentity(selectedRun, selectedFacts);
   const candidate = comparisonIdentity(comparisonRun, comparisonFacts);
   const identityMatches = selected.taxYear === candidate.taxYear
@@ -281,15 +317,23 @@ function taxRunsAreComparable({
     });
     return false;
   }
+  if(!selectedRun || !comparisonRun) return false;
 
   const allowedDifferences = comparison === 'baseline'
     ? new Set([
       'income.iraDistributions',
+      'income.taxableIra',
+      'income.rothConversion',
       'income.capitalGain',
+      'income.socialSecurity.otherIncome',
       'resolved.taxableIra',
       'scheduleD.netLongTermGainOrLoss',
     ])
-    : new Set(['income.socialSecurityBenefits']);
+    : new Set([
+      'income.socialSecurityBenefits',
+      'income.taxableSS',
+      'socialSecurity',
+    ]);
   const selectedFactContract = stableComparisonValue(
     selectedFacts,
     '',
@@ -341,13 +385,23 @@ export function runWithdrawalPlannerTaxAnalysis({
   selectedFacts,
   baselineFacts,
   withoutSocialSecurityFacts,
+  selectedInput,
+  baselineInput,
+  withoutSocialSecurityInput,
   context,
   options = {},
+  calculationOptions = {},
 }){
   const comparisonIssues = [];
-  const runComparison = (facts, failureCode, comparison) => {
+  const runComparison = (facts, input, failureCode, comparison) => {
     try {
-      return runEngineYearTax(facts, context, options);
+      const runOptions = {
+        ...options,
+        ...(calculationOptions[comparison] ?? {}),
+      };
+      return input
+        ? calculateAnnualFederalTax(input, context, runOptions)
+        : runEngineYearTax(facts, context, runOptions);
     } catch{
       comparisonIssues.push({
         code: failureCode,
@@ -358,16 +412,19 @@ export function runWithdrawalPlannerTaxAnalysis({
   };
   const selectedRun = runComparison(
     selectedFacts,
+    selectedInput,
     'SELECTED_TAX_RUN_FAILED',
     'selected'
   );
   const baselineRun = runComparison(
     baselineFacts,
+    baselineInput,
     'BASELINE_TAX_RUN_FAILED',
     'baseline'
   );
   const withoutSocialSecurityRun = runComparison(
     withoutSocialSecurityFacts,
+    withoutSocialSecurityInput,
     'WITHOUT_SOCIAL_SECURITY_TAX_RUN_FAILED',
     'withoutSocialSecurity'
   );
@@ -384,16 +441,16 @@ export function runWithdrawalPlannerTaxAnalysis({
   const baselineComparable = taxRunsAreComparable({
     selectedRun,
     comparisonRun: baselineRun,
-    selectedFacts,
-    comparisonFacts: baselineFacts,
+    selectedFacts: selectedInput ?? selectedFacts,
+    comparisonFacts: baselineInput ?? baselineFacts,
     comparison: 'baseline',
     issues: comparisonIssues,
   });
   const withoutSocialSecurityComparable = taxRunsAreComparable({
     selectedRun,
     comparisonRun: withoutSocialSecurityRun,
-    selectedFacts,
-    comparisonFacts: withoutSocialSecurityFacts,
+    selectedFacts: selectedInput ?? selectedFacts,
+    comparisonFacts: withoutSocialSecurityInput ?? withoutSocialSecurityFacts,
     comparison: 'withoutSocialSecurity',
     issues: comparisonIssues,
   });
@@ -438,6 +495,7 @@ export function assessAnnual1040EngineReadiness(){
     stableExports: [
       'validateClient1040Intake',
       'runClient1040Intake',
+      'calculateAnnualFederalTax',
       'runEngineYearTax',
       'runWithdrawalPlannerTaxAnalysis',
       'engineYearTo1040Input',

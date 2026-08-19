@@ -3,6 +3,7 @@ import { validateBasisEnvelope } from './factEnvelope.js';
 import { resolvePortfolioAccounts } from './resolvePortfolioAccounts.js';
 
 const GAP_AFFECTS = 'taxable-withdrawal-gain';
+const APPROVED_BASIS_ASSUMPTION_CODE = 'TAXABLE_BASIS_ASSUMED_50_50';
 
 function freezeGap(code, account, path, kind = 'missing-fact'){
   return Object.freeze({
@@ -34,6 +35,20 @@ function freezeReportingSnapshot(reporting){
     inclusion: reporting.inclusion,
     reportingTaxpayer: reporting.reportingTaxpayer,
     householdReturnShare: reporting.householdReturnShare,
+  });
+}
+
+function freezeApprovedBasisAssumption(account){
+  const basisAmount = account.balance * 0.5;
+  return Object.freeze({
+    code: APPROVED_BASIS_ASSUMPTION_CODE,
+    mode: 'assumed-50-50',
+    accountId: account.id,
+    applicableBalance: account.balance,
+    basisAmount,
+    gainAmount: account.balance - basisAmount,
+    basisFraction: 0.5,
+    gainFraction: 0.5,
   });
 }
 
@@ -164,9 +179,10 @@ function capitalAssetEvidence(account, raw, plan){
  * Resolve the only Household tax fact the current engine can consume directly:
  * a complete starting basis for its aggregated taxable sleeve.
  *
- * Confirmed typed-account facts override the legacy percentage only when the
- * entire material taxable sleeve is covered. Otherwise the existing basisPct
- * behavior remains explicit and unchanged while readiness gaps are returned.
+ * Confirmed account-basis facts are preserved. A supported taxable investment
+ * with no usable explicit basis receives the owner-approved 50% basis / 50%
+ * gain planning assumption; unsupported ownership, reporting, or tax treatment
+ * remains unavailable rather than inheriting a competing default.
  */
 export function resolveTaxableStartingBasis(plan, suppliedFold = null){
   const fold = suppliedFold ?? resolvePortfolioAccounts(plan);
@@ -177,26 +193,61 @@ export function resolveTaxableStartingBasis(plan, suppliedFold = null){
   const records = [];
   const gaps = [];
   const evidence = [];
+  const assumptions = [];
+  const assumptionGaps = [];
   const accountIds = [];
   let completeBasis = 0;
-  let hasLegacyAssumption = false;
+  let hasCalculatedBasis = false;
+  let calculatedCarriedForwardBasis = null;
 
   for(const account of accounts){
     accountIds.push(account.id);
     if(account.sourceKind === 'legacy-base'){
-      hasLegacyAssumption = true;
-      records.push(freezeRecord(
-        account,
-        'legacy-assumption',
-        account.basis?.amount ?? null,
-        'legacy-basis-percent'
-      ));
-      gaps.push(freezeGap(
-        'LEGACY_TAXABLE_BASIS_ASSUMPTION',
-        account,
-        'portfolio.accounts.taxable.basisPct',
-        'assumption'
-      ));
+      if(account.basis?.method === 'calculated-carried-forward'){
+        hasCalculatedBasis = true;
+        calculatedCarriedForwardBasis = account.basis.amount;
+        completeBasis += account.basis.amount;
+        records.push(freezeRecord(
+          account,
+          'calculation',
+          account.basis.amount,
+          'calculated-carried-forward'
+        ));
+        evidence.push(Object.freeze({
+          accountId: account.id,
+          amount: account.basis.amount,
+          method: 'calculated-carried-forward',
+          status: 'calculated',
+          source: 'retirement-entry-calculation',
+          confirmedAt: null,
+          reporting: null,
+        }));
+      }else{
+        const assumption = freezeApprovedBasisAssumption(account);
+        assumptions.push(assumption);
+        completeBasis += assumption.basisAmount;
+        records.push(freezeRecord(
+          account,
+          'calculation-assumption',
+          assumption.basisAmount,
+          'assumed-50-50'
+        ));
+        evidence.push(Object.freeze({
+          accountId: account.id,
+          amount: assumption.basisAmount,
+          method: 'assumed-50-50',
+          status: 'assumed',
+          source: 'owner-approved-planning-assumption',
+          confirmedAt: null,
+          reporting: null,
+        }));
+        assumptionGaps.push(freezeGap(
+          APPROVED_BASIS_ASSUMPTION_CODE,
+          account,
+          'portfolio.accounts.taxable',
+          'assumption'
+        ));
+      }
       continue;
     }
 
@@ -243,10 +294,41 @@ export function resolveTaxableStartingBasis(plan, suppliedFold = null){
     }
     if(account.taxCharacter === 'capital_asset'){
       const result = capitalAssetEvidence(account, raw, plan);
-      records.push(result.record);
-      if(result.gap){
-        gaps.push(result.gap);
+      const approvedAssumption = result.gap
+        && (result.gap.code === 'TAXABLE_BASIS_UNKNOWN'
+          || result.gap.code === 'TAXABLE_BASIS_ASSUMED');
+      if(approvedAssumption){
+        const assumption = freezeApprovedBasisAssumption(account);
+        assumptions.push(assumption);
+        completeBasis += assumption.basisAmount;
+        records.push(freezeRecord(
+          account,
+          'calculation-assumption',
+          assumption.basisAmount,
+          'assumed-50-50',
+          raw
+        ));
+        evidence.push(Object.freeze({
+          accountId: account.id,
+          amount: assumption.basisAmount,
+          method: 'assumed-50-50',
+          status: 'assumed',
+          source: 'owner-approved-planning-assumption',
+          confirmedAt: null,
+          reporting: freezeReportingSnapshot(raw.taxReporting),
+        }));
+        assumptionGaps.push(freezeGap(
+          APPROVED_BASIS_ASSUMPTION_CODE,
+          account,
+          `portfolio.extraAccounts.${account.sourceIndex}.basis`,
+          'assumption'
+        ));
       }else{
+        records.push(result.record);
+      }
+      if(result.gap && !approvedAssumption){
+        gaps.push(result.gap);
+      }else if(!result.gap){
         completeBasis += result.record.basisAmount;
         evidence.push(Object.freeze({
           accountId: account.id,
@@ -270,7 +352,8 @@ export function resolveTaxableStartingBasis(plan, suppliedFold = null){
     ));
   }
 
-  for(const issue of fold.issues){
+  const blockingFoldIssues = fold.issues;
+  for(const issue of blockingFoldIssues){
     gaps.unshift(Object.freeze({
       code: `HOUSEHOLD_${issue}`,
       kind: 'household',
@@ -281,11 +364,13 @@ export function resolveTaxableStartingBasis(plan, suppliedFold = null){
   }
 
   const taxableBalance = fold.engineBuckets.taxable.balance;
-  const legacyFallbackBasis = taxableBalance * plan.portfolio.accounts.taxable.basisPct;
-  const blocked = fold.issues.length > 0;
-  const completeConfirmed = !blocked && !hasLegacyAssumption && gaps.length === 0;
+  const blocked = blockingFoldIssues.length > 0;
+  const composable = !blocked && gaps.length === 0;
+  const completeConfirmed = composable
+    && assumptions.length === 0;
   const lossTreatmentPending = taxableBalance > 0
-    && completeConfirmed
+    && composable
+    && !hasCalculatedBasis
     && completeBasis > taxableBalance;
   if(lossTreatmentPending){
     gaps.push(freezeGap(
@@ -297,10 +382,21 @@ export function resolveTaxableStartingBasis(plan, suppliedFold = null){
   }
   const basisOverride = taxableBalance === 0
     ? 0
-    : completeConfirmed && !lossTreatmentPending ? completeBasis : null;
+    : composable && !lossTreatmentPending ? completeBasis : null;
+  const appliedAssumptions = basisOverride === null
+    ? []
+    : assumptions;
+  const exactTransientBasis = basisOverride === null
+      && hasCalculatedBasis
+      && accounts.length === 1
+    ? calculatedCarriedForwardBasis
+    : null;
+  gaps.push(...appliedAssumptions.map((_, index) => assumptionGaps[index]));
   const resolvedRecords = lossTreatmentPending
     ? records.map(record => (
-        record.disposition === 'calculation' || record.disposition === 'structural-principal'
+        record.disposition === 'calculation'
+          || record.disposition === 'calculation-assumption'
+          || record.disposition === 'structural-principal'
           ? Object.freeze({
               ...record,
               disposition: 'readiness-only',
@@ -317,17 +413,25 @@ export function resolveTaxableStartingBasis(plan, suppliedFold = null){
         ? 'rules-pending'
       : completeConfirmed
         ? 'confirmed'
-        : hasLegacyAssumption && gaps.length === 1
-          ? 'legacy-assumption'
+        : composable && appliedAssumptions.length > 0
+          ? 'assumed-50-50'
           : 'incomplete';
 
   return Object.freeze({
     status,
     taxableBalance,
     basisOverride,
-    legacyFallbackBasis,
-    appliedBasis: basisOverride ?? legacyFallbackBasis,
-    appliedMode: basisOverride === null ? 'legacy-basis-percent' : 'confirmed-or-structural',
+    appliedBasis: basisOverride ?? exactTransientBasis ?? taxableBalance * 0.5,
+    appliedMode: appliedAssumptions.length > 0
+      ? 'assumed-50-50'
+      : exactTransientBasis !== null
+        ? 'calculated-carried-forward'
+        : basisOverride === null
+          ? 'unavailable'
+          : hasCalculatedBasis
+            ? 'calculated-carried-forward'
+            : 'confirmed-or-structural',
+    assumptions: Object.freeze(appliedAssumptions),
     accountIds: Object.freeze(accountIds),
     evidence: Object.freeze(evidence),
     records: Object.freeze(resolvedRecords),

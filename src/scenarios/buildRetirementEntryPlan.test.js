@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import { defaultPlan, resolveInputs } from '../../engine.js';
 import { createAccount } from '../household/createAccount.js';
+import { resolveTaxableStartingBasis } from '../household/resolveTaxableStartingBasis.js';
 import {
   buildRetirementEntryPlan,
   deriveRetirementEntryAccounts,
@@ -71,6 +72,7 @@ test('retirement entry preserves the projected bucket mix and taxable basis', ()
   });
   const inputs = resolveInputs(result, {});
   const resolved = inputs.accounts;
+  const startingBasis = resolveTaxableStartingBasis(result);
 
   assert.deepEqual(plan, before, 'the source Household plan must remain unchanged');
   assert.deepEqual(entryAccounts, {
@@ -86,6 +88,9 @@ test('retirement entry preserves the projected bucket mix and taxable basis', ()
     roth: resolved.roth,
   }, entryAccounts,
   'the historical clone must start from the modeled retirement engine state');
+  assert.equal(startingBasis.basisOverride, null);
+  assert.equal(startingBasis.appliedBasis, 250);
+  assert.equal(startingBasis.appliedMode, 'calculated-carried-forward');
   assert.deepEqual(
     result.portfolio.extraAccounts.map(({ id, balance }) => ({ id, balance })),
     [

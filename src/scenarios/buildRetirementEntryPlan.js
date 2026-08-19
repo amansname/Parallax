@@ -1,4 +1,7 @@
 import { resolvePortfolioAccounts } from '../household/resolvePortfolioAccounts.js';
+import {
+  registerTransientCalculatedTaxableBasis,
+} from '../household/transientCalculatedTaxableBasis.js';
 
 const BUCKET_KEYS = Object.freeze(['taxable', 'traditional', 'roth']);
 
@@ -140,6 +143,10 @@ export function buildRetirementEntryPlan(plan, {
   clone.portfolio.accounts.taxable.basisPct = entryAccounts.taxable.balance > 0
     ? entryAccounts.taxable.basis / entryAccounts.taxable.balance
     : 1;
+  registerTransientCalculatedTaxableBasis(
+    clone,
+    entryAccounts.taxable.basis,
+  );
   clone.portfolio.accounts.roth.balance = entryAccounts.roth.balance;
 
   (clone.portfolio.extraAccounts ?? []).forEach((account, index) => {

@@ -70,6 +70,11 @@ export function createTaxAwareWithdrawalController(deps) {
     renderRevision += 1;
     refs.tawRoot.dataset.tawRenderRevision = String(renderRevision);
     refs.tawRoot.dataset.tawHouseholdId = plan?.meta?.householdId ?? '';
+    const resultCode = typeof result?.code === 'string'
+      ? result.code
+      : (result?.error ? 'WITHDRAWAL_TAX_ERROR' : '');
+    if(resultCode) refs.tawRoot.dataset.tawResultCode = resultCode;
+    else delete refs.tawRoot.dataset.tawResultCode;
     refs.tawRoot.setAttribute('aria-busy', 'false');
   }
 

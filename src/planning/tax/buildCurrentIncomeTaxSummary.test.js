@@ -299,7 +299,7 @@ test('non-ready canonical totalIncome remains authoritative Form 1040 line 9', (
   assert.equal(summary.irmaa.premiumYear, 2028);
 });
 
-test('canonical calculated MFS Social Security preserves living-status semantics', () => {
+test('canonical calculated MFS Social Security contains omitted living status to IRMAA', () => {
   function subject(livedWithSpouse){
     const socialSecurity = {
       mode: 'calculate-taxable-benefits',
@@ -368,10 +368,10 @@ test('canonical calculated MFS Social Security preserves living-status semantics
   assert.ok(livedTogether.federalTaxLiability > livedApart.federalTaxLiability);
 
   const missing = buildCurrentIncomeTaxSummary(subject(undefined));
-  assert.equal(missing.status, 'needs_facts');
-  assert.ok(missing.reasonCodes
-    .includes('MISSING_SOCIAL_SECURITY_LIVING_STATUS'));
-  assert.equal(missing.federalTaxLiability, undefined);
+  assert.equal(missing.status, 'ready');
+  assert.equal(missing.totalIncome, livedApart.totalIncome);
+  assert.equal(missing.federalTaxLiability, livedApart.federalTaxLiability);
+  assert.equal(missing.irmaa, undefined);
 });
 
 test('canonical duplicate income sources block readiness without a partial total', () => {

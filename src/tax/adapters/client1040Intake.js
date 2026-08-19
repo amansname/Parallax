@@ -36,7 +36,10 @@ function assertVersionedIntakeIsMappable(intake){
 
 
 
-export function client1040IntakeToComposerInput(intake){
+export function client1040IntakeToComposerInput(
+  intake,
+  { additionalNetLongTermCapitalGain = 0 } = {},
+){
 
   if(!intake || typeof intake !== 'object' || Array.isArray(intake)){
 
@@ -155,7 +158,7 @@ export function client1040IntakeToComposerInput(intake){
         socialSecurityBenefits: inc.socialSecurityBenefits,
         taxExemptInterest: inc.taxExemptInterest,
         livedWithSpouse: intake.filingStatus === 'marriedFilingSeparately'
-          ? worksheet.livedWithSpouse
+          ? worksheet.livedWithSpouse ?? false
           : false,
       };
     } else if(inc.socialSecurity
@@ -397,6 +400,36 @@ export function client1040IntakeToComposerInput(intake){
 
   if(intake.schedule2){
     input.schedule2 = { ...intake.schedule2 };
+  }
+
+  if(typeof additionalNetLongTermCapitalGain !== 'number'
+      || !Number.isFinite(additionalNetLongTermCapitalGain)
+      || additionalNetLongTermCapitalGain < 0){
+    throw new TypeError(
+      'additionalNetLongTermCapitalGain must be a finite nonnegative number'
+    );
+  }
+  if(additionalNetLongTermCapitalGain > 0){
+    const amount = additionalNetLongTermCapitalGain;
+    if(input.supplied?.line7a !== undefined){
+      input.supplied.line7a += amount;
+      input.capitalGains = {
+        ...(input.capitalGains || {}),
+        netLongTermCapitalGains:
+          (input.capitalGains?.netLongTermCapitalGains ?? 0) + amount,
+      };
+    } else if(input.scheduleD?.mode === 'manual-net-long-term'){
+      input.scheduleD.netLongTermGainOrLoss += amount;
+    } else if(input.scheduleD){
+      input.scheduleD.line15 += amount;
+      input.scheduleD.line16 += amount;
+    } else {
+      input.capitalGains = {
+        ...(input.capitalGains || {}),
+        netLongTermCapitalGains:
+          (input.capitalGains?.netLongTermCapitalGains ?? 0) + amount,
+      };
+    }
   }
 
 

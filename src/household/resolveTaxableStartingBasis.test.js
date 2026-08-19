@@ -47,7 +47,7 @@ function account(typeId, id, balance, changes = {}){
   };
 }
 
-test('complete confirmed brokerage basis plus bank principal overrides the legacy percentage', () => {
+test('complete confirmed brokerage basis plus bank principal remains exact', () => {
   const value = plan();
   value.portfolio.extraAccounts = [
     account('brokerage_taxable', 'broker-one', 100000, { basis: confirmedBasis(25000) }),
@@ -67,7 +67,7 @@ test('complete confirmed brokerage basis plus bank principal overrides the legac
   assert.equal(resolveInputs(value, {}).accounts.taxable.basis, 95000);
 });
 
-test('unknown, assumed, and partial typed basis never partially override existing behavior', () => {
+test('unknown or assumed taxable-account basis uses the approved 50/50 planning assumption', () => {
   for(const secondBasis of [
     undefined,
     assumedBasis(1000),
@@ -80,10 +80,21 @@ test('unknown, assumed, and partial typed basis never partially override existin
       second,
     ];
     const resolved = resolveTaxableStartingBasis(value);
-    assert.equal(resolved.status, 'incomplete');
-    assert.equal(resolved.basisOverride, null);
-    assert.equal(resolved.appliedBasis, 90000);
-    assert.equal(resolveInputs(value, {}).accounts.taxable.basis, 90000);
+    assert.equal(resolved.status, 'assumed-50-50');
+    assert.equal(resolved.basisOverride, 50000);
+    assert.equal(resolved.appliedBasis, 50000);
+    assert.equal(resolved.appliedMode, 'assumed-50-50');
+    assert.deepEqual(resolved.assumptions, [{
+      code: 'TAXABLE_BASIS_ASSUMED_50_50',
+      mode: 'assumed-50-50',
+      accountId: 'second',
+      applicableBalance: 50000,
+      basisAmount: 25000,
+      gainAmount: 25000,
+      basisFraction: 0.5,
+      gainFraction: 0.5,
+    }]);
+    assert.equal(resolveInputs(value, {}).accounts.taxable.basis, 50000);
   }
 });
 
@@ -105,7 +116,7 @@ test('confirmed zero basis applies while a loss position waits for loss-tax rule
   assert.equal(lossResolution.records[0].basisAmount, 125000);
   assert.equal(lossResolution.records[0].disposition, 'readiness-only');
   assert.ok(lossResolution.gaps.some(gap => gap.code === 'TAXABLE_LOSS_TREATMENT_PENDING'));
-  assert.equal(resolveInputs(loss, {}).accounts.taxable.basis, 60000);
+  assert.equal(resolveInputs(loss, {}).accounts.taxable.basis, 50000);
 });
 
 test('unknown, separate, fractional, MFS, owner-mismatched, and trust reporting block application', () => {
@@ -159,20 +170,34 @@ test('unknown, separate, fractional, MFS, owner-mismatched, and trust reporting 
   assert.equal(resolveTaxableStartingBasis(mfsBank).basisOverride, null);
 });
 
-test('legacy base basis remains an explicit assumption and overlap blocks readiness', () => {
-  const legacy = plan();
-  legacy.portfolio.accounts.taxable.balance = 100000;
-  const resolved = resolveTaxableStartingBasis(legacy);
-  assert.equal(resolved.status, 'legacy-assumption');
-  assert.equal(resolved.basisOverride, null);
-  assert.equal(resolved.appliedBasis, 60000);
-  assert.deepEqual(resolved.gaps.map(gap => gap.code), ['LEGACY_TAXABLE_BASIS_ASSUMPTION']);
+test('current base-sleeve taxable balances default to 50/50 without basis provenance', () => {
+  for(const [balance, expectedBasis] of [[100000, 50000], [500000, 250000]]){
+    for(const basisPct of [0.6, 1, null, undefined]){
+      const value = plan();
+      value.portfolio.accounts.taxable = { balance };
+      if(basisPct !== undefined){
+        value.portfolio.accounts.taxable.basisPct = basisPct;
+      }
+      const resolved = resolveTaxableStartingBasis(value);
 
-  legacy.portfolio.extraAccounts = [account('checking', 'bank', 1000)];
-  const overlap = resolveTaxableStartingBasis(legacy);
-  assert.equal(overlap.status, 'blocked');
-  assert.equal(overlap.basisOverride, null);
-  assert.ok(overlap.gaps.some(gap => gap.code === 'HOUSEHOLD_LEGACY_TYPED_OVERLAP'));
+      assert.equal(resolved.status, 'assumed-50-50');
+      assert.equal(resolved.basisOverride, expectedBasis);
+      assert.equal(resolved.appliedBasis, expectedBasis);
+      assert.equal(resolved.appliedMode, 'assumed-50-50');
+      assert.deepEqual(
+        resolved.assumptions.map(item => [
+          item.code,
+          item.applicableBalance,
+          item.basisAmount,
+        ]),
+        [['TAXABLE_BASIS_ASSUMED_50_50', balance, expectedBasis]],
+      );
+      assert.equal(
+        resolveInputs(value, {}).accounts.taxable.basis,
+        expectedBasis,
+      );
+    }
+  }
 });
 
 test('a spouse-owned taxable account cannot supply basis without a spouse household member', () => {

@@ -6,6 +6,7 @@ import {
 } from '../adapters/engineYearTo1040Input.js';
 import {
   buildDefaultTaxContext,
+  calculateAnnualFederalTax,
   runClient1040Intake,
   runEngineYearTax,
 } from '../annual1040.js';
@@ -371,7 +372,7 @@ test('raw signed long-term loss uses the Schedule D loss limit and exposes carry
   );
 });
 
-test('matching current-return facts replace the same engine fields without dropping owner tax facts', () => {
+test('projected row mapping ignores current-return fields without dropping projected owner tax facts', () => {
   const facts = mapSimulationRowToYearFacts({
     accountBreakdown: { taxable: 0, traditional: 0, roth: 0 },
     incomeTaxFacts: { wages: 50_000, taxableInterest: 100 },
@@ -389,10 +390,10 @@ test('matching current-return facts replace the same engine fields without dropp
     returnScope: { modeledTaxpayer: 'client' },
   });
 
-  assert.strictEqual(facts.income.wages, 75_000);
-  assert.strictEqual(facts.income.taxableInterest, 900);
-  assert.strictEqual(facts.income.rothConversion, 5_000);
-  assert.strictEqual(facts.resolved.taxableIra, 5_000);
+  assert.strictEqual(facts.income.wages, 50_000);
+  assert.strictEqual(facts.income.taxableInterest, 100);
+  assert.strictEqual(facts.income.rothConversion, undefined);
+  assert.strictEqual(facts.resolved, undefined);
   assert.deepStrictEqual(facts.taxpayers, {
     client: { birthDate: '1960-01-01' },
   });
@@ -498,4 +499,34 @@ test('planner row Social Security reaches calculated Form 1040 line 6b', () => {
   assert.strictEqual(result.form1040.line6b.status, 'CALCULATED');
   assert.strictEqual(result.form1040.line6b.ruleId, 'FED_TAXABLE_SOCIAL_SECURITY');
   assert.strictEqual(annual1040Result.lines.line11.value, 94600);
+});
+
+test('year-explicit annual federal contract is source-agnostic and deterministic', () => {
+  const input = {
+    taxYear: 2026,
+    filingStatus: 'single',
+    income: { wages: 100_000 },
+    deductions: { useStandard: true },
+  };
+  const before = structuredClone(input);
+  const context = buildDefaultTaxContext({
+    taxYear: 2026,
+    calculatedAt: '2026-08-18T12:00:00.000Z',
+    runId: 'phase4_contract',
+    scenarioId: 'identical_input',
+  });
+
+  const first = calculateAnnualFederalTax(input, context);
+  const second = calculateAnnualFederalTax(structuredClone(input), context);
+
+  assert.deepStrictEqual(first.annual1040Result, second.annual1040Result);
+  assert.deepStrictEqual(input, before);
+  assert.throws(
+    () => calculateAnnualFederalTax({ ...input, taxYear: undefined }, context),
+    /explicit integer taxYear/
+  );
+  assert.throws(
+    () => calculateAnnualFederalTax(input, { ...context, taxYear: 2025 }),
+    /must match context.taxYear/
+  );
 });

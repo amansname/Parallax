@@ -1,7 +1,6 @@
 import { runSimulation, resolveInputs, generateReturnPath, resetSeed, LONGRUN_INFLATION, pathDigest, RISK_PROFILES, defaultPlan as plan } from '../engine.js';
 import { runFederalFundingSimulation } from './planning/tax/runMonteCarloWithFederalFunding.js';
 import { runHistoricalPathWithFederalTax } from './planning/tax/runHistoricalPathWithFederalTax.js';
-import { buildReadyCurrent1040Intake } from './planning/tax/buildCurrent1040Intake.js';
 import { fmtM, fmtMoney } from '../ui/formatters.js';
 import { storyChart, seqChartSvg } from '../ui/charts.js';
 import { escHtml } from '../ui/dom.js';
@@ -2021,7 +2020,6 @@ function computeHistoricalStress(s, p, ov){
             : new Date().getFullYear(),
           filingStatus: rp.meta?.filingStatus,
           scenarioId: `historical_stress_${s.name}_${e.y}`,
-          current1040Intake: buildCurrent1040Intake(rp).intake,
         }
       );
       return { year: e.year, name: e.name, pass: eraPasses(h) };
@@ -2115,7 +2113,6 @@ function runAll(){
             baseTaxYear,
             scenarioId: s.name,
             filingStatus: p.meta?.filingStatus,
-            current1040Intake: buildReadyCurrent1040Intake(p),
           };
           // One converged federal run now supplies probability, paths, taxes,
           // withdrawals, and balances together. A failed convergence is a

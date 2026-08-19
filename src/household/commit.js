@@ -272,6 +272,13 @@ export function bindHouseholdEditor({
       return;
     }
     if(kind === 'step-next'){
+      if(root.dataset.wizardStep === 'tax'){
+        const completed = commit({
+          scope: 'tax',
+          action: 'confirm-tax-inputs',
+        }, action);
+        if(!completed) return;
+      }
       navigateWizard('next');
       return;
     }

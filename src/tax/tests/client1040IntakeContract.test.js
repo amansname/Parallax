@@ -870,7 +870,7 @@ test('base-and-age rejects incompatible statuses, sources, and strict facts', ()
   assert.ok(codes(strict).includes('DUAL_STATUS_STANDARD_DEDUCTION_DEFERRED'));
 });
 
-test('MFS calculated Social Security requires lived-with-spouse but supplied line 6b does not', () => {
+test('MFS calculated Social Security uses the federal default when living status is omitted', () => {
   const mfs = canonical({
     filingStatus: 'marriedFilingSeparately',
     returnScope: { modeledTaxpayer: 'spouse' },
@@ -892,7 +892,11 @@ test('MFS calculated Social Security requires lived-with-spouse but supplied lin
       },
     },
   });
-  assert.ok(codes(mfs).includes('MISSING_SOCIAL_SECURITY_LIVING_STATUS'));
+  assert.deepStrictEqual(codes(mfs), []);
+  const mapped = client1040IntakeToComposerInput(mfs);
+  assert.strictEqual(mapped.socialSecurity.livedWithSpouse, false);
+  const calculated = runClient1040Intake(mfs, context());
+  assert.strictEqual(calculated.result.form1040.line6b.status, 'CALCULATED');
 
   const supplied = {
     ...mfs,

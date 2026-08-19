@@ -4,9 +4,9 @@ import { buildPlanMetaFromEngineParams, buildRowPlanMetaFromOptions } from './bu
 import { buildRowTaxableGainPlanMeta } from './taxableBasisTracker.js';
 import { TaxInputError } from '../../tax/core/errors.js';
 import {
+  buildProjectedAnnualFederalTaxInput,
+  calculateAnnualFederalTax,
   buildDefaultTaxContext,
-  mapSimulationRowToYearFacts,
-  runEngineYearTax,
 } from '../../tax/annual1040.js';
 
 /**
@@ -30,21 +30,24 @@ export function createFederalTaxResolver(params, options = {}){
   const line24ByFacts = new Map();
 
   return (row) => {
-    const meta = {
+    const unresolvedMeta = {
       ...planMeta,
       ...(rowPlanMeta ? rowPlanMeta(row, 0) : {}),
     };
-    const facts = mapSimulationRowToYearFacts(row, meta);
-    const factsKey = JSON.stringify(facts);
+    const taxYear = unresolvedMeta.taxYear
+      ?? contextOverrides.taxYear
+      ?? 2026;
+    const meta = { ...unresolvedMeta, taxYear };
+    const input = buildProjectedAnnualFederalTaxInput(row, meta);
+    const factsKey = JSON.stringify(input);
     if(line24ByFacts.has(factsKey)) return line24ByFacts.get(factsKey);
 
-    const taxYear = meta.taxYear ?? contextOverrides.taxYear ?? 2026;
     let context = contextByTaxYear.get(taxYear);
     if(!context){
       context = buildDefaultTaxContext({ ...contextOverrides, taxYear });
       contextByTaxYear.set(taxYear, context);
     }
-    const annual = runEngineYearTax(facts, context).annual1040Result;
+    const annual = calculateAnnualFederalTax(input, context).annual1040Result;
     const line24 = annual?.lines?.line24?.value;
     if(!Number.isFinite(line24)){
       throw new TaxInputError('federal tax resolver did not produce Form 1040 line 24', {

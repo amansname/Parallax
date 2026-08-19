@@ -190,7 +190,8 @@ function makeBasisRecord(raw, index, resolverRecord, gaps){
     });
   }
   const calculationDisposition = resolverRecord?.disposition === 'calculation'
-    || resolverRecord?.disposition === 'structural-principal';
+    || resolverRecord?.disposition === 'structural-principal'
+    || resolverRecord?.disposition === 'calculation-assumption';
   return Object.freeze({
     path,
     scope: 'account',
@@ -478,6 +479,9 @@ export function buildHouseholdTaxFactContract(plan){
       taxableBasisOverride,
       taxableBasisMode: basisResolution.appliedMode,
       provisionalTaxableBasis: basisResolution.appliedBasis,
+      taxableBasisAssumptions: Object.freeze(
+        basisResolution.assumptions.map(cloneFreeze)
+      ),
     }),
     factRecords: Object.freeze(factRecords),
     readiness: Object.freeze({

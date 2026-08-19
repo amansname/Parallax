@@ -176,12 +176,7 @@ export function validateCanonicalIncome(errors, intake){
       'income.socialSecurity.otherIncome'
     );
   }
-  if(intake.filingStatus === 'marriedFilingSeparately'
-      && typeof socialSecurity.livedWithSpouse !== 'boolean'){
-    issue(errors, 'MISSING_SOCIAL_SECURITY_LIVING_STATUS',
-      'income.socialSecurity.livedWithSpouse must state whether the modeled taxpayer lived with their spouse at any time during the tax year; false means they lived apart for the entire year',
-      'income.socialSecurity.livedWithSpouse');
-  } else if(socialSecurity.livedWithSpouse !== undefined
+  if(socialSecurity.livedWithSpouse !== undefined
       && typeof socialSecurity.livedWithSpouse !== 'boolean'){
     issue(errors, 'INVALID_SOCIAL_SECURITY_LIVING_STATUS',
       'income.socialSecurity.livedWithSpouse must be a boolean when supplied',
