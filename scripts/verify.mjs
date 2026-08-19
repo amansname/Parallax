@@ -338,6 +338,84 @@ try {
     errs.push('CON: ' + message + (sourceUrl ? ` @ ${sourceUrl}` : ''));
   });
 
+  const plannerDiagnosticState = () => stableEvaluate(
+    'read Withdrawal Planner diagnostic state',
+    () => {
+      const root = document.querySelector('[data-taw-root]');
+      const activeHouseholdId = localStorage.getItem('parallax.activeHouseholdId');
+      let current1040 = null;
+      try{
+        const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+        current1040 = db?.[activeHouseholdId]?.incomeTax?.current1040 ?? null;
+      }catch{
+        current1040 = null;
+      }
+      const text = selector => document.querySelector(selector)?.textContent.trim() ?? null;
+      return {
+        activePage: document.querySelector('.page.on')?.dataset.page ?? null,
+        activeHouseholdId,
+        busy: root?.getAttribute('aria-busy') ?? null,
+        renderRevision: Number(root?.dataset.tawRenderRevision ?? -1),
+        renderedHouseholdId: root?.dataset.tawHouseholdId ?? null,
+        resultCode: root?.dataset.tawResultCode || null,
+        wages: text('[data-taw-fact-wages]'),
+        ordinaryTax: text('[data-taw-col="ord"] .taw-col-edge span'),
+        federalTax: text('[data-taw-federal-tax]'),
+        incomeSourcesComplete: current1040?.incomeSourcesComplete === true,
+      };
+    },
+  );
+
+  const waitForPlannerState = async ({
+    afterRevision,
+    wages,
+    ordinaryTax,
+    federalTax,
+    resultCode,
+    incomeSourcesComplete,
+  }) => {
+    const expected = {
+      afterRevision,
+      wages,
+      ordinaryTax,
+      federalTax,
+      resultCode,
+      incomeSourcesComplete,
+    };
+    try{
+      await page.waitForFunction(want => {
+        const root = document.querySelector('[data-taw-root]');
+        const activeHouseholdId = localStorage.getItem('parallax.activeHouseholdId');
+        let current1040 = null;
+        try{
+          const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+          current1040 = db?.[activeHouseholdId]?.incomeTax?.current1040 ?? null;
+        }catch{
+          current1040 = null;
+        }
+        const text = selector => document.querySelector(selector)?.textContent.trim() ?? null;
+        return root?.getAttribute('aria-busy') === 'false'
+          && Number(root.dataset.tawRenderRevision || -1) > want.afterRevision
+          && root.dataset.tawHouseholdId === activeHouseholdId
+          && (root.dataset.tawResultCode || null) === want.resultCode
+          && text('[data-taw-fact-wages]') === want.wages
+          && text('[data-taw-col="ord"] .taw-col-edge span') === want.ordinaryTax
+          && text('[data-taw-federal-tax]') === want.federalTax
+          && (current1040?.incomeSourcesComplete === true) === want.incomeSourcesComplete;
+      }, { timeout: 15000 }, expected);
+    }catch(error){
+      const observed = await plannerDiagnosticState();
+      throw new Error(
+        `Withdrawal Planner state timeout: ${JSON.stringify({
+          expected,
+          observed,
+          consoleErrors: errs,
+        })}; ${error.message || error}`,
+      );
+    }
+    return plannerDiagnosticState();
+  };
+
   await step('load index.html', async () => {
     // Deterministic seed: households + scenarios persist to localStorage, so a
     // stale browser store would silently replace the demo seed (Baseline 66 /
@@ -375,13 +453,41 @@ try {
 
   await step('Tax wizard: Wages flow through to Withdrawal Planner tax dollars', async () => {
     await page.setViewport({ width:1440, height:900, deviceScaleFactor:1 });
+    const blankPlanner = await plannerDiagnosticState();
     await stableClick('.htab[data-page="tax-buckets"]');
-    await page.waitForFunction(() => {
-      const wages = document.querySelector('[data-taw-fact-wages]')?.textContent.trim();
-      const incomeTax = document.querySelector('[data-taw-col="ord"] .taw-col-edge span')
-        ?.textContent.trim();
-      return wages === '$0' && incomeTax === '$0';
-    }, { timeout: 15000 });
+    await waitForPlannerState({
+      afterRevision: blankPlanner.renderRevision,
+      wages: '$0',
+      ordinaryTax: '\u2014',
+      federalTax: '\u2014',
+      resultCode: 'WITHDRAWAL_CURRENT_TAX_BASELINE_UNAVAILABLE',
+      incomeSourcesComplete: false,
+    });
+
+    await goToWizardStep(page, 'family');
+    const familyRevision = await page.$eval(
+      '[data-hh-wizard-root]',
+      root => Number(root.dataset.renderRevision || -1),
+    );
+    const [birthYear, birthMonth, birthDay] =
+      WITHDRAWAL_PLANNER_FIXTURE.family.birthDate.split('-');
+    for(const [part, value] of [
+      ['month', birthMonth],
+      ['day', birthDay],
+      ['year', birthYear],
+    ]){
+      const selector = `[data-birth-date-group="client"] [data-birth-part="${part}"]`;
+      await stableClick(selector);
+      await page.keyboard.down('Control');
+      await page.keyboard.press('A');
+      await page.keyboard.up('Control');
+      await page.keyboard.type(String(Number(value)));
+      await page.keyboard.press('Tab');
+    }
+    await waitForWizard(page, {
+      step: 'family',
+      afterRevision: familyRevision,
+    });
 
     await goToWizardStep(page, 'tax');
     const wageSelector = '[data-hh-wizard-screen="tax"] [data-tax-field="income.wages.client"]';
@@ -416,13 +522,38 @@ try {
       throw new Error(`Tax wizard did not commit Wages through change/blur: ${JSON.stringify({ committedWages })}`);
     }
 
+    const beforeTaxCompletion = await page.$eval(
+      '[data-hh-wizard-root]',
+      root => Number(root.dataset.renderRevision || -1),
+    );
+    await stableClick('#hh-wiz-footer [data-hh-action="step-next"]');
+    await waitForWizard(page, {
+      step: 'summary',
+      afterRevision: beforeTaxCompletion,
+    });
+    const completionState = await page.evaluate(() => {
+      const active = localStorage.getItem('parallax.activeHouseholdId');
+      const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+      const current1040 = db?.[active]?.incomeTax?.current1040;
+      return {
+        active,
+        incomeSourcesComplete: current1040?.incomeSourcesComplete === true,
+      };
+    });
+    if(!completionState.active || !completionState.incomeSourcesComplete){
+      throw new Error(`Visible Tax completion did not confirm saved facts: ${JSON.stringify(completionState)}`);
+    }
+
+    const beforePlanner = await plannerDiagnosticState();
     await stableClick('.htab[data-page="tax-buckets"]');
-    await page.waitForFunction(() => {
-      const wages = document.querySelector('[data-taw-fact-wages]')?.textContent.trim();
-      const incomeTax = document.querySelector('[data-taw-col="ord"] .taw-col-edge span')
-        ?.textContent.trim();
-      return wages === '$50,000' && incomeTax === '$3,820';
-    }, { timeout: 15000 });
+    await waitForPlannerState({
+      afterRevision: beforePlanner.renderRevision,
+      wages: '$50,000',
+      ordinaryTax: '$3,820',
+      federalTax: '$3,820',
+      resultCode: null,
+      incomeSourcesComplete: true,
+    });
     const planner = await page.evaluate(() => ({
       wages: document.querySelector('[data-taw-fact-wages]')?.textContent.trim() ?? null,
       wageTag: document.querySelector('[data-taw-fact-wages]')?.tagName ?? null,
@@ -536,6 +667,20 @@ try {
       '[data-hh-wizard-screen="tax"] [data-tax-field="income.wages.client"]',
       fixture.tax.wages,
     );
+    const beforeTaxCompletion = await currentRevision();
+    await stableClick('#hh-wiz-footer [data-hh-action="step-next"]');
+    await waitForWizard(page, {
+      step: 'summary',
+      afterRevision: beforeTaxCompletion,
+    });
+    const confirmedTax = await page.evaluate(() => {
+      const active = localStorage.getItem('parallax.activeHouseholdId');
+      const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+      return db?.[active]?.incomeTax?.current1040?.incomeSourcesComplete === true;
+    });
+    if(!confirmedTax){
+      throw new Error('Visible Tax completion did not persist the funded fixture baseline');
+    }
 
     await openNetWorthCategory(page, 'investment');
     for(const account of fixture.accounts){
@@ -585,12 +730,16 @@ try {
 
   await step('Tax Buckets: production household loads with funded limits and live tax output', async () => {
     await page.setViewport({ width:1440, height:900, deviceScaleFactor:1 });
+    const beforePlanner = await plannerDiagnosticState();
     await stableClick('.htab[data-page="tax-buckets"]');
-    await page.waitForFunction(() => {
-      const root = document.querySelector('[data-taw-root]');
-      const cols = document.querySelectorAll('.taw-col');
-      return !!root && cols.length === 4;
-    }, { timeout: 15000 });
+    await waitForPlannerState({
+      afterRevision: beforePlanner.renderRevision,
+      wages: '$50,000',
+      ordinaryTax: '$3,820',
+      federalTax: '$3,820',
+      resultCode: null,
+      incomeSourcesComplete: true,
+    });
     const planner = await page.evaluate(() => ({
       active: document.querySelector('.page.on')?.dataset.page || '',
       columns: document.querySelectorAll('[data-taw-col]').length,
@@ -627,10 +776,6 @@ try {
       throw new Error(`Withdrawal Planner did not load the selected production household: ${JSON.stringify(planner)}`);
     }
 
-    await page.waitForFunction(
-      () => document.querySelector('[data-taw-federal-tax]')?.textContent.trim() !== '\u2014',
-      { timeout: 15000 },
-    );
     const thresholdProof = await page.evaluate(() => {
       const text = selector => document.querySelector(selector)?.textContent.trim() ?? null;
       return {

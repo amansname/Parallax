@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ACCOUNT_SCHEMA_VERSION } from './accountTypes.js';
+import { bindHouseholdEditor } from './commit.js';
 import { createAccount } from './createAccount.js';
 import { createBlankTaxProfiles } from './factEnvelope.js';
 import { HOUSEHOLD_RECORD_SCHEMA_VERSION } from './householdRecordSchema.js';
@@ -57,6 +58,85 @@ function plan(){
     },
   };
 }
+
+test('visible Tax Next confirms canonical Tax facts before navigating', () => {
+  const listeners = {};
+  const commands = [];
+  const navigations = [];
+  const headerStatuses = [];
+  const attributes = {};
+  let customValidity = '';
+  let rejectConfirmation = false;
+  const root = {
+    dataset: { wizardStep: 'tax' },
+    addEventListener(type, listener){ listeners[type] = listener; },
+  };
+  const action = {
+    dataset: { hhAction: 'step-next' },
+    disabled: false,
+    closest(selector){ return selector === '[data-hh-action]' ? this : null; },
+    getAttribute(){ return null; },
+    matches(){ return false; },
+    removeAttribute(){},
+    setAttribute(name, value){ attributes[name] = value; },
+    setCustomValidity(message){ customValidity = message; },
+    focus(){},
+    reportValidity(){},
+  };
+
+  bindHouseholdEditor({
+    root,
+    wizardRoot: root,
+    transientState: {},
+    guardPlanMutation: () => true,
+    commitWizardEdit(command){
+      commands.push(command);
+      if(rejectConfirmation){
+        throw Object.assign(
+          new Error('Current Tax facts are incomplete'),
+          { code: 'CURRENT_1040_INCOME_SOURCES_INCOMPLETE' },
+        );
+      }
+      return {};
+    },
+    syncHousehold(){},
+    navigateWizard(direction){ navigations.push(direction); },
+    syncHeaderStatus(message){ headerStatuses.push(message); },
+    liveCommas(){},
+  });
+
+  listeners.click({ target: action });
+  assert.deepEqual(commands, [{
+    scope: 'tax',
+    action: 'confirm-tax-inputs',
+  }]);
+  assert.deepEqual(navigations, ['next']);
+
+  root.dataset.wizardStep = 'family';
+  commands.length = 0;
+  navigations.length = 0;
+  listeners.click({ target: action });
+  assert.deepEqual(commands, []);
+  assert.deepEqual(navigations, ['next']);
+
+  root.dataset.wizardStep = 'tax';
+  commands.length = 0;
+  navigations.length = 0;
+  rejectConfirmation = true;
+  listeners.click({ target: action });
+  assert.deepEqual(commands, [{
+    scope: 'tax',
+    action: 'confirm-tax-inputs',
+  }]);
+  assert.deepEqual(navigations, []);
+  assert.equal(
+    root.dataset.validationCode,
+    'CURRENT_1040_INCOME_SOURCES_INCOMPLETE',
+  );
+  assert.equal(attributes['aria-invalid'], 'true');
+  assert.equal(customValidity, 'Current Tax facts are incomplete');
+  assert.deepEqual(headerStatuses, ['Current Tax facts are incomplete']);
+});
 
 test('family DOB is one atomic edit across profile, plan age, and canonical taxpayers', () => {
   let current = plan();
