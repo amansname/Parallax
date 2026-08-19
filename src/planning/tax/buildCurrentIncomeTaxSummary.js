@@ -1,4 +1,7 @@
-import { buildDefaultTaxContext, runClient1040Intake } from '../../tax/annual1040.js';
+import {
+  buildDefaultTaxContext,
+  calculateAnnualFederalTax,
+} from '../../tax/annual1040.js';
 import { CAPITAL_GAINS_THRESHOLDS, ORDINARY_BRACKETS } from '../../tax/core/constants.js';
 import { ssAdjust } from '../../../engine.js';
 import {
@@ -109,7 +112,7 @@ function run(intake, suffix){
     runId: `wizard_current_${suffix}`,
     scenarioId: 'household_wizard',
   });
-  return runClient1040Intake(intake, context);
+  return calculateAnnualFederalTax(intake, context);
 }
 
 function irmaaMfsLivingArrangement(filingStatus, income){
@@ -364,7 +367,7 @@ function buildCanonicalCurrentIncomeTaxSummary(plan){
     scenarioId: 'household_wizard',
   });
   try{
-    const selected = runClient1040Intake(intake, context);
+    const selected = calculateAnnualFederalTax(intake, context);
     const annual = selected.annual1040Result;
     const form1040 = selected.result.form1040;
     if(annual.federalSummary.taxTotalScope === 'NOT_CALCULABLE'){

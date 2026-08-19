@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  buildWithdrawalPlannerFederalTaxInputs,
   evaluateYear,
+  evaluateProjectedYearFacts,
   attributeSleeves,
   householdIncome,
   sleeveBalances,
@@ -12,11 +14,86 @@ import {
 import { defaultPlan as plan } from '../../../engine.js';
 import {
   buildDefaultTaxContext,
+  calculateAnnualFederalTax,
   runEngineYearTax,
 } from '../../tax/annual1040.js';
 import { createAccount } from '../../household/createAccount.js';
+import { buildWizardIncomeTaxSummary } from '../../household/buildWizardIncomeTaxSummary.js';
+import { createBlankTaxProfileOwner } from '../../household/factEnvelope.js';
 import { applyHouseholdWizardEdit } from '../../household/wizardEdits.js';
+import { confirmWizardTaxInputs } from '../../household/wizardTaxCompletion.js';
 import { createBlankHousehold } from '../../../ui/householdFactories.js';
+import { buildCurrent1040Intake } from '../tax/buildCurrent1040Intake.js';
+import { buildCurrentIncomeTaxSummary } from '../tax/buildCurrentIncomeTaxSummary.js';
+
+function setConfirmedBirthDate(subject, owner, value) {
+  subject.taxProfiles = subject.taxProfiles || {};
+  subject.taxProfiles[owner] = subject.taxProfiles[owner] || {};
+  subject.taxProfiles[owner].birthDate = {
+    value,
+    status: 'confirmed',
+    source: 'household-entry',
+    confirmedAt: '2026-01-01T00:00:00.000Z',
+  };
+}
+
+function confirmedFact(value) {
+  return {
+    value,
+    status: 'confirmed',
+    source: 'household-entry',
+    confirmedAt: '2026-08-18T12:00:00.000Z',
+    version: 1,
+  };
+}
+
+function setConfirmedForm8606Zero(subject, owner) {
+  subject.taxProfiles = subject.taxProfiles || {};
+  const existing = subject.taxProfiles[owner] || {};
+  const blank = createBlankTaxProfileOwner();
+  subject.taxProfiles[owner] = {
+    ...blank,
+    ...existing,
+    traditionalIra: existing.traditionalIra || blank.traditionalIra,
+    rothIra: existing.rothIra || blank.rothIra,
+  };
+  const traditionalIra = subject.taxProfiles[owner].traditionalIra;
+  for (const key of [
+    'priorYearCarryforwardBasis',
+    'currentYearNondeductibleContributions',
+    'outstandingRolloversAtYearEnd',
+    'otherForm8606Adjustments',
+  ]) {
+    traditionalIra[key] = confirmedFact(0);
+  }
+}
+
+function createCurrentTaxPlannerSubject(id, {
+  wages = 50_000,
+  capitalGain = 20_000,
+} = {}) {
+  let subject = createBlankHousehold(plan, id, 2026);
+  subject = applyHouseholdWizardEdit(subject, {
+    scope: 'family', field: 'client.birthDate', value: '1966-03-14',
+  }, { timestamp: '2026-08-18T12:00:00.000Z' });
+  subject = applyHouseholdWizardEdit(subject, {
+    scope: 'tax', action: 'set', field: 'income.wages.client', value: wages,
+  });
+  subject = applyHouseholdWizardEdit(subject, {
+    scope: 'tax', action: 'set',
+    field: 'scheduleD.netLongTermGainOrLoss', value: capitalGain,
+  });
+  subject = applyHouseholdWizardEdit(subject, {
+    scope: 'tax', action: 'confirm-tax-inputs',
+  });
+  subject.portfolio.accounts.taxable.balance = 200_000;
+  subject.portfolio.accounts.traditional.balance = 0;
+  subject.portfolio.accounts.roth.balance = 100_000;
+  subject.portfolio.extraAccounts = [createAccount('401k', {
+    owner: 'client', balance: 100_000,
+  })];
+  return subject;
+}
 
 test('taxEngineAdapter evaluates a focus year from demo-shaped plan', async () => {
   const facts = {
@@ -33,7 +110,9 @@ test('taxEngineAdapter evaluates a focus year from demo-shaped plan', async () =
     rothWithdrawal: 0,
     qcd: 0,
   };
-  const result = await evaluateYear({ plan, taxYear: 2026, facts, levers });
+  const result = await evaluateProjectedYearFacts({
+    plan, taxYear: 2026, facts, levers,
+  });
   assert.ok(result);
   assert.equal(result.error, undefined);
   assert.equal(typeof result.lawVersion, 'string');
@@ -54,13 +133,11 @@ test('taxEngineAdapter returns null when filing status is missing', async () => 
 });
 
 test('taxEngineAdapter attributes incremental tax to withdrawal sleeves', async () => {
-  const facts = {
-    filingStatus: 'marriedFilingJointly',
-    livedWithSpouse: false,
-    socialSecurityBenefits: 0,
-    wages: 120_000,
-    otherIncome: 0,
-  };
+  const subject = createCurrentTaxPlannerSubject(
+    'hh_current_baseline_existing_attribution',
+    { wages: 120_000, capitalGain: 0 },
+  );
+  const facts = await householdIncome(subject, 2026, { baseYear: 2026 });
   const levers = {
     realizedGain: 0,
     deferredWithdrawal: 50_000,
@@ -68,7 +145,7 @@ test('taxEngineAdapter attributes incremental tax to withdrawal sleeves', async 
     rothWithdrawal: 0,
     qcd: 0,
   };
-  const att = await attributeSleeves({ plan, taxYear: 2026, facts, levers });
+  const att = await attributeSleeves({ plan: subject, taxYear: 2026, facts, levers });
   assert.ok(att);
   assert.equal(att.error, undefined);
   assert.equal(typeof att.incrementalTax, 'number');
@@ -82,7 +159,7 @@ test('sleeveBalances reads portfolio fold balances', async () => {
   assert.equal(typeof caps.roth, 'number');
 });
 
-test('evaluateYear returns engine-owned threshold dollars and incremental net cash', async () => {
+test('projected-year seam returns engine-owned threshold dollars and incremental net cash', async () => {
   const subject = structuredClone(plan);
   subject.meta.filingStatus = 'single';
   subject.household.spouse = null;
@@ -99,7 +176,7 @@ test('evaluateYear returns engine-owned threshold dollars and incremental net ca
     wages: 50_000,
     otherIncome: 0,
   };
-  const result = await evaluateYear({
+  const result = await evaluateProjectedYearFacts({
     plan: subject,
     taxYear: 2026,
     facts,
@@ -133,6 +210,7 @@ test('evaluateYear returns engine-owned threshold dollars and incremental net ca
     incremental: 2_750,
     taxTotalScope: 'INCOME_TAX_ONLY',
   });
+  assert.equal(result.federalTaxInputSource, 'projected-year-facts');
   assert.deepEqual(result.cash, {
     grossWithdrawalCash: 20_000,
     incrementalModeledFederalIncomeTax: 2_750,
@@ -157,7 +235,7 @@ test('Withdrawal Planner IRMAA uses selected MAGI, annual premium delta, room, a
     roth: { balance: 0 },
   };
   subject.portfolio.extraAccounts = [];
-  const result = await evaluateYear({
+  const result = await evaluateProjectedYearFacts({
     plan: subject,
     taxYear: 2026,
     facts: {
@@ -203,7 +281,7 @@ test('Realized Gain is taxed directly without being counted as withdrawal cash',
     roth: { balance: 0 },
   };
   subject.portfolio.extraAccounts = [];
-  const result = await evaluateYear({
+  const result = await evaluateProjectedYearFacts({
     plan: subject,
     taxYear: 2026,
     facts: {
@@ -284,19 +362,27 @@ test('Realized Gain uses taxable-investment balances without reporting filters o
   assert.equal(ceilingState.limits.realizedGain.max, 500_000);
 });
 
-test('saved Tax-module Schedule D is the baseline and Planner Realized Gain is additive', async () => {
-  let subject = createBlankHousehold(plan, 'hh_schedule_d_baseline', 2026);
-  subject = applyHouseholdWizardEdit(subject, {
-    scope: 'tax', action: 'set', field: 'income.wages.client', value: 50_000,
-  });
-  subject = applyHouseholdWizardEdit(subject, {
-    scope: 'tax', action: 'set',
-    field: 'scheduleD.netLongTermGainOrLoss', value: 20_000,
-  });
-  subject.portfolio.accounts.taxable.balance = 200_000;
-  subject.portfolio.extraAccounts = [];
+test('live UI householdIncome -> evaluateYear route uses an immutable current Tax baseline', async () => {
+  const subject = createCurrentTaxPlannerSubject('hh_schedule_d_baseline');
+  const before = structuredClone(subject);
   const facts = await householdIncome(subject, 2026, { baseYear: 2026 });
-  const result = await evaluateYear({
+  const zeroLevers = {
+    realizedGain: 0,
+    deferredWithdrawal: 0,
+    rothConversion: 0,
+    rothWithdrawal: 0,
+    qcd: 0,
+  };
+  const currentInput = buildCurrent1040Intake(subject).intake;
+  const currentSummary = buildCurrentIncomeTaxSummary(subject);
+  const visibleSummary = buildWizardIncomeTaxSummary(subject);
+  const inputs = await buildWithdrawalPlannerFederalTaxInputs({
+    plan: subject, taxYear: 2026, facts, levers: zeroLevers,
+  });
+  const zero = await evaluateYear({
+    plan: subject, taxYear: 2026, facts, levers: zeroLevers,
+  });
+  const realizedGain = await evaluateYear({
     plan: subject,
     taxYear: 2026,
     facts,
@@ -308,12 +394,710 @@ test('saved Tax-module Schedule D is the baseline and Planner Realized Gain is a
       qcd: 0,
     },
   });
+  const deferred = await evaluateYear({
+    plan: subject,
+    taxYear: 2026,
+    facts,
+    levers: { ...zeroLevers, deferredWithdrawal: 10_000 },
+  });
+  const roth = await evaluateYear({
+    plan: subject,
+    taxYear: 2026,
+    facts,
+    levers: { ...zeroLevers, rothWithdrawal: 10_000 },
+  });
+  const factsWithoutIncidentalShape = structuredClone(facts);
+  delete factsWithoutIncidentalShape.people;
+  delete factsWithoutIncidentalShape.taxYear;
+  factsWithoutIncidentalShape.wages = 999_999;
+  factsWithoutIncidentalShape.capitalGain = -999_999;
+  factsWithoutIncidentalShape.people = currentInput.filingStatus
+    === 'marriedFilingJointly'
+    ? { client: { alive: true }, spouse: { alive: false } }
+    : { client: { alive: true }, spouse: { alive: true } };
+  const shapeIndependent = await evaluateYear({
+    plan: subject,
+    taxYear: 2026,
+    facts: factsWithoutIncidentalShape,
+    levers: zeroLevers,
+  });
 
+  assert.equal(currentSummary.status, 'ready');
+  assert.equal(visibleSummary.status, 'ready');
+  assert.equal(inputs.sourceMode, 'current-tax-baseline');
+  assert.deepEqual(inputs.baselineInput, currentInput);
+  assert.deepEqual(inputs.selectedInput, currentInput);
+  assert.notStrictEqual(inputs.baselineInput, inputs.selectedInput);
+  assert.equal(zero.modeledFederalIncomeTax.baseline, currentSummary.federalTaxLiability);
+  assert.equal(zero.modeledFederalIncomeTax.selected, currentSummary.federalTaxLiability);
+  assert.equal(
+    zero.modeledFederalIncomeTax.baseline,
+    visibleSummary.federalTaxLiability,
+  );
+  assert.equal(
+    zero.modeledFederalIncomeTax.selected,
+    visibleSummary.federalTaxLiability,
+  );
+  assert.equal(zero.modeledFederalIncomeTax.incremental, 0);
+  assert.equal(zero.federalTaxInputSource, 'current-tax-baseline');
+  assert.equal(realizedGain.federalTaxInputSource, 'current-tax-baseline');
+  assert.equal(shapeIndependent.federalTaxInputSource, 'current-tax-baseline');
+  assert.equal(
+    shapeIndependent.modeledFederalIncomeTax.selected,
+    zero.modeledFederalIncomeTax.selected,
+  );
   assert.equal(facts.capitalGain, 20_000);
-  assert.equal(result.ltcg.gains, 30_000);
-  assert.equal(result.modeledFederalIncomeTax.baseline, 4_487.50);
-  assert.equal(result.modeledFederalIncomeTax.selected, 5_987.50);
-  assert.equal(result.modeledFederalIncomeTax.incremental, 1_500);
+  assert.equal(realizedGain.ltcg.gains, 30_000);
+  assert.equal(realizedGain.modeledFederalIncomeTax.baseline, 4_487.50);
+  assert.equal(realizedGain.modeledFederalIncomeTax.selected, 5_987.50);
+  assert.equal(realizedGain.modeledFederalIncomeTax.incremental, 1_500);
+  assert.ok(deferred.modeledFederalIncomeTax.selected
+    > deferred.modeledFederalIncomeTax.baseline);
+  assert.equal(roth.modeledFederalIncomeTax.selected, roth.modeledFederalIncomeTax.baseline);
+  assert.equal(roth.cash.grossWithdrawalCash, 10_000);
+  assert.deepEqual(subject, before);
+});
+
+test('current-baseline Roth conversion updates Form 1040 lines 4a and 4b without mutation', async () => {
+  const subject = createCurrentTaxPlannerSubject('hh_roth_line4_overlay');
+  const before = structuredClone(subject);
+  const facts = await householdIncome(subject, 2026, { baseYear: 2026 });
+  const zeroLevers = {
+    realizedGain: 0, deferredWithdrawal: 0, rothConversion: 0,
+    rothWithdrawal: 0, qcd: 0,
+  };
+  const baseline = await buildWithdrawalPlannerFederalTaxInputs({
+    plan: subject, taxYear: 2026, facts, levers: zeroLevers,
+  });
+  const converted = await buildWithdrawalPlannerFederalTaxInputs({
+    plan: subject,
+    taxYear: 2026,
+    facts,
+    levers: { ...zeroLevers, rothConversion: 10_000 },
+  });
+  const context = buildDefaultTaxContext({
+    taxYear: 2026,
+    scenarioId: 'current_baseline_roth_line4_overlay',
+  });
+  const baselineRun = calculateAnnualFederalTax(baseline.selectedInput, context);
+  const convertedRun = calculateAnnualFederalTax(converted.selectedInput, context);
+
+  assert.strictEqual(
+    converted.selectedInput.income.iraDistributions,
+    baseline.selectedInput.income.iraDistributions + 10_000,
+  );
+  assert.strictEqual(
+    converted.selectedInput.income.rothConversion,
+    baseline.selectedInput.income.rothConversion + 10_000,
+  );
+  assert.strictEqual(
+    convertedRun.result.form1040.line4a.value,
+    baselineRun.result.form1040.line4a.value + 10_000,
+  );
+  assert.strictEqual(
+    convertedRun.result.form1040.line4b.value,
+    baselineRun.result.form1040.line4b.value + 10_000,
+  );
+  assert.deepEqual(subject, before);
+  assert.deepEqual(baseline.baselineInput, baseline.selectedInput);
+});
+
+test('incremental IRA withdrawals and Roth conversions remain fully taxable without a Form 8606 model', async () => {
+  const subject = createCurrentTaxPlannerSubject('hh_form8606_affected_only');
+  subject.portfolio.accounts.traditional.balance = 0;
+  subject.portfolio.extraAccounts = [createAccount('traditional_ira', {
+    owner: 'client', balance: 100_000,
+  })];
+  subject.taxProfiles.client.traditionalIra.priorYearCarryforwardBasis =
+    confirmedFact(1_000);
+  const before = structuredClone(subject);
+  const facts = await householdIncome(subject, 2026, { baseYear: 2026 });
+  const zeroLevers = {
+    realizedGain: 0, deferredWithdrawal: 0, rothConversion: 0,
+    rothWithdrawal: 0, qcd: 0,
+  };
+  const baseline = await buildWithdrawalPlannerFederalTaxInputs({
+    plan: subject, taxYear: 2026, facts, levers: zeroLevers,
+  });
+  const withdrawal = await buildWithdrawalPlannerFederalTaxInputs({
+    plan: subject,
+    taxYear: 2026,
+    facts,
+    levers: { ...zeroLevers, deferredWithdrawal: 10_000 },
+  });
+  const conversion = await buildWithdrawalPlannerFederalTaxInputs({
+    plan: subject,
+    taxYear: 2026,
+    facts,
+    levers: { ...zeroLevers, rothConversion: 10_000 },
+  });
+  const context = buildDefaultTaxContext({
+    taxYear: 2026,
+    scenarioId: 'fully_taxable_incremental_ira',
+  });
+  const baselineRun = calculateAnnualFederalTax(baseline.selectedInput, context);
+  const withdrawalRun = calculateAnnualFederalTax(withdrawal.selectedInput, context);
+  const conversionRun = calculateAnnualFederalTax(conversion.selectedInput, context);
+  const withdrawalResult = await evaluateYear({
+    plan: subject,
+    taxYear: 2026,
+    facts,
+    levers: { ...zeroLevers, deferredWithdrawal: 10_000 },
+  });
+  const conversionResult = await evaluateYear({
+    plan: subject,
+    taxYear: 2026,
+    facts,
+    levers: { ...zeroLevers, rothConversion: 10_000 },
+  });
+
+  assert.strictEqual(
+    withdrawalRun.result.form1040.line4a.value,
+    baselineRun.result.form1040.line4a.value + 10_000,
+  );
+  assert.strictEqual(
+    withdrawalRun.result.form1040.line4b.value,
+    baselineRun.result.form1040.line4b.value + 10_000,
+  );
+  assert.strictEqual(
+    conversionRun.result.form1040.line4a.value,
+    baselineRun.result.form1040.line4a.value + 10_000,
+  );
+  assert.strictEqual(
+    conversionRun.result.form1040.line4b.value,
+    baselineRun.result.form1040.line4b.value + 10_000,
+  );
+  assert.strictEqual(withdrawalResult.code, undefined);
+  assert.strictEqual(conversionResult.code, undefined);
+  assert.ok(
+    withdrawalResult.modeledFederalIncomeTax.selected
+      > withdrawalResult.modeledFederalIncomeTax.baseline,
+  );
+  assert.ok(
+    conversionResult.modeledFederalIncomeTax.selected
+      > conversionResult.modeledFederalIncomeTax.baseline,
+  );
+  assert.deepEqual(subject, before);
+  assert.deepEqual(baseline.baselineInput, baseline.selectedInput);
+});
+
+test('current-baseline Social Security counterfactual recomputes only from worksheet facts', async () => {
+  const calculated = createCurrentTaxPlannerSubject(
+    'hh_calculated_social_security',
+    { wages: 20_000, capitalGain: 0 },
+  );
+  const calculatedIncome = calculated.incomeTax.current1040.income;
+  calculatedIncome.socialSecurityBenefits = 30_000;
+  delete calculatedIncome.taxableSS;
+  calculatedIncome.socialSecurity = {
+    mode: 'calculate-taxable-benefits',
+    otherIncome: 20_000,
+    excludedIncomeAddBacks: 0,
+    adjustments: 0,
+  };
+  confirmWizardTaxInputs(calculated);
+  const calculatedBefore = structuredClone(calculated);
+  const facts = await householdIncome(calculated, 2026, { baseYear: 2026 });
+  const zeroLevers = {
+    realizedGain: 0, deferredWithdrawal: 0, rothConversion: 0,
+    rothWithdrawal: 0, qcd: 0,
+  };
+  const baselineInputs = await buildWithdrawalPlannerFederalTaxInputs({
+    plan: calculated, taxYear: 2026, facts, levers: zeroLevers,
+  });
+  const selectedInputs = await buildWithdrawalPlannerFederalTaxInputs({
+    plan: calculated,
+    taxYear: 2026,
+    facts,
+    levers: { ...zeroLevers, realizedGain: 10_000 },
+  });
+  const context = buildDefaultTaxContext({
+    taxYear: 2026,
+    scenarioId: 'calculated_social_security_overlay',
+  });
+  const baselineRun = calculateAnnualFederalTax(
+    baselineInputs.selectedInput,
+    context,
+  );
+  const selectedRun = calculateAnnualFederalTax(
+    selectedInputs.selectedInput,
+    context,
+  );
+  const result = await evaluateYear({
+    plan: calculated,
+    taxYear: 2026,
+    facts,
+    levers: { ...zeroLevers, realizedGain: 10_000 },
+  });
+
+  assert.strictEqual(
+    selectedInputs.selectedInput.income.socialSecurity.otherIncome,
+    baselineInputs.selectedInput.income.socialSecurity.otherIncome + 10_000,
+  );
+  assert.ok(
+    selectedRun.result.form1040.line6b.value
+      > baselineRun.result.form1040.line6b.value,
+  );
+  assert.strictEqual(result.code, undefined);
+  assert.strictEqual(result.modeledFederalIncomeTax.incremental > 0, true);
+  assert.ok(!result.comparisonIssues.some(issue => (
+    issue.code === 'TAX_SCOPE_MISMATCH'
+  )));
+  assert.deepEqual(calculated, calculatedBefore);
+
+  for(const lever of ['deferredWithdrawal', 'rothConversion']){
+    const inputs = await buildWithdrawalPlannerFederalTaxInputs({
+      plan: calculated,
+      taxYear: 2026,
+      facts,
+      levers: { ...zeroLevers, [lever]: 10_000 },
+    });
+    const run = calculateAnnualFederalTax(inputs.selectedInput, context);
+    const evaluated = await evaluateYear({
+      plan: calculated,
+      taxYear: 2026,
+      facts,
+      levers: { ...zeroLevers, [lever]: 10_000 },
+    });
+    assert.strictEqual(
+      inputs.selectedInput.income.socialSecurity.otherIncome,
+      baselineInputs.selectedInput.income.socialSecurity.otherIncome + 10_000,
+      lever,
+    );
+    assert.ok(
+      run.result.form1040.line6b.value
+        > baselineRun.result.form1040.line6b.value,
+      lever,
+    );
+    assert.strictEqual(evaluated.code, undefined, lever);
+  }
+
+  const rothWithdrawalInputs = await buildWithdrawalPlannerFederalTaxInputs({
+    plan: calculated,
+    taxYear: 2026,
+    facts,
+    levers: { ...zeroLevers, rothWithdrawal: 10_000 },
+  });
+  const rothWithdrawalRun = calculateAnnualFederalTax(
+    rothWithdrawalInputs.selectedInput,
+    context,
+  );
+  assert.strictEqual(
+    rothWithdrawalInputs.selectedInput.income.socialSecurity.otherIncome,
+    baselineInputs.selectedInput.income.socialSecurity.otherIncome,
+  );
+  assert.strictEqual(
+    rothWithdrawalRun.result.form1040.line6b.value,
+    baselineRun.result.form1040.line6b.value,
+  );
+
+  const supplied = createCurrentTaxPlannerSubject(
+    'hh_supplied_social_security',
+    { wages: 20_000, capitalGain: 0 },
+  );
+  supplied.incomeTax.current1040.income.socialSecurityBenefits = 30_000;
+  supplied.incomeTax.current1040.income.taxableSS = 0;
+  supplied.incomeTax.current1040.income.socialSecurity = {
+    mode: 'supplied-form1040-lines',
+  };
+  confirmWizardTaxInputs(supplied);
+  const suppliedFacts = await householdIncome(supplied, 2026, {
+    baseYear: 2026,
+  });
+  const suppliedZero = await evaluateYear({
+    plan: supplied, taxYear: 2026, facts: suppliedFacts, levers: zeroLevers,
+  });
+  const suppliedCounterfactual = await evaluateYear({
+    plan: supplied,
+    taxYear: 2026,
+    facts: suppliedFacts,
+    levers: { ...zeroLevers, realizedGain: 10_000 },
+  });
+  assert.strictEqual(suppliedZero.code, undefined);
+  assert.strictEqual(
+    suppliedCounterfactual.code,
+    'WITHDRAWAL_SOCIAL_SECURITY_COUNTERFACTUAL_UNAVAILABLE',
+  );
+  assert.deepEqual(
+    suppliedCounterfactual.inputIssues[0].missingFields,
+    [
+      'income.socialSecurity.excludedIncomeAddBacks',
+      'income.socialSecurity.adjustments',
+    ],
+  );
+  const suppliedRothWithdrawal = await evaluateYear({
+    plan: supplied,
+    taxYear: 2026,
+    facts: suppliedFacts,
+    levers: { ...zeroLevers, rothWithdrawal: 10_000 },
+  });
+  assert.strictEqual(suppliedRothWithdrawal.code, undefined);
+});
+
+test('Realized Gain remains additional net LTCG across saved Schedule D modes', async () => {
+  const scheduleDModes = [
+    [
+      'manual-net-long-term',
+      { mode: 'manual-net-long-term', netLongTermGainOrLoss: 5_000 },
+    ],
+    [
+      'simple-net-long-term',
+      {
+        mode: 'simple-net-long-term',
+        netLongTermGainOrLoss: 5_000,
+        confirmations: {
+          shortTermNetIsZero: true,
+          noCapitalLossCarryovers: true,
+          line18NotApplicable: true,
+          line19NotApplicable: true,
+          form4952Line4gIsZeroOrNotApplicable: true,
+        },
+      },
+    ],
+    [
+      'supplied-form1040-line7',
+      { mode: 'supplied-form1040-line7', amount: 5_000 },
+    ],
+  ];
+  const zeroLevers = {
+    realizedGain: 0, deferredWithdrawal: 0, rothConversion: 0,
+    rothWithdrawal: 0, qcd: 0,
+  };
+
+  for (const [mode, scheduleD] of scheduleDModes) {
+    const subject = createCurrentTaxPlannerSubject(
+      `hh_realized_gain_${mode}`,
+      { wages: 100_000, capitalGain: 0 },
+    );
+    subject.incomeTax.current1040.scheduleD = structuredClone(scheduleD);
+    const before = structuredClone(subject);
+    const facts = await householdIncome(subject, 2026, { baseYear: 2026 });
+    const baselineInputs = await buildWithdrawalPlannerFederalTaxInputs({
+      plan: subject,
+      taxYear: 2026,
+      facts,
+      levers: zeroLevers,
+    });
+    const selectedInputs = await buildWithdrawalPlannerFederalTaxInputs({
+      plan: subject,
+      taxYear: 2026,
+      facts,
+      levers: { ...zeroLevers, realizedGain: 10_000 },
+    });
+    const context = buildDefaultTaxContext({
+      taxYear: 2026,
+      scenarioId: `realized_gain_${mode}`,
+    });
+    const baselineRun = calculateAnnualFederalTax(
+      baselineInputs.selectedInput,
+      context,
+    );
+    const selectedRun = calculateAnnualFederalTax(
+      selectedInputs.selectedInput,
+      context,
+      selectedInputs.calculationOptions.selected,
+    );
+    const evaluated = await evaluateYear({
+      plan: subject,
+      taxYear: 2026,
+      facts,
+      levers: { ...zeroLevers, realizedGain: 10_000 },
+    });
+
+    assert.strictEqual(evaluated.code, undefined, mode);
+    assert.strictEqual(evaluated.federalTaxInputSource, 'current-tax-baseline', mode);
+    assert.strictEqual(
+      selectedRun.result.form1040.line7a.value,
+      baselineRun.result.form1040.line7a.value + 10_000,
+      mode,
+    );
+    assert.strictEqual(
+      selectedRun.annual1040Result.federalSummary.preferentialIncome,
+      baselineRun.annual1040Result.federalSummary.preferentialIncome + 10_000,
+      mode,
+    );
+    assert.ok(
+      evaluated.modeledFederalIncomeTax.selected
+        > evaluated.modeledFederalIncomeTax.baseline,
+      mode,
+    );
+    assert.strictEqual(
+      evaluated.ltcg.gains,
+      baselineRun.annual1040Result.federalSummary.preferentialIncome + 10_000,
+      mode,
+    );
+    assert.deepEqual(subject, before, mode);
+  }
+});
+
+test('missing MFS livedWithSpouse contains IRMAA without affecting federal Planner tax', async () => {
+  const subject = createCurrentTaxPlannerSubject(
+    'hh_mfs_irmaa_containment',
+    { wages: 100_000, capitalGain: 0 },
+  );
+  subject.meta.filingStatus = 'marriedFilingSeparately';
+  subject.incomeTax.current1040.returnScope = {
+    modeledTaxpayer: 'client',
+    spouseItemizes: false,
+  };
+  subject.incomeTax.current1040.deductions = {
+    method: 'standard',
+    source: 'supplied-line12e',
+    line12e: 16_100,
+    qbi: 0,
+    schedule1A: { mode: 'supplied-line13b', amount: 0 },
+  };
+  subject.incomeTax.current1040.income.socialSecurityBenefits = 30_000;
+  delete subject.incomeTax.current1040.income.taxableSS;
+  subject.incomeTax.current1040.income.socialSecurity = {
+    mode: 'calculate-taxable-benefits',
+    otherIncome: 100_000,
+    excludedIncomeAddBacks: 0,
+    adjustments: 0,
+  };
+  confirmWizardTaxInputs(subject);
+  const before = structuredClone(subject);
+  const facts = await householdIncome(subject, 2026, { baseYear: 2026 });
+  delete facts.livedWithSpouse;
+  const summary = buildCurrentIncomeTaxSummary(subject);
+  const visibleSummary = buildWizardIncomeTaxSummary(subject);
+  const result = await evaluateYear({
+    plan: subject,
+    taxYear: 2026,
+    facts,
+    levers: {
+      realizedGain: 0, deferredWithdrawal: 0, rothConversion: 0,
+      rothWithdrawal: 0, qcd: 0,
+    },
+  });
+
+  assert.strictEqual(summary.status, 'ready');
+  assert.strictEqual(visibleSummary.status, 'ready');
+  assert.ok(summary.federalTaxLiability > 0);
+  assert.strictEqual(
+    visibleSummary.federalTaxLiability,
+    summary.federalTaxLiability,
+  );
+  assert.strictEqual(result.code, undefined);
+  assert.strictEqual(result.federalTaxInputSource, 'current-tax-baseline');
+  assert.strictEqual(
+    result.modeledFederalIncomeTax.selected,
+    summary.federalTaxLiability,
+  );
+  assert.ok(result.socialSecurity.taxableAmount > 0);
+  assert.strictEqual(result.irmaa, null);
+  assert.deepEqual(result.irmaaIssue, {
+    code: 'IRMAA_MFS_LIVING_ARRANGEMENT_UNMODELED',
+    field: 'livedWithSpouse',
+  });
+  assert.strictEqual(result.thresholdTaxDollars.irmaaPremium, null);
+  assert.strictEqual(result.ladders.irmaa, null);
+  assert.deepEqual(subject, before);
+});
+
+test('live IRMAA MAGI uses authoritative current-Tax tax-exempt interest', async () => {
+  const subject = createCurrentTaxPlannerSubject(
+    'hh_current_tax_irmaa_tax_exempt_interest',
+    { wages: 100_000, capitalGain: 0 },
+  );
+  subject.incomeTax.current1040.income.taxExemptInterest = 12_000;
+  confirmWizardTaxInputs(subject);
+  const before = structuredClone(subject);
+  const facts = await householdIncome(subject, 2026, { baseYear: 2026 });
+  const levers = {
+    realizedGain: 0, deferredWithdrawal: 0, rothConversion: 0,
+    rothWithdrawal: 0, qcd: 0,
+  };
+  const canonical = await evaluateYear({
+    plan: subject, taxYear: 2026, facts, levers,
+  });
+  const incidental = await evaluateYear({
+    plan: subject,
+    taxYear: 2026,
+    facts: { ...facts, taxExemptInterest: 999_999 },
+    levers,
+  });
+
+  assert.ok(canonical.irmaa);
+  assert.strictEqual(canonical.irmaa.magi, canonical.totals.agi + 12_000);
+  assert.strictEqual(incidental.irmaa.magi, canonical.irmaa.magi);
+  const canonicalIrmaa = structuredClone(canonical.irmaa);
+  const incidentalIrmaa = structuredClone(incidental.irmaa);
+  delete canonicalIrmaa.audit.calculatedAt;
+  delete incidentalIrmaa.audit.calculatedAt;
+  assert.deepEqual(incidentalIrmaa, canonicalIrmaa);
+  assert.strictEqual(
+    incidental.modeledFederalIncomeTax.selected,
+    canonical.modeledFederalIncomeTax.selected,
+  );
+  assert.deepEqual(subject, before);
+});
+
+test('live sleeve attribution reconciles every coalition to the immutable current Tax baseline', async () => {
+  const subject = createCurrentTaxPlannerSubject('hh_current_baseline_attribution');
+  const before = structuredClone(subject);
+  const facts = await householdIncome(subject, 2026, { baseYear: 2026 });
+  const zeroLevers = {
+    realizedGain: 0, deferredWithdrawal: 0, rothConversion: 0,
+    rothWithdrawal: 0, qcd: 0,
+  };
+  const combinedLevers = {
+    ...zeroLevers,
+    realizedGain: 10_000,
+    deferredWithdrawal: 10_000,
+    rothWithdrawal: 10_000,
+  };
+  const selected = await evaluateYear({
+    plan: subject, taxYear: 2026, facts, levers: combinedLevers,
+  });
+  const attributed = await attributeSleeves({
+    plan: subject, taxYear: 2026, facts, levers: combinedLevers,
+  });
+  const incidentalFacts = structuredClone(facts);
+  delete incidentalFacts.people;
+  delete incidentalFacts.taxYear;
+  incidentalFacts.wages = 999_999;
+  incidentalFacts.capitalGain = -99_999;
+  incidentalFacts.people = subject.meta.filingStatus === 'marriedFilingJointly'
+    ? { client: { alive: true }, spouse: { alive: false } }
+    : { client: { alive: true }, spouse: { alive: true } };
+  const shapeIndependent = await attributeSleeves({
+    plan: subject, taxYear: 2026, facts: incidentalFacts, levers: combinedLevers,
+  });
+  const zero = await attributeSleeves({
+    plan: subject, taxYear: 2026, facts, levers: zeroLevers,
+  });
+
+  assert.equal(selected.federalTaxInputSource, 'current-tax-baseline');
+  assert.equal(attributed.federalTaxInputSource, 'current-tax-baseline');
+  assert.equal(attributed.baselineTax, selected.modeledFederalIncomeTax.baseline);
+  assert.equal(attributed.fullCoalitionTax, selected.modeledFederalIncomeTax.selected);
+  assert.equal(attributed.incrementalTax, selected.modeledFederalIncomeTax.incremental);
+  assert.ok(Math.abs(
+    Object.values(attributed.exactByBucket).reduce((sum, amount) => sum + amount, 0)
+      - attributed.incrementalTax
+  ) < 0.01);
+  assert.deepEqual(shapeIndependent, attributed);
+  assert.equal(zero.federalTaxInputSource, 'current-tax-baseline');
+  assert.equal(zero.baselineTax, selected.modeledFederalIncomeTax.baseline);
+  assert.equal(zero.fullCoalitionTax, zero.baselineTax);
+  assert.equal(zero.incrementalTax, 0);
+  assert.deepEqual(zero.byBucket, { taxable: 0, traditional: 0, roth: 0 });
+
+  const singleSleeves = [
+    ['taxable', { ...zeroLevers, realizedGain: 10_000 }],
+    ['traditional', { ...zeroLevers, deferredWithdrawal: 10_000 }],
+    ['roth', { ...zeroLevers, rothWithdrawal: 10_000 }],
+  ];
+  for (const [bucket, levers] of singleSleeves) {
+    const main = await evaluateYear({ plan: subject, taxYear: 2026, facts, levers });
+    const attribution = await attributeSleeves({
+      plan: subject, taxYear: 2026, facts, levers,
+    });
+    assert.equal(attribution.fullCoalitionTax, main.modeledFederalIncomeTax.selected);
+    assert.ok(Math.abs(
+      attribution.exactByBucket[bucket] - attribution.incrementalTax
+    ) < 0.01);
+    for (const other of ['taxable', 'traditional', 'roth']) {
+      if (other !== bucket) assert.ok(Math.abs(attribution.exactByBucket[other]) < 0.01);
+    }
+  }
+  assert.deepEqual(subject, before);
+});
+
+test('Withdrawal Planner fails closed when the current Tax baseline is unsupported', async () => {
+  const subject = createCurrentTaxPlannerSubject(
+    'hh_unsupported_tax_baseline',
+    { wages: 50_000, capitalGain: 0 },
+  );
+  subject.incomeTax.current1040.schemaVersion = 2;
+  const facts = await householdIncome(subject, 2026, { baseYear: 2026 });
+  const result = await evaluateYear({
+    plan: subject,
+    taxYear: 2026,
+    facts,
+    levers: {
+      realizedGain: 0, deferredWithdrawal: 0, rothConversion: 0,
+      rothWithdrawal: 0, qcd: 0,
+    },
+  });
+  const attribution = await attributeSleeves({
+    plan: subject,
+    taxYear: 2026,
+    facts,
+    levers: {
+      realizedGain: 0, deferredWithdrawal: 0, rothConversion: 0,
+      rothWithdrawal: 0, qcd: 0,
+    },
+  });
+
+  assert.equal(result.code, 'WITHDRAWAL_CURRENT_TAX_BASELINE_UNAVAILABLE');
+  assert.equal(result.federalTaxInputSource, 'current-tax-baseline');
+  assert.ok(result.inputIssues.some(issue => (
+    issue.code === 'CURRENT_1040_SCHEMA_VERSION_UNSUPPORTED'
+  )));
+  assert.equal(Object.hasOwn(result, 'modeledFederalIncomeTax'), false);
+  assert.equal(attribution.code, 'WITHDRAWAL_CURRENT_TAX_BASELINE_UNAVAILABLE');
+  assert.equal(attribution.federalTaxInputSource, 'current-tax-baseline');
+  assert.ok(attribution.inputIssues.some(issue => (
+    issue.code === 'CURRENT_1040_SCHEMA_VERSION_UNSUPPORTED'
+  )));
+  assert.equal(Object.hasOwn(attribution, 'byBucket'), false);
+});
+
+test('live evaluation and attribution reject incomplete and DOB-only current Tax records', async () => {
+  const incomplete = createCurrentTaxPlannerSubject(
+    'hh_saved_current_tax_incomplete',
+  );
+  incomplete.incomeTax.current1040.incomeSourcesComplete = false;
+
+  const dobOnly = createCurrentTaxPlannerSubject(
+    'hh_saved_current_tax_dob_only',
+  );
+  dobOnly.incomeTax.current1040 = {
+    schemaVersion: 1,
+    taxYear: 2026,
+    incomeSourcesComplete: false,
+    returnScope: structuredClone(
+      dobOnly.incomeTax.current1040.returnScope,
+    ),
+    taxpayers: structuredClone(
+      dobOnly.incomeTax.current1040.taxpayers,
+    ),
+  };
+
+  for (const subject of [incomplete, dobOnly]) {
+    const before = structuredClone(subject);
+    const facts = await householdIncome(subject, 2026, { baseYear: 2026 });
+    const levers = {
+      realizedGain: 0, deferredWithdrawal: 0, rothConversion: 0,
+      rothWithdrawal: 0, qcd: 0,
+    };
+    const result = await evaluateYear({
+      plan: subject, taxYear: 2026, facts, levers,
+    });
+    const attribution = await attributeSleeves({
+      plan: subject, taxYear: 2026, facts, levers,
+    });
+
+    assert.strictEqual(
+      result.code,
+      'WITHDRAWAL_CURRENT_TAX_BASELINE_UNAVAILABLE',
+    );
+    assert.ok(result.inputIssues.some(issue => (
+      issue.code === 'CURRENT_1040_INCOME_SOURCES_INCOMPLETE'
+    )));
+    assert.strictEqual(
+      attribution.code,
+      'WITHDRAWAL_CURRENT_TAX_BASELINE_UNAVAILABLE',
+    );
+    assert.ok(attribution.inputIssues.some(issue => (
+      issue.code === 'CURRENT_1040_INCOME_SOURCES_INCOMPLETE'
+    )));
+    assert.strictEqual(Object.hasOwn(result, 'modeledFederalIncomeTax'), false);
+    assert.strictEqual(Object.hasOwn(attribution, 'byBucket'), false);
+    assert.deepEqual(subject, before);
+  }
 });
 
 test('Brokerage basis and loss evidence do not change Planner Realized Gain behavior', async () => {
@@ -344,7 +1128,7 @@ test('Brokerage basis and loss evidence do not change Planner Realized Gain beha
       socialSecurityBenefits: 0, wages: 50_000, otherIncome: 0,
     };
     const state = await withdrawalAccountState(subject);
-    const result = await evaluateYear({
+    const result = await evaluateProjectedYearFacts({
       plan: subject,
       taxYear: 2026,
       facts,
@@ -376,6 +1160,55 @@ test('Brokerage basis and loss evidence do not change Planner Realized Gain beha
   })));
 });
 
+test('live Realized Gain attribution is basis-independent for confirmed and assumed-50-50 Brokerage', async () => {
+  const observed = [];
+  for (const basis of [null, {
+    amount: 120_000,
+    method: 'reported-cost-basis',
+    status: 'confirmed',
+    source: 'household-entry',
+    confirmedAt: '2026-08-18T12:00:00.000Z',
+    version: 1,
+  }]) {
+    const subject = createCurrentTaxPlannerSubject(
+      basis ? 'hh_confirmed_basis_realized_gain' : 'hh_assumed_basis_realized_gain'
+    );
+    subject.portfolio.accounts.taxable.balance = 0;
+    subject.portfolio.accounts.traditional.balance = 0;
+    subject.portfolio.accounts.roth.balance = 0;
+    const brokerage = createAccount('brokerage_taxable', {
+      owner: 'client', balance: 200_000,
+    });
+    if (basis) brokerage.basis = basis;
+    subject.portfolio.extraAccounts = [brokerage];
+    const before = structuredClone(subject);
+    const facts = await householdIncome(subject, 2026, { baseYear: 2026 });
+    const levers = {
+      realizedGain: 50_000, deferredWithdrawal: 0, rothConversion: 0,
+      rothWithdrawal: 0, qcd: 0,
+    };
+    const main = await evaluateYear({ plan: subject, taxYear: 2026, facts, levers });
+    const attribution = await attributeSleeves({
+      plan: subject, taxYear: 2026, facts, levers,
+    });
+    observed.push({
+      selectedTax: main.modeledFederalIncomeTax.selected,
+      fullCoalitionTax: attribution.fullCoalitionTax,
+      taxableAttribution: attribution.exactByBucket.taxable,
+      source: attribution.federalTaxInputSource,
+    });
+    assert.deepEqual(subject, before);
+  }
+
+  assert.equal(observed[0].selectedTax, observed[1].selectedTax);
+  assert.equal(observed[0].fullCoalitionTax, observed[1].fullCoalitionTax);
+  assert.equal(observed[0].taxableAttribution, observed[1].taxableAttribution);
+  assert.deepEqual(observed.map(item => item.source), [
+    'current-tax-baseline',
+    'current-tax-baseline',
+  ]);
+});
+
 test('Social Security threshold dollars use a full tax-engine counterfactual', async () => {
   const subject = structuredClone(plan);
   subject.meta.filingStatus = 'single';
@@ -386,7 +1219,7 @@ test('Social Security threshold dollars use a full tax-engine counterfactual', a
     roth: { balance: 0 },
   };
   subject.portfolio.extraAccounts = [];
-  const result = await evaluateYear({
+  const result = await evaluateProjectedYearFacts({
     plan: subject,
     taxYear: 2026,
     facts: {
@@ -409,11 +1242,11 @@ test('Social Security threshold dollars use a full tax-engine counterfactual', a
   );
 });
 
-test('evaluateYear fails closed when shared traditional levers exceed one balance', async () => {
+test('projected-year seam fails closed when shared traditional levers exceed one balance', async () => {
   const subject = structuredClone(plan);
   subject.portfolio.accounts.traditional.balance = 100_000;
   subject.portfolio.extraAccounts = [];
-  const result = await evaluateYear({
+  const result = await evaluateProjectedYearFacts({
     plan: subject,
     taxYear: 2026,
     facts: {
@@ -471,7 +1304,9 @@ test('fixed IRA distributions reserve the shared traditional balance', async () 
   assert.strictEqual(approval.approvedValue, 20_000);
   assert.strictEqual(approval.clamped, true);
 
-  const result = await evaluateYear({ plan: subject, taxYear: 2026, facts, levers });
+  const result = await evaluateProjectedYearFacts({
+    plan: subject, taxYear: 2026, facts, levers,
+  });
   assert.strictEqual(result.code, 'WITHDRAWAL_ACCOUNT_LIMIT_EXCEEDED');
 });
 
@@ -483,6 +1318,7 @@ test('matching Tax-page IRA distributions and Roth conversions reach tax, cash, 
     currentAge: 60, retirementAge: 65, planEndAge: 95,
   };
   subject.household.spouse = null;
+  setConfirmedBirthDate(subject, 'client', '1966-01-01');
   subject.income.socialSecurity = { primary: null, spouse: null };
   subject.income.other = [];
   subject.portfolio.accounts = {
@@ -496,6 +1332,14 @@ test('matching Tax-page IRA distributions and Roth conversions reach tax, cash, 
     taxYear: 2026,
     incomeSourcesComplete: true,
     returnScope: { modeledTaxpayer: 'client' },
+    taxpayers: { client: { birthDate: '1966-01-01' } },
+    adjustments: { mode: 'supplied-line10', amount: 0 },
+    scheduleD: { mode: 'manual-net-long-term', netLongTermGainOrLoss: 0 },
+    deductions: {
+      method: 'standard', source: 'supplied-line12e', line12e: 16_100,
+      qbi: 0,
+      schedule1A: { mode: 'supplied-line13b', amount: 0 },
+    },
     income: {
       wages: 0,
       taxableInterest: 0,
@@ -586,6 +1430,14 @@ test('MFJ current-return IRA totals stay taxable without inventing owner attribu
     taxYear: 2026,
     incomeSourcesComplete: true,
     returnScope: { modeledTaxpayer: 'jointReturn' },
+    taxpayers: { client: {}, spouse: {} },
+    adjustments: { mode: 'supplied-line10', amount: 0 },
+    scheduleD: { mode: 'manual-net-long-term', netLongTermGainOrLoss: 0 },
+    deductions: {
+      method: 'standard', source: 'supplied-line12e', line12e: 32_200,
+      qbi: 0,
+      schedule1A: { mode: 'supplied-line13b', amount: 0 },
+    },
     income: {
       wages: 0,
       taxableInterest: 0,
@@ -679,7 +1531,9 @@ test('known current-year RMD is enforced before tax and net-cash calculations', 
     rothWithdrawal: 0, qcd: 0,
   };
 
-  const result = await evaluateYear({ plan: subject, taxYear: 2026, facts, levers });
+  const result = await evaluateProjectedYearFacts({
+    plan: subject, taxYear: 2026, facts, levers,
+  });
   assert.strictEqual(result.rmd.status, 'known');
   assert.ok(Math.abs(result.rmd.required - 10_000) < 0.01);
   assert.ok(Math.abs(result.rmd.satisfied - 10_000) < 0.01);
@@ -749,6 +1603,8 @@ test('dual-owner IRA RMDs flow through owner-safe limits, tax, and cash', async 
     typeId: 'ira_distribution', owner: 'spouse', amount: 5_000,
     startAge: 75, endAge: 75, taxablePct: 1,
   }];
+  setConfirmedBirthDate(subject, 'client', '1953-01-01');
+  setConfirmedBirthDate(subject, 'spouse', '1951-01-01');
   subject.savings.annual = 0;
   subject.portfolio.accounts = {
     taxable: { balance: 0, basisPct: 1 },
@@ -763,6 +1619,9 @@ test('dual-owner IRA RMDs flow through owner-safe limits, tax, and cash', async 
       owner: 'spouse', balance: 246_000, valuationDate: '2025-12-31',
     }),
   ];
+  setConfirmedForm8606Zero(subject, 'client');
+  setConfirmedForm8606Zero(subject, 'spouse');
+  confirmWizardTaxInputs(subject);
 
   const facts = await householdIncome(subject, 2026);
   const levers = {
@@ -946,7 +1805,7 @@ test('adapter approves one changed lever against the shared account pool', async
   assert.strictEqual(approval.state.pools.traditional.remaining, 0);
 });
 
-test('missing legacy basis metadata cannot disable funded Planner controls', async () => {
+test('bare or missing base-sleeve basisPct cannot disable funded Planner controls', async () => {
   for (const basisVariant of ['missing', 'null']) {
     const subject = structuredClone(plan);
     subject.meta.filingStatus = 'single';
@@ -968,7 +1827,7 @@ test('missing legacy basis metadata cannot disable funded Planner controls', asy
 
     const income = await householdIncome(subject, 2026, { baseYear: 2026 });
     const state = await withdrawalAccountState(subject);
-    const result = await evaluateYear({
+    const result = await evaluateProjectedYearFacts({
       plan: subject,
       taxYear: 2026,
       facts: {
@@ -1033,19 +1892,21 @@ test('householdIncome returns person-specific focus-year ages and survivor statu
   assert.equal(survivor.survivingOwner, 'client');
 });
 
-test('missing terminal age keeps current-year tax available but leaves future status unknown', async () => {
+test('missing terminal age keeps current-year projected tax available but leaves future status unknown', async () => {
   const subject = structuredClone(plan);
   subject.meta.filingStatus = 'marriedFilingJointly';
   subject.household.primary = { currentAge: 65, retirementAge: 65, planEndAge: 90 };
   subject.household.spouse = { currentAge: 63, retirementAge: 63 };
   subject.income.socialSecurity = { primary: null, spouse: null };
   subject.income.other = [];
+  setConfirmedBirthDate(subject, 'client', '1961-01-01');
+  setConfirmedBirthDate(subject, 'spouse', '1963-01-01');
 
   const current = await householdIncome(subject, 2026, { baseYear: 2026 });
   assert.strictEqual(current.available, true);
   assert.strictEqual(current.filingStatus, 'marriedFilingJointly');
   assert.strictEqual(current.people.spouse.alive, true);
-  const currentTax = await evaluateYear({
+  const currentTax = await evaluateProjectedYearFacts({
     plan: subject,
     taxYear: 2026,
     facts: current,
@@ -1062,22 +1923,22 @@ test('missing terminal age keeps current-year tax available but leaves future st
   assert.strictEqual(future.people.spouse.alive, null);
 });
 
-test('prior-year household income is unavailable instead of reverse-projected', async () => {
-  const subject = structuredClone(plan);
-  subject.meta.filingStatus = 'single';
-  subject.household.primary = { currentAge: 60, retirementAge: 65, planEndAge: 90 };
-  subject.household.spouse = null;
-  subject.income.socialSecurity = { primary: null, spouse: null };
-  subject.income.other = [{
-    typeId: 'wages', owner: 'client', amount: 100_000,
-    startAge: 60, endAge: 64, taxablePct: 1,
-  }];
-  subject.portfolio.extraAccounts = [];
+test('current Tax baseline remains authoritative when its year predates planning availability', async () => {
+  const subject = createCurrentTaxPlannerSubject(
+    'hh_current_tax_predates_planning',
+    { wages: 50_000, capitalGain: 20_000 },
+  );
+  subject.meta.planningAsOfYear = 2026;
+  subject.incomeTax.current1040.taxYear = 2025;
 
   const facts = await householdIncome(subject, 2025, { baseYear: 2026 });
   assert.strictEqual(facts.available, false);
-  assert.strictEqual(facts.filingStatus, 'single');
   assert.strictEqual(facts.otherIncome, null);
+  facts.wages = 999_999;
+  facts.capitalGain = -999_999;
+
+  const baseline = buildCurrentIncomeTaxSummary(subject);
+  assert.strictEqual(baseline.status, 'ready');
 
   const result = await evaluateYear({
     plan: subject,
@@ -1088,8 +1949,13 @@ test('prior-year household income is unavailable instead of reverse-projected', 
       rothWithdrawal: 0, qcd: 0,
     },
   });
-  assert.strictEqual(result.code, 'HOUSEHOLD_INCOME_UNAVAILABLE');
-  assert.strictEqual(result.modeledFederalIncomeTax.selected, null);
+  assert.strictEqual(result.code, undefined);
+  assert.strictEqual(result.federalTaxInputSource, 'current-tax-baseline');
+  assert.strictEqual(
+    result.modeledFederalIncomeTax.selected,
+    baseline.federalTaxLiability,
+  );
+  assert.notStrictEqual(result.totals.agi, 999_999);
 });
 
 test('household income advances from the saved planning as-of year', async () => {
@@ -1153,7 +2019,7 @@ test('Tax-page member wages remain engine-owned through the Withdrawal Planner a
   assert.strictEqual(bothRetired.people.spouse.retired, true);
 });
 
-test('live household people facts reject an incompatible filing-status override', async () => {
+test('projected-year household people facts reject an incompatible filing-status override', async () => {
   const subject = structuredClone(plan);
   subject.meta.filingStatus = 'marriedFilingJointly';
   subject.household.primary = { currentAge: 60, retirementAge: 65, planEndAge: 90 };
@@ -1177,7 +2043,7 @@ test('live household people facts reject an incompatible filing-status override'
   assert.strictEqual(householdFacts.people.spouse.alive, true);
 
   for (const filingStatus of ['single', 'headOfHousehold']) {
-    const result = await evaluateYear({
+    const result = await evaluateProjectedYearFacts({
       plan: subject,
       taxYear: 2026,
       facts: { ...householdFacts, filingStatus },
@@ -1198,7 +2064,7 @@ test('live household people facts reject an incompatible filing-status override'
   assert.strictEqual(survivorFacts.people.client.alive, true);
   assert.strictEqual(survivorFacts.people.spouse.alive, false);
   for (const filingStatus of ['marriedFilingJointly', 'marriedFilingSeparately']) {
-    const result = await evaluateYear({
+    const result = await evaluateProjectedYearFacts({
       plan: subject,
       taxYear: 2026,
       facts: { ...survivorFacts, filingStatus },
@@ -1232,9 +2098,13 @@ test('confirmed person birth dates reach the tax engine age deduction', async ()
   subject.taxProfiles.client.birthDate = {
     value: '1960-01-01', status: 'confirmed', source: 'household-entry', confirmedAt: '2026-01-01T00:00:00.000Z',
   };
-  const senior = await evaluateYear({ plan: subject, taxYear: 2026, facts, levers });
+  const senior = await evaluateProjectedYearFacts({
+    plan: subject, taxYear: 2026, facts, levers,
+  });
   subject.taxProfiles.client.birthDate.value = '1980-01-01';
-  const younger = await evaluateYear({ plan: subject, taxYear: 2026, facts, levers });
+  const younger = await evaluateProjectedYearFacts({
+    plan: subject, taxYear: 2026, facts, levers,
+  });
   assert.ok(senior.modeledFederalIncomeTax.selected < younger.modeledFederalIncomeTax.selected);
 });
 
@@ -1243,6 +2113,7 @@ test('planning income keeps wages, interest, dividends, pension, and taxable oth
   subject.meta.filingStatus = 'single';
   subject.household.primary = { currentAge: 65, retirementAge: 65, planEndAge: 90 };
   subject.household.spouse = null;
+  setConfirmedBirthDate(subject, 'client', '1961-01-01');
   subject.income.socialSecurity = { primary: { pia: 0, claimAge: 67 }, spouse: null };
   subject.income.other = [
     { typeId: 'wages', owner: 'client', amount: 50_000, startAge: 65, endAge: 65, taxablePct: 1 },
@@ -1283,7 +2154,7 @@ test('planning income keeps wages, interest, dividends, pension, and taxable oth
     otherIncome: 5_000,
     grossOtherIncome: 60_000,
   });
-  const result = await evaluateYear({
+  const result = await evaluateProjectedYearFacts({
     plan: subject,
     taxYear: 2026,
     facts,
@@ -1296,11 +2167,12 @@ test('planning income keeps wages, interest, dividends, pension, and taxable oth
   assert.strictEqual(result.totals.qualifiedIncome, 10_000);
 });
 
-test('typed Social Security stays out of ordinary income and produces zero federal tax when it is the only income', async () => {
+test('incomplete current Tax Social Security fails closed while the projected seam preserves typed income', async () => {
   const subject = structuredClone(plan);
   subject.meta.filingStatus = 'single';
   subject.household.primary = { currentAge: 65, retirementAge: 65, planEndAge: 65 };
   subject.household.spouse = null;
+  setConfirmedBirthDate(subject, 'client', '1961-01-01');
   subject.income.socialSecurity = {
     primary: { pia: 0, claimAge: 67 },
     spouse: null,
@@ -1316,9 +2188,34 @@ test('typed Social Security stays out of ordinary income and produces zero feder
     roth: { balance: 0 },
   };
   subject.portfolio.extraAccounts = [];
+  subject.incomeTax.current1040 = {
+    schemaVersion: 1,
+    taxYear: 2026,
+    incomeSourcesComplete: false,
+    returnScope: { modeledTaxpayer: 'client' },
+    taxpayers: { client: { birthDate: '1961-01-01' } },
+    income: {
+      socialSecurityBenefits: 30_000,
+      taxableSS: 0,
+      socialSecurity: { mode: 'supplied-form1040-lines' },
+    },
+    scheduleD: { mode: 'manual-net-long-term', netLongTermGainOrLoss: 0 },
+    deductions: {
+      method: 'standard', source: 'calculated', standardScope: 'base-and-age',
+    },
+  };
 
   const facts = await householdIncome(subject, 2026, { baseYear: 2026 });
-  const result = await evaluateYear({
+  const live = await evaluateYear({
+    plan: subject,
+    taxYear: 2026,
+    facts,
+    levers: {
+      realizedGain: 0, deferredWithdrawal: 0, rothConversion: 0,
+      rothWithdrawal: 0, qcd: 0,
+    },
+  });
+  const result = await evaluateProjectedYearFacts({
     plan: subject,
     taxYear: 2026,
     facts,
@@ -1338,6 +2235,10 @@ test('typed Social Security stays out of ordinary income and produces zero feder
   assert.strictEqual(facts.socialSecurityBenefits, 30_000);
   assert.strictEqual(facts.otherIncome, 0);
   assert.strictEqual(facts.taxableOtherIncome, 0);
+  assert.strictEqual(live.code, 'WITHDRAWAL_CURRENT_TAX_BASELINE_UNAVAILABLE');
+  assert.ok(live.inputIssues.some(issue => (
+    issue.code === 'CURRENT_1040_INCOME_SOURCES_INCOMPLETE'
+  )));
   assert.strictEqual(result.totals.ordinaryIncome, 0);
   assert.strictEqual(result.totals.agi, 0);
   assert.strictEqual(result.modeledFederalIncomeTax.selected, 0);
@@ -1372,7 +2273,7 @@ test('typed qualified dividends and signed long-term gains match the direct tax 
   subject.portfolio.extraAccounts = [];
 
   const facts = await householdIncome(subject, 2026, { baseYear: 2026 });
-  const result = await evaluateYear({
+  const result = await evaluateProjectedYearFacts({
     plan: subject,
     taxYear: 2026,
     facts,
@@ -1443,11 +2344,15 @@ test('Withdrawal Planner honors a supplied itemized deduction instead of forcing
     realizedGain: 0, deferredWithdrawal: 0, rothConversion: 0,
     rothWithdrawal: 0, qcd: 0,
   };
-  const standard = await evaluateYear({ plan: subject, taxYear: 2026, facts, levers });
+  const standard = await evaluateProjectedYearFacts({
+    plan: subject, taxYear: 2026, facts, levers,
+  });
   subject.incomeTax.current1040.deductions = {
     method: 'itemized', source: 'supplied-line12e', line12e: 40_000,
   };
-  const supplied = await evaluateYear({ plan: subject, taxYear: 2026, facts, levers });
+  const supplied = await evaluateProjectedYearFacts({
+    plan: subject, taxYear: 2026, facts, levers,
+  });
   assert.strictEqual(standard.modeledFederalIncomeTax.selected, 3_820);
   assert.strictEqual(supplied.modeledFederalIncomeTax.selected, 1_000);
   assert.strictEqual(supplied.deductionCoverage.source, 'household-current-1040');
@@ -1466,7 +2371,7 @@ test('partial MFJ birth dates calculate base tax and disclose the missing age ad
     value: '1950-01-01', status: 'confirmed', source: 'household-entry',
     confirmedAt: '2026-01-01T00:00:00.000Z',
   };
-  const result = await evaluateYear({
+  const result = await evaluateProjectedYearFacts({
     plan: subject,
     taxYear: 2026,
     facts: {
@@ -1510,9 +2415,13 @@ test('a spouse survivor uses the spouse birth date for age-aware tax', async () 
     realizedGain: 0, deferredWithdrawal: 0, rothConversion: 0,
     rothWithdrawal: 0, qcd: 0,
   };
-  const seniorSpouse = await evaluateYear({ plan: subject, taxYear: 2026, facts, levers });
+  const seniorSpouse = await evaluateProjectedYearFacts({
+    plan: subject, taxYear: 2026, facts, levers,
+  });
   subject.taxProfiles.spouse.birthDate.value = '1980-01-01';
-  const youngerSpouse = await evaluateYear({ plan: subject, taxYear: 2026, facts, levers });
+  const youngerSpouse = await evaluateProjectedYearFacts({
+    plan: subject, taxYear: 2026, facts, levers,
+  });
   assert.strictEqual(facts.filingStatus, 'single');
   assert.strictEqual(facts.survivingOwner, 'spouse');
   assert.ok(
@@ -1521,11 +2430,11 @@ test('a spouse survivor uses the spouse birth date for age-aware tax', async () 
   );
 });
 
-test('missing MFS living-status facts do not silently assume spouses lived apart', async () => {
+test('projected MFS facts do not silently infer a modeled taxpayer or living status', async () => {
   const subject = structuredClone(plan);
   subject.meta.filingStatus = 'marriedFilingSeparately';
   subject.household.spouse = { currentAge: 65, retirementAge: 65, planEndAge: 95 };
-  const result = await evaluateYear({
+  const result = await evaluateProjectedYearFacts({
     plan: subject,
     taxYear: 2026,
     facts: {
@@ -1542,12 +2451,10 @@ test('missing MFS living-status facts do not silently assume spouses lived apart
   assert.ok(result.comparisonIssues.some(issue => issue.code === 'MFS_RETURN_TAXPAYER_UNATTRIBUTED'));
 });
 
-test('unavailable household income stays blank while account limits and gross cash remain available', async () => {
-  const subject = structuredClone(plan);
-  subject.meta.filingStatus = 'single';
-  subject.household.spouse = null;
-  subject.portfolio.accounts.traditional.balance = 100_000;
-  subject.portfolio.extraAccounts = [];
+test('current Tax baseline ignores unavailable projected income while preserving account limits and cash', async () => {
+  const subject = createCurrentTaxPlannerSubject(
+    'hh_current_tax_without_projected_income',
+  );
   const result = await evaluateYear({
     plan: subject,
     taxYear: 2026,
@@ -1563,11 +2470,16 @@ test('unavailable household income stays blank while account limits and gross ca
       rothWithdrawal: 0, qcd: 0,
     },
   });
-  assert.strictEqual(result.code, 'HOUSEHOLD_INCOME_UNAVAILABLE');
-  assert.strictEqual(result.modeledFederalIncomeTax.selected, null);
-  assert.strictEqual(result.totals.agi, null);
+  assert.strictEqual(result.code, undefined);
+  assert.strictEqual(result.federalTaxInputSource, 'current-tax-baseline');
+  assert.strictEqual(typeof result.modeledFederalIncomeTax.selected, 'number');
+  assert.strictEqual(typeof result.totals.agi, 'number');
   assert.strictEqual(result.cash.grossWithdrawalCash, 10_000);
-  assert.strictEqual(result.cash.netAfterIncrementalModeledFederalIncomeTax, null);
+  assert.strictEqual(
+    result.cash.netAfterIncrementalModeledFederalIncomeTax,
+    result.cash.grossWithdrawalCash
+      - result.cash.incrementalModeledFederalIncomeTax,
+  );
   assert.strictEqual(result.accountState.limits.deferredWithdrawal.max, 100_000);
 });
 
@@ -1581,7 +2493,7 @@ test('fixed IRA and pension income require an explicit taxable portion but prese
     rothWithdrawal: 0, qcd: 0,
   };
 
-  const missingPension = await evaluateYear({
+  const missingPension = await evaluateProjectedYearFacts({
     plan: subject, taxYear: 2026,
     facts: { filingStatus: 'single', pensionAmount: 100_000, wages: 0 },
     levers,
@@ -1589,7 +2501,7 @@ test('fixed IRA and pension income require an explicit taxable portion but prese
   assert.strictEqual(missingPension.code, 'TAXABLE_PENSION_PORTION_MISSING');
   assert.strictEqual(missingPension.modeledFederalIncomeTax.selected, null);
 
-  const zeroPension = await evaluateYear({
+  const zeroPension = await evaluateProjectedYearFacts({
     plan: subject, taxYear: 2026,
     facts: {
       filingStatus: 'single', pensionAmount: 100_000,
@@ -1600,14 +2512,14 @@ test('fixed IRA and pension income require an explicit taxable portion but prese
   assert.strictEqual(zeroPension.totals.agi, 0);
   assert.strictEqual(zeroPension.modeledFederalIncomeTax.selected, 0);
 
-  const missingIra = await evaluateYear({
+  const missingIra = await evaluateProjectedYearFacts({
     plan: subject, taxYear: 2026,
     facts: { filingStatus: 'single', iraDistributions: 100_000, wages: 0 },
     levers,
   });
   assert.strictEqual(missingIra.code, 'TAXABLE_IRA_PORTION_MISSING');
 
-  const zeroIra = await evaluateYear({
+  const zeroIra = await evaluateProjectedYearFacts({
     plan: subject, taxYear: 2026,
     facts: {
       filingStatus: 'single', iraDistributions: 100_000,
@@ -1631,7 +2543,7 @@ test('current-return deductions are not reused after the return identity changes
       method: 'itemized', source: 'supplied-line12e', line12e: 40_000,
     },
   };
-  const result = await evaluateYear({
+  const result = await evaluateProjectedYearFacts({
     plan: subject,
     taxYear: 2026,
     facts: { filingStatus: 'single', wages: 50_000, socialSecurityBenefits: 0 },
@@ -1662,7 +2574,7 @@ test('standard deduction reconstruction keeps compatible QBI, Schedule 1-A, and 
     },
     passThrough: { line23: 1_000 },
   };
-  const result = await evaluateYear({
+  const result = await evaluateProjectedYearFacts({
     plan: subject,
     taxYear: 2026,
     facts: { filingStatus: 'single', wages: 50_000, socialSecurityBenefits: 0 },

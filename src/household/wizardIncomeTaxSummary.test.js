@@ -7,12 +7,16 @@ import { ACCOUNT_SCHEMA_VERSION } from './accountTypes.js';
 import { createBlankTaxProfiles } from './factEnvelope.js';
 import { HOUSEHOLD_RECORD_SCHEMA_VERSION } from './householdRecordSchema.js';
 import { createEmptyNetWorthRecords } from './netWorthRecords.js';
-import { buildWizardIncomeTaxSummary } from './buildWizardIncomeTaxSummary.js';
+import {
+  buildCurrentAnnualFederalTaxBaseline,
+  buildWizardIncomeTaxSummary,
+} from './buildWizardIncomeTaxSummary.js';
 import {
   buildWizardTaxPlan,
   ensureWizardCurrent1040,
   syncWizardTaxpayerFacts,
 } from './wizardCurrent1040.js';
+import { confirmWizardTaxInputs } from './wizardTaxCompletion.js';
 import { createHouseholdWizard } from '../../ui/householdWizard.js';
 import { getWizardAccountTypes } from './accountTypes.js';
 
@@ -167,6 +171,55 @@ test('buildCurrent1040Intake still requires incomeSourcesComplete on saved envel
   ensureWizardCurrent1040(saved);
   const built = buildCurrent1040Intake(saved);
   assert.ok(built.gaps.some(gap => gap.code === 'CURRENT_1040_INCOME_SOURCES_INCOMPLETE'));
+});
+
+test('authoritative baseline rejects a saved unconfirmed return without materializing defaults', () => {
+  const saved = blankWizardPlan();
+  ensureWizardCurrent1040(saved);
+  confirmWizardTaxInputs(saved);
+  saved.incomeTax.current1040.incomeSourcesComplete = false;
+  const snapshot = structuredClone(saved);
+
+  const baseline = buildCurrentAnnualFederalTaxBaseline(saved);
+
+  assert.equal(baseline.status, 'needs_facts');
+  assert.equal(baseline.input, null);
+  assert.ok(baseline.issues.some(issue => (
+    issue.code === 'CURRENT_1040_INCOME_SOURCES_INCOMPLETE'
+  )));
+  assert.deepEqual(saved, snapshot);
+});
+
+test('authoritative baseline rejects a DOB-only record without creating zero income or Schedule D', () => {
+  const saved = blankWizardPlan();
+  ensureWizardCurrent1040(saved);
+  const snapshot = structuredClone(saved);
+
+  const baseline = buildCurrentAnnualFederalTaxBaseline(saved);
+
+  assert.equal(baseline.status, 'needs_facts');
+  assert.equal(baseline.input, null);
+  assert.ok(baseline.issues.some(issue => (
+    issue.code === 'CURRENT_1040_INCOME_SOURCES_INCOMPLETE'
+  )));
+  assert.equal(Object.hasOwn(saved.incomeTax.current1040, 'scheduleD'), false);
+  assert.deepEqual(saved, snapshot);
+});
+
+test('authoritative baseline requires a fully ready age-dependent deduction result', () => {
+  const saved = blankWizardPlan();
+  ensureWizardCurrent1040(saved);
+  confirmWizardTaxInputs(saved);
+  saved.taxProfiles.client.birthDate = fact(null);
+  delete saved.incomeTax.current1040.taxpayers.client;
+  const snapshot = structuredClone(saved);
+
+  const baseline = buildCurrentAnnualFederalTaxBaseline(saved);
+
+  assert.equal(baseline.status, 'needs_facts');
+  assert.equal(baseline.input, null);
+  assert.notEqual(baseline.summary.status, 'ready');
+  assert.deepEqual(saved, snapshot);
 });
 
 test('wizard summary helper does not introduce circular imports', () => {

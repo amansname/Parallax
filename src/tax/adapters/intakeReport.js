@@ -139,7 +139,11 @@ export function buildIntakeReport(intake, result, validation, context){
   };
 }
 
-export function runClient1040Intake(intake, context, { strict = true } = {}){
+export function runClient1040Intake(
+  intake,
+  context,
+  { strict = true, additionalNetLongTermCapitalGain = 0 } = {},
+){
   const validation = validateClient1040Intake(intake, context);
   const canonical = validation.contract.compatibilityMode
     === CLIENT_1040_COMPATIBILITY_MODES.CANONICAL;
@@ -149,7 +153,9 @@ export function runClient1040Intake(intake, context, { strict = true } = {}){
     throw err;
   }
 
-  const input = client1040IntakeToComposerInput(intake);
+  const input = client1040IntakeToComposerInput(intake, {
+    additionalNetLongTermCapitalGain,
+  });
   const { result, audits } = composeAnnualFederalTax(input, context);
   const report = buildIntakeReport(intake, result, validation, context);
 

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { defaultPlan } from '../engine.js';
+import { buildCurrentAnnualFederalTaxBaseline } from '../src/household/buildWizardIncomeTaxSummary.js';
 import { prepareHouseholdRecordForSave } from '../src/household/persistence.js';
 import {
   SHIPPED_DEFAULT_HOUSEHOLD_IDS,
@@ -18,6 +19,17 @@ test('selectable defaults are ordinary funded households with current production
   assert.deepEqual(
     defaults.map(household => household.meta.name),
     ['Pre-Retirement Solo', 'Pre-Retirement Couple'],
+  );
+  assert.deepEqual(
+    defaults.map(household => household.incomeTax.current1040.incomeSourcesComplete),
+    [true, true],
+  );
+  assert.deepEqual(
+    defaults.map(household => {
+      const baseline = buildCurrentAnnualFederalTaxBaseline(household);
+      return [baseline.status, baseline.summary.federalTaxLiability];
+    }),
+    [['ready', 3_820], ['ready', 8_840]],
   );
   for(const household of defaults){
     assert.equal(household.meta.isSelectableDefault, true);

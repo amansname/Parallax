@@ -68,32 +68,6 @@ export function buildRowPlanMetaFromOptions(options = {}){
   return (row) => {
     const raw = baseTaxYear + (row.year ?? 1) - 1;
     const taxYear = Math.max(minYear, Math.min(maxYear, raw));
-    const current = options.current1040Intake;
-    if(!current || Number(current.taxYear) !== Number(raw)){
-      return { taxYear };
-    }
-    return {
-      taxYear,
-      current1040Income: current.income
-        ? structuredClone(current.income)
-        : undefined,
-      deductions: current.deductions
-        ? structuredClone(current.deductions)
-        : undefined,
-      adjustments: current.adjustments
-        ? structuredClone(current.adjustments)
-        : undefined,
-      taxpayers: current.taxpayers
-        ? structuredClone(current.taxpayers)
-        : undefined,
-      returnScope: current.returnScope
-        ? structuredClone(current.returnScope)
-        : undefined,
-      passThrough: current.passThrough
-        ? structuredClone(current.passThrough)
-        : undefined,
-      currentNetLongTermGainOrLoss:
-        current.scheduleD?.netLongTermGainOrLoss,
-    };
+    return { taxYear };
   };
 }

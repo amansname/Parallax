@@ -112,7 +112,7 @@ test('Household editor facts flow through the contract without a second translat
   assert.equal(factRecord(contract, 'portfolio.extraAccounts.0.basis').source, 'household-entry');
 });
 
-test('unknown and assumed brokerage basis remain gaps and leave legacy intake behavior unchanged', () => {
+test('unknown and assumed brokerage basis use the approved 50/50 calculation input', () => {
   const cases = [
     null,
     {
@@ -126,11 +126,19 @@ test('unknown and assumed brokerage basis remain gaps and leave legacy intake be
     if(basis) brokerage.basis = basis;
     value.portfolio.extraAccounts = [brokerage];
     const contract = buildHouseholdTaxFactContract(value);
-    assert.equal(contract.calculationInputs.taxableBasisOverride, null);
-    assert.equal(contract.calculationInputs.provisionalTaxableBasis, 120000);
-    assert.equal(resolveInputs(value, {}).accounts.taxable.basis, 120000);
+    assert.equal(contract.calculationInputs.taxableBasisOverride.amount, 100000);
+    assert.equal(contract.calculationInputs.provisionalTaxableBasis, 100000);
+    assert.equal(contract.calculationInputs.taxableBasisMode, 'assumed-50-50');
+    assert.deepEqual(
+      contract.calculationInputs.taxableBasisAssumptions.map(item => item.code),
+      ['TAXABLE_BASIS_ASSUMED_50_50']
+    );
+    assert.equal(resolveInputs(value, {}).accounts.taxable.basis, 100000);
     assert.equal(contract.readiness.status, 'rules-pending');
     assert.equal(contract.readiness.factCompleteness, 'incomplete');
+    assert.ok(contract.readiness.gaps.some(
+      gap => gap.code === 'TAXABLE_BASIS_ASSUMED_50_50'
+    ));
   }
 });
 

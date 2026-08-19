@@ -60,21 +60,10 @@ function buildTraditionalReadiness(plan, fold, outsideReturnIds){
     }
     reasons.push(reportingGapReason(account, outsideReturnIds));
     const raw = plan.portfolio.extraAccounts[account.sourceIndex];
-    if(account.taxCharacter === 'traditional_ira'){
-      const facts = plan.taxProfiles?.[account.owner]?.traditionalIra;
-      const keys = [
-        'priorYearCarryforwardBasis',
-        'currentYearNondeductibleContributions',
-        'outstandingRolloversAtYearEnd',
-        'otherForm8606Adjustments',
-      ];
-      const resolved = keys.map(key => confirmedFact(facts?.[key]));
-      if(resolved.some(item => !item.ready)){
-        reasons.push('TRADITIONAL_IRA_BASIS_NOT_CONFIRMED');
-      }else if(resolved.some(item => item.value !== 0)){
-        reasons.push('TRADITIONAL_IRA_BASIS_RULE_REQUIRED');
-      }
-    }else if(account.taxCharacter === 'employer_pretax'){
+    // Incremental traditional-IRA planner distributions remain fully taxable
+    // until a future Form 8606/pro-rata model is explicitly introduced.
+    if(account.taxCharacter === 'traditional_ira') continue;
+    if(account.taxCharacter === 'employer_pretax'){
       const afterTaxBasis = confirmedFact(raw?.employerPlanFacts?.afterTaxContributionBasis);
       const subtype = confirmedFact(raw?.employerPlanFacts?.planSubtypeConfirmed);
       if(!afterTaxBasis.ready){
@@ -217,7 +206,9 @@ export function buildWithdrawalTaxCounterfactualContext(
   const outsideReturnIds = new Set(
     taxFacts.scope.outsideHouseholdReturn.map(account => account.id)
   );
-  const taxableReasons = basis.status === 'confirmed' || basis.status === 'not-applicable'
+  const taxableReasons = basis.status === 'confirmed'
+    || basis.status === 'not-applicable'
+    || basis.status === 'assumed-50-50'
     ? []
     : basis.gaps.map(gap => gap.code);
   const primaryAge = plan.household?.primary?.currentAge;
