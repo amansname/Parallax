@@ -3134,6 +3134,40 @@ test('traditional contributions follow the owner-allocation policy', () => {
   assert.strictEqual(res.successRate, null, 'never a percentage on unresolved ownership');
 });
 
+test('accumulation rows report exact Traditional ending balances by owner', () => {
+  const p = mfjTwoOwnerPlan();
+  p.household.primary = {
+    ...p.household.primary, retirementAge: 57, planEndAge: 57,
+  };
+  p.household.spouse = {
+    ...p.household.spouse, retirementAge: 54, planEndAge: 54,
+  };
+  p.savings = {
+    annual: 12_000,
+    split: {
+      traditional: 1, roth: 0, taxable: 0,
+      byOwner: { client: 1, spouse: 0 },
+    },
+  };
+
+  const inputs = resolveInputs(p, {});
+  const row = runSinglePath(inputs, [
+    { y: 2026, proxyReturn: 0 },
+    { y: 2027, proxyReturn: 0 },
+  ]).rows[0];
+
+  assert.deepStrictEqual(row.traditionalEndingBalancesByOwner, {
+    client: 3_012_000,
+    spouse: 2_000_000,
+    unattributed: 0,
+  });
+  assert.equal(
+    Object.values(row.traditionalEndingBalancesByOwner)
+      .reduce((sum, value) => sum + value, 0),
+    row.accountBalances.traditional
+  );
+});
+
 test('unresolvable ownership fails closed instead of throwing', () => {
   const p = agedTwoOwnerPlan(74, 73);
   p.portfolio.accounts.traditional.balance = 400000;   // legacy aggregate, no owner
