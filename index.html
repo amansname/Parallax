@@ -160,17 +160,11 @@
       <div id="solve-panel"></div>
     </div>
 
-    <!-- Path-replay controls. PRODUCTION owns these; the Cash Flow view relocates
-         this node into its header (window.scnPathControlsEl) ΓÇö never recreated.
-         Detached/hidden when Cash Flow is not the active view. -->
-    <div id="scn-path-src" hidden>
-      <label class="scn-path" id="scn-path-replay">Path
-        <select id="path-mode">
-            <option value="typical">Typical path</option>
-            <option value="stressed">Stressed path</option>
-            <option value="favorable">Favorable path</option>
-            <option value="sequence-stress">Sequence Stress</option>
-          </select>
+    <!-- Cash Flow owns this selector independently from Monte Carlo replay.
+         The active Cash Flow view relocates the same bound node into its header. -->
+    <div id="scn-cash-path-src" hidden>
+      <label class="scn-path" id="scn-cash-path">Path
+        <select id="cashflow-path-mode" aria-label="Cash Flow path"></select>
         </label>
     </div>
   </section>

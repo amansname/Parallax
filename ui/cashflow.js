@@ -21,6 +21,10 @@ export function buildPathRows(s, {
   }) {
     if (!s.res) return [];
     const sim = simByIndex(s.res, selectedPathIndex(baselineResult()));
+    return buildSimulationRows(sim, { plan, currentYear });
+  }
+
+export function buildSimulationRows(sim, { plan, currentYear }) {
     if (!sim || !Array.isArray(sim.rows)) return [];
     const curAge = plan.household.primary.currentAge;
     const baseYear = currentYear;
@@ -29,6 +33,7 @@ export function buildPathRows(s, {
       return {
         year: baseYear + (age - curAge),
         age: age,
+        sourceYear: r.source,
         accum: r.phase === 'accum',
         ret: (r.source != null && r.returnRate != null) ? r.returnRate : null,   // engine's applied return; null on failed filler rows
         income: (r.socialSecurity || 0) + (r.pension || 0) + (r.otherIncome || 0),
@@ -40,8 +45,7 @@ export function buildPathRows(s, {
         wdRate: (r.wdRate != null) ? r.wdRate : 0,
         ending: r.balance || 0,
         fundingShortfall: Number.isFinite(r.fundingShortfall) ? r.fundingShortfall : 0,
-        shortfall: (Number.isFinite(r.fundingShortfall) && r.fundingShortfall > 0.01)
-          || r.failed === true,
+        shortfall: Number.isFinite(r.fundingShortfall) && r.fundingShortfall > 0.01,
         startPort: r.startBalance || 0,
         goalTag: goalTagFor(plan, r, age),
       };
@@ -181,18 +185,30 @@ export function groupPhases(rows) {
   }
 
 export function renderCashflow(scn, allScns, {
-    pathRows, cashSummary, cashFromRetirement, isTypicalPath, typicalPathFederalTax, pathFederalTax,
+    cashFlowResult, pathRows, cashSummary, cashFromRetirement, isTypicalPath, typicalPathFederalTax, pathFederalTax,
     toneGlow, ring, wdColor, num, esc, fmtMoney, cfCols,
   }) {
-    const allRows = pathRows(scn.raw);
+    const selected = typeof cashFlowResult === 'function'
+      ? cashFlowResult(scn.raw)
+      : null;
+    const allRows = selected?.rows ?? pathRows(scn.raw);
     // "Start at retirement" hides the working (accum) years. Retirement rows
     // begin only once BOTH spouses have retired (engine rule), so this starts
     // the ledger at the second retirement.
     const rows = cashFromRetirement ? allRows.filter((r) => !r.accum) : allRows;
     const hasWorking = allRows.some((r) => r.accum);
-    const summary = cashSummary(scn.raw);
-    const typicalPath = isTypicalPath();
-    const sidecar = taxSidecarFor(scn.raw, { isTypicalPath, typicalPathFederalTax, pathFederalTax });
+    const summary = selected?.summary ?? cashSummary(scn.raw);
+    const typicalPath = selected ? selected.kind === 'typical' : isTypicalPath();
+    const sidecar = selected?.taxScope === 'MODELED_FEDERAL_LINE_24'
+      ? {
+          byAge: new Map(),
+          byYear: new Map(),
+          scope: 'MODELED_FEDERAL_LINE_24',
+          path: 'converged-engine-row',
+          totals: null,
+          warnings: [],
+        }
+      : taxSidecarFor(scn.raw, { isTypicalPath, typicalPathFederalTax, pathFederalTax });
     const taxColumn = taxColumnMeta(sidecar);
     const taxComparison = taxComparisonFor(sidecar);
     const federalAttachFailed = typicalPath && !!scn.raw.res && !sidecar;
@@ -224,7 +240,7 @@ export function renderCashflow(scn, allScns, {
       '</div>'
     ) : '';
 
-    const summaryStrip = (
+    const typicalSummaryStrip = (
       '<div class="cf-summary" style="--tone:' + scn.tone + ';--tone-glow:' + toneGlow(scn.tone) + ';">' +
         '<div class="cf-summary__id">' +
           ring(40, 17, 2.5, scn.tone, scn.prob, '<span class="numeral" style="font-size:14px;">' + scn.probStr + '<span class="pct" style="font-size:10px;">%</span></span>') +
@@ -239,6 +255,70 @@ export function renderCashflow(scn, allScns, {
         '</div>' +
       '</div>'
     );
+
+    const historicalUnderfunded = summary.outcome === 'underfunded';
+    const historicalPlanFunding = historicalUnderfunded
+      ? (
+          '<div class="cf-stat" data-plan-funding>' +
+            '<div class="cf-stat__label">Plan funding</div>' +
+            '<div class="cf-stat__value">Underfunded at age ' + esc(summary.firstUnderfundedAge ?? '—') + '</div>' +
+            '<div class="cf-stat__detail">First underfunded year ' + esc(summary.firstUnderfundedYear ?? '—') +
+              (summary.fundedThroughAge != null
+                ? ' · funded through age ' + esc(summary.fundedThroughAge)
+                : '') +
+            '</div>' +
+          '</div>'
+        )
+      : (
+          '<div class="cf-stat" data-plan-funding>' +
+            '<div class="cf-stat__label">Plan funding</div>' +
+            '<div class="cf-stat__value">Funded through plan end</div>' +
+            '<div class="cf-stat__detail">Through age ' + esc(summary.fundedThroughAge ?? '—') +
+              (summary.fundedThroughYear != null ? ' · ' + esc(summary.fundedThroughYear) : '') +
+            '</div>' +
+          '</div>' +
+          '<div class="cf-stat" data-ending-position>' +
+            '<div class="cf-stat__label">Ending position</div>' +
+            '<div class="cf-stat__value">' + (summary.endingBalance == null ? '—' : fmtMoney(summary.endingBalance)) + '</div>' +
+            '<div class="cf-stat__detail">At age ' + esc(summary.endingAge ?? '—') +
+              (summary.endingYear != null ? ' · ' + esc(summary.endingYear) : '') +
+            '</div>' +
+          '</div>' +
+          '<div class="cf-stat" data-peak-withdrawal>' +
+            '<div class="cf-stat__label">Peak withdrawal</div>' +
+            '<div class="cf-stat__peak"><span class="cf-stat__value" style="color:' + wdColor(summary.peakWdRate, false) + ';">' +
+              (summary.peakWdRate ? num(summary.peakWdRate, 1) + '%' : '—') +
+              '</span><span class="cf-stat__peak-age">' +
+                (summary.peakWdAge != null
+                  ? 'age ' + esc(summary.peakWdAge) + (summary.peakWdYear != null ? ' · ' + esc(summary.peakWdYear) : '')
+                  : '') +
+              '</span></div>' +
+          '</div>'
+        );
+    const historicalSummaryStrip = (
+      '<div class="cf-summary cf-summary--historical"' +
+        ' data-outcome="' + esc(summary.outcome ?? '') + '"' +
+        ' data-first-underfunded-age="' + (summary.firstUnderfundedAge ?? '') + '"' +
+        ' data-first-underfunded-year="' + (summary.firstUnderfundedYear ?? '') + '"' +
+        ' data-funded-through-age="' + (summary.fundedThroughAge ?? '') + '"' +
+        ' data-funded-through-year="' + (summary.fundedThroughYear ?? '') + '"' +
+        ' data-ending-balance="' + (summary.endingBalance ?? '') + '"' +
+        ' data-ending-age="' + (summary.endingAge ?? '') + '"' +
+        ' data-ending-year="' + (summary.endingYear ?? '') + '"' +
+        ' data-peak-wd-rate="' + (summary.peakWdRate ?? '') + '"' +
+        ' data-peak-wd-age="' + (summary.peakWdAge ?? '') + '"' +
+        ' data-peak-wd-year="' + (summary.peakWdYear ?? '') + '">' +
+        '<div class="cf-summary__stats">' +
+          historicalPlanFunding +
+        '</div>' +
+      '</div>'
+    );
+    const hasHistoricalSummary = selected?.kind === 'historical'
+      && !selected.error
+      && ['underfunded', 'survives'].includes(summary.outcome);
+    const summaryStrip = selected?.kind === 'historical'
+      ? (hasHistoricalSummary ? historicalSummaryStrip : '')
+      : typicalSummaryStrip;
 
     const taxDisclosure = (typicalPath || sidecar) && scn.raw.res ? (
       '<div class="cf-tax-disclosure" data-tax-disclosure data-tax-state="' + taxDisclosureState + '">' +
@@ -256,9 +336,14 @@ export function renderCashflow(scn, allScns, {
 
     const rowHtml = (r) => {
       const tax = resolveRowTax(r, sidecar);
-      const ending = r.ending === 0 ? '$0' : fmtMoney(r.ending);
+      const isFirstUnderfunded = selected?.kind === 'historical'
+        && historicalUnderfunded
+        && r.age === summary.firstUnderfundedAge;
+      const ending = isFirstUnderfunded
+        ? 'Underfunded'
+        : (r.ending === 0 ? '$0' : fmtMoney(r.ending));
       const endColor = r.shortfall ? 'var(--down-deep)' : 'var(--text-2)';
-      const shortfallNote = r.fundingShortfall > 0.01
+      const shortfallNote = selected?.kind !== 'historical' && r.fundingShortfall > 0.01
         ? '<span class="cf-row__shortfall">Short ' + fmtMoney(r.fundingShortfall) + '</span>'
         : '';
       const goalsColor = r.goals > 0 ? (r.goalTag ? '#d8c084' : '#c6a662') : 'var(--text-mute)';
@@ -268,7 +353,7 @@ export function renderCashflow(scn, allScns, {
         ? '<span class="cf-row__mark-dot cf-row__mark-dot--ret"></span>'
         : (isRmdStart ? '<span class="cf-row__mark-dot cf-row__mark-dot--rmd"></span>' : '');
       return (
-        '<div class="cf-row cf-grid" data-age="' + esc(r.age) + '" data-funding-shortfall="' + r.fundingShortfall + '">' +
+        '<div class="cf-row cf-grid" data-age="' + esc(r.age) + '" data-phase="' + (r.accum ? 'accum' : 'retirement') + '" data-source-year="' + esc(r.sourceYear ?? '') + '" data-start-balance="' + r.startPort + '" data-ending-balance="' + r.ending + '" data-wd-rate="' + r.wdRate + '" data-funding-shortfall="' + r.fundingShortfall + '">' +
           '<span class="cf-row__year">' +
             '<span class="cf-row__mark" aria-hidden="true">' + yearMark + '</span>' +
             esc(r.year) +
@@ -304,10 +389,13 @@ export function renderCashflow(scn, allScns, {
         : '';
       return '<span class="cf-th ' + (i >= 2 ? 'cf-th--r' : '') + '"' + taxAttrs + '>' + esc(label) + '</span>';
     }).join('');
-    const empty = rows.length ? '' : '<div class="cf-band"><div style="padding:26px 18px;color:var(--text-5);">No cash-flow data yet. Press Run — or check the plan inputs if the status bar shows a warning.</div></div>';
+    const emptyMessage = selected?.error
+      ? selected.error
+      : 'No cash-flow data yet. Press Run — or check the plan inputs if the status bar shows a warning.';
+    const empty = rows.length ? '' : '<div class="cf-band"><div style="padding:26px 18px;color:var(--text-5);">' + esc(emptyMessage) + '</div></div>';
 
     return (
-      '<div class="cf">' +
+      '<div class="cf" data-cash-path-id="' + esc(selected?.pathId ?? (typicalPath ? 'typical' : '')) + '" data-cash-path-kind="' + esc(selected?.kind ?? (typicalPath ? 'typical' : '')) + '">' +
         '<div class="cf__head">' +
           '<div class="cf__pills">' + pills + '</div>' +
           '<div class="cf__path-controls" id="scn-cf-path-controls"></div>' +
