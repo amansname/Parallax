@@ -1,3 +1,8 @@
+import {
+  TYPICAL_CASH_FLOW_PATH_ID,
+  normalizeCashFlowPathId,
+} from './scenarios/historicalPeriods.js';
+
 export let scenarios;
 export let sharedPaths = null;
 export let plansDirty = false;
@@ -65,6 +70,33 @@ export const pathReplay = {
 
 export function savePathReplay(){
   try{ localStorage.setItem(PATH_KEY, JSON.stringify(pathReplay)); }catch{}
+}
+
+const CASH_FLOW_PATH_KEY = 'parallax.cashFlowPath.v1';
+const cashFlowPathValues = (() => {
+  try{
+    const saved = localStorage.getItem(CASH_FLOW_PATH_KEY);
+    if(saved !== null) return { id: normalizeCashFlowPathId(JSON.parse(saved)) };
+    // The old Cash Flow selector shared pathReplay. Its generic settings do not
+    // map to a historical period, so normalization deterministically returns
+    // Typical while preserving an old Typical selection.
+    return { id: normalizeCashFlowPathId(JSON.parse(localStorage.getItem(PATH_KEY) || '{}')) };
+  }catch{
+    return { id: TYPICAL_CASH_FLOW_PATH_ID };
+  }
+})();
+
+export const cashFlowPathSelection = {
+  get id(){ return cashFlowPathValues.id; },
+  set id(value){ cashFlowPathValues.id = normalizeCashFlowPathId(value); },
+};
+
+export function saveCashFlowPathSelection(){
+  try{
+    localStorage.setItem(CASH_FLOW_PATH_KEY, JSON.stringify({
+      id: cashFlowPathSelection.id,
+    }));
+  }catch{}
 }
 
 const scenariosUiValues = {

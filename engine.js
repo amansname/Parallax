@@ -3606,6 +3606,7 @@ function runSinglePath(p, returnPath, options = {}){
         taxableCapitalGain: taxableCapitalGainA,
         ...(taxableGainFractionA !== undefined ? { taxableGainFraction: taxableGainFractionA } : {}),
         accountBalances: { taxable: accounts.taxable.balance, traditional: accounts.traditional.balance, roth: accounts.roth.balance },
+        traditionalEndingBalancesByOwner: cloneTraditionalOwnerBuckets(accounts.traditional.byOwner),
         taxableEndingBasis: accounts.taxable.basis,
         taxBySource: { ss: taxOnSS, oi: taxOnOI, traditional: rmdTaxA, taxable: 0 }
       };
