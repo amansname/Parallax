@@ -5,6 +5,7 @@ import { createIncomeTaxInputs } from '../src/household/incomeTaxModel.js';
 import { HOUSEHOLD_RECORD_SCHEMA_VERSION } from '../src/household/householdRecordSchema.js';
 import { createEmptyNetWorthRecords } from '../src/household/netWorthRecords.js';
 import { confirmWizardTaxInputs } from '../src/household/wizardTaxCompletion.js';
+import { setWizardIrmaaLookbackField } from '../src/household/wizardIrmaa.js';
 import {
   SPENDING_SCHEMA_VERSION,
   makeEssentialsGoal,
@@ -27,6 +28,7 @@ export function createDemoHousehold(pristinePlan, currentYear){
 export const SHIPPED_DEFAULT_HOUSEHOLD_IDS = Object.freeze([
   'default-pre-retirement-solo',
   'default-pre-retirement-couple',
+  'default-retired-household',
 ]);
 
 function addDefaultAccount(plan, {
@@ -184,10 +186,98 @@ function createPreRetirementCouple(pristinePlan, currentYear){
   return plan;
 }
 
+function createRetiredHousehold(pristinePlan, currentYear){
+  const plan = createBlankHousehold(pristinePlan, SHIPPED_DEFAULT_HOUSEHOLD_IDS[2], currentYear);
+  const clientBirthYear = currentYear - 68;
+  const spouseBirthYear = currentYear - 66;
+  const confirmedAt = `${currentYear}-01-01T12:00:00Z`;
+  plan.meta.name = 'Morgan Household';
+  plan.meta.primaryName = 'Alex Morgan';
+  plan.meta.spouseName = 'Jamie Morgan';
+  plan.meta.filingStatus = 'marriedFilingJointly';
+  plan.meta.isSelectableDefault = true;
+  plan.household.primary = {
+    currentAge: 68, retirementAge: 66, planEndAge: 96,
+    birthYear: clientBirthYear, employmentStatus: 'retired',
+  };
+  plan.household.spouse = {
+    currentAge: 66, retirementAge: 65, planEndAge: 98,
+    birthYear: spouseBirthYear, employmentStatus: 'retired',
+  };
+  plan.income.socialSecurity.primary = { pia: null, claimAge: 70 };
+  plan.income.socialSecurity.spouse = { pia: null, claimAge: 70 };
+  setConfirmedBirthDate(plan, 'client', `${clientBirthYear}-02-12`);
+  setConfirmedBirthDate(plan, 'spouse', `${spouseBirthYear}-09-24`);
+
+  addDefaultAccount(plan, {
+    id: 'default-retired-joint-brokerage', typeId: 'joint_brokerage',
+    displayName: 'Morgan Joint Brokerage', owner: 'joint', balance: 1_200_000,
+  });
+  const jointBrokerage = plan.portfolio.extraAccounts.at(-1);
+  jointBrokerage.basis = {
+    amount: 700_000, method: 'reported-cost-basis', status: 'confirmed',
+    source: 'household-entry', confirmedAt, version: 1,
+  };
+  jointBrokerage.taxReporting = {
+    inclusion: 'household-return', reportingTaxpayer: null, householdReturnShare: 1,
+  };
+  addDefaultAccount(plan, {
+    id: 'default-retired-rollover-ira', typeId: 'rollover_ira',
+    displayName: 'Alex Rollover IRA', owner: 'client', balance: 1_400_000,
+  });
+  addDefaultAccount(plan, {
+    id: 'default-retired-roth-ira', typeId: 'roth_ira',
+    displayName: 'Jamie Roth IRA', owner: 'spouse', balance: 600_000,
+  });
+  plan.taxProfiles.client.traditionalIra.priorYearCarryforwardBasis = createFact(
+    0, 'confirmed', 'household-entry', confirmedAt,
+  );
+  plan.taxProfiles.client.traditionalIra.currentYearNondeductibleContributions = createFact(
+    0, 'confirmed', 'household-entry', confirmedAt,
+  );
+  plan.taxProfiles.spouse.rothIra.firstContributionYear = createFact(
+    2010, 'confirmed', 'household-entry', confirmedAt,
+  );
+  plan.taxProfiles.spouse.rothIra.contributionBasis = createFact(
+    300_000, 'confirmed', 'household-entry', confirmedAt,
+  );
+
+  plan.goals = [
+    makeEssentialsGoal(13_000 * 12),
+    makeHealthcareGoal(healthcarePreloadFor(plan)),
+    {
+      id: 'default-retired-travel', name: 'Travel', amount: 25_000,
+      startAge: 66, endAge: 75, realGrowth: 0, flexesWithSpending: true,
+    },
+  ];
+  plan.income.other.push(
+    {
+      id: 'default-retired-interest', typeId: 'interest', owner: 'joint',
+      label: 'Taxable interest', amount: 4_000, startAge: 68, endAge: 999,
+      realGrowth: 0, taxablePct: 1,
+    },
+    {
+      id: 'default-retired-dividends', typeId: 'dividends', owner: 'joint',
+      label: 'Qualified dividends', amount: 15_000, startAge: 68, endAge: 999,
+      realGrowth: 0, taxablePct: 1, qualifiedPct: 1,
+    },
+    {
+      id: 'default-retired-capital-gain', typeId: 'long_term_capital_gain', owner: 'joint',
+      label: 'Realized long-term capital gains', amount: 10_000, startAge: 68, endAge: 68,
+      realGrowth: 0, taxablePct: 0,
+    },
+  );
+  setWizardIrmaaLookbackField(plan, 'irmaa.lookback.2024.magi', 110_000);
+  setWizardIrmaaLookbackField(plan, 'irmaa.lookback.2025.magi', 40_000);
+  confirmWizardTaxInputs(plan);
+  return plan;
+}
+
 export function createSelectableDefaultHouseholds(pristinePlan, currentYear){
   return [
     createPreRetirementSolo(pristinePlan, currentYear),
     createPreRetirementCouple(pristinePlan, currentYear),
+    createRetiredHousehold(pristinePlan, currentYear),
   ];
 }
 
