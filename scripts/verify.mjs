@@ -207,12 +207,11 @@ async function setCashFlow(page, open = true){
 // async (runAll defers, computes, then ScenariosUI.sync repaints), so a fixed
 // sleep is unreliable.
 async function waitCashRows(page, min = 1, ms = 8000){
-  const deadline = Date.now() + ms;
-  while(Date.now() < deadline){
-    const n = await page.evaluate(() => document.querySelectorAll('#scn-view .cf-row').length);
-    if(n >= min) return n;
-    await new Promise(r => setTimeout(r, 250));
-  }
+  await page.waitForFunction(
+    expected => document.querySelectorAll('#scn-view .cf-row').length >= expected,
+    { timeout: ms },
+    min
+  );
   return page.evaluate(() => document.querySelectorAll('#scn-view .cf-row').length);
 }
 
@@ -2038,6 +2037,7 @@ try {
       household.portfolio.extraAccounts = [];
       localStorage.setItem(key, JSON.stringify(db));
       localStorage.removeItem(`parallax.scenarios.${householdId}.v1`);
+      localStorage.removeItem('parallax.cashFlowPath.v1');
     }, withdrawalPlannerFixtureHouseholdId);
     await stableReload({ waitUntil: 'networkidle2', timeout: 20000 });
     await waitForWizard(page, { householdId: 'demo' });
@@ -2116,7 +2116,6 @@ try {
     }
 
     await page.click('button[data-page="scenarios"]');
-    await new Promise(r => setTimeout(r, 600));
     await setCashFlow(page, true);
     await waitCashRows(page, 10);
     const EXPECT = ['Year', 'Age', 'Income', 'RMD', 'Essential', 'Goals', 'Tax', 'Draw', 'Return', 'WD Rate', 'Ending'];
@@ -2129,8 +2128,8 @@ try {
         pills: [...(v?.querySelectorAll('.cf-pill') || [])].map(p => p.textContent.trim()),
         activePill: v?.querySelector('.cf-pill.is-active')?.textContent.trim() || '',
         stats: [...(v?.querySelectorAll('.cf-stat__label') || [])].map(s => s.textContent.trim()),
-        pathControls: !!v?.querySelector('#scn-cf-path-controls #path-mode'),
-        mode: v?.querySelector('#scn-cf-path-controls #path-mode')?.value || '',
+        pathControls: !!v?.querySelector('#scn-cf-path-controls #cashflow-path-mode'),
+        mode: v?.querySelector('#scn-cf-path-controls #cashflow-path-mode')?.value || '',
         taxHeader: (() => {
           const th = v?.querySelector('.cf-table__head .cf-th[data-tax-source]');
           return th ? {
@@ -2182,8 +2181,8 @@ try {
     if(!/^\$[\d,]+/.test(m.accumTax)) throw new Error(`accumulation-year Tax cell is not populated: "${m.accumTax}"`);
     if(m.cols.some(c => ['Withdraw', 'One-time', 'Return $', 'Starting value', 'Inflows', 'Outflows', 'Annual return', 'Ending value'].includes(c))) throw new Error(`old cash-flow columns still present: ${JSON.stringify(m.cols)}`);
     if(m.pills.length < 2) throw new Error(`scenario pills missing: ${JSON.stringify(m.pills)}`);
-    if(!SKIP_SEQUENCING && !m.pathControls) throw new Error('path-replay controls not relocated into #scn-cf-path-controls');
-    if(!SKIP_SEQUENCING && m.mode !== 'typical') throw new Error(`path replay default mode not typical (${m.mode})`);
+    if(!SKIP_SEQUENCING && !m.pathControls) throw new Error('Cash Flow path controls not relocated into #scn-cf-path-controls');
+    if(!SKIP_SEQUENCING && m.mode !== 'typical') throw new Error(`Cash Flow default path not Typical (${m.mode})`);
     for(const label of ['Median Ending', 'Peak Withdrawal']){
       if(!m.stats.includes(label)) throw new Error(`cash-flow summary stat missing: ${label} (${JSON.stringify(m.stats)})`);
     }
@@ -2219,73 +2218,277 @@ try {
       return true;
     });
     if(!pickedB) throw new Error(`Scenario B pill not found among ${JSON.stringify(m.pills)}`);
-    await new Promise(r => setTimeout(r, 450));
-    await waitCashRows(page, 10);
+    await page.waitForFunction(() => {
+      const active = document.querySelector('#scn-view .cf-pill.is-active')?.textContent || '';
+      const marker = document.querySelector('#scn-view .cf-row__mark-dot--ret')?.closest('.cf-row');
+      return /Scenario B/.test(active) && marker?.dataset.age === '68';
+    }, { timeout: 10000 });
     const bActive = await page.evaluate(() => document.querySelector('#scn-view .cf-pill.is-active')?.textContent.trim() || '');
     if(!/Scenario B/.test(bActive)) throw new Error(`cash-flow pill did not switch to Scenario B (got "${bActive}")`);
     const bMarker = await retirementStartAge();
     if(bMarker !== '68') throw new Error(`Scenario B retirement start not at age 68 (got "${bMarker}")`);
-    // Restore Baseline for the path-replay checks below.
+    // Restore Baseline for the historical-path checks below.
     await page.evaluate(() => [...document.querySelectorAll('#scn-view .cf-pill')].find(p => /Baseline/.test(p.textContent))?.click());
-    await new Promise(r => setTimeout(r, 350));
-    await waitCashRows(page, 10);
+    await page.waitForFunction(() => {
+      const active = document.querySelector('#scn-view .cf-pill.is-active')?.textContent || '';
+      const marker = document.querySelector('#scn-view .cf-row__mark-dot--ret')?.closest('.cf-row');
+      return /Baseline/.test(active) && marker?.dataset.age === '66';
+    }, { timeout: 10000 });
 
     if(!SKIP_SEQUENCING){
-      // Path replay: named modes only. The advanced Path # / Seed inputs were
-      // removed from the header — assert they stay gone. (#path-mode is the
-      // production node relocated into the Cash Flow header — same element, same
-      // bindings.)
-      const advanced = await page.evaluate(() => ({
-        chooseOpt: [...document.querySelectorAll('#path-mode option')].some(o => o.value === 'choose'),
+      const pathReplayBefore = await page.evaluate(() => localStorage.getItem('parallax.pathReplay.v1'));
+      const selectorContract = await page.evaluate(() => ({
+        values: [...document.querySelectorAll('#cashflow-path-mode option')].map(option => option.value),
+        labels: [...document.querySelectorAll('#cashflow-path-mode option')].map(option => option.textContent.trim()),
+        oldSelector: !!document.querySelector('#path-mode'),
         indexInput: !!document.querySelector('#path-index'),
         seedInput: !!document.querySelector('#path-seed'),
       }));
-      if(advanced.chooseOpt || advanced.indexInput || advanced.seedInput) throw new Error(`removed path #/seed controls still present: ${JSON.stringify(advanced)}`);
-      const availableModes = await page.evaluate(() => [...document.querySelectorAll('#path-mode option')].map(o => o.value));
-      for(const mode of ['stressed', 'favorable']){
-        if(!availableModes.includes(mode)) throw new Error(`${mode} option missing from path-mode select`);
-        await page.select('#path-mode', mode);
-        await new Promise(r => setTimeout(r, 400));
-        if(await waitCashRows(page, 10) < 10) throw new Error(`${mode} path emptied the cash-flow table`);
-        const federalPath = await page.evaluate(() => {
+      const expectedPathIds = [
+        'typical', 'historical-1929', 'historical-1937', 'historical-1966',
+        'historical-1973', 'historical-1995', 'historical-2000',
+        'historical-2008', 'historical-2009', 'historical-2022',
+      ];
+      if(JSON.stringify(selectorContract.values) !== JSON.stringify(expectedPathIds)) throw new Error(`Cash Flow path registry mismatch: ${JSON.stringify(selectorContract)}`);
+      if(selectorContract.labels.some(label => /Black Monday|Stressed path|Favorable path|Sequence Stress/i.test(label))) throw new Error(`removed generic or Black Monday path remains: ${JSON.stringify(selectorContract.labels)}`);
+      if(selectorContract.oldSelector || selectorContract.indexInput || selectorContract.seedInput) throw new Error(`Cash Flow still exposes old replay controls: ${JSON.stringify(selectorContract)}`);
+
+      let reloadExpected = null;
+      for(const [mode, startYear] of [['historical-1973', 1973], ['historical-1995', 1995]]){
+        await page.select('#cashflow-path-mode', mode);
+        await page.waitForFunction(({ expectedMode, expectedStartYear }) => {
+          const root = document.querySelector('#scn-view .cf');
+          const select = document.querySelector('#cashflow-path-mode');
+          const firstRetirement = document.querySelector('#scn-view .cf-row[data-phase="retirement"]');
+          const summary = document.querySelector('#scn-view .cf-summary--historical');
+          return root?.dataset.cashPathId === expectedMode
+            && select?.value === expectedMode
+            && Number(firstRetirement?.dataset.sourceYear) === expectedStartYear
+            && ['underfunded', 'survives'].includes(summary?.dataset.outcome);
+        }, { timeout: 20000 }, { expectedMode: mode, expectedStartYear: startYear });
+        const historicalPath = await page.evaluate(() => {
           const th = document.querySelector('#scn-view .cf-table__head .cf-th[data-tax-source]');
-          const compare = document.querySelector('#scn-view [data-tax-compare]');
           const disclosure = document.querySelector('#scn-view [data-tax-disclosure]');
+          const root = document.querySelector('#scn-view .cf');
+          const summary = document.querySelector('#scn-view .cf-summary--historical');
+          const rows = [...document.querySelectorAll('#scn-view .cf-row')].map(row => ({
+            age: Number(row.dataset.age),
+            year: Number(row.querySelector('.cf-row__year')?.textContent.trim()),
+            phase: row.dataset.phase || '',
+            sourceYear: row.dataset.sourceYear === '' ? null : Number(row.dataset.sourceYear),
+            startBalance: Number(row.dataset.startBalance),
+            endingBalance: Number(row.dataset.endingBalance),
+            wdRate: Number(row.dataset.wdRate),
+            shortfall: Number(row.dataset.fundingShortfall),
+            endingText: row.querySelector('.cf-cell--ending')?.textContent.trim() || '',
+          }));
+          const retirementRows = rows.filter(row => row.phase === 'retirement');
+          const dataNumber = (name) => summary?.dataset[name] === ''
+            || summary?.dataset[name] === undefined
+            ? null
+            : Number(summary.dataset[name]);
           return {
-            mode: document.querySelector('#path-mode')?.value || '',
+            mode: document.querySelector('#cashflow-path-mode')?.value || '',
+            rootMode: root?.dataset.cashPathId || '',
+            kind: root?.dataset.cashPathKind || '',
             header: th ? {
               label: th.textContent.trim(),
               source: th.dataset.taxSource || '',
               scope: th.dataset.taxScope || '',
             } : null,
-            compare: compare ? {
-              path: compare.dataset.taxPath || '',
-              federalTotal: Number(compare.dataset.federalTotal),
-              enginePathTotal: Number(compare.dataset.enginePathTotal),
-              delta: Number(compare.dataset.delta),
-            } : null,
+            compare: !!document.querySelector('#scn-view [data-tax-compare]'),
             disclosure: disclosure ? {
               state: disclosure.dataset.taxState || '',
               scope: disclosure.querySelector('[data-tax-scope-disclosure]')?.textContent.trim() || '',
             } : null,
+            stats: [...document.querySelectorAll('#scn-view .cf-stat__label')].map(label => label.textContent.trim()),
+            fundingText: document.querySelector('#scn-view [data-plan-funding]')?.textContent.trim() || '',
+            probability: !!document.querySelector('#scn-view .cf-summary__sub'),
+            visibleShortfall: /Short\s+\$/i.test(root?.textContent || '')
+              || !!root?.querySelector('.cf-row__shortfall'),
+            rows,
+            retirementRows,
+            summary: summary ? {
+              outcome: summary.dataset.outcome || '',
+              firstUnderfundedAge: dataNumber('firstUnderfundedAge'),
+              firstUnderfundedYear: dataNumber('firstUnderfundedYear'),
+              fundedThroughAge: dataNumber('fundedThroughAge'),
+              fundedThroughYear: dataNumber('fundedThroughYear'),
+              endingBalance: dataNumber('endingBalance'),
+              endingAge: dataNumber('endingAge'),
+              endingYear: dataNumber('endingYear'),
+              peakWdRate: dataNumber('peakWdRate'),
+              peakWdAge: dataNumber('peakWdAge'),
+              peakWdYear: dataNumber('peakWdYear'),
+            } : null,
+            persisted: JSON.parse(localStorage.getItem('parallax.cashFlowPath.v1') || '{}'),
+            pathReplay: localStorage.getItem('parallax.pathReplay.v1'),
           };
         });
-        if(federalPath.mode !== mode) throw new Error(`${mode} path mode did not stay selected: ${JSON.stringify(federalPath)}`);
-        if(federalPath.header?.label !== 'Tax' || federalPath.header?.source !== 'federal-converged-row' || federalPath.header?.scope !== 'MODELED_FEDERAL_LINE_24') throw new Error(`${mode} path tax scope is not converged federal: ${JSON.stringify(federalPath)}`);
-        if(federalPath.compare) throw new Error(`${mode} path still shows an obsolete sidecar comparison: ${JSON.stringify(federalPath)}`);
-        if(federalPath.disclosure?.state !== 'federal-converged-row' || !/retirement rows funded and converged, working years reporting-only/i.test(federalPath.disclosure?.scope || '')) throw new Error(`${mode} converged federal scope disclosure missing: ${JSON.stringify(federalPath)}`);
-        await new Promise(r => setTimeout(r, 700));
+        if(historicalPath.mode !== mode || historicalPath.rootMode !== mode || historicalPath.kind !== 'historical') throw new Error(`${mode} did not stay selected: ${JSON.stringify(historicalPath)}`);
+        if(historicalPath.persisted?.id !== mode) throw new Error(`${mode} selection did not persist independently: ${JSON.stringify(historicalPath.persisted)}`);
+        if(historicalPath.pathReplay !== pathReplayBefore) throw new Error(`${mode} mutated Monte Carlo pathReplay`);
+        if(historicalPath.header?.label !== 'Tax' || historicalPath.header?.source !== 'federal-converged-row' || historicalPath.header?.scope !== 'MODELED_FEDERAL_LINE_24') throw new Error(`${mode} tax scope is not converged federal: ${JSON.stringify(historicalPath)}`);
+        if(historicalPath.compare) throw new Error(`${mode} still shows an obsolete sidecar comparison`);
+        if(historicalPath.disclosure?.state !== 'federal-converged-row' || !/retirement rows funded and converged, working years reporting-only/i.test(historicalPath.disclosure?.scope || '')) throw new Error(`${mode} converged federal scope disclosure missing: ${JSON.stringify(historicalPath)}`);
+        if(historicalPath.probability || historicalPath.stats.includes('Median Ending')) throw new Error(`${mode} still shows a probabilistic summary: ${JSON.stringify(historicalPath.stats)}`);
+        if(!historicalPath.retirementRows.length || historicalPath.retirementRows.some(row => row.sourceYear === null)) throw new Error(`${mode} contains post-depletion filler rows: ${JSON.stringify(historicalPath.retirementRows)}`);
+        if(historicalPath.visibleShortfall) throw new Error(`${mode} visibly reports a dollar shortfall`);
+        for(let index = 1; index < historicalPath.rows.length; index++){
+          if(historicalPath.rows[index].age !== historicalPath.rows[index - 1].age + 1
+            || historicalPath.rows[index].year !== historicalPath.rows[index - 1].year + 1){
+            throw new Error(`${mode} has a missing or duplicate age/year: ${JSON.stringify(historicalPath.rows)}`);
+          }
+        }
+        const lastAccumulation = [...historicalPath.rows].reverse().find(row => row.phase === 'accum');
+        const firstRetirement = historicalPath.retirementRows[0];
+        if(lastAccumulation && Math.abs(lastAccumulation.endingBalance - firstRetirement.startBalance) > 0.01) throw new Error(`${mode} has a retirement balance jump: ${JSON.stringify({ lastAccumulation, firstRetirement })}`);
+        const shortfallRows = historicalPath.retirementRows.filter(row => row.shortfall > 0.01);
+        const lastRetirement = historicalPath.retirementRows.at(-1);
+        if(historicalPath.summary?.outcome === 'underfunded'){
+          const firstUnderfunded = shortfallRows[0] || null;
+          const fundedThrough = historicalPath.retirementRows.at(-2) || null;
+          if(shortfallRows.length !== 1
+            || firstUnderfunded !== lastRetirement
+            || historicalPath.summary.firstUnderfundedAge !== firstUnderfunded.age
+            || historicalPath.summary.firstUnderfundedYear !== firstUnderfunded.year
+            || historicalPath.summary.fundedThroughAge !== (fundedThrough?.age ?? null)
+            || historicalPath.summary.fundedThroughYear !== (fundedThrough?.year ?? null)
+            || historicalPath.summary.endingBalance !== null
+            || historicalPath.summary.endingAge !== null
+            || historicalPath.summary.endingYear !== null
+            || historicalPath.summary.peakWdRate !== null
+            || historicalPath.summary.peakWdAge !== null
+            || historicalPath.summary.peakWdYear !== null){
+            throw new Error(`${mode} underfunded summary does not match its first failure row: ${JSON.stringify(historicalPath)}`);
+          }
+          if(!historicalPath.stats.includes('Plan funding')
+            || historicalPath.stats.includes('Ending position')
+            || historicalPath.stats.includes('Peak withdrawal')
+            || !historicalPath.fundingText.includes(`Underfunded at age ${firstUnderfunded.age}`)
+            || !historicalPath.fundingText.includes(`First underfunded year ${firstUnderfunded.year}`)
+            || /\$/.test(historicalPath.fundingText)
+            || !/Underfunded/i.test(lastRetirement.endingText)){
+            throw new Error(`${mode} underfunded UI contract is incomplete: ${JSON.stringify(historicalPath)}`);
+          }
+        }else if(historicalPath.summary?.outcome === 'survives'){
+          const peakRow = historicalPath.retirementRows.reduce(
+            (peak, row) => row.wdRate > (peak?.wdRate ?? 0) ? row : peak,
+            null
+          );
+          if(shortfallRows.length !== 0
+            || historicalPath.summary.firstUnderfundedAge !== null
+            || historicalPath.summary.firstUnderfundedYear !== null
+            || historicalPath.summary.fundedThroughAge !== lastRetirement.age
+            || historicalPath.summary.fundedThroughYear !== lastRetirement.year
+            || Math.abs(historicalPath.summary.endingBalance - lastRetirement.endingBalance) > 0.01
+            || historicalPath.summary.endingAge !== lastRetirement.age
+            || historicalPath.summary.endingYear !== lastRetirement.year
+            || Math.abs(historicalPath.summary.peakWdRate - (peakRow?.wdRate ?? 0)) > 0.01
+            || historicalPath.summary.peakWdAge !== (peakRow?.age ?? null)
+            || historicalPath.summary.peakWdYear !== (peakRow?.year ?? null)){
+            throw new Error(`${mode} surviving summary does not share the displayed result: ${JSON.stringify(historicalPath)}`);
+          }
+          for(const label of ['Plan funding', 'Ending position', 'Peak withdrawal']){
+            if(!historicalPath.stats.includes(label)) throw new Error(`${mode} surviving metric missing: ${label}`);
+          }
+          if(!/Funded through plan end/i.test(historicalPath.fundingText)) throw new Error(`${mode} plan-end wording is missing: ${historicalPath.fundingText}`);
+        }else{
+          throw new Error(`${mode} has an unknown historical outcome: ${JSON.stringify(historicalPath.summary)}`);
+        }
+        if(mode === 'historical-1995'){
+          reloadExpected = {
+            mode: historicalPath.mode,
+            rootMode: historicalPath.rootMode,
+            sourceYear: historicalPath.retirementRows[0].sourceYear,
+            fundingText: historicalPath.fundingText,
+            summary: historicalPath.summary,
+            retirementAges: historicalPath.retirementRows.map(row => row.age),
+          };
+        }
         await page.screenshot({ path: join(OUT, `04-cashflow-${mode}.png`), fullPage: true });
       }
-      await page.select('#path-mode', 'typical');
-      await new Promise(r => setTimeout(r, 300));
-      const restoredTaxHeader = await page.evaluate(() => {
-        const th = document.querySelector('#scn-view .cf-table__head .cf-th[data-tax-source]');
-        return th ? { label: th.textContent.trim(), source: th.dataset.taxSource || '' } : null;
+      if(!reloadExpected) throw new Error('historical reload checkpoint was not captured');
+
+      await stableReload({ waitUntil: 'networkidle2', timeout: 20000 });
+      await waitForWizard(page, { householdId: 'demo' });
+      await stableClick('.htab[data-page="household"]');
+      await stableClick('#hh-menu-btn');
+      await page.select('#hh-switch', withdrawalPlannerFixtureHouseholdId);
+      await waitForWizard(page, { householdId: withdrawalPlannerFixtureHouseholdId });
+      await page.waitForFunction(
+        () => /Plan updated|Partial run/i.test(document.querySelector('#status')?.textContent || ''),
+        { timeout: 30000 }
+      );
+      await page.click('button[data-page="scenarios"]');
+      await setCashFlow(page, true);
+      await page.waitForFunction(({ expectedMode, expectedStartYear }) => {
+        const root = document.querySelector('#scn-view .cf');
+        const firstRetirement = document.querySelector('#scn-view .cf-row[data-phase="retirement"]');
+        const summary = document.querySelector('#scn-view .cf-summary--historical');
+        return document.querySelector('#cashflow-path-mode')?.value === expectedMode
+          && root?.dataset.cashPathId === expectedMode
+          && Number(firstRetirement?.dataset.sourceYear) === expectedStartYear
+          && ['underfunded', 'survives'].includes(summary?.dataset.outcome);
+      }, { timeout: 30000 }, {
+        expectedMode: reloadExpected.mode,
+        expectedStartYear: reloadExpected.sourceYear,
       });
-      if(restoredTaxHeader?.label !== 'Tax' || restoredTaxHeader?.source !== 'federal-converged-row') throw new Error(`typical path tax scope did not restore: ${JSON.stringify(restoredTaxHeader)}`);
-      if(await page.evaluate(() => !!document.querySelector('#scn-view [data-tax-compare]'))) throw new Error('obsolete federal-vs-engine summary restored on typical path');
-      if(!await page.evaluate(() => /retirement rows funded and converged, working years reporting-only/i.test(document.querySelector('#scn-view [data-tax-scope-disclosure]')?.textContent || ''))) throw new Error('readable phase-scoped federal disclosure did not restore on typical path');
+      const reloadedHistorical = await page.evaluate(() => {
+        const root = document.querySelector('#scn-view .cf');
+        const summary = document.querySelector('#scn-view .cf-summary--historical');
+        const retirementRows = [...document.querySelectorAll('#scn-view .cf-row[data-phase="retirement"]')];
+        const dataNumber = (name) => summary?.dataset[name] === ''
+          || summary?.dataset[name] === undefined
+          ? null
+          : Number(summary.dataset[name]);
+        return {
+          snapshot: {
+            mode: document.querySelector('#cashflow-path-mode')?.value || '',
+            rootMode: root?.dataset.cashPathId || '',
+            sourceYear: Number(retirementRows[0]?.dataset.sourceYear),
+            fundingText: document.querySelector('#scn-view [data-plan-funding]')?.textContent.trim() || '',
+            summary: summary ? {
+              outcome: summary.dataset.outcome || '',
+              firstUnderfundedAge: dataNumber('firstUnderfundedAge'),
+              firstUnderfundedYear: dataNumber('firstUnderfundedYear'),
+              fundedThroughAge: dataNumber('fundedThroughAge'),
+              fundedThroughYear: dataNumber('fundedThroughYear'),
+              endingBalance: dataNumber('endingBalance'),
+              endingAge: dataNumber('endingAge'),
+              endingYear: dataNumber('endingYear'),
+              peakWdRate: dataNumber('peakWdRate'),
+              peakWdAge: dataNumber('peakWdAge'),
+              peakWdYear: dataNumber('peakWdYear'),
+            } : null,
+            retirementAges: retirementRows.map(row => Number(row.dataset.age)),
+          },
+          persisted: JSON.parse(localStorage.getItem('parallax.cashFlowPath.v1') || '{}'),
+          pathReplay: localStorage.getItem('parallax.pathReplay.v1'),
+        };
+      });
+      if(JSON.stringify(reloadedHistorical.snapshot) !== JSON.stringify(reloadExpected)
+          || reloadedHistorical.persisted?.id !== reloadExpected.mode
+          || reloadedHistorical.pathReplay !== pathReplayBefore){
+        throw new Error(`historical selection/result changed across reload: ${JSON.stringify({ reloadExpected, reloadedHistorical })}`);
+      }
+
+      await page.select('#cashflow-path-mode', 'typical');
+      await page.waitForFunction(() => document.querySelector('#scn-view .cf')?.dataset.cashPathId === 'typical', { timeout: 20000 });
+      const restoredTypical = await page.evaluate(() => {
+        const th = document.querySelector('#scn-view .cf-table__head .cf-th[data-tax-source]');
+        return {
+          header: th ? { label: th.textContent.trim(), source: th.dataset.taxSource || '' } : null,
+          stats: [...document.querySelectorAll('#scn-view .cf-stat__label')].map(label => label.textContent.trim()),
+          persisted: JSON.parse(localStorage.getItem('parallax.cashFlowPath.v1') || '{}'),
+          pathReplay: localStorage.getItem('parallax.pathReplay.v1'),
+        };
+      });
+      if(restoredTypical.header?.label !== 'Tax' || restoredTypical.header?.source !== 'federal-converged-row') throw new Error(`Typical tax scope did not restore: ${JSON.stringify(restoredTypical)}`);
+      if(!restoredTypical.stats.includes('Median Ending') || restoredTypical.stats.includes('Plan funding')) throw new Error(`Typical baseline summary did not restore: ${JSON.stringify(restoredTypical.stats)}`);
+      if(restoredTypical.persisted?.id !== 'typical' || restoredTypical.pathReplay !== pathReplayBefore) throw new Error(`Typical persistence disturbed replay state: ${JSON.stringify(restoredTypical)}`);
+      if(await page.evaluate(() => !!document.querySelector('#scn-view [data-tax-compare]'))) throw new Error('obsolete federal-vs-engine summary restored on Typical');
+      if(!await page.evaluate(() => /retirement rows funded and converged, working years reporting-only/i.test(document.querySelector('#scn-view [data-tax-scope-disclosure]')?.textContent || ''))) throw new Error('readable phase-scoped federal disclosure did not restore on Typical');
     }
 
     // Exercise warning and attach-failure states directly through the production

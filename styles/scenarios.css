@@ -524,6 +524,9 @@
 .page[data-page="scenarios"] .cf-stat__value { font-family: var(--font-serif); font-weight: 300; font-size: 22px; color: var(--text-1); margin-top: 5px; }
 .page[data-page="scenarios"] .cf-stat__peak { display: flex; align-items: baseline; gap: 7px; margin-top: 5px; }
 .page[data-page="scenarios"] .cf-stat__peak-age { font-size: 14px; color: var(--text-5); }
+.page[data-page="scenarios"] .cf-summary--historical .cf-summary__stats { width: 100%; justify-content: space-between; }
+.page[data-page="scenarios"] .cf-summary--historical .cf-stat { flex: 1 1 0; min-width: 180px; }
+.page[data-page="scenarios"] .cf-stat__detail { max-width: 360px; margin-top: 6px; font-size: 13px; line-height: 1.4; color: var(--text-5); }
 
 .page[data-page="scenarios"] .cf-tax-disclosure {
   display: grid;
