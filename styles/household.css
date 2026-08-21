@@ -590,15 +590,16 @@
 }
 
 .page[data-page="household"] .nw-entry-view {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 296px;
+  display: flex;
   width: 100%;
   min-height: 600px;
+  flex-direction: column;
 }
 
 .page[data-page="household"] .nw-grid-region {
   min-width: 0;
   padding: 32px 30px 24px 34px;
+  flex: 1 1 auto;
 }
 
 .page[data-page="household"] .nw-group {
@@ -687,45 +688,12 @@
   font-variant-numeric: tabular-nums;
 }
 
-.page[data-page="household"] .nw-rail {
-  display: flex;
-  min-width: 0;
-  padding: 30px 26px;
-  flex-direction: column;
-  border-left: 1px solid rgba(221, 213, 196, 0.12);
-  background: var(--nw-bg);
-}
-
-.page[data-page="household"] .nw-total-label,
 .page[data-page="household"] .nw-mobile-total > span {
   margin-bottom: 14px;
   color: var(--nw-ink-mute);
   font: 500 10.5px/1 var(--font-sans);
   letter-spacing: 0.16em;
   text-transform: uppercase;
-}
-
-.page[data-page="household"] .nw-rail > strong {
-  margin-bottom: 0;
-  color: #d8c084;
-  background: linear-gradient(102deg, #eee4cf 0%, #d8c084 46%, #c6a662 72%, #dfd2b5 100%);
-  background-clip: text;
-  -webkit-background-clip: text;
-  font: 400 40px/0.92 var(--font-serif);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: -0.018em;
-  -webkit-text-fill-color: transparent;
-  text-shadow: 0 0 20px rgba(198, 166, 98, 0.08);
-}
-
-.page[data-page="household"] .nw-rail-spacer {
-  flex: 1;
-}
-
-.page[data-page="household"] .nw-rail-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 9px;
 }
 
 .page[data-page="household"] .nw-primary-button,
@@ -765,16 +733,19 @@
   background: rgba(221, 213, 196, 0.06);
 }
 
-.page[data-page="household"] .nw-rail-actions .nw-primary-button,
-.page[data-page="household"] .nw-rail-actions .nw-secondary-button {
-  width: 100%;
-  height: 42px;
-}
-
 .page[data-page="household"] .nw-mobile-total,
-.page[data-page="household"] .nw-mobile-footer,
 .page[data-page="household"] .nw-sheet-grabber {
   display: none;
+}
+
+.page[data-page="household"] .nw-entry-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 30px;
+  border-top: 1px solid rgba(221, 213, 196, 0.12);
+  background: var(--nw-bg);
 }
 
 .page[data-page="household"] .nw-summary-view {
@@ -1255,20 +1226,6 @@
   align-items: center;
 }
 
-.page[data-page="household"] .hh-tax-view-control {
-  display: grid;
-  justify-items: end;
-  gap: 6px;
-}
-
-.page[data-page="household"] .hh-tax-view-control > span {
-  color: var(--hh-muted);
-  font-size: 8px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
 .page[data-page="household"] .hh-segmented {
   display: grid;
   grid-template-columns: repeat(2, minmax(82px, 1fr));
@@ -1300,37 +1257,50 @@
 
 .page[data-page="household"] .hh-tax-profile {
   display: grid;
-  grid-template-columns: 1fr 1fr 0.72fr 1.15fr;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
   margin-top: 20px;
-  border: 1px solid var(--hh-line);
 }
 
 .page[data-page="household"] .hh-tax-profile > * {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: 12px;
   min-width: 0;
-  padding: 13px 16px;
+  min-height: 43px;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
 }
 
-.page[data-page="household"] .hh-tax-profile > * + * {
-  border-left: 1px solid var(--hh-line-soft);
+.page[data-page="household"] .hh-tax-profile [data-tax-field="taxYear"] {
+  width: 92px;
+  justify-self: end;
+}
+
+.page[data-page="household"] .hh-tax-profile [data-tax-field="deductionMode"] {
+  width: max-content;
+  max-width: 230px;
+  justify-self: end;
 }
 
 .page[data-page="household"] .hh-tax-static {
-  display: grid;
-  align-content: start;
-  gap: 10px;
+  align-content: center;
+  gap: 12px;
 }
 
 .page[data-page="household"] .hh-tax-static strong {
   overflow: hidden;
   color: var(--hh-ink);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .page[data-page="household"] .hh-irmaa-lookback {
-  margin-top: 20px;
+  margin-top: 14px;
 }
 
 .page[data-page="household"] .hh-irmaa-lookback h2 {
@@ -1341,41 +1311,43 @@
 }
 
 .page[data-page="household"] .hh-irmaa-lookback-table {
-  border-top: 1px solid var(--hh-line);
+  display: grid;
+  gap: 8px;
 }
 
 .page[data-page="household"] .hh-irmaa-lookback-row {
   display: grid;
-  grid-template-columns: 72px 150px minmax(220px, 1fr);
+  grid-template-columns: minmax(0, 1fr) 168px;
   align-items: center;
-  gap: 18px;
-  min-height: 42px;
-  border-bottom: 1px solid var(--hh-line-soft);
-}
-
-.page[data-page="household"] .hh-irmaa-lookback-row--head {
-  min-height: 26px;
-  color: var(--hh-muted);
-  font-size: 8px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  gap: 12px;
+  min-height: 43px;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
 }
 
 .page[data-page="household"] .hh-irmaa-lookback-row strong {
-  color: var(--hh-body);
-  font-size: 11px;
+  color: var(--hh-ink);
+  font-size: 13px;
   font-weight: 500;
 }
 
-.page[data-page="household"] .hh-irmaa-lookback-row .hh-tax-amount {
-  width: 100%;
+.page[data-page="household"] .hh-irmaa-lookback-label {
+  display: grid;
+  gap: 2px;
 }
 
-.page[data-page="household"] .hh-irmaa-filing {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 8px;
+.page[data-page="household"] .hh-irmaa-lookback-label small {
+  color: var(--hh-muted);
+  font-size: 9px;
+  font-weight: 500;
+}
+
+.page[data-page="household"] .hh-irmaa-lookback-input,
+.page[data-page="household"] .hh-irmaa-lookback-row .hh-tax-amount {
+  width: 168px;
+  justify-self: end;
+  text-align: right;
 }
 
 .page[data-page="household"] .hh-tax-section,
@@ -1822,18 +1794,6 @@
     padding-inline: 26px;
   }
 
-  .page[data-page="household"] .hh-tax-profile {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .page[data-page="household"] .hh-tax-profile > :nth-child(3) {
-    border-left: 0;
-    border-top: 1px solid var(--hh-line-soft);
-  }
-
-  .page[data-page="household"] .hh-tax-profile > :nth-child(4) {
-    border-top: 1px solid var(--hh-line-soft);
-  }
 }
 
 @media (max-width: 920px) {
@@ -1901,11 +1861,6 @@
 
   .page[data-page="household"] .hh-screen-head h1 {
     font-size: 31px;
-  }
-
-  .page[data-page="household"] .hh-irmaa-lookback-row {
-    grid-template-columns: 56px 90px minmax(150px, 1fr);
-    gap: 8px;
   }
 
   .page[data-page="household"] .hh-family-people,
@@ -1993,18 +1948,9 @@
     flex-direction: column;
   }
 
-  .page[data-page="household"] .hh-tax-view-control {
-    justify-items: start;
-  }
-
-  .page[data-page="household"] .hh-tax-profile {
-    grid-template-columns: 1fr;
-  }
-
-  .page[data-page="household"] .hh-tax-profile > * + *,
-  .page[data-page="household"] .hh-tax-profile > :nth-child(3) {
-    border-top: 1px solid var(--hh-line-soft);
-    border-left: 0;
+  .page[data-page="household"] .hh-tax-profile > *,
+  .page[data-page="household"] .hh-irmaa-lookback-row {
+    grid-template-columns: minmax(0, 1fr) max-content;
   }
 
   .page[data-page="household"] .hh-summary-section-head {
@@ -2137,11 +2083,7 @@
     font-size: 14px;
   }
 
-  .page[data-page="household"] .nw-rail {
-    display: none;
-  }
-
-  .page[data-page="household"] .nw-mobile-footer,
+  .page[data-page="household"] .nw-entry-footer,
   .page[data-page="household"] .nw-summary-footer {
     display: flex;
     align-items: center;
@@ -2152,7 +2094,7 @@
     background: var(--nw-bg);
   }
 
-  .page[data-page="household"] .nw-mobile-footer .nw-secondary-button,
+  .page[data-page="household"] .nw-entry-footer .nw-secondary-button,
   .page[data-page="household"] .nw-summary-footer .nw-secondary-button {
     height: 50px;
     padding-inline: 20px;
@@ -2160,7 +2102,7 @@
     font-size: 15px;
   }
 
-  .page[data-page="household"] .nw-mobile-footer .nw-primary-button,
+  .page[data-page="household"] .nw-entry-footer .nw-primary-button,
   .page[data-page="household"] .nw-summary-footer .nw-primary-button {
     height: 50px;
     padding-inline: 20px;

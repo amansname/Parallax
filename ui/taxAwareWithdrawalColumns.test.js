@@ -226,6 +226,8 @@ test('Withdrawal Planner shell labels the control Realized gain with no Brokerag
   });
 
   assert.match(root.innerHTML, />Realized gain</);
+  assert.match(root.innerHTML, /<h1>Withdrawal Planner<\/h1>/);
+  assert.match(root.innerHTML, /Shape retirement income while watching federal thresholds\./);
   assert.doesNotMatch(root.innerHTML, />Brokerage account</);
   assert.doesNotMatch(root.innerHTML, /taw-slider-issue/);
   assert.doesNotMatch(root.innerHTML, /confirmed losses are not modeled/i);

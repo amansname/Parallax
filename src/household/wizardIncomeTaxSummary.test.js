@@ -235,7 +235,7 @@ test('wizard summary helper does not introduce circular imports', () => {
   );
 });
 
-test('Summary Enter planning is never blocked by tax readiness', () => {
+test('Summary Continue to Scenarios is never blocked by tax readiness', () => {
   const plan = blankWizardPlan();
   ensureWizardCurrent1040(plan);
   const wizard = createHouseholdWizard({
@@ -262,7 +262,7 @@ test('Summary Enter planning is never blocked by tax readiness', () => {
   const footer = wizard.footer('summary');
   assert.doesNotMatch(footer, /data-tax-completion-required/);
   assert.doesNotMatch(footer, /aria-disabled="true"/);
-  assert.match(footer, /Enter planning/);
+  assert.match(footer, /Continue to Scenarios/);
 });
 
 test('buildWizardTaxPlan stays a non-confirming clone', () => {

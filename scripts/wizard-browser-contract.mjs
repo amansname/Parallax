@@ -1371,8 +1371,14 @@ async function verifyNetWorthFlow(page){
       `[data-hh-action="net-worth-open-category"][data-category-id="${id}"] .nw-tile-copy > span`,
     );
     return {
-      rail: readOne('.nw-rail > strong'),
-      mobile: readOne('.nw-mobile-total > strong'),
+      railCount: document.querySelectorAll('.nw-rail').length,
+      railTotal: readOne('.nw-rail > strong'),
+      continueActions: document.querySelectorAll(
+        '.nw-rail-actions [data-hh-action="step-next"]',
+      ).length,
+      backActions: document.querySelectorAll(
+        '.nw-rail-actions [data-hh-action="step-back"]',
+      ).length,
       categories: Object.fromEntries(
         ['bank', 'investment', 'property', 'insurance', 'card', 'mortgage', 'loan']
           .map(id => [id, category(id)]),
@@ -1380,10 +1386,11 @@ async function verifyNetWorthFlow(page){
     };
   });
   requireCondition(
-    entryTotals.rail.count === 1
-      && entryTotals.rail.text === '$758,000'
-      && entryTotals.mobile.count === 1
-      && entryTotals.mobile.text === '$758,000'
+    entryTotals.railCount === 1
+      && entryTotals.railTotal.count === 1
+      && entryTotals.railTotal.text === '$758,000'
+      && entryTotals.continueActions === 1
+      && entryTotals.backActions === 1
       && JSON.stringify(entryTotals.categories) === JSON.stringify({
         bank: { count: 1, text: '$253,001' },
         investment: { count: 1, text: '$100,000' },
@@ -1469,50 +1476,21 @@ async function verifyNetWorthFlow(page){
   );
 
   await clickWizardAction(page, '[data-net-worth-overlay] .nw-panel-close');
-  await clickWizardAction(
-    page,
-    '.nw-rail [data-hh-action="net-worth-show-summary"]',
-  );
-  const summary = await page.evaluate(() => {
-    const hero = document.querySelectorAll('.nw-summary-hero');
-    const categories = Object.fromEntries(
-      [...document.querySelectorAll('.nw-summary-card')].map(card => [
-        card.querySelector('strong')?.textContent.trim() || '',
-        card.querySelector('span')?.textContent.trim() || '',
-      ]),
-    );
-    const split = Object.fromEntries(
-      [...document.querySelectorAll('.nw-summary-hero p')].map(row => [
-        row.querySelector('span')?.textContent.trim() || '',
-        row.querySelector('b')?.textContent.trim() || '',
-      ]),
-    );
+  const reloadedEntry = await page.evaluate(() => {
+    const rail = document.querySelector('.nw-rail');
     return {
-      heroCount: hero.length,
-      total: hero[0]?.querySelector(':scope > strong')?.textContent.trim() || '',
-      cardCount: document.querySelectorAll('.nw-summary-card').length,
-      split,
-      categories,
+      railCount: document.querySelectorAll('.nw-rail').length,
+      total: rail?.querySelector(':scope > strong')?.textContent.trim() || '',
+      continueActions: rail?.querySelectorAll('[data-hh-action="step-next"]').length || 0,
+      backActions: rail?.querySelectorAll('[data-hh-action="step-back"]').length || 0,
     };
   });
   requireCondition(
-    summary.heroCount === 1
-      && summary.total === '$758,000'
-      && summary.cardCount === 7
-      && JSON.stringify(summary.split) === JSON.stringify({
-        Assets: '$903,001',
-        Liabilities: '$145,001',
-      })
-      && JSON.stringify(summary.categories) === JSON.stringify({
-        Bank: '$253,001',
-        Investment: '$100,000',
-        Property: '$500,000',
-        Insurance: '$50,000',
-        'Credit Card': '$5,000',
-        Mortgage: '$120,001',
-        Loan: '$20,000',
-      }),
-    `Net Worth reload summary did not reconcile exactly: ${JSON.stringify(summary)}`,
+    reloadedEntry.railCount === 1
+      && reloadedEntry.total === '$758,000'
+      && reloadedEntry.continueActions === 1
+      && reloadedEntry.backActions === 1,
+    `Net Worth rail did not reconcile after reload: ${JSON.stringify(reloadedEntry)}`,
   );
 }
 
@@ -1553,9 +1531,32 @@ async function verifyPlanningSourceAndTaxFlow(page){
       magiFields: rows.map(row => row.querySelector(
         '[data-tax-field$=".magi"]',
       )?.dataset.taxField || ''),
-      filingFields: rows.map(row => row.querySelector(
+      filingFields: rows.filter(row => row.querySelector(
+        '[data-tax-field$=".filingStatus"]',
+      )).length,
+      filingFieldNames: rows.map(row => row.querySelector(
         '[data-tax-field$=".filingStatus"]',
       )?.dataset.taxField || ''),
+      viewToggleCount: document.querySelectorAll('[data-hh-action="set-tax-view"]').length,
+      view: document.querySelector('[data-hh-wizard-screen="tax"]')?.dataset.taxView || '',
+      summaryBoxes: document.querySelectorAll(
+        '[data-hh-wizard-screen="tax"] [data-tax-summary-box]',
+      ).length,
+      frameGeometry: [
+        ...document.querySelectorAll('.hh-tax-profile > *, .hh-irmaa-lookback-row'),
+      ].map(element => {
+        const style = getComputedStyle(element);
+        return {
+          left: style.borderLeftWidth,
+          right: style.borderRightWidth,
+          radius: style.borderRadius,
+        };
+      }),
+      controlWidths: [
+        document.querySelector('[data-tax-field="taxYear"]'),
+        document.querySelector('[data-tax-field="deductionMode"]'),
+        ...rows.map(row => row.querySelector('[data-tax-field$=".magi"]')),
+      ].map(element => Math.round(element?.getBoundingClientRect().width || 0)),
       outputCopy: /Current tier|Next tier|To next tier|Premium year/i.test(
         section?.textContent || '',
       ),
@@ -1568,10 +1569,21 @@ async function verifyPlanningSourceAndTaxFlow(page){
         'irmaa.lookback.2024.magi',
         'irmaa.lookback.2025.magi',
       ])
-      && JSON.stringify(irmaaInputs.filingFields) === JSON.stringify([
+      && irmaaInputs.filingFields === 2
+      && JSON.stringify(irmaaInputs.filingFieldNames) === JSON.stringify([
         'irmaa.lookback.2024.filingStatus',
         'irmaa.lookback.2025.filingStatus',
       ])
+      && irmaaInputs.viewToggleCount === 0
+      && irmaaInputs.view === 'detailed'
+      && irmaaInputs.summaryBoxes === 5
+      && irmaaInputs.frameGeometry.every(frame => frame.left === '0px'
+        && frame.right === '0px'
+        && frame.radius === '0px')
+      && irmaaInputs.controlWidths.length === 4
+      && irmaaInputs.controlWidths.every(width => width >= 180 && width <= 320)
+      && Math.abs(irmaaInputs.controlWidths[0] - irmaaInputs.controlWidths[1]) <= 1
+      && Math.abs(irmaaInputs.controlWidths[2] - irmaaInputs.controlWidths[3]) <= 1
       && !irmaaInputs.outputCopy,
     `Tax IRMAA lookback is not input-only: ${JSON.stringify(irmaaInputs)}`,
   );
@@ -1630,23 +1642,19 @@ async function verifyPlanningSourceAndTaxFlow(page){
     derivedSummary.tableCount === 1
       && JSON.stringify(derivedSummary.headers) === JSON.stringify(['Item', 'Value'])
       && JSON.stringify(derivedSummary.rows.map(row => row[0])) === JSON.stringify([
-        'Program',
         'MAGI',
         'Current tier',
-        'Next tier',
         'To next tier',
         'Premium year',
       ])
-      && derivedSummary.rows[0]?.[1] === 'IRMAA'
-      && /^\$[\d,]+$/.test(derivedSummary.rows[1]?.[1] || '')
-      && /^\d+$/.test(derivedSummary.rows[2]?.[1] || '')
-      && /^(\d+|—)$/.test(derivedSummary.rows[3]?.[1] || '')
-      && /^(\$[\d,]+|—)$/.test(derivedSummary.rows[4]?.[1] || '')
-      && derivedSummary.rows[5]?.[1] === '2028'
-      && derivedSummary.width >= 190
-      && derivedSummary.width <= 300
+      && /^\$[\d,]+$/.test(derivedSummary.rows[0]?.[1] || '')
+      && /^\d+$/.test(derivedSummary.rows[1]?.[1] || '')
+      && /^(\$[\d,]+|—)$/.test(derivedSummary.rows[2]?.[1] || '')
+      && derivedSummary.rows[3]?.[1] === '2028'
+      && derivedSummary.width >= 480
+      && derivedSummary.width <= 560
       && derivedSummary.directScreenChild
-      && derivedSummary.captionCount === 0,
+      && derivedSummary.captionCount === 1,
     `Summary IRMAA table drifted from the compact Item/Value contract: ${JSON.stringify(derivedSummary)}`,
   );
   const summaryContinueSelector = '#hh-wiz-footer [data-hh-action="step-next"]';
@@ -1674,29 +1682,21 @@ async function verifyPlanningSourceAndTaxFlow(page){
   await setWizardValue(page, '[data-tax-field="income.wages.client"]', '81000');
   await setWizardValue(page, '[data-tax-field="income.wages.spouse"]', '39000');
 
-  await clickWizardAction(
-    page,
-    '[data-hh-action="set-tax-view"][data-tax-view="detailed"]',
-  );
-  const detailed = await page.evaluate(() => ({
+  const unifiedTax = await page.evaluate(() => ({
     view: document.querySelector('[data-hh-wizard-screen="tax"]')
       ?.dataset.taxView || '',
     clientWages: document.querySelector('[data-tax-field="income.wages.client"]')?.value || '',
     spouseWages: document.querySelector('[data-tax-field="income.wages.spouse"]')?.value || '',
-    pressed: document.querySelector(
-      '[data-hh-action="set-tax-view"][data-tax-view="detailed"]',
-    )?.getAttribute('aria-pressed') || '',
+    toggleCount: document.querySelectorAll('[data-hh-action="set-tax-view"]').length,
+    socialSecuritySource: document.querySelectorAll('[data-tax-field="socialSecurity.mode"]').length,
   }));
   requireCondition(
-    detailed.view === 'detailed'
-      && detailed.clientWages === '81000'
-      && detailed.spouseWages === '39000'
-      && detailed.pressed === 'true',
-    `Detailed Tax view lost state: ${JSON.stringify(detailed)}`,
-  );
-  await clickWizardAction(
-    page,
-    '[data-hh-action="set-tax-view"][data-tax-view="simplified"]',
+    unifiedTax.view === 'detailed'
+      && unifiedTax.clientWages === '81000'
+      && unifiedTax.spouseWages === '39000'
+      && unifiedTax.toggleCount === 0
+      && unifiedTax.socialSecuritySource === 1,
+    `Unified Tax view lost state: ${JSON.stringify(unifiedTax)}`,
   );
 
   await setWizardValue(
@@ -1747,7 +1747,7 @@ async function verifyPlanningSourceAndTaxFlow(page){
   await requireUnique(
     page,
     summaryContinueSelector,
-    'completed Summary Enter planning action',
+    'completed Summary Continue to Scenarios action',
   );
   await page.click(summaryContinueSelector);
   await page.waitForFunction(
@@ -1921,7 +1921,7 @@ async function assertViewport(page, viewport, step, outDir, filename){
     const sidebar = document.querySelector('.hh-sidebar');
     const footer = document.querySelector('[data-hh-wizard-footer]');
     const netWorthNavigation = [...document.querySelectorAll(
-      '.nw-rail-actions, .nw-mobile-footer, .nw-summary-footer',
+      '.nw-rail-actions',
     )];
     const nav = document.querySelector(
       '[data-hh-wizard-nav][aria-current="step"]',
@@ -2033,25 +2033,6 @@ export async function captureWizardScreens(
       await clickWizardAction(
         page,
         '[data-net-worth-overlay] .nw-panel-close',
-      );
-    }
-    if(step === 'tax'){
-      await clickWizardAction(
-        page,
-        '[data-hh-action="set-tax-view"][data-tax-view="detailed"]',
-      );
-      await settleWizardCapture(page);
-      const detailedPath = join(outDir, `${prefix}-${step}-detailed.png`);
-      await captureFullWizardArtifact(page, detailedPath);
-      artifacts.push({
-        label: 'tax · detailed',
-        path: detailedPath,
-        step,
-        viewport: 'desktop',
-      });
-      await clickWizardAction(
-        page,
-        '[data-hh-action="set-tax-view"][data-tax-view="simplified"]',
       );
     }
   }

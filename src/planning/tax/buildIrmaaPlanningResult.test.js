@@ -44,14 +44,14 @@ test('annual household adjustment multiplies full-year Parts B and D by eligible
   assert.equal(result.annualHouseholdAdjustment, 2296.80);
 });
 
-test('the first two premium years use manual lookback MAGI and do not fall back', () => {
+test('manual lookback MAGI uses the authoritative household filing status', () => {
   const plan = {
     meta: { planningAsOfYear: 2026, filingStatus: 'single' },
     incomeTax: {
       irmaa: {
         schemaVersion: 1,
         lookbackByTaxYear: {
-          2024: { magi: 120000, filingStatus: 'single' },
+          2024: { magi: 120000, filingStatus: 'marriedFilingJointly' },
         },
       },
     },
@@ -69,6 +69,7 @@ test('the first two premium years use manual lookback MAGI and do not fall back'
   assert.equal(first.source, 'manual-lookback');
   assert.equal(first.magi, 120000);
   assert.equal(first.taxYear, 2024);
+  assert.equal(first.tier, 1);
   assert.equal(resolveIrmaaPremiumYear({
     plan,
     premiumYear: 2027,

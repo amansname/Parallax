@@ -77,17 +77,17 @@ export function renderHouseholdWizardFamily(ctx){
               data-wizard-scope="family" data-wizard-field="${owner}.socialSecurityAge">
           </label>
           <label class="hh-field">
+            <span>Live to age</span>
+            <input type="number" min="45" max="125" value="${fieldValue(person.planEndAge)}"
+              data-hh-field="${owner}.planEndAge"
+              data-wizard-scope="family" data-wizard-field="${owner}.planEndAge">
+          </label>
+          <label class="hh-field hh-field--wide">
             <span>Annual Social Security at full retirement age</span>
             <input type="text" inputmode="decimal"
               value="${moneyFieldValue(plan.income?.socialSecurity?.[ssKey]?.pia)}"
               data-hh-field="${owner}.socialSecurityBenefit"
               data-wizard-scope="family" data-wizard-field="${owner}.socialSecurityBenefit">
-          </label>
-          <label class="hh-field">
-            <span>Live to age</span>
-            <input type="number" min="45" max="125" value="${fieldValue(person.planEndAge)}"
-              data-hh-field="${owner}.planEndAge"
-              data-wizard-scope="family" data-wizard-field="${owner}.planEndAge">
           </label>
         </div>
       </section>
@@ -97,20 +97,12 @@ export function renderHouseholdWizardFamily(ctx){
   return `
     <div class="hh-screen hh-family-screen" data-hh-wizard-screen="family"
       id="hh-panel-family" role="tabpanel" aria-labelledby="hh-nav-family">
-      <header class="hh-screen-head">
-        <div>
-          <div class="hh-step-kicker">Step 01</div>
-          <h1>Family</h1>
-        </div>
-      </header>
-
       <div class="hh-family-people${hasSpouse ? '' : ' is-single'}">
         ${personCard('client', 'Client')}
         ${hasSpouse ? personCard('spouse', 'Co-client') : ''}
       </div>
 
       <section class="hh-form-section">
-        <div class="hh-section-title">Filing and residence</div>
         <div class="hh-family-filing">
           <label class="hh-field">
             <span>Filing status</span>

@@ -6,8 +6,8 @@
 <title>Parallax V2</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
-<!-- Scenarios redesign type: Spectral (serif numerals/headlines) + Hanken Grotesk (UI). -->
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,300..700;1,300..700&amp;family=Spectral:ital,wght@0,200;0,300;0,400;0,500;0,600;0,700;1,200;1,300;1,400;1,500;1,600;1,700&amp;display=swap"/>
+<!-- Graphite & Aubergine uses one sans family for display, UI, and financial data. -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,300..700;1,300..700&amp;display=swap"/>
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2064%2064'%3E%3Crect%20width='64'%20height='64'%20rx='12'%20fill='%231e3d2b'/%3E%3Cpath%20d='M16%2038c8-20%2024-20%2032%200'%20fill='none'%20stroke='%23d9a07e'%20stroke-width='6'%20stroke-linecap='round'/%3E%3Ccircle%20cx='32'%20cy='32'%20r='7'%20fill='%23e5d9c4'/%3E%3C/svg%3E"/>
 <!-- The site-artifact builder replaces this exact token. Manual version bumps
      are forbidden because every deployed asset must share one artifact ID. -->
@@ -19,6 +19,7 @@
 <link rel="stylesheet" href="styles/header.css?v=__PARALLAX_ARTIFACT_ID__"/>
 <link rel="stylesheet" href="styles/tax-buckets.css?v=__PARALLAX_ARTIFACT_ID__"/>
 <link rel="stylesheet" href="styles/tax-aware-withdrawal.css?v=__PARALLAX_ARTIFACT_ID__"/>
+<link rel="stylesheet" href="styles/graphite-aubergine.css?v=__PARALLAX_ARTIFACT_ID__"/>
 </head>
 <body>
 <div class="wrap">
@@ -26,20 +27,22 @@
     <div class="hdr__logo">
       <img class="brand-logo" src="assets/parallax-logo.png?v=__PARALLAX_ARTIFACT_ID__" alt="Parallax" width="978" height="647">
     </div>
-    <nav class="hdr-tabs hdr__tabs" aria-label="Primary planning sections">
-      <button class="htab on" type="button" data-page="household" aria-current="page">Household</button>
-      <button class="htab" type="button" data-page="net-worth" data-sub-target="goals">Goals</button>
-      <button class="htab" type="button" data-page="scenarios">Scenarios</button>
-      <button class="htab" type="button" data-page="tax-buckets">Withdrawal planner</button>
-      <button class="htab" type="button" data-page="sequencing">Sequencing</button>
-    </nav>
-    <div class="hdr-right hdr__right">
-      <div class="cluster" data-state="saved">
-        <span class="cluster__stat">
-          <span class="dot" aria-hidden="true"></span>
-          <span id="status" class="status" role="status" aria-live="polite">Ready</span>
-        </span>
-        <button id="run-btn" class="run-btn cluster__run" type="button">Run</button>
+    <div class="hdr__bar">
+      <nav class="hdr-tabs hdr__tabs" aria-label="Primary planning sections">
+        <button class="htab on" type="button" data-page="household" aria-current="page">Household</button>
+        <button class="htab" type="button" data-page="net-worth" data-sub-target="goals">Goals</button>
+        <button class="htab" type="button" data-page="scenarios">Scenarios</button>
+        <button class="htab" type="button" data-page="tax-buckets">Withdrawal planner</button>
+        <button class="htab" type="button" data-page="sequencing">Sequencing</button>
+      </nav>
+      <div class="hdr-right hdr__right">
+        <div class="cluster" data-state="saved">
+          <span class="cluster__stat">
+            <span class="dot" aria-hidden="true"></span>
+            <span id="status" class="status" role="status" aria-live="polite">Ready</span>
+          </span>
+          <button id="run-btn" class="run-btn cluster__run" type="button">Run</button>
+        </div>
       </div>
     </div>
   </header>
@@ -59,7 +62,6 @@
       <aside class="hh-sidebar">
         <div class="hh-sidebar-head">
           <div>
-            <div class="hh-sidebar-kicker">Planning intake</div>
             <div class="hh-sidebar-name" id="hh-rail-name">New household</div>
           </div>
           <div class="hh-menu">
@@ -131,10 +133,6 @@
       <!-- Toolbar: title + segmented Compare/Focus + Cash Flow toggle + actions -->
       <header class="toolbar">
         <div class="toolbar__left">
-          <div>
-            <h1 class="page-title">Scenarios</h1>
-            <p class="page-sub" id="scn-subtitle" data-scn-subtitle></p>
-          </div>
           <div class="seg" role="tablist" aria-label="Scenario view">
             <button class="seg__btn is-active" id="scn-seg-compare" type="button"
                     role="tab" aria-selected="true" aria-controls="scn-view">Compare</button>

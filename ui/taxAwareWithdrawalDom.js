@@ -90,6 +90,13 @@ export function mountWithdrawalPlannerShell(root, { caps }) {
   root.innerHTML = `
     <div class="taw-root" data-taw-root aria-busy="true"
       data-taw-render-revision="0" data-taw-household-id="">
+      <header class="taw-page-head">
+        <div>
+          <h1>Withdrawal Planner</h1>
+          <p>Shape retirement income while watching federal thresholds.</p>
+        </div>
+        <span class="taw-plan-context">Current federal baseline</span>
+      </header>
       <div class="taw-grid">
         <div class="taw-left">
           <div class="taw-card--inputs">

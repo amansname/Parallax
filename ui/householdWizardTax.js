@@ -8,7 +8,6 @@ export function renderHouseholdWizardTax(ctx){
     current,
     deductionMode,
     planningIncome,
-    taxView,
     optionalItems,
     optionalMenuOpen,
     taxSummary,
@@ -21,7 +20,7 @@ export function renderHouseholdWizardTax(ctx){
   const passThrough = current.passThrough || {};
   const schedule2 = current.schedule2 || {};
   const scheduleSE = current.scheduleSE?.[0] || {};
-  const detailed = taxView === 'detailed';
+  const detailed = true;
   const planningGroups = planningIncome?.groups || {};
   const wagesByOwner = planningIncome?.wagesByOwner || {};
   const hasSpouse = Boolean(plan.household?.spouse);
@@ -180,8 +179,7 @@ export function renderHouseholdWizardTax(ctx){
     single: 'Single',
     headOfHousehold: 'Head of household',
   }[plan.meta?.filingStatus] || 'Unsupported saved filing status';
-
-  const irmaaFilingOptions = (selected = '') => [
+  const irmaaFilingStatusOptions = selected => [
     ['single', 'Single'],
     ['marriedFilingJointly', 'Married filing jointly'],
     ['headOfHousehold', 'Head of household'],
@@ -192,37 +190,21 @@ export function renderHouseholdWizardTax(ctx){
 
   return `
     <div class="hh-screen hh-tax-screen" data-hh-wizard-screen="tax"
-      data-tax-view="${taxView}" id="hh-panel-tax" role="tabpanel"
+      data-tax-view="detailed" id="hh-panel-tax" role="tabpanel"
       aria-labelledby="hh-nav-tax">
-      <header class="hh-screen-head hh-tax-title-row">
-        <div>
-          <div class="hh-step-kicker">Step 03</div>
-          <h1>Tax</h1>
-        </div>
-        <div class="hh-tax-view-control">
-          <span>Input view</span>
-          <div class="hh-segmented" role="group" aria-label="Tax input view">
-            <button type="button" data-hh-action="set-tax-view" data-tax-view="simplified"
-              aria-pressed="${detailed ? 'false' : 'true'}">Simplified</button>
-            <button type="button" data-hh-action="set-tax-view" data-tax-view="detailed"
-              aria-pressed="${detailed ? 'true' : 'false'}">Detailed</button>
-          </div>
-        </div>
-      </header>
-
-      <section class="hh-tax-profile">
-        <label class="hh-field">
+      <section class="hh-tax-profile" aria-label="Tax profile">
+        <label class="hh-field" data-tax-summary-box="tax-year">
           <span>Tax year</span>
           <select data-hh-field="taxYear" data-tax-field="taxYear">
             <option value="2025" ${current.taxYear === 2025 ? 'selected' : ''}>2025</option>
             <option value="2026" ${current.taxYear === 2026 ? 'selected' : ''}>2026</option>
           </select>
         </label>
-        <div class="hh-tax-static">
+        <div class="hh-tax-static" data-tax-summary-box="filing-status">
           <span>Filing status</span>
           <strong>${esc(filingLabel)}</strong>
         </div>
-        <label class="hh-field hh-deduction-method">
+        <label class="hh-field hh-deduction-method" data-tax-summary-box="deduction-method">
           <span>Deduction method</span>
           <select data-hh-field="deductionMode" data-tax-field="deductionMode">
             <option value="standard" ${deductionMode === 'standard' ? 'selected' : ''}>Standard deduction</option>
@@ -234,40 +216,30 @@ export function renderHouseholdWizardTax(ctx){
 
       <section class="hh-irmaa-lookback" data-tax-input-section="irmaa-lookback">
         <h2>IRMAA lookback</h2>
-        <div class="hh-irmaa-lookback-table" role="table" aria-label="IRMAA lookback inputs">
-          <div class="hh-irmaa-lookback-row hh-irmaa-lookback-row--head" role="row">
-            <span role="columnheader">Tax year</span>
-            <span role="columnheader">MAGI</span>
-            <span role="columnheader">Filing status</span>
+        <div class="hh-irmaa-lookback-table" aria-label="IRMAA lookback inputs">
+          <div class="hh-irmaa-lookback-row hh-irmaa-lookback-row--head" aria-hidden="true">
+            <span>Tax year</span>
+            <span>MAGI</span>
+            <span>Filing status</span>
           </div>
           ${irmaaLookback.map(row => {
             const prefix = `irmaa.lookback.${row.taxYear}`;
             return `
-              <div class="hh-irmaa-lookback-row" role="row" data-irmaa-tax-year="${row.taxYear}">
-                <strong role="cell">${row.taxYear}</strong>
-                <div role="cell">
+              <div class="hh-irmaa-lookback-row" data-irmaa-tax-year="${row.taxYear}"
+                data-tax-summary-box="irmaa-${row.taxYear}">
+                <strong>${row.taxYear}</strong>
+                <span class="hh-irmaa-lookback-input">
                   ${amountInput(`${prefix}.magi`, row.magi, {
                     id: `hh-${prefix.replaceAll('.', '-')}-magi`,
                   })}
-                </div>
-                <div class="hh-irmaa-filing" role="cell">
-                  <select aria-label="${row.taxYear} filing status"
-                    data-hh-field="${prefix}.filingStatus"
+                </span>
+                <label class="hh-sel hh-irmaa-lookback-status">
+                  <span class="hh-sr-only">Filing status for ${row.taxYear}</span>
+                  <select data-hh-field="${prefix}.filingStatus"
                     data-tax-field="${prefix}.filingStatus">
-                    ${irmaaFilingOptions(row.filingStatus)}
+                    ${irmaaFilingStatusOptions(row.filingStatus)}
                   </select>
-                  ${row.filingStatus === 'marriedFilingSeparately' ? `
-                    <select aria-label="${row.taxYear} MFS living arrangement"
-                      data-hh-field="${prefix}.mfsLivingArrangement"
-                      data-tax-field="${prefix}.mfsLivingArrangement">
-                      <option value="" ${row.mfsLivingArrangement ? '' : 'selected'}></option>
-                      <option value="lived-together-at-any-time"
-                        ${row.mfsLivingArrangement === 'lived-together-at-any-time' ? 'selected' : ''}>Lived together during year</option>
-                      <option value="lived-apart-all-year"
-                        ${row.mfsLivingArrangement === 'lived-apart-all-year' ? 'selected' : ''}>Lived apart all year</option>
-                    </select>
-                  ` : ''}
-                </div>
+                </label>
               </div>
             `;
           }).join('')}

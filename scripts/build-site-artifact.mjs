@@ -26,7 +26,7 @@ import {
 export const ROOT = fileURLToPath(new URL('..', import.meta.url));
 export const ARTIFACT_ROOT = join(ROOT, '.parallax-artifact');
 const DEFAULT_SITE_ROOT = join(ARTIFACT_ROOT, 'site');
-const EXPECTED_INDEX_TOKEN_COUNT = 10;
+const EXPECTED_INDEX_TOKEN_COUNT = 11;
 
 function git(args, options = {}){
   const result = spawnSync('git', ['-C', ROOT, ...args], {

@@ -1,6 +1,10 @@
-const TONE = { green: '#8fa57e', amber: '#cd9a52', rust: '#c0795f' };
+const TONE = { green: 'var(--pos)', amber: 'var(--acc)', rust: 'var(--neg)' };
 
-const GLOW = { '#8fa57e': 'var(--tone-green-glow)', '#cd9a52': 'var(--tone-amber-glow)', '#c0795f': 'var(--tone-rust-glow)' };
+const GLOW = {
+  'var(--pos)': 'var(--tone-green-glow)',
+  'var(--acc)': 'var(--tone-amber-glow)',
+  'var(--neg)': 'var(--tone-rust-glow)',
+};
 
 
 

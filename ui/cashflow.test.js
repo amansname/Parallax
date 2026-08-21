@@ -79,6 +79,49 @@ test('Cash Flow visibly labels the engine-owned annual shortfall for Typical', (
   assert.match(html, /class="cf-row__shortfall">Short \$5,000<\/span>/);
 });
 
+test('Typical Cash Flow uses one scenario selector and shows its authoritative federal total', () => {
+  const row = {
+    year: 2026, age: 65, accum: false, ret: 0, income: 0, rmd: 0,
+    essential: 0, goals: 0, tax: 4_000, draw: 0, wdRate: 0,
+    ending: 700_000, fundingShortfall: 0, shortfall: false, startPort: 700_000,
+    goalTag: null,
+  };
+  const baseline = {
+    id: 'baseline', name: 'Baseline', tone: '#829A78', prob: 99.5,
+    probStr: '99.5', median: '$4.1M', raw: { res: {} },
+  };
+  const alternative = {
+    id: 'alternative', name: 'Scenario B', tone: '#B1845C', prob: 90,
+    probStr: '90.0', median: '$3.2M', raw: { res: {} },
+  };
+  const html = renderCashflow(baseline, [baseline, alternative], {
+    cashFlowResult: () => ({
+      kind: 'typical',
+      pathId: 'typical',
+      rows: [row],
+      summary: { peakWdRate: 7.4, peakWdAge: 69, federalTotal: 107_000 },
+      taxScope: 'MODELED_FEDERAL_LINE_24',
+    }),
+    cashFromRetirement: false,
+    isTypicalPath: () => true,
+    typicalPathFederalTax: () => null,
+    pathFederalTax: () => null,
+    wdColor: () => '',
+    num: value => String(value),
+    esc: value => String(value),
+    fmtMoney: value => `$${Number(value).toLocaleString('en-US')}`,
+    cfCols: ['Year', 'Age', 'Income', 'RMD', 'Essential', 'Goals', 'Tax', 'Draw', 'Return', 'WD Rate', 'Ending'],
+  });
+
+  assert.match(html, /<select data-cash-select aria-label="Cash Flow scenario">/);
+  assert.match(html, /<option value="baseline" selected>Baseline<\/option>/);
+  assert.match(html, /<option value="alternative">Scenario B<\/option>/);
+  assert.doesNotMatch(html, /data-cash-pick|class="cf-pill/);
+  assert.match(html, /data-federal-total="107000"/);
+  assert.match(html, /Federal total/);
+  assert.match(html, /\$107,000/);
+});
+
 test('underfunded historical Cash Flow shows only the authoritative failure boundary', () => {
   const row = {
     year: 2051, age: 89, sourceYear: 1973, accum: false, ret: -0.12,
