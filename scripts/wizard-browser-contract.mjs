@@ -1557,9 +1557,19 @@ async function verifyPlanningSourceAndTaxFlow(page){
       filingFields: rows.filter(row => row.querySelector(
         '[data-tax-field$=".filingStatus"]',
       )).length,
+      viewToggleCount: document.querySelectorAll('[data-hh-action="set-tax-view"]').length,
+      view: document.querySelector('[data-hh-wizard-screen="tax"]')?.dataset.taxView || '',
       summaryBoxes: document.querySelectorAll(
         '[data-hh-wizard-screen="tax"] [data-tax-summary-box]',
       ).length,
+      frameBorders: [
+        ...document.querySelectorAll('.hh-tax-profile > *, .hh-irmaa-lookback-row'),
+      ].map(element => getComputedStyle(element).borderWidth),
+      controlWidths: [
+        document.querySelector('[data-tax-field="taxYear"]'),
+        document.querySelector('[data-tax-field="deductionMode"]'),
+        ...rows.map(row => row.querySelector('[data-tax-field$=".magi"]')),
+      ].map(element => Math.round(element?.getBoundingClientRect().width || 0)),
       outputCopy: /Current tier|Next tier|To next tier|Premium year/i.test(
         section?.textContent || '',
       ),
@@ -1573,7 +1583,12 @@ async function verifyPlanningSourceAndTaxFlow(page){
         'irmaa.lookback.2025.magi',
       ])
       && irmaaInputs.filingFields === 0
+      && irmaaInputs.viewToggleCount === 0
+      && irmaaInputs.view === 'detailed'
       && irmaaInputs.summaryBoxes === 5
+      && irmaaInputs.frameBorders.every(width => width === '0px')
+      && irmaaInputs.controlWidths.length === 4
+      && irmaaInputs.controlWidths.every(width => width >= 80 && width <= 230)
       && !irmaaInputs.outputCopy,
     `Tax IRMAA lookback is not input-only: ${JSON.stringify(irmaaInputs)}`,
   );
@@ -1676,29 +1691,21 @@ async function verifyPlanningSourceAndTaxFlow(page){
   await setWizardValue(page, '[data-tax-field="income.wages.client"]', '81000');
   await setWizardValue(page, '[data-tax-field="income.wages.spouse"]', '39000');
 
-  await clickWizardAction(
-    page,
-    '[data-hh-action="set-tax-view"][data-tax-view="detailed"]',
-  );
-  const detailed = await page.evaluate(() => ({
+  const unifiedTax = await page.evaluate(() => ({
     view: document.querySelector('[data-hh-wizard-screen="tax"]')
       ?.dataset.taxView || '',
     clientWages: document.querySelector('[data-tax-field="income.wages.client"]')?.value || '',
     spouseWages: document.querySelector('[data-tax-field="income.wages.spouse"]')?.value || '',
-    pressed: document.querySelector(
-      '[data-hh-action="set-tax-view"][data-tax-view="detailed"]',
-    )?.getAttribute('aria-pressed') || '',
+    toggleCount: document.querySelectorAll('[data-hh-action="set-tax-view"]').length,
+    socialSecuritySource: document.querySelectorAll('[data-tax-field="socialSecurity.mode"]').length,
   }));
   requireCondition(
-    detailed.view === 'detailed'
-      && detailed.clientWages === '81000'
-      && detailed.spouseWages === '39000'
-      && detailed.pressed === 'true',
-    `Detailed Tax view lost state: ${JSON.stringify(detailed)}`,
-  );
-  await clickWizardAction(
-    page,
-    '[data-hh-action="set-tax-view"][data-tax-view="simplified"]',
+    unifiedTax.view === 'detailed'
+      && unifiedTax.clientWages === '81000'
+      && unifiedTax.spouseWages === '39000'
+      && unifiedTax.toggleCount === 0
+      && unifiedTax.socialSecuritySource === 1,
+    `Unified Tax view lost state: ${JSON.stringify(unifiedTax)}`,
   );
 
   await setWizardValue(
@@ -2035,25 +2042,6 @@ export async function captureWizardScreens(
       await clickWizardAction(
         page,
         '[data-net-worth-overlay] .nw-panel-close',
-      );
-    }
-    if(step === 'tax'){
-      await clickWizardAction(
-        page,
-        '[data-hh-action="set-tax-view"][data-tax-view="detailed"]',
-      );
-      await settleWizardCapture(page);
-      const detailedPath = join(outDir, `${prefix}-${step}-detailed.png`);
-      await captureFullWizardArtifact(page, detailedPath);
-      artifacts.push({
-        label: 'tax · detailed',
-        path: detailedPath,
-        step,
-        viewport: 'desktop',
-      });
-      await clickWizardAction(
-        page,
-        '[data-hh-action="set-tax-view"][data-tax-view="simplified"]',
       );
     }
   }

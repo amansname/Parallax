@@ -288,12 +288,6 @@ body .page[data-page='sequencing'] {
   border-color: var(--rule);
 }
 
-.page[data-page='household'] .hh-tax-profile > *,
-.page[data-page='household'] .hh-irmaa-lookback-row {
-  border-radius: var(--radius-control);
-  background: rgba(41, 42, 39, .55);
-}
-
 /* Goals: quiet continuous composition, compact editor, one type family. */
 .page[data-page='net-worth']:has(.gh-page) {
   padding: 0;

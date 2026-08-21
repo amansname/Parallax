@@ -8,7 +8,6 @@ export function renderHouseholdWizardTax(ctx){
     current,
     deductionMode,
     planningIncome,
-    taxView,
     optionalItems,
     optionalMenuOpen,
     taxSummary,
@@ -21,7 +20,7 @@ export function renderHouseholdWizardTax(ctx){
   const passThrough = current.passThrough || {};
   const schedule2 = current.schedule2 || {};
   const scheduleSE = current.scheduleSE?.[0] || {};
-  const detailed = taxView === 'detailed';
+  const detailed = true;
   const planningGroups = planningIncome?.groups || {};
   const wagesByOwner = planningIncome?.wagesByOwner || {};
   const hasSpouse = Boolean(plan.household?.spouse);
@@ -183,21 +182,12 @@ export function renderHouseholdWizardTax(ctx){
 
   return `
     <div class="hh-screen hh-tax-screen" data-hh-wizard-screen="tax"
-      data-tax-view="${taxView}" id="hh-panel-tax" role="tabpanel"
+      data-tax-view="detailed" id="hh-panel-tax" role="tabpanel"
       aria-labelledby="hh-nav-tax">
       <header class="hh-screen-head hh-tax-title-row">
         <div>
           <div class="hh-step-kicker">Step 03</div>
           <h1>Tax</h1>
-        </div>
-        <div class="hh-tax-view-control">
-          <span>Input view</span>
-          <div class="hh-segmented" role="group" aria-label="Tax input view">
-            <button type="button" data-hh-action="set-tax-view" data-tax-view="simplified"
-              aria-pressed="${detailed ? 'false' : 'true'}">Simplified</button>
-            <button type="button" data-hh-action="set-tax-view" data-tax-view="detailed"
-              aria-pressed="${detailed ? 'true' : 'false'}">Detailed</button>
-          </div>
         </div>
       </header>
 

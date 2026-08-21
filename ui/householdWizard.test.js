@@ -348,12 +348,14 @@ test('Tax preserves the approved 1040 order and removes ledger-only columns', ()
   assert.doesNotMatch(html, /Client 1040/i);
 });
 
-test('Detailed Tax adds return-only facts without changing the stored core inputs', () => {
+test('Tax exposes one complete input view without the Simplified/Detailed toggle', () => {
   const html = wizard({
-    taxView: 'detailed',
     optionalMenuOpen: true,
     showScheduleSE: true,
   }).render('tax');
+  assert.doesNotMatch(html, /data-hh-action="set-tax-view"/);
+  assert.doesNotMatch(html, />Simplified<|>Detailed</);
+  assert.match(html, /data-tax-view="detailed"/);
   assert.match(html, /Taxable IRA amount/);
   assert.match(html, /Taxable pension amount/);
   assert.match(html, /Social Security source/);
@@ -398,7 +400,7 @@ test('legacy MFS is visible as unsupported instead of displaying MFJ', () => {
   assert.match(rendered.render('tax'), /Unsupported saved filing status/);
 });
 
-test('Simplified Tax reveals taxable companions when gross distributions are entered', () => {
+test('Tax reveals taxable companions when gross distributions are entered', () => {
   const html = wizard({ grossOnlyDistributions: true }).render('tax');
   assert.match(html, /data-tax-field="income\.taxableIra"/);
   assert.match(html, /data-tax-field="income\.taxablePensions"/);
@@ -430,6 +432,7 @@ test('Tax page stacks two MAGI-only IRMAA lookback rows under one filing status'
   assert.doesNotMatch(html, /data-tax-field="irmaa\.lookback\.\d{4}\.filingStatus"/);
   assert.equal((html.match(/data-tax-summary-box=/g) || []).length, 5);
   assert.equal((html.match(/data-irmaa-tax-year=/g) || []).length, 2);
+  assert.doesNotMatch(html, /data-hh-action="set-tax-view"/);
   assert.doesNotMatch(html, /current tier|next tier|premium year|timeline|estimate/i);
 });
 

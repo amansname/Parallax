@@ -1226,20 +1226,6 @@
   align-items: center;
 }
 
-.page[data-page="household"] .hh-tax-view-control {
-  display: grid;
-  justify-items: end;
-  gap: 6px;
-}
-
-.page[data-page="household"] .hh-tax-view-control > span {
-  color: var(--hh-muted);
-  font-size: 8px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
 .page[data-page="household"] .hh-segmented {
   display: grid;
   grid-template-columns: repeat(2, minmax(82px, 1fr));
@@ -1278,18 +1264,25 @@
 
 .page[data-page="household"] .hh-tax-profile > * {
   display: grid;
-  grid-template-columns: minmax(150px, 0.8fr) minmax(220px, 1.2fr);
+  grid-template-columns: minmax(0, 1fr) max-content;
   align-items: center;
+  gap: 12px;
   min-width: 0;
-  min-height: 52px;
-  padding: 8px 12px;
-  border: 1px solid var(--hh-line);
-  border-radius: 6px;
-  background: var(--hh-input);
+  min-height: 43px;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
 }
 
-.page[data-page="household"] .hh-tax-profile > * + * {
-  border-left: 1px solid var(--hh-line);
+.page[data-page="household"] .hh-tax-profile [data-tax-field="taxYear"] {
+  width: 92px;
+  justify-self: end;
+}
+
+.page[data-page="household"] .hh-tax-profile [data-tax-field="deductionMode"] {
+  width: max-content;
+  max-width: 230px;
+  justify-self: end;
 }
 
 .page[data-page="household"] .hh-tax-static {
@@ -1324,14 +1317,13 @@
 
 .page[data-page="household"] .hh-irmaa-lookback-row {
   display: grid;
-  grid-template-columns: minmax(150px, 0.8fr) minmax(220px, 1.2fr);
+  grid-template-columns: minmax(0, 1fr) 168px;
   align-items: center;
   gap: 12px;
-  min-height: 52px;
-  padding: 8px 12px;
-  border: 1px solid var(--hh-line);
-  border-radius: 6px;
-  background: var(--hh-input);
+  min-height: 43px;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
 }
 
 .page[data-page="household"] .hh-irmaa-lookback-row strong {
@@ -1353,7 +1345,9 @@
 
 .page[data-page="household"] .hh-irmaa-lookback-input,
 .page[data-page="household"] .hh-irmaa-lookback-row .hh-tax-amount {
-  width: 100%;
+  width: 168px;
+  justify-self: end;
+  text-align: right;
 }
 
 .page[data-page="household"] .hh-tax-section,
@@ -1954,13 +1948,9 @@
     flex-direction: column;
   }
 
-  .page[data-page="household"] .hh-tax-view-control {
-    justify-items: start;
-  }
-
   .page[data-page="household"] .hh-tax-profile > *,
   .page[data-page="household"] .hh-irmaa-lookback-row {
-    grid-template-columns: minmax(100px, 0.8fr) minmax(0, 1.2fr);
+    grid-template-columns: minmax(0, 1fr) max-content;
   }
 
   .page[data-page="household"] .hh-summary-section-head {
