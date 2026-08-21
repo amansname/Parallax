@@ -381,35 +381,44 @@ function applyAccountEdit(plan, command, timestamp){
   }
   if(command.action !== 'update') throw new Error('Unsupported account action');
   let account = plan.portfolio.extraAccounts[index];
-  if(command.field === 'typeId'){
-    account = replaceAccountType(account, command.value);
-    plan.portfolio.extraAccounts[index] = account;
-  }else if(command.field === 'displayName'){
-    account.displayName = normalizedText(command.value);
-  }else if(command.field === 'owner'){
-    if(account.typeId === 'joint_brokerage' && command.value !== 'joint'){
-      account = replaceAccountType(account, 'brokerage_taxable');
+  const fields = command.fields && typeof command.fields === 'object'
+    ? command.fields
+    : { [command.field]: command.value };
+  const order = ['typeId', 'displayName', 'owner', 'balance', 'basis'];
+  const unsupported = Object.keys(fields).find(field => !order.includes(field));
+  if(unsupported) throw new Error(`Unsupported account field: ${unsupported}`);
+
+  for(const field of order){
+    if(!Object.hasOwn(fields, field)) continue;
+    const value = fields[field];
+    if(field === 'typeId'){
+      account = replaceAccountType(account, value);
       plan.portfolio.extraAccounts[index] = account;
+    }else if(field === 'displayName'){
+      account.displayName = normalizedText(value);
+    }else if(field === 'owner'){
+      if(account.typeId === 'joint_brokerage' && value !== 'joint'){
+        account = replaceAccountType(account, 'brokerage_taxable');
+        plan.portfolio.extraAccounts[index] = account;
+      }
+      const entry = getAccountTypeById(account.typeId);
+      if(!entry?.wizardOwners?.includes(value)) throw new Error('Owner is not valid for this account type');
+      if(value === 'spouse' && !plan.household?.spouse){
+        throw new Error('Spouse ownership requires an active spouse');
+      }
+      account.owner = value;
+      account.taxReporting.reportingTaxpayer =
+        value === 'client' || value === 'spouse' ? value : null;
+      account.taxReporting.inclusion = value === 'joint'
+        ? 'unknown'
+        : 'household-return';
+      account.taxReporting.householdReturnShare =
+        account.taxReporting.inclusion === 'household-return' ? 1 : null;
+    }else if(field === 'balance'){
+      account.balance = money(value);
+    }else if(field === 'basis'){
+      setAccountBasis(plan, account, value, timestamp);
     }
-    const entry = getAccountTypeById(account.typeId);
-    if(!entry?.wizardOwners?.includes(command.value)) throw new Error('Owner is not valid for this account type');
-    if(command.value === 'spouse' && !plan.household?.spouse){
-      throw new Error('Spouse ownership requires an active spouse');
-    }
-    account.owner = command.value;
-    account.taxReporting.reportingTaxpayer =
-      command.value === 'client' || command.value === 'spouse' ? command.value : null;
-    account.taxReporting.inclusion = command.value === 'joint'
-      ? 'unknown'
-      : 'household-return';
-    account.taxReporting.householdReturnShare =
-      account.taxReporting.inclusion === 'household-return' ? 1 : null;
-  }else if(command.field === 'balance'){
-    account.balance = money(command.value);
-  }else if(command.field === 'basis'){
-    setAccountBasis(plan, account, command.value, timestamp);
-  }else{
-    throw new Error(`Unsupported account field: ${command.field}`);
   }
 }
 

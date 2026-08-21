@@ -122,7 +122,7 @@ test('Typical Cash Flow uses one scenario selector and shows its authoritative f
   assert.match(html, /\$107,000/);
 });
 
-test('underfunded historical Cash Flow shows only the authoritative failure boundary', () => {
+test('underfunded historical Cash Flow shows three compact outcome metrics', () => {
   const row = {
     year: 2051, age: 89, sourceYear: 1973, accum: false, ret: -0.12,
     income: 0, rmd: 0, essential: 0, goals: 30_000, tax: 0,
@@ -144,10 +144,15 @@ test('underfunded historical Cash Flow shows only the authoritative failure boun
         firstUnderfundedYear: 2051,
         fundedThroughAge: 88,
         fundedThroughYear: 2050,
-        peakWdRate: null,
-        peakWdAge: null,
+        peakWdRate: 8.1,
+        peakWdAge: 89,
+        peakWdYear: 2051,
         endingBalance: null,
         endingAge: null,
+        comparisonYear: 2051,
+        comparisonBalance: 0,
+        typicalComparisonBalance: 450_000,
+        deltaVsTypical: -450_000,
       },
       taxScope: 'MODELED_FEDERAL_LINE_24',
     }),
@@ -169,17 +174,23 @@ test('underfunded historical Cash Flow shows only the authoritative failure boun
   assert.match(html, /data-outcome="underfunded"/);
   assert.match(html, /data-first-underfunded-age="89"/);
   assert.match(html, /data-first-underfunded-year="2051"/);
-  assert.match(html, /Underfunded at age 89/);
-  assert.match(html, /First underfunded year 2051 · funded through age 88/);
+  assert.match(html, /data-comparison-year="2051"/);
+  assert.match(html, /data-delta-vs-typical="-450000"/);
+  assert.equal((html.match(/data-historical-metric=/g) || []).length, 3);
+  assert.match(html, /Peak withdrawal rate through the first underfunded year/);
+  assert.match(html, /First underfunded year/);
+  assert.match(html, /Delta vs\. Typical in that same year/);
+  assert.match(html, /8\.1%/);
+  assert.match(html, /&minus;\$450,000/);
   assert.match(html, /cf-cell cf-cell--ending[^>]*><span>Underfunded<\/span>/);
   assert.doesNotMatch(html, /modeled shortfall|Short \$5,000/);
-  assert.doesNotMatch(html, /Ending position/);
-  assert.doesNotMatch(html, /Peak withdrawal/);
+  assert.doesNotMatch(html, /Underfunded at age|funded through age|Plan funding|Ending position/);
   assert.doesNotMatch(html, /Probability of success/);
   assert.doesNotMatch(html, /Median Ending/);
+  assert.doesNotMatch(html, /Federal tax scope|data-tax-scope-disclosure/);
 });
 
-test('surviving historical Cash Flow shows plan end, ending value, and peak withdrawal', () => {
+test('surviving historical Cash Flow shows three compact plan-end metrics', () => {
   const row = {
     year: 2032, age: 70, sourceYear: 1977, accum: false, ret: 0.08,
     income: 0, rmd: 0, essential: 10_000, goals: 0, tax: 0,
@@ -207,6 +218,10 @@ test('surviving historical Cash Flow shows plan end, ending value, and peak with
         peakWdRate: 4.2,
         peakWdAge: 68,
         peakWdYear: 2030,
+        comparisonYear: 2032,
+        comparisonBalance: 450_000,
+        typicalComparisonBalance: 400_000,
+        deltaVsTypical: 50_000,
       },
       taxScope: 'MODELED_FEDERAL_LINE_24',
     }),
@@ -224,14 +239,17 @@ test('surviving historical Cash Flow shows plan end, ending value, and peak with
   });
 
   assert.match(html, /data-outcome="survives"/);
-  assert.match(html, /Funded through plan end/);
-  assert.match(html, /Through age 70 · 2032/);
-  assert.match(html, /Ending position/);
+  assert.match(html, /data-comparison-year="2032"/);
+  assert.match(html, /data-delta-vs-typical="50000"/);
+  assert.equal((html.match(/data-historical-metric=/g) || []).length, 3);
+  assert.match(html, /Peak withdrawal rate/);
+  assert.match(html, /Ending portfolio at plan end/);
+  assert.match(html, /Delta vs\. Typical at plan end/);
   assert.match(html, /\$450,000/);
-  assert.match(html, /Peak withdrawal/);
+  assert.match(html, /\+\$50,000/);
   assert.match(html, /4.2%/);
-  assert.match(html, /age 68 · 2030/);
-  assert.doesNotMatch(html, /Probability of success|Median Ending|modeled shortfall/);
+  assert.doesNotMatch(html, /Funded through plan end|Through age 70|age 68|Plan funding|Ending position/);
+  assert.doesNotMatch(html, /Probability of success|Median Ending|modeled shortfall|Federal tax scope|data-tax-scope-disclosure/);
 });
 
 test('unavailable historical Cash Flow suppresses all financial summary claims', () => {
@@ -262,5 +280,5 @@ test('unavailable historical Cash Flow suppresses all financial summary claims',
 
   assert.match(html, /retirement handoff could not be verified/);
   assert.doesNotMatch(html, /cf-summary--historical/);
-  assert.doesNotMatch(html, /Funded through plan end|Underfunded at age|Ending position|Peak withdrawal/);
+  assert.doesNotMatch(html, /Ending portfolio at plan end|First underfunded year|Delta vs\. Typical|Peak withdrawal rate/);
 });

@@ -302,6 +302,33 @@ export function bindHouseholdEditor({
       syncHousehold();
       return;
     }
+    if(kind === 'net-worth-edit-entry'){
+      if(action.dataset.entrySource !== 'account') return;
+      const owners = String(action.dataset.owners || '')
+        .split(',')
+        .filter(Boolean);
+      transientState.netWorthPanelCategory = action.dataset.entryCategoryId;
+      transientState.netWorthMoreOpen = false;
+      transientState.netWorthDraft = {
+        categoryId: action.dataset.entryCategoryId,
+        name: action.dataset.entryName || '',
+        type: action.dataset.entryType || '',
+        custom: false,
+        owner: action.dataset.entryOwner || '',
+        link: '',
+        linkLabel: '',
+        linkAvailable: false,
+        value: formatNetWorthCurrency(action.dataset.entryValue),
+        accountTypeId: action.dataset.accountTypeId || '',
+        canonicalTax: action.dataset.canonicalTax || '',
+        shellOnly: false,
+        owners,
+        editSource: 'account',
+        editId: action.dataset.accountId,
+      };
+      syncHousehold();
+      return;
+    }
     if(kind === 'net-worth-close-panel'){
       transientState.netWorthPanelCategory = null;
       transientState.netWorthMoreOpen = false;
@@ -407,13 +434,26 @@ export function bindHouseholdEditor({
         return;
       }
       if(isCanonicalAccount){
+        const editingAccount = draft.editSource === 'account' && Boolean(draft.editId);
         const result = commit({
           scope: 'account',
-          action: 'add',
-          displayName: draft.name,
-          typeId: draft.accountTypeId,
-          owner: draft.owner,
-          balance: draft.value,
+          action: editingAccount ? 'update' : 'add',
+          ...(editingAccount
+            ? {
+                accountId: draft.editId,
+                fields: {
+                  typeId: draft.accountTypeId,
+                  displayName: draft.name,
+                  owner: draft.owner,
+                  balance: draft.value,
+                },
+              }
+            : {
+                displayName: draft.name,
+                typeId: draft.accountTypeId,
+                owner: draft.owner,
+                balance: draft.value,
+              }),
         }, action, true);
         if(!result){
           restoreDraft();

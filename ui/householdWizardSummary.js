@@ -13,18 +13,6 @@ export function renderHouseholdWizardSummary(ctx){
     roth: buckets.roth.label,
   };
   const pct = value => total > 0 ? Math.round((value / total) * 100) : 0;
-  const taxReady = typeof taxSummary.federalTaxLiability === 'number';
-  const taxStatus = !taxReady
-    ? 'not-calculable'
-    : taxSummary.status === 'ready'
-      ? 'ready'
-      : 'partial';
-  const incomeReady = typeof taxSummary.totalIncome === 'number';
-  const incomeStatus = !incomeReady
-    ? 'not-calculable'
-    : taxSummary.status === 'ready'
-      ? 'ready'
-      : 'partial';
 
   return `
     <div class="hh-screen hh-summary-screen" data-hh-wizard-screen="summary"
@@ -33,17 +21,6 @@ export function renderHouseholdWizardSummary(ctx){
         <div class="hh-summary-metric hh-summary-metric--hero" data-summary-metric="portfolio">
           <span>Portfolio</span>
           <strong>${money(total)}</strong>
-        </div>
-        <div class="hh-summary-metric" data-summary-metric="income"
-          data-summary-income-status="${incomeStatus}">
-          <span>Base-year income</span>
-          <strong>${incomeReady ? money(taxSummary.totalIncome) : 'Unavailable'}</strong>
-        </div>
-        <div class="hh-summary-metric" data-summary-metric="federal-tax"
-          data-summary-tax-status="${taxStatus}"
-          data-summary-tax-scope="${esc(taxSummary.calculationScope || taxSummary.taxTotalScope || '')}">
-          <span>Modeled federal tax</span>
-          <strong>${taxReady ? money(taxSummary.federalTaxLiability) : 'Unavailable'}</strong>
         </div>
       </section>
 

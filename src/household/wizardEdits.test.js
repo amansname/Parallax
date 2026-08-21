@@ -458,6 +458,36 @@ test('account updates and removals resolve the stable ID after reorder', () => {
   assert.deepEqual(removed.portfolio.extraAccounts.map(account => account.id), [first.id]);
 });
 
+test('account edit applies type, name, owner, and value atomically while preserving identity', () => {
+  const subject = plan();
+  const account = createAccount('brokerage_taxable', {
+    displayName: 'Original brokerage',
+    owner: 'joint',
+    balance: 100000,
+  });
+  subject.portfolio.extraAccounts = [account];
+
+  const edited = applyHouseholdWizardEdit(subject, {
+    scope: 'account',
+    action: 'update',
+    accountId: account.id,
+    fields: {
+      typeId: 'roth_ira',
+      displayName: 'Client Roth IRA',
+      owner: 'client',
+      balance: '$125,000',
+    },
+  }, { timestamp: '2026-08-21T12:00:00.000Z' });
+
+  assert.equal(edited.portfolio.extraAccounts.length, 1);
+  assert.equal(edited.portfolio.extraAccounts[0].id, account.id);
+  assert.equal(edited.portfolio.extraAccounts[0].typeId, 'roth_ira');
+  assert.equal(edited.portfolio.extraAccounts[0].displayName, 'Client Roth IRA');
+  assert.equal(edited.portfolio.extraAccounts[0].owner, 'client');
+  assert.equal(edited.portfolio.extraAccounts[0].balance, 125000);
+  assert.equal(subject.portfolio.extraAccounts[0].displayName, 'Original brokerage');
+});
+
 test('taxable brokerage accepts joint ownership while legacy joint brokerage remains editable', () => {
   const subject = plan();
   let edited = applyHouseholdWizardEdit(subject, {

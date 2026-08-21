@@ -107,6 +107,10 @@
   border-radius: 0;
   box-shadow: none;
 }
+
+.app-header .cluster[hidden] {
+  display: none;
+}
 .app-header .cluster__stat {
   display: flex;
   align-items: center;

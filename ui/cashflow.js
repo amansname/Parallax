@@ -155,11 +155,11 @@ export function fmtParenMoney(n, fmtMoney) {
     return m === '—' ? m : '(' + m + ')';
   }
 
-export function federalScopeLabel(scope) {
-    if (scope === 'INCOME_TAX_ONLY') return 'income tax only';
-    if (scope === 'FULL_1040') return 'full Form 1040';
-    if (scope === 'MODELED_FEDERAL_LINE_24') return 'modeled Form 1040 line 24; retirement rows funded and converged, working years reporting-only';
-    return 'scope not specified';
+function fmtSignedMoney(value, fmtMoney) {
+    if (!Number.isFinite(value)) return '—';
+    const amount = fmtMoney(Math.abs(value));
+    if (Math.abs(value) < 0.005) return amount;
+    return value > 0 ? '+' + amount : '&minus;' + amount;
   }
 
 export function federalWarningMessage(warning) {
@@ -256,44 +256,34 @@ export function renderCashflow(scn, allScns, {
     );
 
     const historicalUnderfunded = summary.outcome === 'underfunded';
-    const historicalPlanFunding = historicalUnderfunded
-      ? (
-          '<div class="cf-stat" data-plan-funding>' +
-            '<div class="cf-stat__label">Plan funding</div>' +
-            '<div class="cf-stat__value">Underfunded at age ' + esc(summary.firstUnderfundedAge ?? '—') + '</div>' +
-            '<div class="cf-stat__detail">First underfunded year ' + esc(summary.firstUnderfundedYear ?? '—') +
-              (summary.fundedThroughAge != null
-                ? ' · funded through age ' + esc(summary.fundedThroughAge)
-                : '') +
-            '</div>' +
-          '</div>'
-        )
-      : (
-          '<div class="cf-stat" data-plan-funding>' +
-            '<div class="cf-stat__label">Plan funding</div>' +
-            '<div class="cf-stat__value">Funded through plan end</div>' +
-            '<div class="cf-stat__detail">Through age ' + esc(summary.fundedThroughAge ?? '—') +
-              (summary.fundedThroughYear != null ? ' · ' + esc(summary.fundedThroughYear) : '') +
-            '</div>' +
-          '</div>' +
-          '<div class="cf-stat" data-ending-position>' +
-            '<div class="cf-stat__label">Ending position</div>' +
-            '<div class="cf-stat__value">' + (summary.endingBalance == null ? '—' : fmtMoney(summary.endingBalance)) + '</div>' +
-            '<div class="cf-stat__detail">At age ' + esc(summary.endingAge ?? '—') +
-              (summary.endingYear != null ? ' · ' + esc(summary.endingYear) : '') +
-            '</div>' +
-          '</div>' +
-          '<div class="cf-stat" data-peak-withdrawal>' +
-            '<div class="cf-stat__label">Peak withdrawal</div>' +
-            '<div class="cf-stat__peak"><span class="cf-stat__value" style="color:' + wdColor(summary.peakWdRate, false) + ';">' +
-              (summary.peakWdRate ? num(summary.peakWdRate, 1) + '%' : '—') +
-              '</span><span class="cf-stat__peak-age">' +
-                (summary.peakWdAge != null
-                  ? 'age ' + esc(summary.peakWdAge) + (summary.peakWdYear != null ? ' · ' + esc(summary.peakWdYear) : '')
-                  : '') +
-              '</span></div>' +
-          '</div>'
-        );
+    const historicalPeakLabel = historicalUnderfunded
+      ? 'Peak withdrawal rate through the first underfunded year'
+      : 'Peak withdrawal rate';
+    const historicalOutcomeLabel = historicalUnderfunded
+      ? 'First underfunded year'
+      : 'Ending portfolio at plan end';
+    const historicalOutcomeValue = historicalUnderfunded
+      ? esc(summary.firstUnderfundedYear)
+      : fmtMoney(summary.endingBalance);
+    const historicalDeltaLabel = historicalUnderfunded
+      ? 'Delta vs. Typical in that same year'
+      : 'Delta vs. Typical at plan end';
+    const historicalMetrics = (
+      '<div class="cf-stat" data-historical-metric="peak-withdrawal-rate">' +
+        '<div class="cf-stat__label">' + historicalPeakLabel + '</div>' +
+        '<div class="cf-stat__value" style="color:' + wdColor(summary.peakWdRate, false) + ';">' +
+          num(summary.peakWdRate, 1) + '%' +
+        '</div>' +
+      '</div>' +
+      '<div class="cf-stat" data-historical-metric="outcome">' +
+        '<div class="cf-stat__label">' + historicalOutcomeLabel + '</div>' +
+        '<div class="cf-stat__value">' + historicalOutcomeValue + '</div>' +
+      '</div>' +
+      '<div class="cf-stat" data-historical-metric="typical-delta">' +
+        '<div class="cf-stat__label">' + historicalDeltaLabel + '</div>' +
+        '<div class="cf-stat__value">' + fmtSignedMoney(summary.deltaVsTypical, fmtMoney) + '</div>' +
+      '</div>'
+    );
     const historicalSummaryStrip = (
       '<div class="cf-summary cf-summary--historical"' +
         ' data-outcome="' + esc(summary.outcome ?? '') + '"' +
@@ -306,32 +296,41 @@ export function renderCashflow(scn, allScns, {
         ' data-ending-year="' + (summary.endingYear ?? '') + '"' +
         ' data-peak-wd-rate="' + (summary.peakWdRate ?? '') + '"' +
         ' data-peak-wd-age="' + (summary.peakWdAge ?? '') + '"' +
-        ' data-peak-wd-year="' + (summary.peakWdYear ?? '') + '">' +
+        ' data-peak-wd-year="' + (summary.peakWdYear ?? '') + '"' +
+        ' data-comparison-year="' + (summary.comparisonYear ?? '') + '"' +
+        ' data-comparison-balance="' + (summary.comparisonBalance ?? '') + '"' +
+        ' data-typical-comparison-balance="' + (summary.typicalComparisonBalance ?? '') + '"' +
+        ' data-delta-vs-typical="' + (summary.deltaVsTypical ?? '') + '">' +
         '<div class="cf-summary__stats">' +
-          historicalPlanFunding +
+          historicalMetrics +
         '</div>' +
       '</div>'
     );
     const hasHistoricalSummary = selected?.kind === 'historical'
       && !selected.error
-      && ['underfunded', 'survives'].includes(summary.outcome);
+      && ['underfunded', 'survives'].includes(summary.outcome)
+      && Number.isFinite(summary.peakWdRate)
+      && Number.isFinite(summary.deltaVsTypical)
+      && (historicalUnderfunded
+        ? Number.isInteger(summary.firstUnderfundedYear)
+        : Number.isFinite(summary.endingBalance));
     const summaryStrip = selected?.kind === 'historical'
       ? (hasHistoricalSummary ? historicalSummaryStrip : '')
       : typicalSummaryStrip;
 
-    const taxDisclosure = (typicalPath || sidecar) && scn.raw.res ? (
-      '<div class="cf-tax-disclosure" data-tax-disclosure data-tax-state="' + taxDisclosureState + '">' +
-        (federalAttachFailed
-          ? '<div class="cf-tax-fallback" data-tax-fallback role="status">Federal tax detail isn\'t available for this run. The Tax column uses engine estimates.</div>'
-          : '<div class="cf-tax-scope" data-tax-scope-disclosure>Federal tax scope: ' + esc(federalScopeLabel(sidecar.scope)) + '.</div>' +
-            (sidecar.warnings.length
-              ? '<div class="cf-tax-warnings" data-tax-warnings role="status" aria-label="Federal tax warnings">' +
-                  '<div class="cf-tax-warnings__label">Federal tax warnings</div>' +
-                  '<ul>' + sidecar.warnings.map((warning) => '<li>' + esc(federalWarningMessage(warning)) + '</li>').join('') + '</ul>' +
-                '</div>'
-              : '')) +
-      '</div>'
-    ) : '';
+    const taxDisclosureContent = federalAttachFailed
+      ? '<div class="cf-tax-fallback" data-tax-fallback role="status">Federal tax detail isn\'t available for this run. The Tax column uses engine estimates.</div>'
+      : (sidecar?.warnings?.length
+          ? '<div class="cf-tax-warnings" data-tax-warnings role="status" aria-label="Federal tax warnings">' +
+              '<div class="cf-tax-warnings__label">Federal tax warnings</div>' +
+              '<ul>' + sidecar.warnings.map((warning) => '<li>' + esc(federalWarningMessage(warning)) + '</li>').join('') + '</ul>' +
+            '</div>'
+          : '');
+    const taxDisclosure = (typicalPath || sidecar) && scn.raw.res && taxDisclosureContent
+      ? '<div class="cf-tax-disclosure" data-tax-disclosure data-tax-state="' + taxDisclosureState + '">' +
+          taxDisclosureContent +
+        '</div>'
+      : '';
 
     const rowHtml = (r) => {
       const tax = resolveRowTax(r, sidecar);

@@ -209,6 +209,14 @@ select:hover { border-color: var(--line); }
 select:focus { border-color: var(--acc); }
 select option { background: var(--panel); color: var(--ink); }
 
+html,
+body {
+  min-height: 100%;
+  height: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
 .wrap {
   min-height: 100vh;
   height: auto;
@@ -1299,7 +1307,7 @@ textarea:focus-visible,
 }
 .page[data-page='household'] .hh-irmaa-lookback-row {
   display: grid;
-  grid-template-columns: 88px minmax(0, 1fr) minmax(0, 1fr); /* geometry */
+  grid-template-columns: 88px minmax(0, 1fr); /* geometry */
   min-height: 0;
   align-items: center;
   gap: var(--sp-4);
@@ -1319,8 +1327,6 @@ textarea:focus-visible,
   justify-self: stretch;
   text-align: right;
 }
-.page[data-page='household'] .hh-irmaa-lookback-status { min-width: 0; }
-.page[data-page='household'] .hh-irmaa-lookback-status select { width: 100%; }
 .page[data-page='household'] .hh-tax-section { margin-top: var(--sp-6); }
 .page[data-page='household'] .hh-tax-section-head {
   display: flex;
@@ -1391,7 +1397,7 @@ textarea:focus-visible,
 /* Step 04: Summary. */
 .page[data-page='household'] .hh-summary-metrics {
   display: grid;
-  grid-template-columns: 1.3fr 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr);
   border-top: var(--bw) solid var(--rule);
 }
 .page[data-page='household'] .hh-summary-metric {
@@ -1754,6 +1760,27 @@ textarea:focus-visible,
   font-size: var(--fs-emphasis) !important;
 }
 .gh-rail__close:hover { color: var(--ink); }
+.gh-add-rail__heading {
+  display: grid;
+  min-width: 0;
+  flex: 1 1 auto;
+  gap: var(--sp-2);
+}
+.gh-add-rail__heading strong {
+  color: var(--ink);
+  font-size: var(--fs-emphasis);
+  font-weight: var(--fw-body);
+}
+.gh-add-rail .gh-starters {
+  display: grid;
+  margin-top: var(--sp-4);
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--sp-2);
+}
+.gh-add-rail .gh-starter {
+  width: 100%;
+  justify-content: flex-start;
+}
 .gh-rail__body {
   width: 100%;
   min-width: 0;
@@ -1856,18 +1883,20 @@ textarea:focus-visible,
   display: flex;
   width: 100%;
   min-height: var(--h-compact);
+  height: auto;
   align-items: center;
   justify-content: flex-start;
   overflow: hidden;
-  padding: 0 var(--sp-2);
+  padding: var(--sp-2);
   border: var(--bw) solid var(--rule);
   border-radius: var(--r-ctl);
   background: transparent;
   color: var(--body);
   font-size: var(--fs-caption);
+  line-height: 1.25;
   text-align: left;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  text-overflow: clip;
+  white-space: normal;
 }
 .gh-preset.is-selected {
   border-color: var(--acc-hair);
@@ -2193,14 +2222,29 @@ textarea:focus-visible,
   margin: 0;
 }
 .page[data-page='scenarios'] .cf-stat__peak-age { color: var(--body); font-size: var(--fs-body); white-space: nowrap; }
-.page[data-page='scenarios'] .cf-stat__detail {
-  max-width: 360px; /* geometry: historical summary detail */
-  margin-top: var(--sp-2);
-  color: var(--body);
-  font-size: var(--fs-caption);
+.page[data-page='scenarios'] .cf-summary--historical {
+  justify-content: flex-end;
+  flex-wrap: nowrap;
+  padding-top: 0;
 }
-.page[data-page='scenarios'] .cf-summary--historical .cf-summary__stats { width: 100%; justify-content: space-between; margin: 0; }
-.page[data-page='scenarios'] .cf-summary--historical .cf-stat { min-width: 180px; /* geometry */ flex: 1 1 0; }
+.page[data-page='scenarios'] .cf-summary--historical .cf-summary__stats {
+  display: grid;
+  width: min(100%, 690px); /* geometry: compact three-metric historical cluster */
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0 0 0 auto;
+}
+.page[data-page='scenarios'] .cf-summary--historical .cf-stat {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding-inline: var(--sp-5);
+  text-align: right;
+}
+.page[data-page='scenarios'] .cf-summary--historical .cf-stat__label {
+  min-height: 4.05em;
+  line-height: 1.35;
+  white-space: normal;
+}
 .page[data-page='scenarios'] .cf-tax-disclosure {
   display: grid;
   gap: var(--sp-2);
@@ -2209,7 +2253,6 @@ textarea:focus-visible,
   border-bottom: var(--bw) solid var(--rule-f);
   color: var(--body);
 }
-.page[data-page='scenarios'] .cf-tax-scope { color: var(--body); font-size: var(--fs-caption); }
 .page[data-page='scenarios'] .cf-table {
   min-width: 1180px; /* geometry: complete eleven-column ledger */
   overflow: visible;
@@ -2377,8 +2420,6 @@ textarea:focus-visible,
   .page[data-page='household'] .hh-composition-legend { grid-template-columns: minmax(0, 1fr); }
   .page[data-page='household'] .nw-tile-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .page[data-page='household'] .hh-irmaa-lookback-row { grid-template-columns: 72px minmax(0, 1fr); /* geometry */ }
-  .page[data-page='household'] .hh-irmaa-lookback-row > :last-child { grid-column: 2; }
-  .page[data-page='household'] .hh-irmaa-lookback-row--head span:last-child { display: none; }
   .page[data-page='household'] .hh-summary-metric,
   .page[data-page='household'] .hh-summary-metric + .hh-summary-metric {
     padding: var(--sp-4) 0;
@@ -2404,4 +2445,7 @@ textarea:focus-visible,
   .page[data-page='scenarios'] .cf-summary { align-items: flex-start; flex-direction: column; }
   .page[data-page='scenarios'] .cf-summary__stats { width: 100%; margin: 0; overflow-x: auto; }
   .page[data-page='scenarios'] .cf-stat { padding: 0 var(--sp-4); }
+  .page[data-page='scenarios'] .cf-summary--historical .cf-summary__stats {
+    grid-template-columns: repeat(3, minmax(180px, 1fr));
+  }
 }

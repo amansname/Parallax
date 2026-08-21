@@ -28,6 +28,10 @@ test('Goals horizon renders retirement-linked goals from the effective retiremen
   const html = controller.render();
 
   assert.doesNotMatch(html, /NaN|undefined/);
+  assert.doesNotMatch(html, /Always part of the plan/);
+  assert.doesNotMatch(html, /Never mind/);
+  assert.doesNotMatch(html, /gh-add-panel/);
+  assert.match(html, /data-action="toggle-add"[^>]*><span>\+<\/span>Add a goal/);
   assert.match(html, /--gh-start:14\.706%/);
   assert.match(html, /Every year, ages 67/);
   assert.equal(goal.startAge, undefined);
