@@ -111,6 +111,7 @@ export function resolveIrmaaPremiumYear({
     if(!manual) return null;
     return buildManualIrmaaPlanningResult({
       ...manual,
+      filingStatus: plan?.meta?.filingStatus,
       taxYear,
       premiumYear,
       eligibleMembers,

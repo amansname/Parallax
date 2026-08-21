@@ -523,17 +523,7 @@ export function renderHouseholdWizardNetWorth(ctx){
         <strong>${hasWiredData ? money(netWorthTotal) : '—'}</strong>
       </div>
       <main class="nw-grid-region">${tiles}</main>
-      <aside class="nw-rail">
-        <span class="nw-total-label">Net Worth</span>
-        <strong>${hasWiredData ? money(netWorthTotal) : '—'}</strong>
-        <div class="nw-rail-spacer"></div>
-        <div class="nw-rail-actions">
-          <button type="button" class="nw-primary-button"
-            data-hh-action="net-worth-show-summary">Continue</button>
-          <button type="button" class="nw-secondary-button" data-hh-action="step-back">Back</button>
-        </div>
-      </aside>
-      <footer class="nw-mobile-footer">
+      <footer class="nw-entry-footer">
         <button type="button" class="nw-secondary-button" data-hh-action="step-back">Back</button>
         <button type="button" class="nw-primary-button"
           data-hh-action="net-worth-show-summary">Continue</button>

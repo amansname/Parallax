@@ -260,7 +260,6 @@ export function createGoalsHorizonController(deps){
           <button class="gh-add-toggle" type="button" data-action="toggle-add" aria-expanded="${state.addOpen}"${disabledAttr(isDisabled)}><span>+</span>${state.addOpen?'Never mind':'Add a goal'}</button>
           ${state.addOpen?renderAddPanel(isDisabled):''}
         </div>
-        <footer class="gh-card__footer">Drag a goal along the timeline to change its years. Click it to edit the details. Amounts are in today’s dollars.</footer>
       </section>
       ${renderRail(selected?.goal,selected?.index,currentSpan,isDisabled)}
       ${toast}

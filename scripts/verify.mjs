@@ -450,6 +450,186 @@ try {
     }
   });
 
+  await step('Graphite Aubergine design contracts render at governed viewports', async () => {
+    const artifactId = VERIFIED_ARTIFACT.manifest.artifactId;
+
+    await page.setViewport({ width:1279, height:1600, deviceScaleFactor:1 });
+    await stableEvaluate('disable nonessential design transitions', () => {
+      const style = document.createElement('style');
+      style.dataset.verifyMotion = 'disabled';
+      style.textContent = '*,*::before,*::after{transition:none!important;animation:none!important}';
+      document.head.append(style);
+    });
+    const desktop = await stableEvaluate('read desktop Graphite Aubergine contract', expectedArtifactId => {
+      const bodyStyle = getComputedStyle(document.body);
+      const headerBar = document.querySelector('.app-header .hdr__bar');
+      const themeLinks = [...document.querySelectorAll('link[rel="stylesheet"]')]
+        .map(link => link.getAttribute('href'))
+        .filter(href => href?.startsWith('styles/graphite-aubergine.css'));
+      const navLabels = [...document.querySelectorAll('.app-header .htab')]
+        .map(button => button.textContent.trim());
+      return {
+        bodyBackground: bodyStyle.backgroundColor,
+        bodyColor: bodyStyle.color,
+        bodyFont: bodyStyle.fontFamily,
+        headerBars: headerBar ? document.querySelectorAll('.app-header .hdr__bar').length : 0,
+        navLabels,
+        themeLinks,
+        expectedThemeLink: `styles/graphite-aubergine.css?v=${expectedArtifactId}`,
+        spectralLoaded: [...document.querySelectorAll('link[rel="stylesheet"]')]
+          .some(link => /Spectral/i.test(link.getAttribute('href') || '')),
+      };
+    }, artifactId);
+    if(desktop.bodyBackground !== 'rgb(24, 25, 24)'
+      || desktop.bodyColor !== 'rgb(145, 136, 129)'
+      || !desktop.bodyFont.includes('Hanken Grotesk')){
+      throw new Error(`Graphite Aubergine tokens are not active: ${JSON.stringify(desktop)}`);
+    }
+    if(desktop.headerBars !== 1
+      || JSON.stringify(desktop.navLabels) !== JSON.stringify([
+        'Household', 'Goals', 'Scenarios', 'Withdrawal planner', 'Sequencing',
+      ])){
+      throw new Error(`Graphite Aubergine header contract drifted: ${JSON.stringify(desktop)}`);
+    }
+    if(desktop.themeLinks.length !== 1
+      || desktop.themeLinks[0] !== desktop.expectedThemeLink
+      || desktop.spectralLoaded){
+      throw new Error(`Graphite Aubergine font or artifact stylesheet drifted: ${JSON.stringify(desktop)}`);
+    }
+
+    await stableClick('.htab[data-page="tax-buckets"]');
+    await page.waitForFunction(() => (
+      document.querySelector('.page[data-page="tax-buckets"].on [data-taw-root]')
+        ?.getAttribute('aria-busy') === 'false'
+    ), { timeout:10000 });
+    const plannerHeading = await stableEvaluate('read Withdrawal Planner presentation contract', () => ({
+      title: document.querySelector('.page[data-page="tax-buckets"].on .taw-page-head h1')
+        ?.textContent.trim() || null,
+      copy: document.querySelector('.page[data-page="tax-buckets"].on .taw-page-head p')
+        ?.textContent.trim() || null,
+      badge: document.querySelector('.page[data-page="tax-buckets"].on .taw-page-head .taw-plan-context')
+        ?.textContent.trim() || null,
+    }));
+    if(plannerHeading.title !== 'Withdrawal Planner'
+      || plannerHeading.copy !== 'Shape retirement income while watching federal thresholds.'
+      || plannerHeading.badge !== 'Current federal baseline'){
+      throw new Error(`Withdrawal Planner presentation contract drifted: ${JSON.stringify(plannerHeading)}`);
+    }
+
+    await stableClick('.htab[data-page="scenarios"]');
+    await setCashFlow(page, true);
+    const cashFlowTheme = await stableEvaluate('read Cash Flow Graphite Aubergine toggle', () => {
+      const chip = document.querySelector('#scn-cash-toggle');
+      const label = chip?.querySelector('.cash-chip__label');
+      const knob = chip?.querySelector('.switch__knob');
+      const paths = [...document.querySelectorAll('#cashflow-path-mode option')]
+        .map(option => option.value);
+      return {
+        checked: chip?.getAttribute('aria-checked'),
+        labelColor: label ? getComputedStyle(label).color : null,
+        labelBackground: label ? getComputedStyle(label).backgroundColor : null,
+        knobColor: knob ? getComputedStyle(knob).backgroundColor : null,
+        paths,
+      };
+    });
+    if(cashFlowTheme.checked !== 'true'
+      || cashFlowTheme.labelColor !== 'rgb(184, 173, 146)'
+      || cashFlowTheme.labelBackground !== 'rgba(0, 0, 0, 0)'
+      || cashFlowTheme.knobColor !== 'rgb(184, 173, 146)'
+      || cashFlowTheme.paths.length !== 10){
+      throw new Error(`Cash Flow Graphite Aubergine contract drifted: ${JSON.stringify(cashFlowTheme)}`);
+    }
+
+    await stableClick('.htab[data-sub-target="goals"]');
+    await page.waitForFunction(() => document.querySelector('.page[data-page="net-worth"].on .gh-page'), { timeout:10000 });
+    await stableClick('[data-goal-chip]');
+    await page.waitForFunction(() => document.querySelector('.gh-rail .gh-preset'), { timeout:10000 });
+    const goalEditor = await stableEvaluate('read Goals editor timing controls', () => {
+      const presets = [...document.querySelectorAll('.gh-rail .gh-preset')];
+      return {
+        count: presets.length,
+        clipped: presets.filter(preset => preset.scrollHeight > preset.clientHeight + 1)
+          .map(preset => ({
+            text: preset.textContent.trim(),
+            scrollHeight: preset.scrollHeight,
+            clientHeight: preset.clientHeight,
+          })),
+        radii: presets.map(preset => parseFloat(getComputedStyle(preset).borderRadius)),
+      };
+    });
+    if(goalEditor.count !== 4
+      || goalEditor.clipped.length
+      || goalEditor.radii.some(radius => !Number.isFinite(radius) || radius < 4)){
+      throw new Error(`Goals timing controls are clipped or square: ${JSON.stringify(goalEditor)}`);
+    }
+    await stableClick('.gh-rail__close');
+    await page.waitForFunction(() => !document.querySelector('.gh-rail'), { timeout:10000 });
+
+    await stableClick('.htab[data-page="household"]');
+    await goToWizardStep(page, 'net-worth');
+    const netWorthLayout = await stableEvaluate('read Net Worth entry layout', () => {
+      const primary = document.querySelector('.nw-entry-footer .nw-primary-button');
+      return {
+        legacyRails: document.querySelectorAll('.nw-rail').length,
+        footers: document.querySelectorAll('.nw-entry-footer').length,
+        footerRadius: primary ? parseFloat(getComputedStyle(primary).borderRadius) : null,
+        gridWidth: document.querySelector('.nw-grid-region')?.getBoundingClientRect().width ?? 0,
+        viewWidth: document.querySelector('.nw-entry-view')?.getBoundingClientRect().width ?? 0,
+      };
+    });
+    if(netWorthLayout.legacyRails !== 0
+      || netWorthLayout.footers !== 1
+      || !Number.isFinite(netWorthLayout.footerRadius)
+      || netWorthLayout.footerRadius < 4
+      || Math.abs(netWorthLayout.gridWidth - netWorthLayout.viewWidth) > 1){
+      throw new Error(`Net Worth side-panel removal drifted: ${JSON.stringify(netWorthLayout)}`);
+    }
+
+    await goToWizardStep(page, 'tax');
+    const taxStack = await stableEvaluate('read stacked Tax profile and IRMAA inputs', () => {
+      const boxes = [...document.querySelectorAll('[data-hh-wizard-screen="tax"] [data-tax-summary-box]')];
+      const rects = boxes.map(box => box.getBoundingClientRect());
+      return {
+        count: boxes.length,
+        keys: boxes.map(box => box.dataset.taxSummaryBox),
+        filingControls: document.querySelectorAll(
+          '[data-hh-wizard-screen="tax"] [data-tax-field^="irmaa.lookback."][data-tax-field$=".filingStatus"]',
+        ).length,
+        radii: boxes.map(box => parseFloat(getComputedStyle(box).borderRadius)),
+        aligned: rects.every(rect => Math.abs(rect.left - rects[0].left) <= 1
+          && Math.abs(rect.width - rects[0].width) <= 1),
+        stacked: rects.every((rect, index) => index === 0 || rect.top > rects[index - 1].bottom),
+      };
+    });
+    if(taxStack.count !== 5
+      || taxStack.filingControls !== 0
+      || !taxStack.aligned
+      || !taxStack.stacked
+      || taxStack.radii.some(radius => !Number.isFinite(radius) || radius < 4)){
+      throw new Error(`Tax profile stack drifted: ${JSON.stringify(taxStack)}`);
+    }
+
+    await page.setViewport({ width:760, height:1600, deviceScaleFactor:1 });
+    for(const contract of [
+      { page:'net-worth', ready:'.gh-page' },
+      { page:'tax-buckets', ready:'[data-taw-root][aria-busy="false"]' },
+      { page:'sequencing', ready:'#seq-prints' },
+      { page:'household', ready:'[data-wizard-ready="true"]' },
+    ]){
+      await stableClick(`.htab[data-page="${contract.page}"]`);
+      await page.waitForFunction(({ pageName, selector }) => (
+        !!document.querySelector(`.page[data-page="${pageName}"].on ${selector}`)
+      ), { timeout:10000 }, { pageName:contract.page, selector:contract.ready });
+      const width = await stableEvaluate(`read ${contract.page} mobile width`, () => ({
+        clientWidth: document.documentElement.clientWidth,
+        scrollWidth: document.documentElement.scrollWidth,
+      }));
+      if(width.scrollWidth > width.clientWidth){
+        throw new Error(`${contract.page} overflows the 760px viewport: ${JSON.stringify(width)}`);
+      }
+    }
+  });
+
   await step('Tax wizard: Wages flow through to Withdrawal Planner tax dollars', async () => {
     await page.setViewport({ width:1440, height:900, deviceScaleFactor:1 });
     const blankPlanner = await plannerDiagnosticState();
@@ -2571,26 +2751,23 @@ try {
     });
   }
 
-  // Objective theme contract: the page BACKGROUND (not just foreground tokens) must be
-  // the shared charcoal/champagne --page-bg on Scenarios, Goals, Sequencing, AND the
-  // Household console — the whole app now reads as one charcoal surface (floor #0b0d11)
-  // with a champagne accent. The retired Household warm bronze AND the old navy
-  // (#111E31 = 17,30,49) must BOTH be gone everywhere. Computed-style assertions so a
-  // navy/bronze regression fails loudly instead of relying on a human reading a screenshot.
-  await step('visual contract: flush 56px header rail and tabs are correct', async () => {
-    const sleep = ms => new Promise(r => setTimeout(r, ms));
-    await page.click('button[data-page="scenarios"]'); await sleep(400);
+  // Objective theme contract: all primary product pages share the approved graphite
+  // surface, while the header uses that same surface with copper interaction accents.
+  await step('visual contract: 68px Graphite Aubergine header rail and tabs are correct', async () => {
+    await stableClick('button[data-page="scenarios"]');
+    await page.waitForFunction(() => document.querySelector('.page[data-page="scenarios"].on'), { timeout:8000 });
     const hdr = await page.evaluate(() => {
       const el = document.querySelector('.hdr');
       if(!el) return null;
       const cs = getComputedStyle(el);
+      const bar = document.querySelector('.hdr__bar');
       const logo = document.querySelector('.hdr__logo img, .brand-logo');
       const tab = document.querySelector('.htab.on');
       const tabAfter = tab ? getComputedStyle(tab, '::after') : null;
       return {
         height: cs.height,
         bg: cs.backgroundColor,
-        borderBottom: cs.borderBottomWidth,
+        barBorderBottom: bar ? getComputedStyle(bar).borderBottomWidth : '',
         logo: logo?.getAttribute('src') || '',
         logoH: logo ? getComputedStyle(logo).height : '',
         runBg: getComputedStyle(document.querySelector('.run-btn')).backgroundColor,
@@ -2599,54 +2776,52 @@ try {
       };
     });
     if(!hdr) throw new Error('Header element missing');
-    if(hdr.height !== '56px') throw new Error(`Header height must be 56px, got ${hdr.height}`);
-    if(hdr.borderBottom !== '1px') throw new Error(`Header must have 1px bottom hairline, got ${hdr.borderBottom}`);
+    if(hdr.height !== '68px') throw new Error(`Header height must be 68px, got ${hdr.height}`);
+    if(hdr.barBorderBottom !== '1px') throw new Error(`Header bar must have 1px bottom hairline, got ${hdr.barBorderBottom}`);
     if(!hdr.logo.includes('parallax-logo.png')) throw new Error(`Header logo must use parallax-logo.png, got ${hdr.logo}`);
-    if(hdr.logoH !== '48px') throw new Error(`Logo must be 48px tall, got ${hdr.logoH}`);
-    if(hdr.bg !== 'rgba(0, 0, 0, 0)' && hdr.bg !== 'transparent')
-      throw new Error(`Header must be flush/transparent, got ${hdr.bg}`);
+    if(hdr.logoH !== '58px') throw new Error(`Logo must be 58px tall, got ${hdr.logoH}`);
+    if(hdr.bg !== 'rgb(24, 25, 24)') throw new Error(`Header must use the graphite page surface, got ${hdr.bg}`);
     if(hdr.runBg !== 'rgba(0, 0, 0, 0)' && hdr.runBg !== 'transparent')
       throw new Error(`Run button must be unboxed (transparent bg), got ${hdr.runBg}`);
-    const [r,g,b] = (hdr.runColor.match(/\d+/g)||[]).map(Number);
-    if(!(r > 180 && g > 130 && b < 140)) throw new Error(`Run button text must be champagne: ${hdr.runColor}`);
-    const [ar,ag,ab] = (hdr.tabAfterBg.match(/\d+/g)||[]).map(Number);
-    if(!(ar > 180 && ag > 130 && ab < 140)) throw new Error(`Active tab underline must be champagne: ${hdr.tabAfterBg}`);
+    if(hdr.runColor !== 'rgb(177, 132, 92)') throw new Error(`Run button text must use the copper accent: ${hdr.runColor}`);
+    if(hdr.tabAfterBg !== 'rgb(177, 132, 92)') throw new Error(`Active tab underline must use the copper accent: ${hdr.tabAfterBg}`);
   });
-  await step('theme: product pages sit on the shared charcoal background', async () => {
-    const CHARCOAL = '11, 13, 17';  // #0b0d11 — shared --page-bg gradient floor (scenarios + household)
-    const NAVY = '17, 30, 49';      // #111E31 — retired Scenarios navy base, must be gone
-    const BRONZE = '154, 102, 56';  // the retired Household warm background — must be gone
-    const sleep = ms => new Promise(r => setTimeout(r, ms));
-    const bgOf = sel => page.evaluate(s => {
+  await step('theme: product pages sit on the shared graphite background', async () => {
+    const GRAPHITE = 'rgb(24, 25, 24)';
+    const bgOf = selector => stableEvaluate(`read ${selector} background`, s => {
       const el = document.querySelector(s);
-      return el ? getComputedStyle(el).backgroundImage : '(no element)';
-    }, sel);
+      return el ? getComputedStyle(el).backgroundColor : '(no element)';
+    }, selector);
 
-    await page.click('button[data-page="scenarios"]'); await sleep(500);
+    await stableClick('button[data-page="scenarios"]');
+    await page.waitForFunction(() => document.querySelector('.page[data-page="scenarios"].on'), { timeout:8000 });
     const scnBg = await bgOf('.page[data-page="scenarios"]');
-    if(!scnBg.includes(CHARCOAL)) throw new Error(`Scenarios page lost its charcoal --page-bg: ${scnBg}`);
-    if(scnBg.includes(NAVY)) throw new Error(`Scenarios page still shows retired navy: ${scnBg}`);
 
-    await page.click('.htab[data-sub-target="goals"]'); await sleep(600);
-    // Goals mounts the Horizon card, with the retired ledger/chapters absent.
-    if(!await page.evaluate(() => !!document.querySelector('#np-content .gh-card'))) throw new Error('Goals view did not mount .gh-card');
+    await stableClick('.htab[data-sub-target="goals"]');
+    await page.waitForFunction(() => (
+      document.querySelector('.page[data-page="net-worth"].on')
+      && document.querySelector('#np-content .gh-card')
+    ), { timeout:8000 });
     const goalsBg = await bgOf('.page[data-page="net-worth"]');
 
     let seqBg = null;
     if(!SKIP_SEQUENCING){
-      await page.click('button[data-page="sequencing"]'); await sleep(450);
+      await stableClick('button[data-page="sequencing"]');
+      await page.waitForFunction(() => document.querySelector('.page[data-page="sequencing"].on'), { timeout:8000 });
       seqBg = await bgOf('.page[data-page="sequencing"]');
     }
 
-    await page.click('.htab[data-page="household"]'); await sleep(500);
+    await stableClick('.htab[data-page="household"]');
+    await page.waitForFunction(() => (
+      document.querySelector('.page[data-page="household"].on')
+      && document.querySelector('[data-hh-wizard-root]')
+    ), { timeout:8000 });
     const hhBg = await bgOf('.page[data-page="household"]');
 
-    const surfaces = [['goals', goalsBg], ['household', hhBg]];
-    if(seqBg !== null) surfaces.splice(1, 0, ['sequencing', seqBg]);
+    const surfaces = [['scenarios', scnBg], ['goals', goalsBg], ['household', hhBg]];
+    if(seqBg !== null) surfaces.splice(2, 0, ['sequencing', seqBg]);
     for(const [name, bg] of surfaces){
-      if(!bg.includes(CHARCOAL)) throw new Error(`${name} page is NOT on the shared charcoal background: ${bg}`);
-      if(bg.includes(NAVY)) throw new Error(`${name} page still shows the retired navy background: ${bg}`);
-      if(bg.includes(BRONZE)) throw new Error(`${name} page still shows the retired Household bronze background: ${bg}`);
+      if(bg !== GRAPHITE) throw new Error(`${name} page lost the shared graphite background: ${bg}`);
     }
   });
 

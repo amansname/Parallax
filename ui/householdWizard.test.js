@@ -272,6 +272,8 @@ test('Net Worth presents the approved category workflow and canonical portfolio 
   assert.match(html, /data-hh-action="net-worth-open-category" data-category-id="mortgage"/);
   assert.match(html, /\$1,450,000/);
   assert.match(html, /data-hh-action="net-worth-show-summary"/);
+  assert.match(html, /class="nw-entry-footer"/);
+  assert.doesNotMatch(html, /class="nw-rail"/);
   assert.doesNotMatch(html, /data-account-field|data-hh-action="add-account"/);
 });
 
@@ -418,13 +420,15 @@ test('Tax page omits confirmation checkbox markup', () => {
   assert.doesNotMatch(html, /data-tax-confirmation/);
 });
 
-test('Tax page provides only the two manual IRMAA lookback input rows', () => {
+test('Tax page stacks two MAGI-only IRMAA lookback rows under one filing status', () => {
   const html = wizard().render('tax');
   assert.match(html, /data-tax-input-section="irmaa-lookback"/);
   assert.match(html, /data-irmaa-tax-year="2024"/);
   assert.match(html, /data-irmaa-tax-year="2025"/);
   assert.match(html, /data-tax-field="irmaa\.lookback\.2024\.magi"/);
-  assert.match(html, /data-tax-field="irmaa\.lookback\.2025\.filingStatus"/);
+  assert.match(html, /data-tax-field="irmaa\.lookback\.2025\.magi"/);
+  assert.doesNotMatch(html, /data-tax-field="irmaa\.lookback\.\d{4}\.filingStatus"/);
+  assert.equal((html.match(/data-tax-summary-box=/g) || []).length, 5);
   assert.equal((html.match(/data-irmaa-tax-year=/g) || []).length, 2);
   assert.doesNotMatch(html, /current tier|next tier|premium year|timeline|estimate/i);
 });

@@ -1,0 +1,633 @@
+/* Graphite & Aubergine production theme.
+   Visual presentation only: live renderers, state, and financial authority remain unchanged. */
+
+:root {
+  color-scheme: dark;
+
+  --page: #181918;
+  --panel: #20211f;
+  --raised: #292a27;
+  --sel: #32332f;
+  --edge: #3a3935;
+  --line: rgba(58, 57, 53, .85);
+  --rule: rgba(58, 57, 53, .60);
+  --rule-f: rgba(58, 57, 53, .38);
+  --shadow: 0 26px 64px -34px rgba(0, 0, 0, .8);
+
+  --ink: #b8ad92;
+  --body: #918881;
+  --tertiary: #7f7772;
+  --mute: #7f7772;
+  --mute-soft: #7f7772;
+  --dis: #7f7772;
+
+  --acc: #b1845c;
+  --acc-2: #9b704d;
+  --acc-tint: rgba(177, 132, 92, .10);
+  --acc-hair: rgba(177, 132, 92, .34);
+  --acc-glow: 0 0 22px -8px rgba(177, 132, 92, .45);
+
+  --pos: #91a096;
+  --pos-bg: #29372f;
+  --pos-deep: #243029;
+  --neg: #ad8c92;
+  --neg-bg: #3f2229;
+  --neg-deep: #301a20;
+
+  --bg-deep: var(--page);
+  --bg: var(--page);
+  --surface: var(--panel);
+  --surface-2: var(--panel);
+  --surface-3: var(--raised);
+  --rule-bright: var(--acc-hair);
+  --rule-faint: var(--rule-f);
+  --line-faint: var(--rule-f);
+  --line-strong: var(--line);
+  --line-accent: var(--acc-hair);
+
+  --ink-bright: var(--ink);
+  --ink-body: var(--body);
+  --ink-mute: var(--tertiary);
+  --ink-faint: var(--tertiary);
+  --ink-ghost: rgba(127, 119, 114, .45);
+  --num: var(--ink);
+
+  --accent: var(--acc);
+  --accent-bright: var(--acc);
+  --accent-deep: var(--acc-2);
+  --accent-glow: rgba(177, 132, 92, .18);
+  --accent-soft: var(--acc-tint);
+  --accent-bd: var(--acc-hair);
+  --pill-fill: var(--acc-tint);
+  --pill-bd: var(--acc-hair);
+  --btn: var(--acc-tint);
+  --btn-ink: var(--acc);
+  --input: rgba(41, 42, 39, .55);
+  --input-focus-bg: var(--acc-tint);
+  --input-focus-ring: rgba(177, 132, 92, .45);
+  --grid: var(--rule-f);
+  --axis: var(--tertiary);
+  --value-highlight: var(--ink);
+
+  --status-positive: var(--pos);
+  --status-positive-bright: var(--pos);
+  --negative: var(--neg);
+  --negative-bright: var(--neg);
+  --ok: var(--pos);
+  --warn: var(--acc);
+  --disabled-text: var(--tertiary);
+  --disabled-fill: rgba(41, 42, 39, .35);
+  --accent-secondary: var(--pos);
+
+  --font-sans: 'Hanken Grotesk', system-ui, -apple-system, sans-serif;
+  --font-serif: var(--font-sans);
+  --f: var(--font-sans);
+  --app-page-bg: var(--page);
+  --glass-fill: var(--panel);
+  --glass-stroke: var(--line);
+  --glass-glint: transparent;
+  --glass-shadow: var(--shadow);
+  --glass-blur: 0;
+
+  --radius-compact: 5px;
+  --radius-control: 6px;
+  --radius-panel: 8px;
+  --radius-pill: 999px;
+  --control-compact: 32px;
+  --control-default: 36px;
+  --control-prominent: 40px;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html,
+body {
+  background: var(--page);
+  color: var(--body);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+body,
+button,
+input,
+select,
+textarea {
+  font-family: var(--font-sans);
+}
+
+button,
+input,
+select,
+textarea {
+  border-radius: var(--radius-control);
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid rgba(177, 132, 92, .56);
+  outline-offset: 2px;
+}
+
+select {
+  background-color: var(--raised);
+  border-color: var(--rule);
+  color: var(--ink);
+}
+
+select:hover { border-color: var(--line); }
+select:focus { border-color: var(--acc); }
+select option { background: var(--panel); color: var(--ink); }
+
+.wrap {
+  min-height: 100vh;
+  height: auto;
+  overflow: visible;
+  background: var(--page);
+}
+
+.page {
+  flex: 0 0 auto;
+  min-height: calc(100vh - 68px);
+  overflow: visible;
+  background: var(--page);
+  color: var(--body);
+}
+
+body .page[data-page='household'],
+body .page[data-page='net-worth'],
+body .page[data-page='scenarios'],
+body .page[data-page='tax-buckets'],
+body .page[data-page='sequencing'] {
+  overflow: visible;
+}
+
+/* Header: the logo remains borderless; the hairline begins with navigation. */
+.app-header {
+  height: 68px;
+  gap: 36px;
+  padding: 0 32px;
+  background: var(--page);
+  border-bottom: 0;
+}
+
+.app-header .hdr__logo { height: 58px; }
+
+.app-header .hdr__bar {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  align-self: stretch;
+  min-width: 0;
+  margin-right: 0;
+  padding-right: 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.app-header .hdr__tabs {
+  gap: 28px;
+  height: 100%;
+}
+
+.app-header .htab {
+  color: var(--tertiary);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: .12em;
+}
+
+.app-header .htab:hover,
+.app-header .htab.on { color: var(--ink); }
+
+.app-header .htab.on::after {
+  background: var(--acc);
+  box-shadow: none;
+}
+
+.app-header .hdr__right { margin-left: auto; }
+.app-header .cluster__stat { color: var(--tertiary); }
+.app-header .cluster__run { color: var(--acc); }
+.app-header .cluster__run:hover { color: var(--acc); background: var(--acc-tint); border-radius: 7px; }
+.app-header .cluster[data-state='saved'] .dot { background: var(--pos); }
+.app-header .cluster[data-state='edited'] .dot,
+.app-header .cluster[data-state='needs-run'] .dot { background: var(--acc); }
+
+/* Household token bridge. */
+.page[data-page='household'] {
+  --hh-bg: var(--page);
+  --hh-panel: var(--panel);
+  --hh-panel-soft: var(--raised);
+  --hh-ink: var(--ink);
+  --hh-body: var(--body);
+  --hh-muted: var(--tertiary);
+  --hh-faint: var(--tertiary);
+  --hh-gold: var(--acc);
+  --hh-gold-bright: var(--acc);
+  --hh-gold-dark: var(--acc-2);
+  --hh-sage: var(--pos);
+  --hh-slate: var(--tertiary);
+  --hh-line: var(--line);
+  --hh-line-soft: var(--rule-f);
+  --hh-input: rgba(41, 42, 39, .55);
+  background: var(--page);
+  min-height: 842px;
+  overflow: visible;
+}
+
+.page[data-page='household'] .hh-stage {
+  grid-template-columns: 260px minmax(0, 1fr);
+  height: auto;
+  min-height: 842px;
+  overflow: visible;
+}
+
+.page[data-page='household'] .hh-sidebar {
+  padding-inline: 24px;
+  background: var(--page);
+  border-right-color: var(--rule);
+}
+
+.page[data-page='household'] .hh-wizard { min-height: 842px; }
+.page[data-page='household'] .hh-wiz-workspace { overflow: visible; }
+.page[data-page='household'] .hh-content { min-height: 0; }
+.page[data-page='household'] .hh-screen,
+.page[data-page='household'] .hh-family-screen {
+  width: 100%;
+  padding-inline: 24px;
+}
+
+.page[data-page='household'] .hh-step.is-current {
+  background: var(--sel);
+  border-color: var(--acc-hair);
+}
+
+.page[data-page='household'] .hh-person-card,
+.page[data-page='household'] .hh-card,
+.page[data-page='household'] .hh-tax-card,
+.page[data-page='household'] .nw-tile {
+  background: var(--panel);
+  border-color: var(--line);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow);
+}
+
+.page[data-page='household'] .hh-menu__btn,
+.page[data-page='household'] input,
+.page[data-page='household'] select,
+.page[data-page='household'] button {
+  border-radius: var(--radius-control);
+}
+
+.page[data-page='household'] .hh-tax-source-detail {
+  margin-top: 18px;
+  background: rgba(41, 42, 39, .45);
+  border-color: var(--rule);
+}
+
+.page[data-page='household'] .hh-tax-profile > *,
+.page[data-page='household'] .hh-irmaa-lookback-row {
+  border-radius: var(--radius-control);
+  background: rgba(41, 42, 39, .55);
+}
+
+/* Goals: quiet continuous composition, compact editor, one type family. */
+.page[data-page='net-worth']:has(.gh-page) {
+  padding: 0;
+  background: var(--page);
+  color: var(--body);
+}
+
+.page[data-page='net-worth']:has(.gh-page) .gh-page {
+  padding: 34px 24px 80px;
+}
+
+.gh-title { color: var(--ink); font-family: var(--font-sans); font-size: 36px; }
+
+.gh-card,
+.gh-rail {
+  background: var(--panel);
+  border-color: var(--line);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow);
+  backdrop-filter: none;
+}
+
+.gh-band { background: var(--raised); border-color: var(--rule); }
+.gh-band.is-selected,
+.gh-lane.is-selected .gh-band { background: var(--sel); border-color: var(--acc-hair); }
+
+@media (min-width: 1280px) {
+  .gh-page:not(.is-editor-closed) { grid-template-columns: minmax(0, 1fr) 320px; gap: 24px; }
+  .gh-page:not(.is-editor-closed) .gh-rail { justify-self: end; max-width: 320px; width: 100%; }
+}
+
+.gh-rail__header { padding: 16px 18px; }
+.gh-name-input { color: var(--ink); font-family: var(--font-sans); font-size: 15px; }
+.gh-rail__body { padding: 4px 18px 14px; }
+.gh-editor-section { padding: 14px 0; }
+.gh-field-label { color: var(--body); font-size: 10px; margin-bottom: 9px; }
+.gh-money-row { gap: 8px; }
+.gh-money-row button,
+.gh-once-age button { height: 30px; width: 30px; font-size: 13px; }
+.gh-money-input { height: 30px; padding-inline: 10px; }
+.gh-money-input > span { font-size: 12px; }
+.gh-amount-input { color: var(--ink); font-size: 15px; }
+.gh-money-meta { gap: 10px; margin-top: 8px; font-size: 11px; }
+.gh-seg button,
+.gh-mini-seg button { height: 30px; font-size: 12px; padding-inline: 10px; }
+.gh-mini-seg button { height: 24px; font-size: 11px; }
+.gh-presets { gap: 6px; }
+.gh-preset {
+  min-height: 42px;
+  height: auto;
+  padding: 7px 9px;
+  font-size: 11.5px;
+  line-height: 1.25;
+  white-space: normal;
+}
+.gh-range-inputs { gap: 8px; margin-top: 9px; font-size: 11.5px; }
+.gh-age-input { height: 30px; width: 46px; font-size: 12.5px; }
+.gh-categories { gap: 5px; }
+.gh-category { height: 30px; width: 30px; border-radius: var(--radius-control); }
+.gh-rail__footer { gap: 9px; padding: 12px 18px; }
+.gh-delete,
+.gh-ghost { font-size: 11.5px; }
+.gh-done { height: 30px; padding-inline: 16px; font-size: 11.5px; }
+
+/* Scenarios token bridge: remove the old gold/blue/glass layer without changing data. */
+.page[data-page='scenarios'] {
+  --r-sm: var(--radius-compact);
+  --r-md: var(--radius-control);
+  --r-lg: var(--radius-control);
+  --r-card: var(--radius-panel);
+  --r-xl: var(--radius-panel);
+  --r-panel: var(--radius-panel);
+  --page-bg: var(--page);
+  --tone-green: var(--pos);
+  --tone-amber: var(--acc);
+  --tone-rust: var(--neg);
+  --tone-green-glow: rgba(145, 160, 150, .36);
+  --tone-amber-glow: rgba(177, 132, 92, .34);
+  --tone-rust-glow: rgba(173, 140, 146, .34);
+  --gold: var(--acc);
+  --gold-bright: var(--acc);
+  --gold-soft: var(--acc-2);
+  --gold-eyebrow: var(--acc);
+  --text-hi: var(--ink);
+  --text-1: var(--ink);
+  --text-2: var(--body);
+  --text-2b: var(--body);
+  --text-3: var(--body);
+  --text-4: var(--tertiary);
+  --text-5: var(--tertiary);
+  --text-6: var(--tertiary);
+  --text-mute: var(--tertiary);
+  --text-dim: var(--tertiary);
+  --text-nav: var(--tertiary);
+  --pass: var(--pos);
+  --marginal: var(--acc);
+  --down: var(--neg);
+  --down-deep: var(--neg);
+  --line-06: rgba(58, 57, 53, .30);
+  --line-07: rgba(58, 57, 53, .38);
+  --line-08: rgba(58, 57, 53, .46);
+  --line-09: rgba(58, 57, 53, .54);
+  --line-10: rgba(58, 57, 53, .62);
+  --line-11: rgba(58, 57, 53, .70);
+  --fill-02: rgba(41, 42, 39, .25);
+  --fill-03: rgba(41, 42, 39, .35);
+  --fill-04: rgba(41, 42, 39, .45);
+  --fill-05: rgba(41, 42, 39, .55);
+  --fill-08: var(--sel);
+  --ring-track: var(--rule);
+  --glass-panel: var(--panel);
+  --glass-card: var(--panel);
+  --glass-card-active: var(--raised);
+  --glass-summary: var(--panel);
+  --glass-table: transparent;
+  --blur-panel: none;
+  --blur-rail: none;
+  background: var(--page);
+  padding-inline: 0;
+}
+
+.page[data-page='scenarios'] .glass-panel,
+.page[data-page='scenarios'] .compare,
+.page[data-page='scenarios'] .rail-card,
+.page[data-page='scenarios'] .stress-rail,
+.page[data-page='scenarios'] .cashflow {
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow);
+  backdrop-filter: none;
+}
+
+.page[data-page='scenarios'] .page-title,
+.page[data-page='scenarios'] .numeral,
+.page[data-page='scenarios'] .scol__name,
+.page[data-page='scenarios'] .scol__prob,
+.page[data-page='scenarios'] .cell__num,
+.page[data-page='scenarios'] .focus__name,
+.page[data-page='scenarios'] .hero__numeral,
+.page[data-page='scenarios'] .hero__median,
+.page[data-page='scenarios'] .assum__value,
+.page[data-page='scenarios'] .rail-card__prob,
+.page[data-page='scenarios'] .rail-card__median,
+.page[data-page='scenarios'] .stress-rail__year,
+.page[data-page='scenarios'] .cf-stat__value,
+.page[data-page='scenarios'] .cf-row__year,
+.page[data-page='scenarios'] .cf-cell {
+  font-family: var(--font-sans);
+}
+
+.page[data-page='scenarios'] .cash-chip.is-on {
+  background: var(--raised);
+  border-color: var(--rule);
+  box-shadow: none;
+}
+
+.page[data-page='scenarios'] .cash-chip.is-on .cash-chip__label { color: var(--ink); }
+#scn-cash-toggle.is-on .switch__knob { background: var(--ink); }
+.page[data-page='scenarios'] .cash-chip.is-on .switch { background: rgba(184, 173, 146, .18); }
+
+.page[data-page='scenarios'] .cf-summary__id .ring {
+  background: conic-gradient(var(--ink) 0 99.5%, rgba(184, 173, 146, .14) 0);
+  width: 104px;
+  height: 104px;
+}
+
+.page[data-page='scenarios'] .cf-summary__id .ring::after { width: 94px; height: 94px; }
+.page[data-page='scenarios'] .cf-summary__id .ring > * { color: var(--ink); font-size: 19px; font-weight: 500; }
+
+/* Withdrawal Planner. */
+.page[data-page='tax-buckets'] {
+  min-height: calc(100vh - 68px);
+  padding: 0;
+  background: var(--page);
+  color: var(--body);
+}
+
+.page[data-page='tax-buckets'] #tax-buckets-view { height: auto; }
+
+.page[data-page='tax-buckets'] .taw-root {
+  display: block;
+  max-width: none;
+  height: auto;
+  padding: 34px 24px 80px;
+}
+
+.page[data-page='tax-buckets'] .taw-page-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 24px;
+}
+
+.page[data-page='tax-buckets'] .taw-page-head h1 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 36px;
+  font-weight: 300;
+  letter-spacing: -.014em;
+  line-height: 1;
+}
+
+.page[data-page='tax-buckets'] .taw-page-head p {
+  margin: 10px 0 0;
+  color: var(--tertiary);
+  font-size: 13px;
+}
+
+.page[data-page='tax-buckets'] .taw-plan-context {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 16px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-control);
+  color: var(--body);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.page[data-page='tax-buckets'] .taw-card { background: var(--panel); border-color: var(--line); border-radius: var(--radius-panel); box-shadow: var(--shadow); }
+.page[data-page='tax-buckets'] .taw-card--inputs {
+  padding: 26px 28px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+.page[data-page='tax-buckets'] .taw-income-heading { color: var(--body); }
+.page[data-page='tax-buckets'] .taw-income-total > span:last-child { color: var(--ink); font-size: 16px; font-weight: 400; text-shadow: 0 0 12px rgba(184, 173, 146, .09); }
+
+/* Sequencing. */
+.page[data-page='sequencing'] {
+  --seq-panel: var(--panel);
+  --seq-card: var(--panel);
+  background: var(--page);
+  color: var(--body);
+  padding: 24px 24px 80px;
+}
+
+.page[data-page='sequencing'] .seq-chart,
+.page[data-page='sequencing'] .seq-print,
+.page[data-page='sequencing'] .seq-card {
+  background: var(--panel);
+  border-color: var(--line);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow);
+}
+
+.page[data-page='sequencing'] .seq-print .pr-v,
+.page[data-page='sequencing'] .chart-title { color: var(--ink); font-family: var(--font-sans); }
+
+@media (max-width: 1279px) {
+  .app-header {
+    flex-wrap: nowrap;
+    height: 68px;
+    min-height: 68px;
+    gap: 24px;
+    padding-inline: 24px;
+  }
+  .app-header .hdr__bar { margin-right: 0; padding-right: 0; }
+  .app-header .hdr__right { min-width: 0; overflow: hidden; }
+  .app-header .cluster { width: 100%; min-width: 0; gap: 12px; }
+  .app-header .cluster__stat { flex: 1 1 auto; min-width: 0; }
+  .app-header .cluster__run { flex: 0 0 auto; }
+  .app-header .hdr__tabs {
+    order: 0;
+    gap: 16px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .app-header .hdr__tabs::-webkit-scrollbar { display: none; }
+  .gh-page { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+
+  .page[data-page='tax-buckets'] .taw-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 24px;
+  }
+
+  .page[data-page='tax-buckets'] .taw-left,
+  .page[data-page='tax-buckets'] .taw-card--thresholds {
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+  }
+
+  .page[data-page='tax-buckets'] .taw-card--inputs { min-height: 0; }
+  .page[data-page='tax-buckets'] .taw-sliders { min-height: 0; overflow: visible; }
+  .page[data-page='tax-buckets'] .taw-card--thresholds { min-height: 535px; }
+
+  .page[data-page='sequencing'] .seq-prints { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 760px) {
+  .app-header {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    grid-template-rows: 58px 44px;
+    gap: 0;
+    min-height: 102px;
+    padding: 0 16px;
+  }
+
+  .app-header .hdr__logo { grid-column: 1; grid-row: 1; height: 54px; }
+  .app-header .hdr__bar { display: contents; }
+  .app-header .hdr__right { grid-column: 2; grid-row: 1; justify-self: end; }
+  .app-header .hdr__tabs {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    width: 100%;
+    height: 44px;
+    border-top: 1px solid var(--rule-f);
+  }
+  .app-header .htab { height: 44px; font-size: 11px; letter-spacing: .10em; }
+  .app-header .cluster__stat { display: none; }
+  .app-header .cluster__run { min-width: auto; padding-inline: 8px; }
+
+  .page[data-page='household'] .hh-stage { display: block; overflow-y: auto; }
+  .page[data-page='household'] .hh-sidebar { border-right: 0; border-bottom: 1px solid var(--rule); }
+  .gh-page { padding-inline: 16px; }
+  .page[data-page='scenarios'] .toolbar,
+  .page[data-page='scenarios'] .toolbar__left,
+  .page[data-page='scenarios'] .toolbar__actions { align-items: stretch; flex-wrap: wrap; gap: 12px; }
+  .page[data-page='scenarios'] .toolbar__actions { width: 100%; margin-left: 0; }
+  .page[data-page='tax-buckets'] .taw-page-head {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .page[data-page='tax-buckets'] .taw-cols {
+    flex-wrap: nowrap;
+    gap: 12px;
+  }
+  .page[data-page='tax-buckets'] .taw-col { min-width: 0; }
+  .page[data-page='sequencing'] .seq-prints { grid-template-columns: 1fr; }
+}

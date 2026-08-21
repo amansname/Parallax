@@ -1371,7 +1371,8 @@ async function verifyNetWorthFlow(page){
       `[data-hh-action="net-worth-open-category"][data-category-id="${id}"] .nw-tile-copy > span`,
     );
     return {
-      rail: readOne('.nw-rail > strong'),
+      entryFooterCount: document.querySelectorAll('.nw-entry-footer').length,
+      legacyRailCount: document.querySelectorAll('.nw-rail').length,
       mobile: readOne('.nw-mobile-total > strong'),
       categories: Object.fromEntries(
         ['bank', 'investment', 'property', 'insurance', 'card', 'mortgage', 'loan']
@@ -1380,8 +1381,8 @@ async function verifyNetWorthFlow(page){
     };
   });
   requireCondition(
-    entryTotals.rail.count === 1
-      && entryTotals.rail.text === '$758,000'
+    entryTotals.entryFooterCount === 1
+      && entryTotals.legacyRailCount === 0
       && entryTotals.mobile.count === 1
       && entryTotals.mobile.text === '$758,000'
       && JSON.stringify(entryTotals.categories) === JSON.stringify({
@@ -1471,7 +1472,7 @@ async function verifyNetWorthFlow(page){
   await clickWizardAction(page, '[data-net-worth-overlay] .nw-panel-close');
   await clickWizardAction(
     page,
-    '.nw-rail [data-hh-action="net-worth-show-summary"]',
+    '.nw-entry-footer [data-hh-action="net-worth-show-summary"]',
   );
   const summary = await page.evaluate(() => {
     const hero = document.querySelectorAll('.nw-summary-hero');
@@ -1553,9 +1554,12 @@ async function verifyPlanningSourceAndTaxFlow(page){
       magiFields: rows.map(row => row.querySelector(
         '[data-tax-field$=".magi"]',
       )?.dataset.taxField || ''),
-      filingFields: rows.map(row => row.querySelector(
+      filingFields: rows.filter(row => row.querySelector(
         '[data-tax-field$=".filingStatus"]',
-      )?.dataset.taxField || ''),
+      )).length,
+      summaryBoxes: document.querySelectorAll(
+        '[data-hh-wizard-screen="tax"] [data-tax-summary-box]',
+      ).length,
       outputCopy: /Current tier|Next tier|To next tier|Premium year/i.test(
         section?.textContent || '',
       ),
@@ -1568,10 +1572,8 @@ async function verifyPlanningSourceAndTaxFlow(page){
         'irmaa.lookback.2024.magi',
         'irmaa.lookback.2025.magi',
       ])
-      && JSON.stringify(irmaaInputs.filingFields) === JSON.stringify([
-        'irmaa.lookback.2024.filingStatus',
-        'irmaa.lookback.2025.filingStatus',
-      ])
+      && irmaaInputs.filingFields === 0
+      && irmaaInputs.summaryBoxes === 5
       && !irmaaInputs.outputCopy,
     `Tax IRMAA lookback is not input-only: ${JSON.stringify(irmaaInputs)}`,
   );
@@ -1921,7 +1923,7 @@ async function assertViewport(page, viewport, step, outDir, filename){
     const sidebar = document.querySelector('.hh-sidebar');
     const footer = document.querySelector('[data-hh-wizard-footer]');
     const netWorthNavigation = [...document.querySelectorAll(
-      '.nw-rail-actions, .nw-mobile-footer, .nw-summary-footer',
+      '.nw-entry-footer, .nw-summary-footer',
     )];
     const nav = document.querySelector(
       '[data-hh-wizard-nav][aria-current="step"]',

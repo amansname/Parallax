@@ -292,6 +292,62 @@ final result: passed
 
 ---
 
+# Graphite & Aubergine Refinement — Owner Corrections Design QA
+
+## Comparison target
+
+- Source visual truth:
+  - `C:\Users\amans\AppData\Local\Temp\codex-clipboard-8a80a37d-ec2a-4fbb-8d70-750a3eb5000f.png` — Goals editor timing-pill clipping.
+  - `C:\Users\amans\AppData\Local\Temp\codex-clipboard-d079b80f-4eba-4d9e-a89a-d7deebd459ef.png` — Net Worth side panel to remove.
+  - `C:\Users\amans\AppData\Local\Temp\codex-clipboard-34fb2afb-a29b-4a57-91ff-5c26b8361483.png` — redundant IRMAA filing-status controls.
+  - `C:\Users\amans\AppData\Local\Temp\codex-clipboard-44fedb38-96be-4898-846d-8d6851205347.png` — Tax summary and IRMAA layout before stacking.
+- Browser-rendered implementation:
+  - `C:\Users\amans\AppData\Local\Temp\pr197-goal-editor-760x900.png`.
+  - `verify-out/wizard-net-worth-desktop.png`.
+  - `verify-out/wizard-tax-desktop.png`.
+- Viewports: Goals editor at 760 x 900 CSS pixels; Household captures at 1440 x 900 CSS pixels.
+- States: open recurring-goal editor; Net Worth wizard step; Tax wizard step with manual two-year IRMAA lookback.
+
+## Full-view comparison evidence
+
+- The Goals rail preserves the approved fixed editor structure while allowing each timing preset to use its complete text width. At the 760px responsive viewport, all four timing controls are fully visible and the editor remains usable without horizontal clipping.
+- Net Worth now uses the full wizard content width. The redundant right-side summary panel is absent; the established Back/Continue footer remains the only step-navigation surface.
+- Tax presents five compact stacked rows in this order: Tax year, Filing status, Deduction method, first IRMAA year/MAGI, second IRMAA year/MAGI. The two redundant per-year filing-status bars are absent.
+- The shared Graphite & Aubergine field, card, button, selector, chip, modal, rail, and wizard surfaces use restrained 5px, 6px, or 8px radii rather than square corners or oversized capsules.
+
+## Focused region comparison evidence
+
+- Goals timing presets were measured in the live DOM. Each control is 175 x 40 CSS pixels with identical client and scroll dimensions; `All retirement 65–90` has no horizontal or vertical overflow. All four controls use an 8px radius.
+- Net Worth browser verification asserts that the removed rail has zero matches and that exactly one wizard footer remains.
+- Tax browser verification asserts exactly five summary boxes and zero IRMAA filing-status controls.
+- The IRMAA planning adapter is covered by a focused stale-row regression: household filing status remains authoritative even when an older saved lookback row carries a different status. Withdrawal Planner continues to source filing status from the authoritative plan input.
+
+## Findings
+
+- No candidate-caused P0, P1, or P2 visual or functional mismatch remains in the five owner-requested corrections.
+- The retirement-handoff warnings supplied separately by the owner are produced by accepted current-main scenario validation for the saved household. This candidate does not modify the engine, scenario controller, retirement-entry contract, state, or Cash Flow calculation path, and it does not hide those warnings.
+- A pre-existing always-on Healthcare goal can expose missing age values when opened directly in the editor. The candidate does not alter that data contract; the issue is outside this styling/layout correction and is not concealed by the visual verification.
+
+## Comparison history
+
+1. Owner review found a clipped long timing preset, a redundant Net Worth side panel, repeated IRMAA filing-status controls, a horizontally fragmented Tax summary, and overly square surfaces.
+2. The first correction pass implemented the requested DOM and styling changes and added focused authority/layout checks.
+3. The first governed browser run passed all 751 unit tests and the new correction checks, then exposed a later Scenarios readiness race because the visual QA step left the Goals rail open.
+4. The visual check was corrected to close the rail and wait for its observable absence. The exact replacement candidate then passed the complete governed browser flow.
+5. A final live 760px inspection measured the timing controls directly and confirmed no clipped text.
+
+## Verification
+
+- Focused Goal/IRMAA/Wizard tests: 33 passed, 0 failed.
+- Focused Withdrawal Planner IRMAA tests: 3 passed, 0 failed.
+- `npm run verify`: passed, including 24/24 pretests and 751/751 unit tests plus Household, Tax, Withdrawal Planner, Goals, Scenarios, Cash Flow, Sequencing, persistence, and the new owner-correction browser assertions.
+- `git diff --check`: passed.
+- Immutable local artifact verification: passed before owner inspection on `http://127.0.0.1:8825/`.
+
+final result: passed
+
+---
+
 # Income & Tax Wizard Phase 7 Design QA
 
 ## Comparison target
