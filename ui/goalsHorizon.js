@@ -392,8 +392,9 @@ export function createGoalsHorizonController(deps){
       setTimeout(()=>{ state.flashId=null; },1500);
       return;
     }
+    if(!deps.guardMutation()) return;
     const selected=selectedRecord();
-    if(!selected || !deps.guardMutation()) return;
+    if(!selected) return;
     const {goal,index}=selected;
     prepareGoal(goal,index);
     const currentSpan=span();
@@ -450,8 +451,9 @@ export function createGoalsHorizonController(deps){
   };
 
   const inputHandler=e=>{
+    if(!deps.guardMutation()) return;
     const selected=selectedRecord();
-    if(!selected || !deps.guardMutation()) return;
+    if(!selected) return;
     const {goal,index}=selected;
     prepareGoal(goal,index);
     if(e.target.matches('.gh-name-input')){
@@ -469,8 +471,9 @@ export function createGoalsHorizonController(deps){
   const changeHandler=e=>{
     const field=e.target.dataset.field;
     if(!['once-age','start-age','end-age'].includes(field)) return;
+    if(!deps.guardMutation()) return;
     const selected=selectedRecord();
-    if(!selected || !deps.guardMutation()) return;
+    if(!selected) return;
     const {goal,index}=selected;
     prepareGoal(goal,index);
     const currentSpan=span();
@@ -509,7 +512,17 @@ export function createGoalsHorizonController(deps){
       if(!drag) return;
       const dx=event.clientX-drag.startX;
       if(!drag.dragged && Math.abs(dx)<=4) return;
-      if(!deps.guardMutation()) return;
+      let firstMove=false;
+      if(!drag.armed){
+        if(!deps.guardMutation()) return;
+        const list=goals();
+        const index=goalIndexByViewId(list,drag.id);
+        if(index<0) return;
+        drag.goal=list[index];
+        drag.index=index;
+        drag.armed=true;
+        firstMove=true;
+      }
       drag.dragged=true;
       drag.chip.classList.add('is-dragging');
       drag.goal.startsAtRetirement=false;
@@ -520,7 +533,7 @@ export function createGoalsHorizonController(deps){
       if(!drag.goal.id) prepareGoal(drag.goal,drag.index);
       drag.id=drag.goal.id;
       updateGoalGeometry(drag.goal,drag.id,drag.currentSpan);
-      if(!drag.armed){ arm(); drag.armed=true; }
+      if(firstMove) arm();
     };
     const up=()=>{
       const drag=state.drag;

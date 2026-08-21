@@ -3497,6 +3497,32 @@ try {
         afterRevision: beforeRevision,
       });
     };
+    await stableClick('.htab[data-sub-target="goals"]');
+    const demoGoal = await page.evaluate(() => {
+      const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+      const goal = (db?.demo?.goals || []).find(item => item?.system && item?.name === 'Essentials');
+      return goal ? { id: goal.id, amount: goal.amount } : null;
+    });
+    if(!demoGoal?.id) throw new Error('runtime Demo Essentials goal is unavailable');
+    await stableClick(`[data-goal-chip="${demoGoal.id}"]`);
+    await stableClick('.gh-rail [data-action="amount-plus"]');
+    await page.waitForFunction(({ goalId, originalAmount }) => {
+      const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+      const active = localStorage.getItem('parallax.activeHouseholdId');
+      const copiedGoal = (db?.[active]?.goals || []).find(goal => goal?.id === goalId);
+      const demoGoalRecord = (db?.demo?.goals || []).find(goal => goal?.id === goalId);
+      return active && active !== 'demo'
+        && copiedGoal?.amount > originalAmount
+        && demoGoalRecord?.amount === originalAmount;
+    }, { timeout: 10000 }, { goalId: demoGoal.id, originalAmount: demoGoal.amount });
+    const runtimeGoalEdit = await page.evaluate(goalId => {
+      const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+      const active = localStorage.getItem('parallax.activeHouseholdId');
+      const goal = (db?.[active]?.goals || []).find(item => item?.id === goalId);
+      return { active, amount: goal?.amount ?? null };
+    }, demoGoal.id);
+    await stableClick('.htab[data-page="household"]');
+    await waitForWizard(page, { householdId: runtimeGoalEdit.active });
     await goToWizardStep(page, 'family');
     await setFamilyField('primaryName', 'Transient Demo Edit');
     const runtimeCopy = await page.evaluate(() => {
@@ -3514,6 +3540,7 @@ try {
         || runtimeCopy.active === 'demo'
         || runtimeCopy.demo?.meta?.primaryName
         || runtimeCopy.copy?.meta?.primaryName !== 'Transient Demo Edit'
+        || runtimeCopy.copy?.goals?.find(goal => goal?.id === demoGoal.id)?.amount !== runtimeGoalEdit.amount
         || runtimeCopy.copy?.meta?.runtimeSourceHouseholdId !== 'demo'
         || runtimeCopy.optionCount !== 1){
       throw new Error(`runtime Demo edit did not create one durable copy: ${JSON.stringify(runtimeCopy)}`);
