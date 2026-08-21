@@ -83,7 +83,7 @@
 .px-field{display:flex;flex-direction:column;gap:var(--sp-2);min-width:0}
 .px-field>label,.px-field__label{font-size:var(--fs-eyebrow);font-weight:var(--fw-eyebrow);letter-spacing:var(--ls-eyebrow);text-transform:uppercase;color:var(--body);white-space:nowrap}
 .px-field__help{font-size:var(--fs-caption);color:var(--body);text-wrap:pretty}
-.px-input,.px-select{width:100%;height:var(--h-ctl);padding:0 var(--sp-3);border:var(--bw) solid var(--rule);border-radius:var(--r-ctl);background:transparent;color:var(--ink);font-family:var(--f);font-size:var(--fs-body)}
+.px-input,.px-select{field-sizing:content;width:fit-content;min-width:6ch;max-width:100%;height:var(--h-ctl);padding:0 var(--sp-3);border:var(--bw) solid var(--rule);border-radius:var(--r-ctl);background:transparent;color:var(--ink);font-family:var(--f);font-size:var(--fs-body)}
 .px-input--numeric{text-align:right;font-variant-numeric:tabular-nums}
 .px-select{appearance:none;-webkit-appearance:none;padding-right:var(--sp-6)}
 .px-input:hover,.px-select:hover{border-color:var(--line)}

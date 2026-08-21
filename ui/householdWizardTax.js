@@ -47,6 +47,15 @@ export function renderHouseholdWizardTax(ctx){
     return group.rowSourced ? group.values[field] : fallback;
   };
 
+  const amountFieldValue = value => {
+    if(value === undefined || value === null || value === '') return '';
+    const parsed = typeof value === 'number'
+      ? value
+      : Number(String(value).replace(/[\s,]/g, ''));
+    if(!Number.isFinite(parsed)) return fieldValue(value);
+    return fieldValue(parsed.toLocaleString('en-US', { maximumFractionDigits: 2 }));
+  };
+
   const groupSourceControl = groupId => {
     const group = groupState(groupId);
     if(group.rowIds.length === 0) return '';
@@ -83,7 +92,7 @@ export function renderHouseholdWizardTax(ctx){
   ) => `
     <input class="hh-tax-amount" type="text" inputmode="decimal"
       ${id ? `id="${esc(id)}"` : ''}
-      value="${fieldValue(value)}" placeholder="${placeholder}"
+      value="${amountFieldValue(value)}" placeholder="${placeholder}"
       data-hh-field="${esc(field)}" data-tax-field="${esc(field)}"
       ${signed ? 'data-signed="true"' : ''}
       ${disabled ? 'disabled aria-disabled="true"' : ''}>

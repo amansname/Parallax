@@ -43,6 +43,17 @@ select option {
   color: var(--ink);
 }
 
+/* Finalized-system contract: value controls size to their content, not the grid. */
+.page input:not([type='range']):not([type='checkbox']):not([type='radio']):not([type='hidden']),
+.page select {
+  field-sizing: content;
+  width: fit-content !important;
+  min-width: 6ch;
+  max-width: 100% !important;
+  flex-grow: 0 !important;
+  justify-self: start;
+}
+
 /* Header geometry is shared by every supplied reference. */
 .app-header {
   height: 68px; /* geometry */
@@ -311,7 +322,7 @@ select option {
   line-height: var(--lh-caption);
 }
 .page[data-page='household'] .hh-field :is(input, select),
-.page[data-page='household'] .hh-tax-amount { width: 100%; }
+.page[data-page='household'] .hh-tax-amount { max-width: 100%; }
 .page[data-page='household'] .hh-field--age output {
   display: flex;
   height: var(--h-ctl);
@@ -324,7 +335,9 @@ select option {
 }
 .page[data-page='household'] .hh-birth-date {
   display: grid;
-  grid-template-columns: 1fr auto 1fr auto 1.35fr;
+  grid-template-columns: 5.5ch auto 5.5ch auto 8ch;
+  width: max-content;
+  max-width: 100%;
   height: var(--h-ctl);
   align-items: center;
   gap: var(--sp-1);
@@ -372,6 +385,10 @@ select option {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--sp-4);
   margin: 0;
+}
+.page[data-page='household'] .hh-person-fields :is(input, select) {
+  justify-self: start;
+  text-align: left;
 }
 .page[data-page='household'] .hh-field--date { grid-column: auto; }
 .page[data-page='household'] .hh-form-section {
@@ -469,12 +486,14 @@ select option {
 /* Step 03: Tax. */
 .page[data-page='household'] .hh-tax-profile {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: max-content max-content max-content;
   gap: var(--sp-4);
-  max-width: 900px; /* geometry */
+  width: 100%;
+  max-width: none;
   margin: 0;
   padding-bottom: var(--sp-4);
   border-bottom: var(--bw) solid var(--rule);
+  justify-content: space-between;
 }
 .page[data-page='household'] .hh-tax-profile > * {
   display: flex;
@@ -486,9 +505,7 @@ select option {
 }
 .page[data-page='household'] .hh-tax-profile [data-tax-field='taxYear'],
 .page[data-page='household'] .hh-tax-profile [data-tax-field='deductionMode'] {
-  width: 100%;
-  max-width: none;
-  justify-self: stretch;
+  justify-self: start;
 }
 .page[data-page='household'] .hh-tax-static {
   display: flex;
@@ -541,7 +558,6 @@ select option {
 }
 .page[data-page='household'] .hh-irmaa-lookback-input,
 .page[data-page='household'] .hh-irmaa-lookback-row .hh-tax-amount {
-  width: 12ch;
   max-width: 100%;
   justify-self: start;
   text-align: right;
@@ -567,7 +583,7 @@ select option {
   font-family: var(--f);
   font-size: var(--fs-eyebrow);
 }
-.page[data-page='household'] .hh-tax-table { max-width: 820px; /* geometry */ }
+.page[data-page='household'] .hh-tax-table { width: 100%; max-width: none; }
 .page[data-page='household'] .hh-tax-table-head,
 .page[data-page='household'] .hh-tax-row {
   display: grid;
@@ -591,7 +607,6 @@ select option {
 .page[data-page='household'] .hh-tax-row label small,
 .page[data-page='household'] .hh-tax-source-note { color: var(--body); font-size: var(--fs-caption); }
 .page[data-page='household'] .hh-tax-row .hh-tax-amount {
-  width: 190px; /* geometry */
   justify-self: end;
   text-align: right;
   font-variant-numeric: tabular-nums;
@@ -1043,19 +1058,20 @@ select option {
 }
 .gh-money-input {
   display: flex;
+  width: fit-content;
   min-width: 0;
   height: var(--h-ctl);
   align-items: center;
   gap: var(--sp-2);
   padding: 0 var(--sp-3);
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   border: var(--bw) solid var(--rule);
   border-radius: var(--r-ctl);
   background: transparent;
 }
 .gh-money-input > span { color: var(--body); font-size: var(--fs-caption); }
 .gh-money-input .gh-amount-input {
-  width: 100%;
+  width: fit-content;
   height: auto;
   padding: 0;
   border: 0;
@@ -1270,7 +1286,7 @@ select option {
 .page[data-page='scenarios'] .cmp-lev-in:not(.cmp-lev-in--age) {
   width: 12ch;
   max-width: 100%;
-  flex: 0 0 12ch;
+  flex: 0 0 auto;
 }
 .page[data-page='scenarios'] .lever { padding: var(--sp-3) 0; }
 .page[data-page='scenarios'] .lever--head { padding: var(--sp-6) 0; }

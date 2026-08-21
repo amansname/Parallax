@@ -15,6 +15,13 @@ function hasDigits(value){
   return /\d/.test(String(value ?? ''));
 }
 
+function formatCommittedTaxAmount(control){
+  const raw = String(control.value ?? '').trim();
+  const numeric = Number(raw.replace(/[\s,]/g, ''));
+  if(!Number.isFinite(numeric)) return;
+  control.value = numeric.toLocaleString('en-US', { maximumFractionDigits: 2 });
+}
+
 function formatNetWorthCurrency(raw){
   let value = String(raw ?? '').replace(/[^0-9.]/g, '');
   const dot = value.indexOf('.');
@@ -217,6 +224,7 @@ export function bindHouseholdEditor({
 
   root.addEventListener('focusout', event => {
     const control = event.target.closest?.('.hh-tax-amount');
+    if(control) formatCommittedTaxAmount(control);
     if(!control || control.dataset.householdCommittedValue === control.value) return;
     control.dispatchEvent(new Event('change', { bubbles: true }));
   });

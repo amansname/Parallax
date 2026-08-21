@@ -32,6 +32,8 @@ test('Goals horizon renders retirement-linked goals from the effective retiremen
   assert.doesNotMatch(html, /Never mind/);
   assert.doesNotMatch(html, /gh-add-panel/);
   assert.match(html, /data-action="toggle-add"[^>]*><span>\+<\/span>Add a goal/);
+  assert.match(html, /data-goal-rail="goal_essentials"/);
+  assert.match(html, /class="gh-name-input"[^>]*value="Essentials"/);
   assert.match(html, /--gh-start:14\.706%/);
   assert.match(html, /Every year, ages 67/);
   assert.equal(goal.startAge, undefined);
@@ -100,4 +102,49 @@ test('Goals horizon resolves the live goal after a runtime household becomes a d
   assert.equal(runtimeGoal.name, 'Essentials');
   assert.equal(plan.goals[0].name, 'Updated essentials');
   assert.notEqual(plan.goals[0], runtimeGoal);
+});
+
+test('Goals horizon opens the first existing goal once and respects a later close', () => {
+  const plan = {
+    household: {
+      primary: { currentAge: 65, retirementAge: 67, planEndAge: 95 },
+    },
+    goals: [{
+      id: 'goal_essentials',
+      name: 'Essentials',
+      amount: 12_000,
+      per: 'yr',
+      cat: 'custom',
+      system: true,
+      startsAtRetirement: true,
+      endAge: 999,
+    }],
+  };
+  const handlers = {};
+  const root = {
+    innerHTML: '',
+    addEventListener(type, handler){ handlers[type] = handler; },
+    querySelector(){ return null; },
+  };
+  const controller = createGoalsHorizonController({
+    getPlan: () => plan,
+    isReadOnly: () => false,
+  });
+
+  root.innerHTML = controller.render();
+  controller.bind(root);
+  assert.match(root.innerHTML, /data-goal-rail="goal_essentials"/);
+
+  handlers.click({
+    detail: 1,
+    target: {
+      closest(selector){
+        if(selector === '[data-action]') return { dataset: { action: 'done' } };
+        return null;
+      },
+    },
+  });
+
+  assert.doesNotMatch(root.innerHTML, /data-goal-rail=/);
+  assert.doesNotMatch(controller.render(), /data-goal-rail=/);
 });

@@ -30,6 +30,13 @@ function plan(){
       },
     },
     incomeTax: {
+      irmaa: {
+        schemaVersion: 1,
+        lookbackByTaxYear: {
+          2024: { magi: 340000, filingStatus: 'marriedFilingJointly' },
+          2025: { magi: 200000, filingStatus: 'marriedFilingJointly' },
+        },
+      },
       current1040: {
         schemaVersion: 1,
         taxYear: 2026,
@@ -443,8 +450,9 @@ test('Tax edits member wages directly without source or override controls', () =
   const rowSourced = wizard({ planningWages: true }).render('tax');
   assert.match(
     rowSourced,
-    /value="125000"[\s\S]*data-tax-field="income\.wages\.client"/,
+    /value="125,000"[\s\S]*data-tax-field="income\.wages\.client"/,
   );
+  assert.doesNotMatch(rowSourced, /class="hh-tax-amount"[^>]*value="\$/);
   assert.doesNotMatch(rowSourced, /From planning income|Use current-year amount/);
   assert.doesNotMatch(rowSourced, /data-income-group="wages"/);
   assert.doesNotMatch(rowSourced, /income\.wages\.client"[\s\S]*disabled/);
@@ -462,6 +470,9 @@ test('Tax page exposes two IRMAA MAGI rows and one authoritative filing-status r
   assert.match(html, /data-irmaa-tax-year="2025"/);
   assert.match(html, /data-tax-field="irmaa\.lookback\.2024\.magi"/);
   assert.match(html, /data-tax-field="irmaa\.lookback\.2025\.magi"/);
+  assert.match(html, /value="340,000"[^>]*data-tax-field="irmaa\.lookback\.2024\.magi"/);
+  assert.match(html, /value="200,000"[^>]*data-tax-field="irmaa\.lookback\.2025\.magi"/);
+  assert.doesNotMatch(html, /value="\$340,000"|value="\$200,000"/);
   assert.doesNotMatch(html, /data-tax-field="irmaa\.lookback\.\d{4}\.filingStatus"/);
   assert.equal((html.match(/>Filing status<\/span>/g) || []).length, 1);
   assert.equal((html.match(/data-tax-summary-box=/g) || []).length, 5);
