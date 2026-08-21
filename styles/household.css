@@ -1,6 +1,8 @@
 /* Production household intake.
    Scoped to the Household page; the global header remains the app-owned chrome. */
 
+@layer legacy {
+
 .page[data-page="household"] {
   --hh-bg: #090a0c;
   --hh-panel: #0d0f12;
@@ -22,9 +24,8 @@
   overflow: hidden;
   background: var(--hh-bg);
   color: var(--hh-body);
-  font-family: var(--font-sans);
+  font-family: var(--f);
 }
-
 .page[data-page="household"] *,
 .page[data-page="household"] *::before,
 .page[data-page="household"] *::after {
@@ -90,7 +91,7 @@
   margin-top: 7px;
   overflow: hidden;
   color: var(--hh-ink);
-  font: 400 20px/1.15 var(--font-serif);
+  font: 400 20px/1.15 var(--f);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -291,7 +292,7 @@
 .page[data-page="household"] .hh-screen-head h1 {
   margin: 5px 0 0;
   color: var(--hh-ink);
-  font: 400 35px/1 var(--font-serif);
+  font: 400 35px/1 var(--f);
 }
 
 .page[data-page="household"] .hh-screen-count {
@@ -313,19 +314,11 @@
 .page[data-page="household"] .hh-footer-back,
 .page[data-page="household"] .hh-footer-next,
 .page[data-page="household"] .hh-button {
-  min-height: 36px;
-  padding: 0 17px;
-  border: 1px solid var(--hh-line);
-  border-radius: 0;
-  background: transparent;
-  font-size: 12px;
-  font-weight: 600;
   cursor: pointer;
 }
 
 .page[data-page="household"] .hh-footer-back {
   justify-self: start;
-  color: var(--hh-body);
 }
 
 .page[data-page="household"] .hh-footer-back:disabled {
@@ -336,16 +329,6 @@
 .page[data-page="household"] .hh-footer-next,
 .page[data-page="household"] .hh-button--gold {
   justify-self: end;
-  min-width: 92px;
-  border-color: var(--hh-gold);
-  background: var(--hh-gold);
-  color: #17130b;
-}
-
-.page[data-page="household"] .hh-footer-next:hover,
-.page[data-page="household"] .hh-button--gold:hover {
-  border-color: var(--hh-gold-bright);
-  background: var(--hh-gold-bright);
 }
 
 .page[data-page="household"] .hh-footer-progress {
@@ -381,24 +364,6 @@
 .page[data-page="household"] .hh-tax-amount {
   width: 100%;
   min-width: 0;
-  height: 35px;
-  padding: 7px 10px;
-  border: 1px solid var(--hh-line);
-  border-radius: 0;
-  background: var(--hh-input);
-  color: var(--hh-ink);
-  outline: 0;
-}
-
-.page[data-page="household"] .hh-field input:focus,
-.page[data-page="household"] .hh-field select:focus,
-.page[data-page="household"] .hh-tax-amount:focus {
-  border-color: rgba(207, 173, 101, 0.65);
-  box-shadow: 0 0 0 1px rgba(207, 173, 101, 0.08);
-}
-
-.page[data-page="household"] input::placeholder {
-  color: #596069;
 }
 
 .page[data-page="household"] select {
@@ -432,8 +397,6 @@
 .page[data-page="household"] .hh-person-card {
   min-width: 0;
   padding: 16px;
-  border: 1px solid var(--hh-line);
-  background: rgba(255, 255, 255, 0.008);
 }
 
 .page[data-page="household"] .hh-card-head {
@@ -586,7 +549,7 @@
   padding: 0;
   background: var(--nw-bg-deep);
   color: var(--nw-ink);
-  font-family: var(--font-sans);
+  font-family: var(--f);
 }
 
 .page[data-page="household"] .nw-entry-view {
@@ -610,7 +573,7 @@
   margin: 0;
   padding-bottom: 12px;
   color: var(--nw-ink-mute);
-  font: 600 10.5px/1 var(--font-sans);
+  font: 600 10.5px/1 var(--f);
   letter-spacing: 0.18em;
   text-transform: uppercase;
 }
@@ -678,20 +641,20 @@
 .page[data-page="household"] .nw-tile-copy strong {
   display: block;
   margin-bottom: 7px;
-  font: 600 13.5px/1.2 var(--font-sans);
+  font: 600 13.5px/1.2 var(--f);
 }
 
 .page[data-page="household"] .nw-tile-copy > span {
   display: block;
   color: var(--nw-num);
-  font: 400 15px/1 var(--font-sans);
+  font: 400 15px/1 var(--f);
   font-variant-numeric: tabular-nums;
 }
 
 .page[data-page="household"] .nw-mobile-total > span {
   margin-bottom: 14px;
   color: var(--nw-ink-mute);
-  font: 500 10.5px/1 var(--font-sans);
+  font: 500 10.5px/1 var(--f);
   letter-spacing: 0.16em;
   text-transform: uppercase;
 }
@@ -701,7 +664,7 @@
   height: 40px;
   padding: 0 20px;
   border-radius: 4px;
-  font: 500 13.5px/1 var(--font-sans);
+  font: 500 13.5px/1 var(--f);
   cursor: pointer;
 }
 
@@ -771,7 +734,7 @@
   display: block;
   margin-bottom: 16px;
   color: var(--nw-ink-mute);
-  font: 500 10.5px/1 var(--font-sans);
+  font: 500 10.5px/1 var(--f);
   letter-spacing: 0.16em;
   text-transform: uppercase;
 }
@@ -779,7 +742,7 @@
 .page[data-page="household"] .nw-summary-hero > strong {
   display: block;
   color: var(--nw-num);
-  font: 400 68px/0.9 var(--font-serif);
+  font: 400 68px/0.9 var(--f);
   font-variant-numeric: tabular-nums;
 }
 
@@ -798,14 +761,14 @@
   display: block;
   margin-bottom: 10px;
   color: var(--nw-ink-mute);
-  font: 500 10.5px/1 var(--font-sans);
+  font: 500 10.5px/1 var(--f);
   letter-spacing: 0.16em;
   text-transform: uppercase;
 }
 
 .page[data-page="household"] .nw-summary-hero p b {
   color: var(--nw-num);
-  font: 400 24px/1 var(--font-serif);
+  font: 400 24px/1 var(--f);
 }
 
 .page[data-page="household"] .nw-summary-grid {
@@ -837,12 +800,12 @@
 
 .page[data-page="household"] .nw-summary-card strong {
   margin-bottom: 6px;
-  font: 600 13px/1.2 var(--font-sans);
+  font: 600 13px/1.2 var(--f);
 }
 
 .page[data-page="household"] .nw-summary-card > span {
   color: var(--nw-num);
-  font: 400 14px/1 var(--font-sans);
+  font: 400 14px/1 var(--f);
   font-variant-numeric: tabular-nums;
 }
 
@@ -897,7 +860,7 @@
 .page[data-page="household"] .nw-panel-head h2 {
   margin: 0;
   color: var(--nw-ink);
-  font: 400 24px/1 var(--font-serif);
+  font: 400 24px/1 var(--f);
 }
 
 .page[data-page="household"] .nw-panel-icon {
@@ -953,7 +916,7 @@
 .page[data-page="household"] .nw-saved-name {
   margin-bottom: 5px;
   overflow: hidden;
-  font: 500 14.5px/1.2 var(--font-sans);
+  font: 500 14.5px/1.2 var(--f);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -961,7 +924,7 @@
 .page[data-page="household"] .nw-saved-meta {
   overflow: hidden;
   color: var(--nw-ink-mute);
-  font: 400 12.5px/1 var(--font-sans);
+  font: 400 12.5px/1 var(--f);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -974,7 +937,7 @@
 }
 
 .page[data-page="household"] .nw-saved-actions > span {
-  font: 500 15px/1 var(--font-sans);
+  font: 500 15px/1 var(--f);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1014,7 +977,7 @@
   border-radius: 14px;
   background: var(--nw-accent-soft);
   color: var(--nw-accent-bright);
-  font: 600 12.5px/1 var(--font-sans);
+  font: 600 12.5px/1 var(--f);
 }
 
 .page[data-page="household"] .nw-type-selection > input {
@@ -1025,7 +988,7 @@
   border-radius: 16px;
   background: var(--nw-bg);
   color: var(--nw-ink);
-  font: 500 13px/1 var(--font-sans);
+  font: 500 13px/1 var(--f);
   outline: 0;
 }
 
@@ -1059,7 +1022,7 @@
 
 .page[data-page="household"] .nw-field > span {
   color: var(--nw-ink-mute);
-  font: 500 10px/1 var(--font-sans);
+  font: 500 10px/1 var(--f);
   letter-spacing: 0.14em;
   text-transform: uppercase;
 }
@@ -1112,7 +1075,7 @@
   border-radius: 18px;
   background: var(--nw-bg);
   color: var(--nw-ink);
-  font: 500 13px/1 var(--font-sans);
+  font: 500 13px/1 var(--f);
   cursor: pointer;
   transition: border-color 0.14s ease, background 0.14s ease;
 }
@@ -1158,7 +1121,7 @@
   border-radius: 5px;
   background: transparent;
   color: var(--nw-ink);
-  font: 500 13px/1 var(--font-sans);
+  font: 500 13px/1 var(--f);
   text-align: left;
   cursor: pointer;
 }
@@ -1372,7 +1335,7 @@
 
 .page[data-page="household"] .hh-tax-section-number {
   color: var(--hh-muted);
-  font: 400 17px/1 var(--font-serif);
+  font: 400 17px/1 var(--f);
 }
 
 .page[data-page="household"] .hh-tax-section-head h2,
@@ -1601,7 +1564,7 @@
 .page[data-page="household"] .hh-tax-readiness code {
   margin-left: 4px;
   color: var(--hh-faint);
-  font: 500 8px/1 var(--font-sans);
+  font: 500 8px/1 var(--f);
 }
 
 .page[data-page="household"] .hh-status-dot {
@@ -1653,7 +1616,7 @@
 .page[data-page="household"] .hh-summary-metric strong {
   overflow: hidden;
   color: var(--hh-ink);
-  font: 400 27px/1 var(--font-serif);
+  font: 400 27px/1 var(--f);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1781,7 +1744,7 @@
 
 .page[data-page="household"] .hh-composition-legend b {
   color: var(--hh-ink);
-  font: 400 13px/1 var(--font-serif);
+  font: 400 13px/1 var(--f);
   text-align: right;
 }
 
@@ -2045,7 +2008,7 @@
     background: linear-gradient(102deg, #eee4cf 0%, #d8c084 46%, #c6a662 72%, #dfd2b5 100%);
     background-clip: text;
     -webkit-background-clip: text;
-    font: 400 34px/0.92 var(--font-serif);
+    font: 400 34px/0.92 var(--f);
     font-variant-numeric: tabular-nums;
     letter-spacing: -0.018em;
     -webkit-text-fill-color: transparent;
@@ -2372,4 +2335,6 @@
     border-radius: 6px;
     font-size: 15px;
   }
+}
+
 }

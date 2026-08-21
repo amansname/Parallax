@@ -1,0 +1,74 @@
+/* =============================================================================
+   tokens/type.css — typography roles
+
+   STATUS: LOCKED as of the consolidation pass.
+   (The family was locked earlier; sizes, weights, line heights, letter
+   spacing and semantic roles are locked here.)
+
+   Font size alone is not a token. Every role below fixes size, weight, line
+   height, letter spacing and casing, and names what it is for.
+
+   Size ladder: 11 · 12 · 14 · 16 · 20 · 28 · 36 (+ 44 display, one hero
+   metric per screen at most).
+   ============================================================================= */
+
+:root{
+  /* eyebrow — section labels, table headers, uppercase structural labels.
+     Required information, so it takes --body, not --muted. */
+  --fs-eyebrow:11px;    /* @kind font */
+  --fw-eyebrow:600;     /* @kind font */
+  --lh-eyebrow:1.3;     /* @kind font */
+  --ls-eyebrow:.15em;   /* @kind font */
+
+  /* caption — units, annotations, tertiary labels, dense metadata */
+  --fs-caption:12px;    /* @kind font */
+  --fw-caption:400;     /* @kind font */
+  --lh-caption:1.4;     /* @kind font */
+  --ls-caption:0;       /* @kind font */
+
+  /* nav — small uppercase navigation and toggle labels */
+  --fs-nav:12px;        /* @kind font */
+  --fw-nav:500;         /* @kind font */
+  --lh-nav:1.3;         /* @kind font */
+  --ls-nav:.13em;       /* @kind font */
+
+  /* body — the standard interface size. Default for prose, ledger cells,
+     form labels, list content, helper text. */
+  --fs-body:14px;       /* @kind font */
+  --fw-body:400;        /* @kind font */
+  --lh-body:1.5;        /* @kind font */
+  --ls-body:0;          /* @kind font */
+  --fw-body-strong:500; /* @kind font */
+
+  /* emphasis — emphasised interface text and compact section headings */
+  --fs-emphasis:16px;   /* @kind font */
+  --fw-emphasis:400;    /* @kind font */
+  --lh-emphasis:1.45;   /* @kind font */
+  --ls-emphasis:0;      /* @kind font */
+
+  /* heading — component and subsection headings */
+  --fs-heading:20px;    /* @kind font */
+  --fw-heading:400;     /* @kind font */
+  --lh-heading:1.3;     /* @kind font */
+  --ls-heading:-.004em; /* @kind font */
+
+  /* value — major figures and secondary page display text */
+  --fs-value:28px;      /* @kind font */
+  --fw-value:300;       /* @kind font */
+  --lh-value:1.1;       /* @kind font */
+  --ls-value:-.014em;   /* @kind font */
+
+  /* title — page titles and primary display figures */
+  --fs-title:36px;      /* @kind font */
+  --fw-title:300;       /* @kind font */
+  --lh-title:1;         /* @kind font */
+  --ls-title:-.014em;   /* @kind font */
+
+  /* display — exceptional hero metric. A display ROLE, not an improvised
+     size: at most one per screen, and only for the screen's single most
+     important figure. */
+  --fs-display:44px;    /* @kind font */
+  --fw-display:300;     /* @kind font */
+  --lh-display:1;       /* @kind font */
+  --ls-display:-.018em; /* @kind font */
+}

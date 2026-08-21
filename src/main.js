@@ -49,6 +49,7 @@ import {
 import { createCashFlowController } from './scenarios/createCashFlowController.js';
 import { HISTORICAL_PERIODS } from './scenarios/historicalPeriods.js';
 import { investableTotal, hhAgeFromYear } from '../ui/household.js';
+import { installDesignSystemPrimitives } from '../ui/designSystemPrimitives.js';
 import {
   scenarios, sharedPaths, plansDirty, baseSnapshot,
   solverResults, solverSearching, comboResults, comboOpen, comboSearching, solverFormOpen, solving,
@@ -59,6 +60,7 @@ import {
    ║  PARALLAX V2 — UI WIRING (calls the engine above)             ║
    ╚══════════════════════════════════════════════════════════════╝ */
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+installDesignSystemPrimitives();
 /* ── Household model: pure factories + multi-household persistence ──────────
    The app boots with one current-build blank Demo Household slot. The advisor
    can explicitly select a shipped template or saved household; browser state
@@ -451,6 +453,7 @@ function syncHeaderTabs(activeTab){
   $$('.htab').forEach(t => {
     const on = t === activeTab;
     t.classList.toggle('on', on);
+    t.classList.toggle('is-active', on);
     if(on) t.setAttribute('aria-current', 'page');
     else t.removeAttribute('aria-current');
   });
@@ -2783,7 +2786,7 @@ $('#cashflow-path-mode').onchange=e=>{
       let v = Math.max(lo, Math.min(hi, Math.round(raw)));
       const curStart = (ov.startAge != null) ? ov.startAge : resolvedBase.startAge;
       if (v < curStart) v = curStart;
-      ov.endAge = v;
+      ov.endAge = Number(resolvedBase.endAge) >= 999 && v === hi ? resolvedBase.endAge : v;
     }
     // Minimize the override: drop any field that matches the base, and drop the
     // whole entry (and map) when nothing differs — keeps deltas/"same as base" honest.
@@ -2817,7 +2820,8 @@ $('#cashflow-path-mode').onchange=e=>{
   /* ---- COMPARE ----------------------------------------------------------- */
   function renderCompareView(scns, baseline) {
     return renderCompare(scns, baseline, {
-      plan, goalsExpandedState: state.goalsExpanded, esc, downTri: DOWN_TRI,
+      plan, planEndAge: resolveGoalSpan(plan).planEndAge,
+      goalsExpandedState: state.goalsExpanded, esc, downTri: DOWN_TRI,
     });
   }
 
@@ -2898,9 +2902,9 @@ $('#cashflow-path-mode').onchange=e=>{
   function syncToolbar() {
     const inCash = state.cashActive;
     const segC = $id('scn-seg-compare'), segF = $id('scn-seg-focus'), chip = $id('scn-cash-toggle');
-    if (segC) { const on = !inCash && state.view === 'compare'; segC.classList.toggle('is-active', on); segC.setAttribute('aria-selected', on ? 'true' : 'false'); }
-    if (segF) { const on = !inCash && state.view === 'focus';   segF.classList.toggle('is-active', on); segF.setAttribute('aria-selected', on ? 'true' : 'false'); }
-    if (chip) { chip.classList.toggle('is-on', inCash); chip.setAttribute('aria-checked', inCash ? 'true' : 'false'); }
+    if (segC) { const on = !inCash && state.view === 'compare'; segC.classList.toggle('is-active', on); segC.classList.toggle('is-selected', on); segC.setAttribute('aria-selected', on ? 'true' : 'false'); }
+    if (segF) { const on = !inCash && state.view === 'focus';   segF.classList.toggle('is-active', on); segF.classList.toggle('is-selected', on); segF.setAttribute('aria-selected', on ? 'true' : 'false'); }
+    if (chip) { chip.classList.toggle('is-on', inCash); chip.classList.toggle('is-selected', inCash); chip.setAttribute('aria-checked', inCash ? 'true' : 'false'); }
   }
 
   // Relocate Cash Flow's independent path selector into the active view slot.

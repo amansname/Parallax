@@ -536,3 +536,50 @@ final result: passed
 - In-app browser console: no errors or warnings.
 
 final result: passed
+
+---
+
+# Design QA â€” Graphite reference fidelity
+
+## Contract
+
+- Visual source of truth: `C:\Users\amans\OneDrive\Documents\Finalized Parallax Design System.zip`
+- Production behavior source of truth: the Parallax application at base commit `5610f4edf28f26edf4897609d372461e37500526`
+- Approved visual exception: omit large page titles when the primary navigation or Household stepper already names the page.
+- Approved copy rule: no helper, editorial, disclosure, or explanatory sentence may be introduced unless it is present in the finalized specification or explicitly approved by the owner.
+
+## Comparison evidence
+
+Same-viewport reference and implementation pairs were reviewed together from the governed local server at `127.0.0.1:8825`.
+
+| Surface | Viewport/state | Reference | Comparison |
+| --- | --- | --- | --- |
+| Household | 1279 Ã— 1600, Family | `verify-out/design-qa/reference-household-1279.png` | `verify-out/design-qa/household-1279-comparison.html` |
+| Household | 760 Ã— 1600, Family | `verify-out/design-qa/reference-household-760.png` | `verify-out/design-qa/household-760-comparison.html` |
+| Goals | 1279 Ã— 1600, Add a goal | `verify-out/design-qa/spec/uploads/1279/gl-03-goal-add.png` | `verify-out/design-qa/goals-add-1279-comparison.html` |
+| Goals | 760 Ã— 1600, Add a goal | `verify-out/design-qa/spec/uploads/760/gl-03-goal-add.png` | `verify-out/design-qa/goals-add-760-comparison.html` |
+| Scenarios | 1279 Ã— 1600, Compare | `verify-out/design-qa/spec/uploads/1279/sc-01-scenarios-compare.png` | `verify-out/design-qa/scenarios-1279-comparison.html` |
+| Withdrawal Planner | 1279 Ã— 1600, funded | `verify-out/design-qa/spec/uploads/1279/wd-01-withdrawal-funded.png` | `verify-out/design-qa/withdrawal-1279-comparison.html` |
+| Withdrawal Planner | 760 Ã— 1600, funded | `verify-out/design-qa/spec/uploads/760/wd-01-withdrawal-funded.png` | `verify-out/design-qa/withdrawal-760-comparison.html` |
+| Sequencing | 1279 Ã— 1600, mixed | `verify-out/design-qa/spec/uploads/1279/sq-01-sequencing-mixed.png` | `verify-out/design-qa/sequencing-1279-comparison.html` |
+
+## Findings and corrections
+
+- Corrected the 1279 Goals category chooser from one column to the specified two-column layout; retained the specified one-column mobile layout.
+- Corrected the 1279 Withdrawal Planner from a side-by-side composition to the specified stacked fixed-income and threshold panels.
+- Hid the mobile Goals timeline scrollbar while preserving horizontal touch/trackpad scrolling.
+- Replaced the remaining chart references to legacy visual aliases with the canonical design-system variables.
+- Confirmed all five primary pages render with no `h1` page-title duplicate.
+- Confirmed all five primary pages retain vertical document scrolling at the 760 breakpoint with no document-level horizontal overflow.
+- Confirmed the rendered Goals add flow contains no `Never mind` action or helper sentence, and the Withdrawal Planner contains no page-title, baseline badge, or introductory sentence.
+
+## Verification receipts
+
+- Focused UI tests: 37/37 passed.
+- JavaScript syntax: `src/main.js`, `ui/charts.js`, and `ui/designSystemPrimitives.js` passed `node --check`.
+- Whitespace: `git diff --check` passed.
+- Responsive DOM measurement: all five primary pages had zero `h1` elements; document `overflow-y` was `auto`; document width remained within the 760 viewport.
+
+## Final result
+
+Passed for the reviewed design and responsive states. No actionable P0, P1, or P2 visual finding remains in the compared states.

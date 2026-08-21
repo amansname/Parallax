@@ -184,6 +184,9 @@ export function renderHouseholdWizardTax(ctx){
     <div class="hh-screen hh-tax-screen" data-hh-wizard-screen="tax"
       data-tax-view="detailed" id="hh-panel-tax" role="tabpanel"
       aria-labelledby="hh-nav-tax">
+      <header class="hh-screen-intro">
+        <span class="t-eyebrow">Step 03</span>
+      </header>
       <section class="hh-tax-profile" aria-label="Tax profile">
         <label class="hh-field" data-tax-summary-box="tax-year">
           <span>Tax year</span>

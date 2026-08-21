@@ -59,11 +59,11 @@ export function axes(W,H,ageStart,ageEnd,maxBal,{ layout, fmtM, grid, axisInk })
   for(let i=0;i<=4;i++){const y=y0+(y1-y0)/4*i; g+=`<line x1="${x0}" y1="${y}" x2="${x1}" y2="${y}" stroke="${grid}"/>`;}
   // y labels (right-aligned in the left gutter)
   for(let i=0;i<=4;i++){const v=maxBal*(1-i/4); const y=y0+(y1-y0)/4*i;
-    g+=`<text x="${x0-12}" y="${y+4}" fill="${axisInk}" font-size="14" style="font-family:var(--font-sans)" text-anchor="end">${fmtM(v)}</text>`;}
+    g+=`<text x="${x0-12}" y="${y+4}" fill="${axisInk}" font-size="14" style="font-family:var(--f)" text-anchor="end">${fmtM(v)}</text>`;}
   // x age ticks
   const span=ageEnd-ageStart;
   for(let k=0;k<=5;k++){const a=Math.round(ageStart+span*k/5); const x=x0+(x1-x0)*k/5;
-    g+=`<text x="${x}" y="${H-9}" fill="${axisInk}" font-size="14" style="font-family:var(--font-sans)" text-anchor="${k===0?'start':k===5?'end':'middle'}">Age ${a}</text>`;}
+    g+=`<text x="${x}" y="${H-9}" fill="${axisInk}" font-size="14" style="font-family:var(--f)" text-anchor="${k===0?'start':k===5?'end':'middle'}">Age ${a}</text>`;}
   return g;
 }
 
@@ -79,22 +79,22 @@ export function storyChart(rows,{ layout, fmtM }){
   let g = '';
   for(const f of [0,.5,1]){
     const gy = padT + (H-padT-padB)*f;
-    g += `<line x1="${padL}" y1="${gy}" x2="${W-padR}" y2="${gy}" stroke="var(--rule-faint)"/>`;
-    g += `<text x="${padL-8}" y="${gy+4}" fill="var(--ink-faint)" font-size="14" style="font-family:var(--font-sans)" text-anchor="end">${fmtM(hi*(1-f))}</text>`;
+    g += `<line x1="${padL}" y1="${gy}" x2="${W-padR}" y2="${gy}" stroke="var(--rule-f)"/>`;
+    g += `<text x="${padL-8}" y="${gy+4}" fill="var(--muted)" font-size="14" style="font-family:var(--f)" text-anchor="end">${fmtM(hi*(1-f))}</text>`;
   }
   const y0 = y(real[0].startBalance);
-  g += `<line x1="${padL}" y1="${y0}" x2="${W-padR}" y2="${y0}" stroke="var(--ink-faint)" stroke-dasharray="3 6"/>`;
+  g += `<line x1="${padL}" y1="${y0}" x2="${W-padR}" y2="${y0}" stroke="var(--muted)" stroke-dasharray="3 6"/>`;
   const a0 = real[0].age, a1 = real[real.length-1].age;
   for(let a = Math.ceil(a0/5)*5; a <= a1; a += 5){
     const ax = x(Math.round((a-a0)/(a1-a0)*(real.length-1)));
-    g += `<text x="${ax}" y="${H-8}" fill="var(--ink-faint)" font-size="14" style="font-family:var(--font-sans)" text-anchor="middle">${a===Math.ceil(a0/5)*5?'Age '+a:a}</text>`;
+    g += `<text x="${ax}" y="${H-8}" fill="var(--muted)" font-size="14" style="font-family:var(--f)" text-anchor="middle">${a===Math.ceil(a0/5)*5?'Age '+a:a}</text>`;
   }
   const d = smoothPath(pts);
   return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Balance path">
     ${g}
-    <path d="${d} L ${pts[pts.length-1][0].toFixed(1)} ${H-padB} L ${padL} ${H-padB} Z" fill="var(--ink-bright)" fill-opacity="0.05"/>
-    <path d="${d}" fill="none" stroke="var(--accent-bright)" stroke-width="2.2"/>
-    <circle cx="${pts[pts.length-1][0].toFixed(1)}" cy="${pts[pts.length-1][1].toFixed(1)}" r="4.5" fill="var(--accent-bright)"/>
+    <path d="${d} L ${pts[pts.length-1][0].toFixed(1)} ${H-padB} L ${padL} ${H-padB} Z" fill="var(--ink)" fill-opacity="0.05"/>
+    <path d="${d}" fill="none" stroke="var(--acc)" stroke-width="2.2"/>
+    <circle cx="${pts[pts.length-1][0].toFixed(1)}" cy="${pts[pts.length-1][1].toFixed(1)}" r="4.5" fill="var(--acc)"/>
   </svg>`;
 }
 
@@ -137,12 +137,12 @@ export function seqChartSvg(runs, retAge,{ width:W, height:H, layout, fmtM, grid
     if(dep){ const k=full.findIndex((v,idx)=>idx>0 && v<=0.01); if(k>0) ei=k; }
     const col=r.m.c;
     const d=monoPath(full.slice(0,ei+1).map((v,k)=>[X(k),Y(v)]));
-    h+=`<path d="${d}" fill="none" stroke="var(--surface)" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>`;
+    h+=`<path d="${d}" fill="none" stroke="var(--panel)" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>`;
     h+=`<path d="${d}" fill="none" stroke="${col}" stroke-width="0.9" stroke-linejoin="round" stroke-linecap="round"/>`;
     ends.push({c:col, y:r.m.y, dep, px:X(ei), py:Y(full[ei])});
   });
   // Shared launch node - one plan, all markets start here, then diverge.
-  h+=`<circle cx="${X(0).toFixed(1)}" cy="${Y(entry).toFixed(1)}" r="2.2" fill="var(--surface)" stroke="${axisInk}" stroke-width="1.1"/>`;
+  h+=`<circle cx="${X(0).toFixed(1)}" cy="${Y(entry).toFixed(1)}" r="2.2" fill="var(--panel)" stroke="${axisInk}" stroke-width="1.1"/>`;
   h+=`</g>`;
   // Endpoint treatment (outside the clip so labels are never cut): a x where a
   // line runs dry, a dot where it survives - each tagged with its market year so
@@ -153,7 +153,7 @@ export function seqChartSvg(runs, retAge,{ width:W, height:H, layout, fmtM, grid
       const s=2.8;
       h+=`<path d="M ${(e.px-s).toFixed(1)} ${(e.py-s).toFixed(1)} L ${(e.px+s).toFixed(1)} ${(e.py+s).toFixed(1)} M ${(e.px-s).toFixed(1)} ${(e.py+s).toFixed(1)} L ${(e.px+s).toFixed(1)} ${(e.py-s).toFixed(1)}" stroke="${e.c}" stroke-width="1.4" stroke-linecap="round"/>`;
     } else {
-      h+=`<circle cx="${e.px.toFixed(1)}" cy="${e.py.toFixed(1)}" r="2.2" fill="${e.c}" stroke="var(--surface)" stroke-width="1.1"/>`;
+      h+=`<circle cx="${e.px.toFixed(1)}" cy="${e.py.toFixed(1)}" r="2.2" fill="${e.c}" stroke="var(--panel)" stroke-width="1.1"/>`;
     }
   });
   // No year labels on the lines - the chip row above the chart and the fingerprint

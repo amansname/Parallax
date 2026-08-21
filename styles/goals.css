@@ -1,12 +1,13 @@
-/* Goals Horizon — single presentation owner for the production Goals page. */
+/* Goals Horizon â€” single presentation owner for the production Goals page. */
+@layer legacy {
+
 .page[data-page="net-worth"]:has(.gh-page) {
   overflow-y: auto;
   color: var(--ink);
-  font-family: var(--font-sans);
+  font-family: var(--f);
   background: var(--app-page-bg);
   background-attachment: fixed;
 }
-
 .gh-page,
 .gh-page *,
 .gh-page *::before,
@@ -33,7 +34,7 @@
 .gh-title {
   margin: 0 0 38px;
   color: var(--ink-bright);
-  font: 300 44px/1 var(--font-serif);
+  font: 300 44px/1 var(--f);
   letter-spacing: .01em;
 }
 
@@ -218,7 +219,7 @@
   min-height: 120px;
   place-items: center;
   color: var(--ink-faint);
-  font: italic 15px/1.5 var(--font-serif);
+  font: italic 15px/1.5 var(--f);
   text-align: center;
 }
 
@@ -615,4 +616,6 @@
   .gh-lane--flash,
   .gh-rail,
   .gh-toast { animation: none; }
+}
+
 }

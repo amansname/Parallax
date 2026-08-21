@@ -97,6 +97,9 @@ export function renderHouseholdWizardFamily(ctx){
   return `
     <div class="hh-screen hh-family-screen" data-hh-wizard-screen="family"
       id="hh-panel-family" role="tabpanel" aria-labelledby="hh-nav-family">
+      <header class="hh-screen-intro">
+        <span class="t-eyebrow">Step 01</span>
+      </header>
       <div class="hh-family-people${hasSpouse ? '' : ' is-single'}">
         ${personCard('client', 'Client')}
         ${hasSpouse ? personCard('spouse', 'Co-client') : ''}
@@ -126,13 +129,6 @@ export function renderHouseholdWizardFamily(ctx){
               data-wizard-scope="family" data-wizard-field="state">
               ${optionList(states, plan.meta?.state || 'VA')}
             </select>
-          </label>
-          <label class="hh-field">
-            <span>Dependents</span>
-            <input type="number" min="0" max="20"
-              value="${fieldValue(plan.household?.dependentsCount ?? plan.household?.children?.length ?? 0)}"
-              data-hh-field="dependents"
-              data-wizard-scope="family" data-wizard-field="dependents">
           </label>
         </div>
       </section>

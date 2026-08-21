@@ -1,7 +1,9 @@
 /* =============================================================================
-   Sequencing — authoritative production presentation.
+   Sequencing â€” authoritative production presentation.
    Engine output and interactions remain owned by the existing view modules.
    ============================================================================= */
+
+@layer legacy {
 
 .page[data-page="sequencing"] {
   --seq-max: 1320px;
@@ -14,12 +16,11 @@
 
   overflow-y: auto;
   color: var(--ink);
-  font-family: var(--font-sans);
+  font-family: var(--f);
   font-feature-settings: 'tnum' 1;
   background: var(--app-page-bg);
   background-attachment: fixed;
 }
-
 .page[data-page="sequencing"] *,
 .page[data-page="sequencing"] *::before,
 .page[data-page="sequencing"] *::after { box-sizing: border-box; }
@@ -42,7 +43,7 @@
 .page[data-page="sequencing"] > .eyebrow {
   margin-top: 2px;
   color: var(--accent);
-  font-family: var(--font-sans);
+  font-family: var(--f);
   font-size: 12px;
   letter-spacing: .24em;
 }
@@ -87,7 +88,7 @@
   outline: 0;
   background-color: transparent;
   color: var(--ink);
-  font: 600 14px/1 var(--font-sans);
+  font: 600 14px/1 var(--f);
   cursor: pointer;
 }
 
@@ -110,7 +111,7 @@
   background: rgba(231,222,201,.012);
   color: var(--ink-faint);
   cursor: pointer;
-  font: 500 13px/1 var(--font-sans);
+  font: 500 13px/1 var(--f);
   letter-spacing: .01em;
   opacity: .48;
   transition: opacity .15s, border-color .15s, background .15s, color .15s;
@@ -160,7 +161,7 @@
 
 .page[data-page="sequencing"] .seq-chart .chart-title {
   color: var(--ink);
-  font-family: var(--font-serif);
+  font-family: var(--f);
   font-size: 20px;
   font-weight: 400;
   letter-spacing: .12em;
@@ -211,7 +212,7 @@
   align-items: flex-start;
   gap: 9px;
   color: var(--ink);
-  font: 600 12px/1.35 var(--font-sans);
+  font: 600 12px/1.35 var(--f);
   letter-spacing: .12em;
   text-transform: uppercase;
 }
@@ -240,7 +241,7 @@
 .page[data-page="sequencing"] .seq-print .pr-k { color: var(--ink-mute); }
 .page[data-page="sequencing"] .seq-print .pr-v {
   color: var(--num);
-  font-family: var(--font-serif);
+  font-family: var(--f);
   font-size: 15px;
   font-weight: 400;
   font-variant-numeric: tabular-nums;
@@ -269,4 +270,6 @@
   .page[data-page="sequencing"] .seq-chart .chart-head { flex-wrap: wrap; }
   .page[data-page="sequencing"] .seq-chart .chart-body { min-height: 320px; }
   .page[data-page="sequencing"] .seq-prints { grid-template-columns: 1fr; }
+}
+
 }

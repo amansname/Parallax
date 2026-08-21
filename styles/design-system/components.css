@@ -1,0 +1,163 @@
+/* =============================================================================
+   components.css — canonical primitives
+
+   Six primitives, each with documented variants and the full state set
+   (default / hover / focus-visible / pressed / selected / disabled / error /
+   loading, where each applies). The same semantic component uses the same
+   tokens and geometry on every screen.
+
+   Nothing here invents a value: every dimension comes from tokens/scale.css,
+   every colour from tokens/graphite-aubergine.css, every text role from
+   tokens/type.css.
+   ============================================================================= */
+
+/* ── type roles ─────────────────────────────────────────────────────────── */
+.t-eyebrow{font-size:var(--fs-eyebrow);font-weight:var(--fw-eyebrow);line-height:var(--lh-eyebrow);letter-spacing:var(--ls-eyebrow);text-transform:uppercase;color:var(--body)}
+.t-caption{font-size:var(--fs-caption);font-weight:var(--fw-caption);line-height:var(--lh-caption);letter-spacing:var(--ls-caption);color:var(--body)}
+.t-nav{font-size:var(--fs-nav);font-weight:var(--fw-nav);line-height:var(--lh-nav);letter-spacing:var(--ls-nav);text-transform:uppercase}
+.t-body{font-size:var(--fs-body);font-weight:var(--fw-body);line-height:var(--lh-body);letter-spacing:var(--ls-body);color:var(--body)}
+.t-emphasis{font-size:var(--fs-emphasis);font-weight:var(--fw-emphasis);line-height:var(--lh-emphasis);color:var(--ink)}
+.t-heading{font-size:var(--fs-heading);font-weight:var(--fw-heading);line-height:var(--lh-heading);letter-spacing:var(--ls-heading);color:var(--ink)}
+.t-value{font-size:var(--fs-value);font-weight:var(--fw-value);line-height:var(--lh-value);letter-spacing:var(--ls-value);color:var(--ink);font-variant-numeric:tabular-nums}
+.t-title{font-size:var(--fs-title);font-weight:var(--fw-title);line-height:var(--lh-title);letter-spacing:var(--ls-title);color:var(--ink)}
+.t-display{font-size:var(--fs-display);font-weight:var(--fw-display);line-height:var(--lh-display);letter-spacing:var(--ls-display);color:var(--ink);font-variant-numeric:tabular-nums}
+
+/* ── focus: one indication for the whole system ─────────────────────────
+   Drawn as an outline so it never shifts layout. This is the only place a
+   2px border weight is permitted. */
+:where(a,button,input,select,textarea,[tabindex]):focus-visible{outline:var(--bw-focus) solid var(--acc);outline-offset:var(--focus-offset);border-radius:var(--r-chip)}
+
+/* ── 1 · BUTTON ─────────────────────────────────────────────────────────
+   variants: primary · secondary · ghost · destructive · icon
+   sizes:    compact (32) · default (36) · prominent (40) */
+.px-btn{display:inline-flex;align-items:center;justify-content:center;gap:var(--sp-2);height:var(--h-ctl);padding:0 var(--sp-4);border:var(--bw) solid var(--rule);border-radius:var(--r-ctl);background:transparent;color:var(--body);font-family:var(--f);font-size:var(--fs-body);font-weight:var(--fw-body);line-height:1;white-space:nowrap;cursor:pointer;transition:background 140ms,border-color 140ms,color 140ms}
+.px-btn:hover{border-color:var(--line);background:var(--sel);color:var(--ink)}
+.px-btn:active{background:var(--raised)}
+.px-btn--compact{height:var(--h-compact);padding:0 var(--sp-3);font-size:var(--fs-caption)}
+.px-btn--prominent{height:var(--h-prominent);padding:0 var(--sp-6)}
+.px-btn--primary{border-color:var(--acc-hair);background:var(--acc-tint);color:var(--acc);font-weight:var(--fw-body-strong)}
+.px-btn--primary:hover{border-color:var(--acc-edge);background:var(--acc-tint-2);color:var(--acc)}
+.px-btn--primary:active{background:var(--acc-hair)}
+.px-btn--ghost{border-color:transparent;background:none;color:var(--body)}
+.px-btn--ghost:hover{border-color:transparent;background:var(--sel);color:var(--ink)}
+.px-btn--destructive{border-color:transparent;background:none;color:var(--neg)}
+.px-btn--destructive:hover{border-color:transparent;background:var(--neg-tint);color:var(--neg)}
+.px-btn--destructive:active{background:var(--neg-deep)}
+.px-btn--icon{width:var(--h-ctl);padding:0;border-radius:var(--r-ctl)}
+.px-btn--icon.px-btn--compact{width:var(--h-compact)}
+.px-btn[disabled],.px-btn.is-disabled{border-color:var(--rule-f);background:none;color:var(--disabled);cursor:not-allowed}
+.px-btn.is-loading{color:transparent;pointer-events:none;position:relative}
+.px-btn.is-loading::after{content:"";position:absolute;inset:0;margin:auto;width:14px;height:14px;border:var(--bw) solid var(--rule);border-top-color:var(--acc);border-radius:var(--r-pill);animation:px-spin 700ms linear infinite}
+@keyframes px-spin{to{transform:rotate(360deg)}}
+
+/* ── 2 · CHIP ───────────────────────────────────────────────────────────
+   variants: neutral · positive · negative · edited · removable
+   A chip reports state. It takes the pill radius only when it is a true
+   capsule filter or selector; inline data tags use --r-chip. */
+.px-chip{display:inline-flex;align-items:center;gap:var(--sp-2);height:var(--h-compact);padding:0 var(--sp-3);border:var(--bw) solid var(--rule);border-radius:var(--r-chip);background:transparent;color:var(--body);font-family:var(--f);font-size:var(--fs-caption);line-height:1;white-space:nowrap;cursor:default}
+.px-chip--pill{border-radius:var(--r-pill);padding:0 var(--sp-4);height:var(--h-ctl);font-size:var(--fs-body);cursor:pointer}
+.px-chip--pill:hover{border-color:var(--line);color:var(--ink)}
+.px-chip.is-selected{background:var(--sel);border-color:var(--acc-hair);color:var(--ink)}
+.px-chip--positive{border-color:transparent;background:var(--pos-bg);color:var(--pos)}
+.px-chip--negative{border-color:transparent;background:var(--neg-bg);color:var(--neg)}
+.px-chip--edited{border-color:transparent;background:var(--acc-tint);box-shadow:inset 0 0 0 var(--bw) var(--acc-hair);color:var(--acc)}
+.px-chip--removable{padding-right:var(--sp-2)}
+.px-chip__x{display:grid;place-items:center;width:16px;height:16px;border:0;border-radius:var(--r-pill);background:none;color:var(--muted);cursor:pointer}
+.px-chip__x:hover{color:var(--neg)}
+.px-chip[disabled],.px-chip.is-disabled{border-color:var(--rule-f);color:var(--disabled)}
+.px-chip__dot{width:7px;height:7px;flex:0 0 auto;border-radius:var(--r-pill)}
+
+/* ── 3 · SEGMENTED CONTROL ──────────────────────────────────────────────
+   variants: standard · compact
+   Exactly one option selected. Bronze marks the selection, never the frame. */
+.px-seg{display:inline-flex;border:var(--bw) solid var(--rule);border-radius:var(--r-ctl);overflow:hidden}
+.px-seg>button{height:var(--h-ctl);padding:0 var(--sp-4);border:0;background:none;color:var(--body);font-family:var(--f);font-size:var(--fs-body);line-height:1;white-space:nowrap;cursor:pointer}
+.px-seg>button:hover{color:var(--ink);background:var(--sel)}
+.px-seg>button[aria-pressed="true"],.px-seg>button.is-selected{background:var(--sel);color:var(--ink);box-shadow:inset 0 0 0 var(--bw) var(--acc-hair)}
+.px-seg>button[disabled]{color:var(--disabled);cursor:not-allowed}
+.px-seg--compact>button{height:var(--h-compact);padding:0 var(--sp-3);font-size:var(--fs-caption)}
+
+/* ── 4 · FORM CONTROL ───────────────────────────────────────────────────
+   variants: text · numeric · select · stepper · switch
+   The label is part of the control: required labels take --body. */
+.px-field{display:flex;flex-direction:column;gap:var(--sp-2);min-width:0}
+.px-field>label,.px-field__label{font-size:var(--fs-eyebrow);font-weight:var(--fw-eyebrow);letter-spacing:var(--ls-eyebrow);text-transform:uppercase;color:var(--body);white-space:nowrap}
+.px-field__help{font-size:var(--fs-caption);color:var(--body);text-wrap:pretty}
+.px-input,.px-select{width:100%;height:var(--h-ctl);padding:0 var(--sp-3);border:var(--bw) solid var(--rule);border-radius:var(--r-ctl);background:transparent;color:var(--ink);font-family:var(--f);font-size:var(--fs-body)}
+.px-input--numeric{text-align:right;font-variant-numeric:tabular-nums}
+.px-select{appearance:none;-webkit-appearance:none;padding-right:var(--sp-6)}
+.px-input:hover,.px-select:hover{border-color:var(--line)}
+.px-input:focus,.px-select:focus{outline:0;border-color:var(--acc)}
+.px-input::placeholder{color:var(--muted)}
+.px-input[disabled],.px-select[disabled]{border-color:var(--rule-f);color:var(--disabled);cursor:not-allowed}
+.px-input.is-error,.px-select.is-error{border-color:var(--neg)}
+.px-field__error{display:flex;align-items:center;gap:var(--sp-2);font-size:var(--fs-caption);color:var(--neg)}
+.px-input--inline{height:auto;padding:2px var(--sp-2);border:0;border-bottom:var(--bw) solid var(--rule);border-radius:0;text-align:right;font-size:var(--fs-heading);font-weight:var(--fw-heading);font-variant-numeric:tabular-nums}
+.px-input--inline:hover{border-bottom-color:var(--line)}
+.px-input--inline:focus{border-bottom-color:var(--acc);background:var(--acc-tint)}
+.px-stepper{display:inline-flex;align-items:center;gap:var(--sp-3)}
+.px-stepper>button,.px-stepper-btn{display:grid;place-items:center;width:var(--h-compact);height:var(--h-compact);border:var(--bw) solid var(--rule);border-radius:var(--r-chip);background:transparent;color:var(--body);font-family:var(--f);font-size:var(--fs-emphasis);line-height:1;cursor:pointer;flex:0 0 auto}
+.px-stepper>button:hover,.px-stepper-btn:hover{border-color:var(--acc-hair);color:var(--acc)}
+.px-stepper>button[disabled],.px-stepper-btn[disabled]{border-color:var(--rule-f);color:var(--disabled);cursor:not-allowed}
+.px-switch{width:34px;height:18px;flex:0 0 auto;border-radius:var(--r-pill);background:rgba(58,57,53,.9);position:relative;display:block}
+.px-switch__knob{position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:var(--r-pill);background:var(--body);transition:left 160ms,background 160ms}
+.is-on>.px-switch,.px-switch.is-on{background:var(--acc-hair)}
+.is-on>.px-switch>.px-switch__knob,.px-switch.is-on>.px-switch__knob{left:18px;background:var(--acc)}
+
+/* ── 5 · PANEL ──────────────────────────────────────────────────────────
+   variants: major · raised · inset (inset only when functionally necessary)
+   Separation comes from spacing, alignment and hairlines. Avoid rectangles
+   inside rectangles. */
+.px-panel{background:var(--panel);border:var(--bw) solid var(--line);border-radius:var(--r-panel);box-shadow:var(--elev-panel)}
+.px-panel--raised{background:var(--raised);box-shadow:none}
+.px-panel--inset{background:var(--panel);border-color:var(--line);box-shadow:none}
+
+/* ── 6 · NAVIGATION ITEM ────────────────────────────────────────────────
+   states: default · hover · active. The 1px bronze underline is the only
+   active marker; the label itself never changes weight. */
+.px-nav{position:relative;display:flex;align-items:center;height:100%;padding:0 2px;border:0;background:none;color:var(--body);font-family:var(--f);font-size:var(--fs-nav);font-weight:var(--fw-nav);letter-spacing:var(--ls-nav);text-transform:uppercase;white-space:nowrap;cursor:pointer}
+.px-nav:hover{color:var(--ink)}
+.px-nav.is-active{color:var(--ink)}
+.px-nav.is-active::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:var(--bw);background:var(--acc)}
+
+/* ── state patterns ─────────────────────────────────────────────────────
+   Reusable across screens rather than redrawn per screen. */
+.px-empty{display:flex;flex-direction:column;align-items:flex-start;gap:var(--sp-3);padding:var(--sp-8);border:var(--bw) dashed var(--rule);border-radius:var(--r-panel);color:var(--body)}
+.px-empty__title{font-size:var(--fs-emphasis);color:var(--ink)}
+.px-empty__body{font-size:var(--fs-body);color:var(--body);text-wrap:pretty}
+.px-calc{display:inline-flex;align-items:center;gap:var(--sp-2);font-size:var(--fs-caption);color:var(--body)}
+.px-calc__pip{width:7px;height:7px;border-radius:var(--r-pill);background:var(--acc);animation:px-pulse 1100ms ease-in-out infinite}
+@keyframes px-pulse{0%,100%{opacity:.3}50%{opacity:1}}
+.px-skeleton{border-radius:var(--r-chip);background:linear-gradient(90deg,var(--raised),var(--sel),var(--raised));background-size:200% 100%;animation:px-sheen 1400ms linear infinite}
+@keyframes px-sheen{to{background-position:-200% 0}}
+.px-banner{display:flex;align-items:flex-start;gap:var(--sp-3);padding:var(--sp-3) var(--sp-4);border-radius:var(--r-ctl);font-size:var(--fs-body);text-wrap:pretty}
+.px-banner--error{background:var(--neg-deep);box-shadow:inset 0 0 0 var(--bw) rgba(168,128,126,.34);color:var(--neg)}
+.px-banner--needs{background:var(--raised);box-shadow:inset 0 0 0 var(--bw) var(--rule);color:var(--body)}
+.px-banner--blocked{background:var(--raised);box-shadow:inset 0 0 0 var(--bw) var(--acc-hair);color:var(--body)}
+.px-banner__dot{width:7px;height:7px;flex:0 0 auto;margin-top:6px;border-radius:var(--r-pill)}
+.px-readiness{display:inline-flex;align-items:center;gap:var(--sp-2);font-size:var(--fs-body);color:var(--body)}
+.px-readiness__dot{width:7px;height:7px;border-radius:var(--r-pill);background:var(--pos)}
+.px-readiness--needs .px-readiness__dot{background:var(--muted)}
+.px-readiness--error .px-readiness__dot{background:var(--neg)}
+.is-shortfall{color:var(--neg)}
+.is-ran-dry{background:var(--neg-deep)}
+.is-ran-dry .px-cell,.is-ran-dry td{color:var(--neg)}
+
+/* ── static state classes — specimens only ──────────────────────────────
+   The states above are pseudo-classes and cannot be photographed. These
+   mirror them so the state matrix can be rendered on a specimen page.
+   Product code uses the pseudo-classes, never these. */
+.px-btn.is-hover{border-color:var(--line);background:var(--sel);color:var(--ink)}
+.px-btn--primary.is-hover{border-color:var(--acc-edge);background:var(--acc-tint-2);color:var(--acc)}
+.px-btn--ghost.is-hover{border-color:transparent;background:var(--sel);color:var(--ink)}
+.px-btn--destructive.is-hover{border-color:transparent;background:var(--neg-tint);color:var(--neg)}
+.px-btn.is-pressed{background:var(--raised)}
+.px-btn--primary.is-pressed{background:var(--acc-hair)}
+.px-btn--destructive.is-pressed{background:var(--neg-deep)}
+.px-chip--pill.is-hover{border-color:var(--line);color:var(--ink)}
+.px-seg>button.is-hover{background:var(--sel);color:var(--ink)}
+.px-input.is-hover,.px-select.is-hover{border-color:var(--line)}
+.px-input.is-focused,.px-select.is-focused{border-color:var(--acc)}
+.px-stepper-btn.is-hover{border-color:var(--acc-hair);color:var(--acc)}
+.px-nav.is-hover{color:var(--ink)}
+.is-focus{outline:var(--bw-focus) solid var(--acc);outline-offset:var(--focus-offset);border-radius:var(--r-ctl)}

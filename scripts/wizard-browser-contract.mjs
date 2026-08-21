@@ -1579,7 +1579,7 @@ async function verifyPlanningSourceAndTaxFlow(page){
         && frame.radius === '0px')
       && irmaaInputs.controlWidths.length === 4
       && irmaaInputs.controlWidths.slice(0, 2).every(width => width >= 180 && width <= 320)
-      && irmaaInputs.controlWidths.slice(2).every(width => width >= 320 && width <= 560)
+      && irmaaInputs.controlWidths.slice(2).every(width => width >= 80 && width <= 120)
       && Math.abs(irmaaInputs.controlWidths[0] - irmaaInputs.controlWidths[1]) <= 1
       && Math.abs(irmaaInputs.controlWidths[2] - irmaaInputs.controlWidths[3]) <= 1
       && !irmaaInputs.outputCopy,

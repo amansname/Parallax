@@ -64,9 +64,44 @@ test('Compare discloses pre-retirement funding for the base row and every plan',
   }));
 
   const html = renderCompare(scenarios, scenarios[0], {
-    plan: {}, goalsExpandedState: true, esc, downTri: '',
+    plan: {}, planEndAge: 95, goalsExpandedState: true, esc, downTri: '',
   });
 
   assert.equal((html.match(/portfolio funded before retirement/g) || []).length, 3);
   assert.match(html, /base: age 64[^<]*portfolio funded before retirement/);
+});
+
+test('Compare presents the through-plan-end sentinel as the actual plan-end age', () => {
+  const goal = {
+    idx: 0,
+    name: 'Healthcare',
+    amount: 5_500,
+    startAge: 65,
+    endAge: 999,
+    once: false,
+    on: true,
+    overridden: false,
+    sameAsBase: true,
+    amountDelta: 0,
+    fundingNote: '',
+  };
+  const scenario = {
+    id: 'baseline',
+    name: 'Baseline',
+    isBaseline: true,
+    prob: 80,
+    probStr: '80.0',
+    tone: '#8fa57e',
+    median: '$0',
+    levers: [],
+    goals: [{ ...goal }],
+  };
+
+  const html = renderCompare([scenario], scenario, {
+    plan: {}, planEndAge: 95, goalsExpandedState: true, esc, downTri: '',
+  });
+
+  assert.doesNotMatch(html, /999/);
+  assert.match(html, /base: age 65[^<]*95/);
+  assert.match(html, /data-goal-field="endAge" value="95"/);
 });

@@ -466,7 +466,7 @@ try {
       const headerBar = document.querySelector('.app-header .hdr__bar');
       const themeLinks = [...document.querySelectorAll('link[rel="stylesheet"]')]
         .map(link => link.getAttribute('href'))
-        .filter(href => href?.startsWith('styles/graphite-aubergine.css'));
+        .filter(href => href?.startsWith('styles/parallax-layout.css'));
       const navLabels = [...document.querySelectorAll('.app-header .htab')]
         .map(button => button.textContent.trim());
       return {
@@ -478,7 +478,7 @@ try {
         headerBars: headerBar ? document.querySelectorAll('.app-header .hdr__bar').length : 0,
         navLabels,
         themeLinks,
-        expectedThemeLink: `styles/graphite-aubergine.css?v=${expectedArtifactId}`,
+        expectedThemeLink: `styles/parallax-layout.css?v=${expectedArtifactId}`,
         spectralLoaded: [...document.querySelectorAll('link[rel="stylesheet"]')]
           .some(link => /Spectral/i.test(link.getAttribute('href') || '')),
       };
@@ -535,7 +535,7 @@ try {
     if(cashFlowTheme.checked !== 'true'
       || cashFlowTheme.labelColor !== 'rgb(167, 156, 132)'
       || cashFlowTheme.labelBackground !== 'rgba(0, 0, 0, 0)'
-      || cashFlowTheme.knobColor !== 'rgb(167, 156, 132)'
+      || cashFlowTheme.knobColor !== 'rgb(177, 132, 92)'
       || cashFlowTheme.paths.length !== 10){
       throw new Error(`Cash Flow Graphite Aubergine contract drifted: ${JSON.stringify(cashFlowTheme)}`);
     }
@@ -2841,21 +2841,20 @@ try {
 
   // Objective theme contract: all primary product pages share the approved graphite
   // surface, while the header uses that same surface with copper interaction accents.
-  await step('visual contract: 82px Graphite Aubergine header rail and tabs are correct', async () => {
+  await step('visual contract: 68px Graphite Aubergine header rail and tabs are correct', async () => {
     await stableClick('button[data-page="scenarios"]');
     await page.waitForFunction(() => document.querySelector('.page[data-page="scenarios"].on'), { timeout:8000 });
     const hdr = await page.evaluate(() => {
       const el = document.querySelector('.hdr');
       if(!el) return null;
       const cs = getComputedStyle(el);
-      const bar = document.querySelector('.hdr__bar');
       const logo = document.querySelector('.hdr__logo img, .brand-logo');
       const tab = document.querySelector('.htab.on');
       const tabAfter = tab ? getComputedStyle(tab, '::after') : null;
       return {
         height: cs.height,
         bg: cs.backgroundColor,
-        barBorderBottom: bar ? getComputedStyle(bar).borderBottomWidth : '',
+        headerBorderBottom: cs.borderBottomWidth,
         logo: logo?.getAttribute('src') || '',
         logoH: logo ? getComputedStyle(logo).height : '',
         clusterHidden: document.querySelector('.cluster')?.hidden === true,
@@ -2863,10 +2862,10 @@ try {
       };
     });
     if(!hdr) throw new Error('Header element missing');
-    if(hdr.height !== '82px') throw new Error(`Header height must be 82px, got ${hdr.height}`);
-    if(hdr.barBorderBottom !== '1px') throw new Error(`Header bar must have 1px bottom hairline, got ${hdr.barBorderBottom}`);
+    if(hdr.height !== '68px') throw new Error(`Header height must be 68px, got ${hdr.height}`);
+    if(hdr.headerBorderBottom !== '1px') throw new Error(`Header must have 1px bottom hairline, got ${hdr.headerBorderBottom}`);
     if(!hdr.logo.includes('parallax-logo.png')) throw new Error(`Header logo must use parallax-logo.png, got ${hdr.logo}`);
-    if(hdr.logoH !== '72px') throw new Error(`Logo must be 72px tall, got ${hdr.logoH}`);
+    if(hdr.logoH !== '58px') throw new Error(`Logo must be 58px tall, got ${hdr.logoH}`);
     if(hdr.bg !== 'rgb(24, 25, 24)') throw new Error(`Header must use the graphite page surface, got ${hdr.bg}`);
     if(!hdr.clusterHidden) throw new Error('Header status and Run controls must remain hidden from the product UI');
     if(hdr.tabAfterBg !== 'rgb(177, 132, 92)') throw new Error(`Active tab underline must use the copper accent: ${hdr.tabAfterBg}`);

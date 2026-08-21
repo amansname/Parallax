@@ -1,0 +1,20 @@
+/* =============================================================================
+   styles.css — design-system entry point (Parallax)
+   -----------------------------------------------------------------------------
+   Consumers link THIS one file.
+
+     tokens/graphite-aubergine.css   colour foundation        LOCKED
+     tokens/scale.css                spacing / radius / etc.  LOCKED
+     tokens/type.css                 typography roles         LOCKED
+     tokens/fonts.css                Hanken Grotesk
+     components.css                  canonical primitives     LOCKED geometry,
+                                                              states in progress
+
+   See readme.md for what is locked and what remains provisional.
+   ============================================================================= */
+
+@import url("tokens/graphite-aubergine.css?v=__PARALLAX_ARTIFACT_ID__");
+@import url("tokens/scale.css?v=__PARALLAX_ARTIFACT_ID__");
+@import url("tokens/type.css?v=__PARALLAX_ARTIFACT_ID__");
+@import url("tokens/fonts.css?v=__PARALLAX_ARTIFACT_ID__");
+@import url("components.css?v=__PARALLAX_ARTIFACT_ID__");

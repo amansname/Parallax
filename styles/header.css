@@ -1,14 +1,7 @@
-/* Global app header — single owner (see PARALLAX header handoff). */
+/* Global app header â€” single owner (see PARALLAX header handoff). */
+@layer legacy {
+
 .app-header {
-  --hdr-ink: #ddd5c4;
-  --hdr-ink-bright: #e7dec9;
-  --hdr-muted: #878e96;
-  --hdr-faint: #7d848c;
-  --hdr-accent: #c6a662;
-  --hdr-accent-bright: #d8c084;
-  --hdr-line: rgba(231, 222, 201, 0.10);
-  --hdr-saved: #8fa57e;
-  --hdr-needs-run: #cd9a52;
   position: relative;
   z-index: 50;
   flex: 0 0 auto;
@@ -21,7 +14,7 @@
   padding: 0 32px;
   background: transparent;
   border: 0;
-  border-bottom: 1px solid var(--hdr-line);
+  border-bottom: var(--bw) solid var(--rule);
   border-radius: 0;
   box-shadow: none;
   backdrop-filter: none;
@@ -64,8 +57,8 @@
   appearance: none;
   background: transparent;
   border: 0;
-  color: var(--hdr-muted);
-  font-family: var(--font-sans);
+  color: var(--body);
+  font-family: var(--f);
   font-size: 13px;
   font-weight: 400;
   line-height: 1;
@@ -74,10 +67,10 @@
   cursor: pointer;
 }
 .app-header .htab:hover {
-  color: var(--hdr-ink);
+  color: var(--ink);
 }
 .app-header .htab.on {
-  color: var(--hdr-ink-bright);
+  color: var(--ink);
 }
 .app-header .htab.on::after {
   content: "";
@@ -87,7 +80,7 @@
   right: 0;
   bottom: -1px;
   height: 1px;
-  background: var(--hdr-accent);
+  background: var(--acc);
   box-shadow: none;
 }
 .app-header .hdr__right {
@@ -107,7 +100,6 @@
   border-radius: 0;
   box-shadow: none;
 }
-
 .app-header .cluster[hidden] {
   display: none;
 }
@@ -117,8 +109,8 @@
   gap: 8px;
   height: 36px;
   padding: 0;
-  color: var(--hdr-muted);
-  font-family: var(--font-sans);
+  color: var(--body);
+  font-family: var(--f);
   font-size: 12.5px;
   font-weight: 400;
   line-height: 1;
@@ -137,11 +129,11 @@
   height: 7px;
   flex: 0 0 auto;
   border-radius: 50%;
-  background: var(--hdr-accent);
+  background: var(--acc);
 }
-.app-header .cluster[data-state="saved"] .dot { background: var(--hdr-saved); }
-.app-header .cluster[data-state="edited"] .dot { background: var(--hdr-accent); }
-.app-header .cluster[data-state="needs-run"] .dot { background: var(--hdr-needs-run); }
+.app-header .cluster[data-state="saved"] .dot { background: var(--pos); }
+.app-header .cluster[data-state="edited"] .dot { background: var(--acc); }
+.app-header .cluster[data-state="needs-run"] .dot { background: var(--acc); }
 .app-header .cluster__run {
   display: flex;
   align-items: center;
@@ -152,20 +144,20 @@
   border: 0;
   border-radius: 0;
   box-shadow: none;
-  font-family: var(--font-sans);
+  font-family: var(--f);
   font-size: 12.5px;
   line-height: 1;
   text-transform: uppercase;
 }
 .app-header .cluster__run {
   min-width: 64px;
-  color: var(--hdr-accent-bright);
+  color: var(--acc);
   font-weight: 700;
   letter-spacing: 0.16em;
   cursor: pointer;
 }
 .app-header .cluster__run:hover {
-  color: #e7ce90;
+  color: var(--acc-2);
 }
 .app-header .cluster__run:disabled {
   opacity: 0.45;
@@ -173,8 +165,8 @@
 }
 .app-header .htab:focus-visible,
 .app-header .cluster__run:focus-visible {
-  outline: 1px solid rgba(198, 166, 98, 0.70);
-  outline-offset: 3px;
+  outline: var(--bw-focus) solid var(--acc);
+  outline-offset: var(--focus-offset);
 }
 
 @media (max-width: 1279px) {
@@ -216,4 +208,6 @@
   .app-header .status {
     max-width: 120px;
   }
+}
+
 }

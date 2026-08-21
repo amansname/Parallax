@@ -574,6 +574,9 @@ export function renderHouseholdWizardNetWorth(ctx){
   return `
     <div class="hh-screen nw-workflow" data-hh-wizard-screen="net-worth"
       id="hh-panel-net-worth" role="tabpanel" aria-labelledby="hh-nav-net-worth">
+      <header class="hh-screen-intro">
+        <span class="t-eyebrow">Step 02</span>
+      </header>
       ${entryView}
       ${renderPanel({
         category: activeCategory,

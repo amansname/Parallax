@@ -1,0 +1,52 @@
+/* =============================================================================
+   tokens/scale.css — spacing, radius, control height, border, elevation
+
+   STATUS: LOCKED as of the consolidation pass.
+
+   Rule: components pick from these scales. They do not choose dimensions
+   independently per screen. Exceptions are permitted only for true
+   page-layout geometry (rail widths, canvas gutters, chart plot heights) and
+   for data-visualisation geometry, both of which are marked at the point of
+   use with a "geometry" note.
+   ============================================================================= */
+
+:root{
+  /* ── spacing ──────────────────────────────────────────────────────────
+     Ordinary component padding, gaps and stack rhythm come from here. */
+  --sp-1:4px;
+  --sp-2:8px;
+  --sp-3:12px;
+  --sp-4:16px;
+  --sp-6:24px;
+  --sp-8:32px;
+  --sp-12:48px;
+
+  /* ── radius ───────────────────────────────────────────────────────────
+     Pill radius is for genuinely circular or capsule elements only — never
+     applied merely because a control contains short text. */
+  --r-chip:6px;     /* compact chips, small controls, inline tags */
+  --r-ctl:8px;      /* standard controls: buttons, fields, segmented, tiles */
+  --r-panel:12px;   /* panels and major surfaces */
+  --r-pill:999px;   /* capsule / circular only */
+  --r-bar:2px;      /* geometry: progress tracks and data bars */
+
+  /* ── control height ───────────────────────────────────────────────────
+     No half-steps and no screen-specific heights. */
+  --h-compact:32px;    /* dense contexts: steppers, inline chips, mini segments */
+  --h-ctl:36px;        /* standard: buttons, fields, selects, pills */
+  --h-prominent:40px;  /* primary actions, prominent commitments */
+
+  /* ── border ───────────────────────────────────────────────────────────
+     Hierarchy comes from colour and opacity, not from extra widths.
+     2px exists only for accessibility focus indication, drawn as an outline
+     so it never changes layout. */
+  --bw:1px;
+  --bw-focus:2px;
+  --focus-offset:2px;
+
+  /* ── elevation ────────────────────────────────────────────────────────
+     One broad soft shadow for panels; one faint local glow for selection.
+     Never a section-wide glow. The finish stays matte. */
+  --elev-panel:var(--shadow);
+  --elev-select:var(--acc-glow);
+}
