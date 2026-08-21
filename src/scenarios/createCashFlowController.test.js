@@ -14,6 +14,7 @@ function simulation(simIndex, balance){
       balance,
       startBalance: balance,
       fundingShortfall: 0,
+      taxes: 0,
     }],
   };
 }
@@ -65,9 +66,41 @@ test('Typical Cash Flow compares every scenario on the baseline p50 market index
   assert.equal(result.simulation, scenarioSharedMarket);
   assert.notEqual(result.simulation, scenarioOwnP50);
   assert.equal(result.summary.endingBalance, 650_000);
+  assert.equal(result.summary.federalTotal, 0);
   assert.equal(result.rows[0].ending, 650_000);
   assert.equal(Object.isFrozen(result), true);
   assert.equal(Object.isFrozen(result.rows), true);
+});
+
+test('Typical Cash Flow totals authoritative federal tax from the selected simulation rows', () => {
+  const selected = simulation(4, 700_000);
+  selected.rows.push({ ...selected.rows[0], age: 66, taxes: 2_800 });
+  selected.rows[0].taxes = 1_200;
+  const scenario = {
+    base: true,
+    name: 'Baseline',
+    res: {
+      sims: [selected],
+      paths: { p50: { simIndex: 4 } },
+    },
+  };
+  const plan = {
+    meta: { planningAsOfYear: 2026 },
+    household: { primary: { currentAge: 65 } },
+    goals: [],
+  };
+  const controller = createCashFlowController({
+    getScenarios: () => [scenario],
+    scenarioInputsByResult: new WeakMap([[scenario.res, { plan, overrides: {} }]]),
+    selection: { id: 'typical' },
+    digest: () => ({ peakWdRate: 4.1 }),
+    buildRows,
+  });
+
+  const result = controller.resultForScenario(scenario);
+
+  assert.equal(result.summary.federalTotal, 4_000);
+  assert.equal(result.summary.peakWdRate, 4.1);
 });
 
 test('Typical Cash Flow fails closed when the baseline p50 identity is absent', () => {

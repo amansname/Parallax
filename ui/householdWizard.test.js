@@ -271,9 +271,11 @@ test('Net Worth presents the approved category workflow and canonical portfolio 
   assert.match(html, /data-hh-action="net-worth-open-category" data-category-id="property"/);
   assert.match(html, /data-hh-action="net-worth-open-category" data-category-id="mortgage"/);
   assert.match(html, /\$1,450,000/);
-  assert.match(html, /data-hh-action="net-worth-show-summary"/);
-  assert.match(html, /class="nw-entry-footer"/);
-  assert.doesNotMatch(html, /class="nw-rail"/);
+  assert.match(html, /class="nw-rail"/);
+  assert.match(html, /data-hh-action="step-next">Continue/);
+  assert.match(html, /data-hh-action="step-back">Back/);
+  assert.doesNotMatch(html, /data-hh-action="net-worth-show-summary"/);
+  assert.doesNotMatch(html, /class="nw-entry-footer"/);
   assert.doesNotMatch(html, /data-account-field|data-hh-action="add-account"/);
 });
 
@@ -422,14 +424,16 @@ test('Tax page omits confirmation checkbox markup', () => {
   assert.doesNotMatch(html, /data-tax-confirmation/);
 });
 
-test('Tax page stacks two MAGI-only IRMAA lookback rows under one filing status', () => {
+test('Tax page exposes two bound IRMAA lookback rows with year-specific filing status', () => {
   const html = wizard().render('tax');
   assert.match(html, /data-tax-input-section="irmaa-lookback"/);
   assert.match(html, /data-irmaa-tax-year="2024"/);
   assert.match(html, /data-irmaa-tax-year="2025"/);
   assert.match(html, /data-tax-field="irmaa\.lookback\.2024\.magi"/);
   assert.match(html, /data-tax-field="irmaa\.lookback\.2025\.magi"/);
-  assert.doesNotMatch(html, /data-tax-field="irmaa\.lookback\.\d{4}\.filingStatus"/);
+  assert.match(html, /data-tax-field="irmaa\.lookback\.2024\.filingStatus"/);
+  assert.match(html, /data-tax-field="irmaa\.lookback\.2025\.filingStatus"/);
+  assert.equal((html.match(/data-tax-field="irmaa\.lookback\.\d{4}\.filingStatus"/g) || []).length, 2);
   assert.equal((html.match(/data-tax-summary-box=/g) || []).length, 5);
   assert.equal((html.match(/data-irmaa-tax-year=/g) || []).length, 2);
   assert.doesNotMatch(html, /data-hh-action="set-tax-view"/);
@@ -451,13 +455,13 @@ test('Summary remains minimal and omits the rejected status and unlock sections'
   assert.match(html, /Portfolio by tax treatment/);
   assert.match(html, /<table class="hh-summary-irmaa"/);
   assert.match(html, /<th scope="col">Item<\/th><th scope="col">Value<\/th>/);
-  assert.match(html, /<tr><td>Program<\/td><td>IRMAA<\/td><\/tr>/);
   assert.match(html, /<tr><td>MAGI<\/td><td>\$218,000<\/td><\/tr>/);
   assert.match(html, /<tr><td>Current tier<\/td><td>1<\/td><\/tr>/);
-  assert.match(html, /<tr><td>Next tier<\/td><td>2<\/td><\/tr>/);
   assert.match(html, /<tr><td>To next tier<\/td><td>\$56,000<\/td><\/tr>/);
   assert.match(html, /<tr><td>Premium year<\/td><td>2028<\/td><\/tr>/);
-  assert.equal((html.match(/<tbody>[\s\S]*?<\/tbody>/)?.[0].match(/<tr>/g) || []).length, 6);
+  assert.doesNotMatch(html, /<tr><td>Program<\/td>/);
+  assert.doesNotMatch(html, /<tr><td>Next tier<\/td>/);
+  assert.equal((html.match(/<tbody>[\s\S]*?<\/tbody>/)?.[0].match(/<tr>/g) || []).length, 4);
   assert.doesNotMatch(html, /Intake status/i);
   assert.doesNotMatch(html, /What this intake unlocks/i);
   assert.doesNotMatch(html, /planning estimate|disclosure|timeline/i);
@@ -480,7 +484,7 @@ test('Summary shows available-input income and tax without incompleteness flags'
   assert.doesNotMatch(html, /needs additional facts/i);
 });
 
-test('Summary Enter planning is available even when tax summary is not calculable', () => {
+test('Summary Continue to Scenarios is available even when tax summary is not calculable', () => {
   const incomplete = wizard({ taxReady: false });
   assert.match(
     incomplete.render('summary'),

@@ -179,18 +179,19 @@ export function renderHouseholdWizardTax(ctx){
     single: 'Single',
     headOfHousehold: 'Head of household',
   }[plan.meta?.filingStatus] || 'Unsupported saved filing status';
+  const irmaaFilingStatusOptions = selected => [
+    ['single', 'Single'],
+    ['marriedFilingJointly', 'Married filing jointly'],
+    ['headOfHousehold', 'Head of household'],
+    ['marriedFilingSeparately', 'Married filing separately'],
+  ].map(([value, label]) => (
+    `<option value="${value}" ${selected === value ? 'selected' : ''}>${label}</option>`
+  )).join('');
 
   return `
     <div class="hh-screen hh-tax-screen" data-hh-wizard-screen="tax"
       data-tax-view="detailed" id="hh-panel-tax" role="tabpanel"
       aria-labelledby="hh-nav-tax">
-      <header class="hh-screen-head hh-tax-title-row">
-        <div>
-          <div class="hh-step-kicker">Step 03</div>
-          <h1>Tax</h1>
-        </div>
-      </header>
-
       <section class="hh-tax-profile" aria-label="Tax profile">
         <label class="hh-field" data-tax-summary-box="tax-year">
           <span>Tax year</span>
@@ -216,21 +217,30 @@ export function renderHouseholdWizardTax(ctx){
       <section class="hh-irmaa-lookback" data-tax-input-section="irmaa-lookback">
         <h2>IRMAA lookback</h2>
         <div class="hh-irmaa-lookback-table" aria-label="IRMAA lookback inputs">
+          <div class="hh-irmaa-lookback-row hh-irmaa-lookback-row--head" aria-hidden="true">
+            <span>Tax year</span>
+            <span>MAGI</span>
+            <span>Filing status</span>
+          </div>
           ${irmaaLookback.map(row => {
             const prefix = `irmaa.lookback.${row.taxYear}`;
             return `
-              <label class="hh-irmaa-lookback-row" data-irmaa-tax-year="${row.taxYear}"
+              <div class="hh-irmaa-lookback-row" data-irmaa-tax-year="${row.taxYear}"
                 data-tax-summary-box="irmaa-${row.taxYear}">
-                <span class="hh-irmaa-lookback-label">
-                  <strong>${row.taxYear}</strong>
-                  <small>IRMAA lookback MAGI</small>
-                </span>
+                <strong>${row.taxYear}</strong>
                 <span class="hh-irmaa-lookback-input">
                   ${amountInput(`${prefix}.magi`, row.magi, {
                     id: `hh-${prefix.replaceAll('.', '-')}-magi`,
                   })}
                 </span>
-              </label>
+                <label class="hh-sel hh-irmaa-lookback-status">
+                  <span class="hh-sr-only">Filing status for ${row.taxYear}</span>
+                  <select data-hh-field="${prefix}.filingStatus"
+                    data-tax-field="${prefix}.filingStatus">
+                    ${irmaaFilingStatusOptions(row.filingStatus)}
+                  </select>
+                </label>
+              </div>
             `;
           }).join('')}
         </div>

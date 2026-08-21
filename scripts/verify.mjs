@@ -481,7 +481,7 @@ try {
       };
     }, artifactId);
     if(desktop.bodyBackground !== 'rgb(24, 25, 24)'
-      || desktop.bodyColor !== 'rgb(145, 136, 129)'
+      || desktop.bodyColor !== 'rgb(148, 138, 121)'
       || !desktop.bodyFont.includes('Hanken Grotesk')){
       throw new Error(`Graphite Aubergine tokens are not active: ${JSON.stringify(desktop)}`);
     }
@@ -533,9 +533,9 @@ try {
       };
     });
     if(cashFlowTheme.checked !== 'true'
-      || cashFlowTheme.labelColor !== 'rgb(184, 173, 146)'
+      || cashFlowTheme.labelColor !== 'rgb(167, 156, 132)'
       || cashFlowTheme.labelBackground !== 'rgba(0, 0, 0, 0)'
-      || cashFlowTheme.knobColor !== 'rgb(184, 173, 146)'
+      || cashFlowTheme.knobColor !== 'rgb(167, 156, 132)'
       || cashFlowTheme.paths.length !== 10){
       throw new Error(`Cash Flow Graphite Aubergine contract drifted: ${JSON.stringify(cashFlowTheme)}`);
     }
@@ -568,45 +568,63 @@ try {
     await stableClick('.htab[data-page="household"]');
     await goToWizardStep(page, 'net-worth');
     const netWorthLayout = await stableEvaluate('read Net Worth entry layout', () => {
-      const primary = document.querySelector('.nw-entry-footer .nw-primary-button');
+      const rail = document.querySelector('.nw-rail');
+      const primary = rail?.querySelector('.nw-primary-button');
       return {
-        legacyRails: document.querySelectorAll('.nw-rail').length,
+        summaryRails: document.querySelectorAll('.nw-rail').length,
         footers: document.querySelectorAll('.nw-entry-footer').length,
-        footerRadius: primary ? parseFloat(getComputedStyle(primary).borderRadius) : null,
+        railRadius: rail ? parseFloat(getComputedStyle(rail).borderRadius) : null,
+        primaryRadius: primary ? parseFloat(getComputedStyle(primary).borderRadius) : null,
         gridWidth: document.querySelector('.nw-grid-region')?.getBoundingClientRect().width ?? 0,
         viewWidth: document.querySelector('.nw-entry-view')?.getBoundingClientRect().width ?? 0,
       };
     });
-    if(netWorthLayout.legacyRails !== 0
-      || netWorthLayout.footers !== 1
-      || !Number.isFinite(netWorthLayout.footerRadius)
-      || netWorthLayout.footerRadius < 4
+    if(netWorthLayout.summaryRails !== 1
+      || netWorthLayout.footers !== 0
+      || !Number.isFinite(netWorthLayout.railRadius)
+      || netWorthLayout.railRadius < 4
+      || !Number.isFinite(netWorthLayout.primaryRadius)
+      || netWorthLayout.primaryRadius < 4
       || Math.abs(netWorthLayout.gridWidth - netWorthLayout.viewWidth) > 1){
-      throw new Error(`Net Worth side-panel removal drifted: ${JSON.stringify(netWorthLayout)}`);
+      throw new Error(`Net Worth summary rail drifted: ${JSON.stringify(netWorthLayout)}`);
     }
 
     await goToWizardStep(page, 'tax');
-    const taxStack = await stableEvaluate('read stacked Tax profile and IRMAA inputs', () => {
+    const taxStack = await stableEvaluate('read Tax profile and IRMAA inputs', () => {
       const boxes = [...document.querySelectorAll('[data-hh-wizard-screen="tax"] [data-tax-summary-box]')];
       const rects = boxes.map(box => box.getBoundingClientRect());
+      const controls = [...document.querySelectorAll(
+        '[data-hh-wizard-screen="tax"] [data-tax-summary-box] :is(select, .hh-tax-amount)',
+      )];
       return {
         count: boxes.length,
         keys: boxes.map(box => box.dataset.taxSummaryBox),
         filingControls: document.querySelectorAll(
           '[data-hh-wizard-screen="tax"] [data-tax-field^="irmaa.lookback."][data-tax-field$=".filingStatus"]',
         ).length,
-        radii: boxes.map(box => parseFloat(getComputedStyle(box).borderRadius)),
-        aligned: rects.every(rect => Math.abs(rect.left - rects[0].left) <= 1
-          && Math.abs(rect.width - rects[0].width) <= 1),
-        stacked: rects.every((rect, index) => index === 0 || rect.top > rects[index - 1].bottom),
+        controlCount: controls.length,
+        wrapperRadii: boxes.map(box => parseFloat(getComputedStyle(box).borderRadius)),
+        controlRadii: controls.map(control => parseFloat(getComputedStyle(control).borderRadius)),
+        topRowAligned: rects.length >= 3
+          && rects.slice(0, 3).every(rect => Math.abs(rect.top - rects[0].top) <= 1),
+        lookbackAligned: rects.length >= 5
+          && Math.abs(rects[3].left - rects[4].left) <= 1
+          && Math.abs(rects[3].width - rects[4].width) <= 1,
+        lookbackStacked: rects.length >= 5 && rects[4].top >= rects[3].bottom - 1,
       };
     });
     if(taxStack.count !== 5
-      || taxStack.filingControls !== 0
-      || !taxStack.aligned
-      || !taxStack.stacked
-      || taxStack.radii.some(radius => !Number.isFinite(radius) || radius < 4)){
-      throw new Error(`Tax profile stack drifted: ${JSON.stringify(taxStack)}`);
+      || JSON.stringify(taxStack.keys) !== JSON.stringify([
+        'tax-year', 'filing-status', 'deduction-method', 'irmaa-2024', 'irmaa-2025',
+      ])
+      || taxStack.filingControls !== 2
+      || taxStack.controlCount !== 6
+      || !taxStack.topRowAligned
+      || !taxStack.lookbackAligned
+      || !taxStack.lookbackStacked
+      || taxStack.wrapperRadii.some(radius => !Number.isFinite(radius) || radius !== 0)
+      || taxStack.controlRadii.some(radius => !Number.isFinite(radius) || radius < 4)){
+      throw new Error(`Tax profile and IRMAA layout drifted: ${JSON.stringify(taxStack)}`);
     }
 
     await page.setViewport({ width:760, height:1600, deviceScaleFactor:1 });
@@ -1578,16 +1596,19 @@ try {
   });
 
   await step('goals Horizon: timeline, glass card, lanes, and no lifetime aggregate', async () => {
-    const sleep = ms => new Promise(r => setTimeout(r, ms));
-    await page.click('.htab[data-sub-target="goals"]');
-    await sleep(450);
+    await stableClick('.htab[data-sub-target="goals"]');
+    await page.waitForFunction(() => (
+      document.querySelector('.gh-page .gh-card')
+      && document.querySelector('.gh-page .gh-lane')
+      && document.querySelector('.gh-page .gh-add-toggle')
+    ), { timeout: 10000 });
     const m = await page.evaluate(() => {
       const pageRoot = document.querySelector('.gh-page');
       const text = (pageRoot?.textContent || '').replace(/\s+/g, ' ').trim();
       return {
         page: !!pageRoot,
         card: !!document.querySelector('.gh-card'),
-        title: document.querySelector('.gh-title')?.textContent.trim() || '',
+        redundantTitle: !!document.querySelector('.gh-title'),
         lanes: document.querySelectorAll('.gh-lane').length,
         chips: document.querySelectorAll('.gh-chip').length,
         marks: document.querySelectorAll('.gh-band, .gh-diamond').length,
@@ -1599,7 +1620,7 @@ try {
       };
     });
     if(!m.page || !m.card) throw new Error('Goals Horizon page/card did not render');
-    if(m.title !== 'Retirement Lifestyle') throw new Error(`Goals Horizon title wrong: "${m.title}"`);
+    if(m.redundantTitle) throw new Error('Goals Horizon rendered a redundant standalone title');
     if(m.lanes < 1 || m.chips !== m.lanes || m.marks !== m.lanes)
       throw new Error(`Goals Horizon lanes incomplete (${JSON.stringify(m)})`);
     if(m.ticks < 5 || !m.add) throw new Error(`Goals Horizon axis/add control incomplete (${JSON.stringify(m)})`);
@@ -2305,8 +2326,11 @@ try {
         cf: !!v?.querySelector('.cf'),
         rows: v?.querySelectorAll('.cf-row').length || 0,
         cols: [...(v?.querySelectorAll('.cf-table__head .cf-th') || [])].map(th => th.textContent.trim()),
-        pills: [...(v?.querySelectorAll('.cf-pill') || [])].map(p => p.textContent.trim()),
-        activePill: v?.querySelector('.cf-pill.is-active')?.textContent.trim() || '',
+        scenarioOptions: [...(v?.querySelectorAll('[data-cash-select] option') || [])].map(option => ({
+          value: option.value,
+          label: option.textContent.trim(),
+        })),
+        activeScenario: v?.querySelector('[data-cash-select]')?.selectedOptions?.[0]?.textContent.trim() || '',
         stats: [...(v?.querySelectorAll('.cf-stat__label') || [])].map(s => s.textContent.trim()),
         pathControls: !!v?.querySelector('#scn-cf-path-controls #cashflow-path-mode'),
         mode: v?.querySelector('#scn-cf-path-controls #cashflow-path-mode')?.value || '',
@@ -2327,6 +2351,14 @@ try {
             delta: Number(el.dataset.delta),
             labels: [...el.querySelectorAll('.cf-stat__label')].map(label => label.textContent.trim()),
             values: [...el.querySelectorAll('.cf-stat__value')].map(value => value.textContent.trim()),
+          } : null;
+        })(),
+        federalTotal: (() => {
+          const el = v?.querySelector('.cf-stat--federal[data-federal-total]');
+          return el ? {
+            amount: Number(el.dataset.federalTotal),
+            label: el.querySelector('.cf-stat__label')?.textContent.trim() || '',
+            value: el.querySelector('.cf-stat__value')?.textContent.trim() || '',
           } : null;
         })(),
         taxDisclosure: (() => {
@@ -2360,12 +2392,14 @@ try {
     if(m.taxDisclosure?.fallback) throw new Error(`typical path unexpectedly uses engine fallback: ${JSON.stringify(m.taxDisclosure)}`);
     if(!/^\$[\d,]+/.test(m.accumTax)) throw new Error(`accumulation-year Tax cell is not populated: "${m.accumTax}"`);
     if(m.cols.some(c => ['Withdraw', 'One-time', 'Return $', 'Starting value', 'Inflows', 'Outflows', 'Annual return', 'Ending value'].includes(c))) throw new Error(`old cash-flow columns still present: ${JSON.stringify(m.cols)}`);
-    if(m.pills.length < 2) throw new Error(`scenario pills missing: ${JSON.stringify(m.pills)}`);
+    if(m.scenarioOptions.length < 2) throw new Error(`Cash Flow scenario selector options missing: ${JSON.stringify(m.scenarioOptions)}`);
+    if(!/Baseline/.test(m.activeScenario)) throw new Error(`Cash Flow scenario selector did not start on Baseline: ${JSON.stringify(m)}`);
     if(!SKIP_SEQUENCING && !m.pathControls) throw new Error('Cash Flow path controls not relocated into #scn-cf-path-controls');
     if(!SKIP_SEQUENCING && m.mode !== 'typical') throw new Error(`Cash Flow default path not Typical (${m.mode})`);
-    for(const label of ['Median Ending', 'Peak Withdrawal']){
+    for(const label of ['Median Ending', 'Peak Withdrawal', 'Federal total']){
       if(!m.stats.includes(label)) throw new Error(`cash-flow summary stat missing: ${label} (${JSON.stringify(m.stats)})`);
     }
+    if(!Number.isFinite(m.federalTotal?.amount) || !/^\$[\d,]+/.test(m.federalTotal?.value || '')) throw new Error(`Cash Flow federal total is unavailable: ${JSON.stringify(m.federalTotal)}`);
     // Lifetime Draw / Funds Last were removed from the summary strip — stay gone.
     if(m.stats.some(s => /lifetime draw|funds last/i.test(s))) throw new Error(`removed summary stat still present: ${JSON.stringify(m.stats)}`);
     if(m.hasCaption) throw new Error('cash-flow caption should be removed');
@@ -2386,31 +2420,37 @@ try {
     });
     if(rmdAge !== '73') throw new Error(`RMD start marker not at age 73 (got "${rmdAge}")`);
 
-    // The scenario pills switch which plan's cash flow is shown, and each plan's
+    // The scenario selector switches which plan's cash flow is shown, and each plan's
     // cash flow reflects ITS OWN retire age. demoScenarios seeds Baseline at the
     // household retire age (66 here, asserted just above) and Scenario B at
-    // +2 years (68), so selecting the Scenario B pill must move the first
+    // +2 years (68), so selecting Scenario B must move the first
     // retirement-spending row from 66 to 68.
-    const pickedB = await page.evaluate(() => {
-      const pill = [...document.querySelectorAll('#scn-view .cf-pill')].find(p => /Scenario B/.test(p.textContent));
-      if(!pill) return false;
-      pill.click();
-      return true;
+    const scenarioBValue = await page.evaluate(() => {
+      const option = [...document.querySelectorAll('#scn-view [data-cash-select] option')]
+        .find(item => /Scenario B/.test(item.textContent));
+      return option?.value || '';
     });
-    if(!pickedB) throw new Error(`Scenario B pill not found among ${JSON.stringify(m.pills)}`);
+    if(!scenarioBValue) throw new Error(`Scenario B option not found among ${JSON.stringify(m.scenarioOptions)}`);
+    await page.select('#scn-view [data-cash-select]', scenarioBValue);
     await page.waitForFunction(() => {
-      const active = document.querySelector('#scn-view .cf-pill.is-active')?.textContent || '';
+      const active = document.querySelector('#scn-view [data-cash-select]')?.selectedOptions?.[0]?.textContent || '';
       const marker = document.querySelector('#scn-view .cf-row__mark-dot--ret')?.closest('.cf-row');
       return /Scenario B/.test(active) && marker?.dataset.age === '68';
     }, { timeout: 10000 });
-    const bActive = await page.evaluate(() => document.querySelector('#scn-view .cf-pill.is-active')?.textContent.trim() || '');
-    if(!/Scenario B/.test(bActive)) throw new Error(`cash-flow pill did not switch to Scenario B (got "${bActive}")`);
+    const bActive = await page.evaluate(() => document.querySelector('#scn-view [data-cash-select]')?.selectedOptions?.[0]?.textContent.trim() || '');
+    if(!/Scenario B/.test(bActive)) throw new Error(`Cash Flow selector did not switch to Scenario B (got "${bActive}")`);
     const bMarker = await retirementStartAge();
     if(bMarker !== '68') throw new Error(`Scenario B retirement start not at age 68 (got "${bMarker}")`);
     // Restore Baseline for the historical-path checks below.
-    await page.evaluate(() => [...document.querySelectorAll('#scn-view .cf-pill')].find(p => /Baseline/.test(p.textContent))?.click());
+    const baselineValue = await page.evaluate(() => {
+      const option = [...document.querySelectorAll('#scn-view [data-cash-select] option')]
+        .find(item => /Baseline/.test(item.textContent));
+      return option?.value || '';
+    });
+    if(!baselineValue) throw new Error('Baseline option missing from Cash Flow scenario selector');
+    await page.select('#scn-view [data-cash-select]', baselineValue);
     await page.waitForFunction(() => {
-      const active = document.querySelector('#scn-view .cf-pill.is-active')?.textContent || '';
+      const active = document.querySelector('#scn-view [data-cash-select]')?.selectedOptions?.[0]?.textContent || '';
       const marker = document.querySelector('#scn-view .cf-row__mark-dot--ret')?.closest('.cf-row');
       return /Baseline/.test(active) && marker?.dataset.age === '66';
     }, { timeout: 10000 });
@@ -2753,7 +2793,7 @@ try {
 
   // Objective theme contract: all primary product pages share the approved graphite
   // surface, while the header uses that same surface with copper interaction accents.
-  await step('visual contract: 68px Graphite Aubergine header rail and tabs are correct', async () => {
+  await step('visual contract: 82px Graphite Aubergine header rail and tabs are correct', async () => {
     await stableClick('button[data-page="scenarios"]');
     await page.waitForFunction(() => document.querySelector('.page[data-page="scenarios"].on'), { timeout:8000 });
     const hdr = await page.evaluate(() => {
@@ -2776,10 +2816,10 @@ try {
       };
     });
     if(!hdr) throw new Error('Header element missing');
-    if(hdr.height !== '68px') throw new Error(`Header height must be 68px, got ${hdr.height}`);
+    if(hdr.height !== '82px') throw new Error(`Header height must be 82px, got ${hdr.height}`);
     if(hdr.barBorderBottom !== '1px') throw new Error(`Header bar must have 1px bottom hairline, got ${hdr.barBorderBottom}`);
     if(!hdr.logo.includes('parallax-logo.png')) throw new Error(`Header logo must use parallax-logo.png, got ${hdr.logo}`);
-    if(hdr.logoH !== '58px') throw new Error(`Logo must be 58px tall, got ${hdr.logoH}`);
+    if(hdr.logoH !== '72px') throw new Error(`Logo must be 72px tall, got ${hdr.logoH}`);
     if(hdr.bg !== 'rgb(24, 25, 24)') throw new Error(`Header must use the graphite page surface, got ${hdr.bg}`);
     if(hdr.runBg !== 'rgba(0, 0, 0, 0)' && hdr.runBg !== 'transparent')
       throw new Error(`Run button must be unboxed (transparent bg), got ${hdr.runBg}`);
@@ -3176,7 +3216,7 @@ try {
       const drawCells = row?.querySelectorAll('.cf-cell--draw') || [];
       const endingCells = row?.querySelectorAll('.cf-cell--ending > span:first-child') || [];
       const shortfallCells = row?.querySelectorAll('.cf-row__shortfall') || [];
-      const probabilityCells = document.querySelectorAll('#scn-view .cf-summary__id .numeral');
+      const probabilityCells = document.querySelectorAll('#scn-view .cf-summary__id .cf-stat__value--probability');
       return {
         rows: rows.length,
         probabilityCells: probabilityCells.length,
@@ -3329,7 +3369,7 @@ try {
     await setCashFlow(page, true);
     await waitCashRows(page, 1);
     const cashFlowProb = await page.evaluate(() =>
-      Number.parseFloat(document.querySelector('#scn-view .cf-summary__id .numeral')?.textContent || ''));
+      Number.parseFloat(document.querySelector('#scn-view .cf-summary__id .cf-stat__value--probability')?.textContent || ''));
     if(cashFlowProb !== expected) throw new Error(`Cash Flow probability ${cashFlowProb} does not match tax-funded ${expected}`);
     await setCashFlow(page, false);
     await sleep(300);

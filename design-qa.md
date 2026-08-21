@@ -292,6 +292,48 @@ final result: passed
 
 ---
 
+# Graphite and Aubergine System Design QA
+
+## Comparison target
+
+- Owner-confirmed visual references:
+  - `C:\Users\amans\AppData\Local\Temp\codex-clipboard-9e3d19e0-beb1-4dea-830d-15f2accf0d4f.png`
+  - `C:\Users\amans\AppData\Local\Temp\codex-clipboard-661f7e03-b9d9-412d-8e3f-6a54cbc6d33c.png`
+  - `C:\Users\amans\AppData\Local\Temp\codex-clipboard-e71bdcab-379b-45a3-8857-dc9dc6e42001.png`
+  - `C:\Users\amans\AppData\Local\Temp\codex-clipboard-eef1115b-cb0b-4064-b875-a7df701528f7.png`
+  - `C:\Users\amans\AppData\Local\Temp\codex-clipboard-3548032f-78f8-471a-8eda-1878cd1864e0.png`
+  - `C:\Users\amans\AppData\Local\Temp\codex-clipboard-2e85d11a-6126-4433-96b0-8f2bc164cde6.png`
+- Frozen responsive design-package exports were used for narrow-layout comparison.
+- Browser-rendered implementation was inspected on the exact local candidate at `http://127.0.0.1:8825/`.
+
+## Authority boundary
+
+- The reference package governs visual hierarchy, spacing, typography, surface treatment, and responsive composition.
+- Production renderers, plan state, persistence, engine simulations, and federal-tax results remain authoritative.
+- Reference-only mock balances and tax figures were not copied into production.
+- No `engine.js` or `src/tax/` file is changed by this design pass.
+
+## Findings and corrections
+
+- No actionable P0, P1, or P2 visual mismatch remains in the inspected Family, Net Worth, Tax, Summary, Goals, or Cash Flow states.
+- Goals initially rendered retirement-linked items from stale stored ages; rendering now resolves the effective retirement boundary without persisting substitute ages.
+- The responsive Goals editor initially retained a desktop-width rail and clipped its content. It now becomes a full-width stacked panel below 1280px, matching the responsive handoff.
+- Cash Flow retains the production scenario and historical-path contracts while using the approved single scenario selector, compact controls, eleven-column ledger, and authoritative federal-total display.
+- The warm text and accent palette uses sand, taupe, bronze, and muted status colors; no pink typography token remains.
+- Focus indicators remain intentionally visible for keyboard access even though pointer-state reference captures omit them.
+
+## Verification
+
+- Combined reference/current comparison images were reviewed for Goals and Cash Flow after the final responsive correction.
+- Focused Goal, Cash Flow, Household Wizard, and tax-summary tests: 54 passed, 0 failed.
+- Syntax checks passed for the touched Goals, Cash Flow, controller, main orchestration, and verifier modules.
+- `git diff --check`: passed.
+- Full governance, unit, immutable-artifact, and governed-browser gates remain pending until the owner authorizes the clean local candidate commit.
+
+final result: passed
+
+---
+
 # Graphite & Aubergine Refinement — Owner Corrections Design QA
 
 ## Comparison target

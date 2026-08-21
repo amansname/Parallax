@@ -12,6 +12,7 @@ import {
   goalTimingLabel,
   isOneTimeGoal,
   normalizeGoalCategory,
+  resolveEffectiveGoal,
   resolveGoalSpan,
   setGoalDisplayAmount,
   setGoalKind,
@@ -41,6 +42,26 @@ function goalIndexByViewId(goals, id){
     return goals[index] && !goals[index].id ? index : -1;
   }
   return -1;
+}
+
+function effectiveGoalForView(goal, span){
+  const resolved = resolveEffectiveGoal(goal, null, span.retirementAge);
+  const startAge = Number.isFinite(Number(resolved.startAge))
+    ? Number(resolved.startAge)
+    : span.retirementAge;
+  const requestedEnd = Number.isFinite(Number(resolved.endAge))
+    ? Number(resolved.endAge)
+    : span.planEndAge;
+  const endAge = Math.max(startAge, Math.min(requestedEnd, span.planEndAge));
+  return { ...goal, startAge, endAge };
+}
+
+function materializeGoalTiming(goal, span, { detachFromRetirement = false } = {}){
+  const effective = effectiveGoalForView(goal, span);
+  goal.startAge = effective.startAge;
+  goal.endAge = effective.endAge;
+  if(detachFromRetirement) goal.startsAtRetirement = false;
+  return goal;
 }
 
 function timingPresets(span){
@@ -82,24 +103,25 @@ function renderGuides(span){
 }
 
 function renderLane(goal,index,span,state,disabled){
+  const viewGoal=effectiveGoalForView(goal,span);
   const id=viewGoalId(goal,index);
-  const category=normalizeGoalCategory(goal);
+  const category=normalizeGoalCategory(viewGoal);
   const categoryDef=GOAL_CATEGORY_MAP[category];
-  const once=isOneTimeGoal(goal);
-  const start=goalPct(goal.startAge,span.axisMin,span.axisMax);
-  const end=once ? start : goalPct(Math.min(+goal.endAge+1,span.axisMax),span.axisMin,span.axisMax);
+  const once=isOneTimeGoal(viewGoal);
+  const start=goalPct(viewGoal.startAge,span.axisMin,span.axisMax);
+  const end=once ? start : goalPct(Math.min(+viewGoal.endAge+1,span.axisMax),span.axisMin,span.axisMax);
   const width=Math.max(1.4,end-start);
-  const flip=+goal.startAge > Math.min(84, span.planEndAge-4);
+  const flip=+viewGoal.startAge > Math.min(84, span.planEndAge-4);
   const style=`--goal-color:${categoryDef.color};--gh-start:${start.toFixed(3)}%;--gh-end:${end.toFixed(3)}%;--gh-width:${width.toFixed(3)}%`;
-  const title=`${goalTimingLabel(goal)} · drag to move`;
-  return `<div class="gh-lane${state.flashId===id?' gh-lane--flash':''}" data-goal-lane="${escHtml(id)}" style="${style}">
+  const title=`${goalTimingLabel(viewGoal)} · drag to move`;
+  return `<div class="gh-lane${state.selectedId===id?' is-selected':''}${state.flashId===id?' gh-lane--flash':''}" data-goal-lane="${escHtml(id)}" style="${style}">
     ${once
       ? '<span class="gh-diamond" aria-hidden="true"></span>'
       : '<span class="gh-band" aria-hidden="true"></span>'}
     <button class="gh-chip${once?' gh-chip--once':''}${flip?' gh-chip--flip':''}" type="button" data-goal-chip="${escHtml(id)}" title="${escHtml(title)}"${disabledAttr(disabled)}>
       <span class="gh-chip__icon">${icon(category)}</span>
-      <span class="gh-chip__name">${escHtml(goal.name || 'Untitled goal')}</span>
-      <span class="gh-chip__amount">${escHtml(formatGoalAmount(goal))}</span>
+      <span class="gh-chip__name">${escHtml(viewGoal.name || 'Untitled goal')}</span>
+      <span class="gh-chip__amount">${escHtml(formatGoalAmount(viewGoal))}</span>
     </button>
   </div>`;
 }
@@ -118,19 +140,20 @@ function renderAddPanel(disabled){
 
 function renderRail(goal,index,span,disabled){
   if(!goal) return '';
+  const viewGoal=effectiveGoalForView(goal,span);
   const id=viewGoalId(goal,index);
-  const category=normalizeGoalCategory(goal);
+  const category=normalizeGoalCategory(viewGoal);
   const categoryDef=GOAL_CATEGORY_MAP[category];
-  const once=isOneTimeGoal(goal);
+  const once=isOneTimeGoal(viewGoal);
   const presets=timingPresets(span);
   const presetButtons=presets.map(preset=>{
-    const selected=!once && +goal.startAge===preset.from && +goal.endAge===preset.to;
+    const selected=!once && +viewGoal.startAge===preset.from && +viewGoal.endAge===preset.to;
     return `<button class="gh-preset${selected?' is-selected':''}" type="button" data-action="preset" data-preset="${preset.key}"${disabledAttr(disabled)}>${preset.label}</button>`;
   }).join('');
   const categoryButtons=GOAL_CATEGORIES.map(item=>
     `<button class="gh-category${item.key===category?' is-selected':''}" type="button" data-action="category" data-category="${item.key}" title="${item.label}" aria-label="${item.label}" style="--goal-color:${item.color}"${disabledAttr(disabled)}>${icon(item.key,'gh-category__icon')}</button>`
   ).join('');
-  const hasWorkingYears=goalHasFutureWorkingYears(goal,span);
+  const hasWorkingYears=goalHasFutureWorkingYears(viewGoal,span);
   const portfolioFunded=goal.fundFromPortfolioBeforeRetirement===true;
   const fundingSection=hasWorkingYears ? `<section class="gh-editor-section">
         <div class="gh-field-label">Before retirement</div>
@@ -141,18 +164,18 @@ function renderRail(goal,index,span,disabled){
     ? `<div class="gh-once-age">
         <span>at age</span>
         <button type="button" data-action="age-minus" aria-label="Decrease age"${disabledAttr(disabled)}>−</button>
-        <input class="gh-age-input" data-field="once-age" inputmode="numeric" value="${goal.startAge}"${disabledAttr(disabled)}>
+        <input class="gh-age-input" data-field="once-age" inputmode="numeric" value="${viewGoal.startAge}"${disabledAttr(disabled)}>
         <button type="button" data-action="age-plus" aria-label="Increase age"${disabledAttr(disabled)}>+</button>
       </div>`
     : `<div class="gh-presets">${presetButtons}</div>
       <div class="gh-range-inputs">
-        <span>from age</span><input class="gh-age-input" data-field="start-age" inputmode="numeric" value="${goal.startAge}"${disabledAttr(disabled)}>
-        <span>to</span><input class="gh-age-input" data-field="end-age" inputmode="numeric" value="${goal.endAge}"${disabledAttr(disabled)}>
+        <span>from age</span><input class="gh-age-input" data-field="start-age" inputmode="numeric" value="${viewGoal.startAge}"${disabledAttr(disabled)}>
+        <span>to</span><input class="gh-age-input" data-field="end-age" inputmode="numeric" value="${viewGoal.endAge}"${disabledAttr(disabled)}>
       </div>`;
   return `<aside class="gh-rail" data-goal-rail="${escHtml(id)}" style="--goal-color:${categoryDef.color}" aria-label="Edit goal">
     <header class="gh-rail__header">
       <span class="gh-rail__icon">${icon(category)}</span>
-      <input class="gh-name-input" data-field="name" value="${escHtml(goal.name || '')}" placeholder="Name this goal" aria-label="Name this goal"${disabledAttr(disabled)}>
+      <input class="gh-name-input" data-field="name" value="${escHtml(viewGoal.name || '')}" placeholder="Name this goal" aria-label="Name this goal"${disabledAttr(disabled)}>
       <button class="gh-rail__close" type="button" data-action="close" aria-label="Close editor">×</button>
     </header>
     <div class="gh-rail__body">
@@ -160,11 +183,11 @@ function renderRail(goal,index,span,disabled){
         <div class="gh-field-label">Amount</div>
         <div class="gh-money-row">
           <button type="button" data-action="amount-minus" aria-label="Decrease amount"${disabledAttr(disabled)}>−</button>
-          <label class="gh-money-input"><span>$</span><input class="gh-amount-input" data-field="amount" inputmode="numeric" value="${inputMoney(goalDisplayAmount(goal))}"${disabledAttr(disabled)}></label>
+          <label class="gh-money-input"><span>$</span><input class="gh-amount-input" data-field="amount" inputmode="numeric" value="${inputMoney(goalDisplayAmount(viewGoal))}"${disabledAttr(disabled)}></label>
           <button type="button" data-action="amount-plus" aria-label="Increase amount"${disabledAttr(disabled)}>+</button>
         </div>
         ${once ? '<div class="gh-money-meta"><span>today’s dollars</span></div>' : `<div class="gh-money-meta">
-          <div class="gh-mini-seg"><button class="${goal.per!=='mo'?'is-selected':''}" type="button" data-action="per-year"${disabledAttr(disabled)}>per year</button><button class="${goal.per==='mo'?'is-selected':''}" type="button" data-action="per-month"${disabledAttr(disabled)}>per month</button></div>
+          <div class="gh-mini-seg"><button class="${viewGoal.per!=='mo'?'is-selected':''}" type="button" data-action="per-year"${disabledAttr(disabled)}>per year</button><button class="${viewGoal.per==='mo'?'is-selected':''}" type="button" data-action="per-month"${disabledAttr(disabled)}>per month</button></div>
           <span>today’s dollars</span>
         </div>`}
       </section>
@@ -248,19 +271,20 @@ export function createGoalsHorizonController(deps){
       : '<div class="gh-empty">Nothing on the horizon yet — add a goal and it will land right here on the timeline.</div>';
     const selected=selectedRecord();
     const toast=state.toast ? `<div class="gh-toast" role="status"><span>Deleted “${escHtml(state.toast.goal.name || 'Untitled goal')}”</span><button type="button" data-action="undo">Undo</button><button type="button" data-action="dismiss-toast" aria-label="Dismiss">×</button></div>` : '';
-    return `<div class="gh-page">
-      <h1 class="gh-title">Retirement Lifestyle</h1>
-      <section class="gh-card" aria-label="Goals horizon">
-        <div class="gh-track">
-          <div class="gh-ticks">${renderTicks(currentSpan)}</div>
-          <div class="gh-guides" aria-hidden="true">${renderGuides(currentSpan)}</div>
-          <div class="gh-lanes" data-axis-min="${currentSpan.axisMin}" data-axis-max="${currentSpan.axisMax}">${lanes}</div>
-        </div>
-        <div class="gh-add-row">
-          <button class="gh-add-toggle" type="button" data-action="toggle-add" aria-expanded="${state.addOpen}"${disabledAttr(isDisabled)}><span>+</span>${state.addOpen?'Never mind':'Add a goal'}</button>
-          ${state.addOpen?renderAddPanel(isDisabled):''}
-        </div>
-      </section>
+    return `<div class="gh-page${selected ? '' : ' is-editor-closed'}">
+      <div class="gh-main">
+        <section class="gh-card" aria-label="Goals horizon">
+          <div class="gh-track">
+            <div class="gh-ticks">${renderTicks(currentSpan)}</div>
+            <div class="gh-guides" aria-hidden="true">${renderGuides(currentSpan)}</div>
+            <div class="gh-lanes" data-axis-min="${currentSpan.axisMin}" data-axis-max="${currentSpan.axisMax}">${lanes}</div>
+          </div>
+          <div class="gh-add-row">
+            <button class="gh-add-toggle" type="button" data-action="toggle-add" aria-expanded="${state.addOpen}"${disabledAttr(isDisabled)}><span>+</span>${state.addOpen?'Never mind':'Add a goal'}</button>
+            ${state.addOpen?renderAddPanel(isDisabled):''}
+          </div>
+        </section>
+      </div>
       ${renderRail(selected?.goal,selected?.index,currentSpan,isDisabled)}
       ${toast}
     </div>`;
@@ -275,30 +299,32 @@ export function createGoalsHorizonController(deps){
   const arm=()=>deps.arm?.();
   const commit=()=>deps.commit?.();
 
-  const updateChipText=(goal,id)=>{
+  const updateChipText=(goal,id,currentSpan=span())=>{
     if(!root) return;
     const lane=root.querySelector(`[data-goal-lane="${CSS.escape(id)}"]`);
     if(!lane) return;
+    const viewGoal=effectiveGoalForView(goal,currentSpan);
     const name=lane.querySelector('.gh-chip__name');
     const amount=lane.querySelector('.gh-chip__amount');
     const chip=lane.querySelector('.gh-chip');
-    if(name) name.textContent=goal.name || 'Untitled goal';
-    if(amount) amount.textContent=formatGoalAmount(goal);
-    if(chip) chip.title=`${goalTimingLabel(goal)} · drag to move`;
+    if(name) name.textContent=viewGoal.name || 'Untitled goal';
+    if(amount) amount.textContent=formatGoalAmount(viewGoal);
+    if(chip) chip.title=`${goalTimingLabel(viewGoal)} · drag to move`;
   };
 
   const updateGoalGeometry=(goal,id,currentSpan)=>{
     if(!root) return;
     const lane=root.querySelector(`[data-goal-lane="${CSS.escape(id)}"]`);
     if(!lane) return;
-    const once=isOneTimeGoal(goal);
-    const start=goalPct(goal.startAge,currentSpan.axisMin,currentSpan.axisMax);
-    const end=once?start:goalPct(Math.min(+goal.endAge+1,currentSpan.axisMax),currentSpan.axisMin,currentSpan.axisMax);
+    const viewGoal=effectiveGoalForView(goal,currentSpan);
+    const once=isOneTimeGoal(viewGoal);
+    const start=goalPct(viewGoal.startAge,currentSpan.axisMin,currentSpan.axisMax);
+    const end=once?start:goalPct(Math.min(+viewGoal.endAge+1,currentSpan.axisMax),currentSpan.axisMin,currentSpan.axisMax);
     lane.style.setProperty('--gh-start',`${start.toFixed(3)}%`);
     lane.style.setProperty('--gh-end',`${end.toFixed(3)}%`);
     lane.style.setProperty('--gh-width',`${Math.max(1.4,end-start).toFixed(3)}%`);
-    lane.querySelector('.gh-chip')?.classList.toggle('gh-chip--flip',+goal.startAge>Math.min(84,currentSpan.planEndAge-4));
-    updateChipText(goal,id);
+    lane.querySelector('.gh-chip')?.classList.toggle('gh-chip--flip',+viewGoal.startAge>Math.min(84,currentSpan.planEndAge-4));
+    updateChipText(viewGoal,id,currentSpan);
   };
 
   const dismissToast=()=>{
@@ -375,12 +401,21 @@ export function createGoalsHorizonController(deps){
     else if(action==='per-month') setGoalPer(goal,'mo');
     else if(action==='fund-outside') goal.fundFromPortfolioBeforeRetirement=false;
     else if(action==='fund-portfolio') goal.fundFromPortfolioBeforeRetirement=true;
-    else if(action==='kind-once') setGoalKind(goal,'once',currentSpan.planEndAge);
-    else if(action==='kind-rec') setGoalKind(goal,'rec',currentSpan.planEndAge);
+    else if(action==='kind-once'){
+      materializeGoalTiming(goal,currentSpan,{detachFromRetirement:true});
+      setGoalKind(goal,'once',currentSpan.planEndAge);
+    }else if(action==='kind-rec'){
+      materializeGoalTiming(goal,currentSpan,{detachFromRetirement:true});
+      setGoalKind(goal,'rec',currentSpan.planEndAge);
+    }
     else if(action==='preset'){
       const preset=timingPresets(currentSpan).find(item=>item.key===actionEl.dataset.preset);
-      if(preset) setGoalRange(goal,preset.from,preset.to,currentSpan.planEndAge);
+      if(preset){
+        goal.startsAtRetirement=false;
+        setGoalRange(goal,preset.from,preset.to,currentSpan.planEndAge);
+      }
     }else if(action==='age-minus'||action==='age-plus'){
+      materializeGoalTiming(goal,currentSpan,{detachFromRetirement:true});
       const age=+goal.startAge+(action==='age-plus'?1:-1);
       setGoalRange(goal,age,age,currentSpan.planEndAge);
     }else if(action==='category'){
@@ -436,9 +471,16 @@ export function createGoalsHorizonController(deps){
     prepareGoal(goal,index);
     const currentSpan=span();
     const value=parseInt(e.target.value.replace(/[^0-9]/g,''),10);
-    if(field==='once-age') setGoalRange(goal,value,value,currentSpan.planEndAge);
-    else if(field==='start-age') setGoalRange(goal,value,goal.endAge,currentSpan.planEndAge,'start');
-    else setGoalRange(goal,goal.startAge,value,currentSpan.planEndAge,'end');
+    const effective=effectiveGoalForView(goal,currentSpan);
+    if(field==='once-age'){
+      goal.startsAtRetirement=false;
+      setGoalRange(goal,value,value,currentSpan.planEndAge);
+    }else if(field==='start-age'){
+      goal.startsAtRetirement=false;
+      setGoalRange(goal,value,effective.endAge,currentSpan.planEndAge,'start');
+    }else{
+      setGoalRange(goal,effective.startAge,value,currentSpan.planEndAge,'end');
+    }
     state.selectedId=goal.id;
     commit();
   };
@@ -456,7 +498,8 @@ export function createGoalsHorizonController(deps){
     if(!rect?.width) return;
     e.preventDefault();
     const currentSpan=span();
-    state.drag={ id,index,goal,startX:e.clientX,startAge:+goal.startAge,endAge:+goal.endAge,dragged:false,armed:false,rect,currentSpan,chip };
+    const effective=effectiveGoalForView(goal,currentSpan);
+    state.drag={ id,index,goal,startX:e.clientX,startAge:+effective.startAge,endAge:+effective.endAge,dragged:false,armed:false,rect,currentSpan,chip };
     const move=event=>{
       const drag=state.drag;
       if(!drag) return;
@@ -465,6 +508,7 @@ export function createGoalsHorizonController(deps){
       if(!deps.guardMutation()) return;
       drag.dragged=true;
       drag.chip.classList.add('is-dragging');
+      drag.goal.startsAtRetirement=false;
       drag.goal.startAge=drag.startAge;
       drag.goal.endAge=drag.endAge;
       const years=Math.round(dx/(drag.rect.width/(drag.currentSpan.axisMax-drag.currentSpan.axisMin)));

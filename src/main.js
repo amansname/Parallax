@@ -2840,7 +2840,7 @@ $('#cashflow-path-mode').onchange=e=>{
       isTypicalPath: PROD.isTypicalPath,
       typicalPathFederalTax: PROD.typicalPathFederalTax,
       pathFederalTax: () => null,
-      toneGlow, ring, wdColor, num:scenarioNum, esc, fmtMoney, cfCols: CF_COLS,
+      wdColor, num:scenarioNum, esc, fmtMoney, cfCols: CF_COLS,
     });
   }
 
@@ -2916,8 +2916,11 @@ $('#cashflow-path-mode').onchange=e=>{
     view.querySelectorAll('[data-pick]').forEach((el) => {
       el.addEventListener('click', () => { state.focusedId = el.dataset.pick; PROD.setSelectedId(state.focusedId); syncScenariosView(); });
     });
-    view.querySelectorAll('[data-cash-pick]').forEach((el) => {
-      el.addEventListener('click', () => { state.focusedId = el.dataset.cashPick; PROD.setSelectedId(state.focusedId); syncScenariosView(); });
+    const cashSelect = view.querySelector('[data-cash-select]');
+    if (cashSelect) cashSelect.addEventListener('change', () => {
+      state.focusedId = cashSelect.value;
+      PROD.setSelectedId(state.focusedId);
+      syncScenariosView();
     });
     // "Start at retirement" — hide the working (accum) years in the cash-flow ledger.
     const retStart = view.querySelector('[data-cash-retstart]');

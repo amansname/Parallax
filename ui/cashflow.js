@@ -155,12 +155,6 @@ export function fmtParenMoney(n, fmtMoney) {
     return m === '—' ? m : '(' + m + ')';
   }
 
-export function fmtSignedMoney(n, fmtMoney) {
-    if (!Number.isFinite(n)) return '—';
-    if (n === 0) return '$0';
-    return (n < 0 ? '−' : '+') + fmtMoney(Math.abs(n));
-  }
-
 export function federalScopeLabel(scope) {
     if (scope === 'INCOME_TAX_ONLY') return 'income tax only';
     if (scope === 'FULL_1040') return 'full Form 1040';
@@ -186,7 +180,7 @@ export function groupPhases(rows) {
 
 export function renderCashflow(scn, allScns, {
     cashFlowResult, pathRows, cashSummary, cashFromRetirement, isTypicalPath, typicalPathFederalTax, pathFederalTax,
-    toneGlow, ring, wdColor, num, esc, fmtMoney, cfCols,
+    wdColor, num, esc, fmtMoney, cfCols,
   }) {
     const selected = typeof cashFlowResult === 'function'
       ? cashFlowResult(scn.raw)
@@ -218,40 +212,45 @@ export function renderCashflow(scn, allScns, {
         ? 'federal-converged-row'
         : 'federal-sidecar';
 
-    const pills = allScns.map((s) => (
-      '<button class="cf-pill ' + (s.id === scn.id ? 'is-active' : '') + '" type="button" data-cash-pick="' + esc(s.id) + '" aria-pressed="' + (s.id === scn.id ? 'true' : 'false') + '" style="--tone:' + s.tone + ';">' +
-        '<span class="cf-pill__dot"></span>' + esc(s.name) +
-      '</button>'
+    const scenarioOptions = allScns.map((s) => (
+      '<option value="' + esc(s.id) + '"' + (s.id === scn.id ? ' selected' : '') + '>' + esc(s.name) + '</option>'
     )).join('');
+    const scenarioPicker = (
+      '<label class="cf-scenario-picker" style="--tone:' + esc(scn.tone) + ';">' +
+        '<span class="cf-scenario-picker__dot" aria-hidden="true"></span>' +
+        '<select data-cash-select aria-label="Cash Flow scenario">' + scenarioOptions + '</select>' +
+      '</label>'
+    );
 
     const retStartAge = rows.find((r) => !r.accum)?.age ?? null;
     const RMD_START_AGE = 73;
     const rmdStartAge = rows.find((r) => r.age >= RMD_START_AGE)?.age ?? null;
 
-    const taxComparisonHtml = taxComparison ? (
-      '<div class="cf-tax-compare" data-tax-compare style="display:contents;"' +
-        (sidecar?.path ? ' data-tax-path="' + esc(sidecar.path) + '"' : '') +
-        ' data-federal-total="' + taxComparison.federalTotal + '"' +
-        ' data-engine-path-total="' + taxComparison.enginePathTotal + '"' +
-        ' data-delta="' + taxComparison.delta + '">' +
-        '<div class="cf-stat"><div class="cf-stat__label">Federal Total</div><div class="cf-stat__value">' + (taxComparison.federalTotal === 0 ? '$0' : fmtMoney(taxComparison.federalTotal)) + '</div></div>' +
-        '<div class="cf-stat"><div class="cf-stat__label">Engine Path</div><div class="cf-stat__value">' + (taxComparison.enginePathTotal === 0 ? '$0' : fmtMoney(taxComparison.enginePathTotal)) + '</div></div>' +
-        '<div class="cf-stat"><div class="cf-stat__label">Delta</div><div class="cf-stat__value">' + fmtSignedMoney(taxComparison.delta, fmtMoney) + '</div></div>' +
+    const federalTotal = Number.isFinite(summary.federalTotal)
+      ? summary.federalTotal
+      : taxComparison?.federalTotal;
+    const federalTotalHtml = Number.isFinite(federalTotal) ? (
+      '<div class="cf-stat cf-stat--federal" data-federal-total="' + federalTotal + '"' +
+        (taxComparison ? ' data-tax-compare' : '') +
+        (taxComparison && sidecar?.path ? ' data-tax-path="' + esc(sidecar.path) + '"' : '') +
+        (taxComparison ? ' data-engine-path-total="' + taxComparison.enginePathTotal + '" data-delta="' + taxComparison.delta + '"' : '') + '>' +
+        '<div class="cf-stat__label">Federal total</div>' +
+        '<div class="cf-stat__value">' + (federalTotal === 0 ? '$0' : fmtMoney(federalTotal)) + '</div>' +
       '</div>'
     ) : '';
 
     const typicalSummaryStrip = (
-      '<div class="cf-summary" style="--tone:' + scn.tone + ';--tone-glow:' + toneGlow(scn.tone) + ';">' +
+      '<div class="cf-summary" style="--tone:' + scn.tone + ';">' +
         '<div class="cf-summary__id">' +
-          ring(40, 17, 2.5, scn.tone, scn.prob, '<span class="numeral" style="font-size:14px;">' + scn.probStr + '<span class="pct" style="font-size:10px;">%</span></span>') +
-          '<div class="cf-summary__sub">Probability of success</div>' +
+          '<div class="cf-stat"><div class="cf-stat__label">Probability of success</div>' +
+            '<div class="cf-stat__value cf-stat__value--probability">' + scn.probStr + '%</div></div>' +
         '</div>' +
         '<div class="cf-summary__stats">' +
           '<div class="cf-stat"><div class="cf-stat__label">Median Ending</div><div class="cf-stat__value">' + scn.median + '</div></div>' +
           '<div class="cf-stat"><div class="cf-stat__label">Peak Withdrawal</div>' +
             '<div class="cf-stat__peak"><span class="cf-stat__value" style="color:' + wdColor(summary.peakWdRate, false) + ';">' + (summary.peakWdRate ? num(summary.peakWdRate, 1) + '%' : '—') + '</span><span class="cf-stat__peak-age">' + (summary.peakWdAge ? 'age ' + summary.peakWdAge : '') + '</span></div>' +
           '</div>' +
-          taxComparisonHtml +
+          federalTotalHtml +
         '</div>' +
       '</div>'
     );
@@ -342,11 +341,16 @@ export function renderCashflow(scn, allScns, {
       const ending = isFirstUnderfunded
         ? 'Underfunded'
         : (r.ending === 0 ? '$0' : fmtMoney(r.ending));
-      const endColor = r.shortfall ? 'var(--down-deep)' : 'var(--text-2)';
       const shortfallNote = selected?.kind !== 'historical' && r.fundingShortfall > 0.01
         ? '<span class="cf-row__shortfall">Short ' + fmtMoney(r.fundingShortfall) + '</span>'
         : '';
-      const goalsColor = r.goals > 0 ? (r.goalTag ? '#d8c084' : '#c6a662') : 'var(--text-mute)';
+      const returnClass = r.ret == null ? 'cf-cell--zero' : (r.ret < 0 ? 'cf-down' : (r.ret > 0 ? 'cf-up' : ''));
+      const withdrawalColor = cfWdColor(r.wdRate, r.shortfall);
+      const withdrawalClass = !r.accum && r.startPort > 0
+        ? (withdrawalColor === 'var(--down-deep)'
+            ? 'cf-wd-hi'
+            : (withdrawalColor === 'var(--down)' ? 'cf-wd-mid' : 'cf-wd-lo'))
+        : 'cf-cell--zero';
       const isRetStart = retStartAge != null && !r.accum && r.age === retStartAge;
       const isRmdStart = rmdStartAge != null && r.age === rmdStartAge;
       const yearMark = isRetStart
@@ -359,18 +363,18 @@ export function renderCashflow(scn, allScns, {
             esc(r.year) +
           '</span>' +
           '<span class="cf-cell cf-cell--age">' + esc(r.age) + '</span>' +
-          '<span class="cf-cell" style="color:' + (r.income > 0 ? 'var(--text-2b)' : 'var(--text-mute)') + ';">' + (r.income > 0 ? fmtMoney(r.income) : '—') + '</span>' +
-          '<span class="cf-cell" style="color:var(--text-2b);">' + (r.rmd > 0 ? fmtMoney(r.rmd) : '') + '</span>' +
+          '<span class="cf-cell ' + (r.income > 0 ? '' : 'cf-cell--zero') + '">' + (r.income > 0 ? fmtMoney(r.income) : '—') + '</span>' +
+          '<span class="cf-cell">' + (r.rmd > 0 ? fmtMoney(r.rmd) : '') + '</span>' +
           '<span class="cf-cell ' + (r.essential > 0 ? 'cf-cell--essential' : 'cf-cell--zero') + '">' + fmtMoney(r.essential) + '</span>' +
           '<div class="cf-row__goals-wrap">' +
-            '<span class="cf-cell" style="color:' + goalsColor + ';">' + (r.goals > 0 ? fmtMoney(r.goals) : '—') + '</span>' +
-            (r.goalTag ? '<span class="cf-row__goaltag">' + esc(r.goalTag) + '</span>' : '') +
+            '<span class="cf-cell ' + (r.goals > 0 ? '' : 'cf-cell--zero') + '">' + (r.goals > 0 ? fmtMoney(r.goals) : '—') + '</span>' +
+            (r.goalTag ? '<span class="px-chip px-chip--edited cf-row__goaltag">' + esc(r.goalTag) + '</span>' : '') +
           '</div>' +
           '<span class="cf-cell ' + (tax > 0 ? 'cf-cell--tax' : 'cf-cell--zero') + '">' + fmtMoney(tax) + '</span>' +
           '<span class="cf-cell ' + (r.draw > 0 ? 'cf-cell--draw' : 'cf-cell--zero') + '">' + fmtParenMoney(r.draw, fmtMoney) + '</span>' +
-          '<span class="cf-cell cf-cell--ret" style="color:' + (r.ret == null ? 'var(--text-mute)' : (r.ret < 0 ? 'var(--down)' : 'var(--tone-green)')) + ';">' + (r.ret == null ? '—' : (r.ret < 0 ? '−' : '+') + num(Math.abs(r.ret) * 100, 1) + '%') + '</span>' +
-          '<span class="cf-cell cf-cell--wd" style="color:' + (!r.accum && r.startPort > 0 ? cfWdColor(r.wdRate, r.shortfall) : 'var(--text-mute)') + ';">' + (!r.accum && r.startPort > 0 ? num(r.wdRate, 1) + '%' : '—') + '</span>' +
-          '<span class="cf-cell cf-cell--ending" style="color:' + endColor + ';"><span>' + ending + '</span>' + shortfallNote + '</span>' +
+          '<span class="cf-cell cf-cell--ret ' + returnClass + '">' + (r.ret == null ? '—' : (r.ret < 0 ? '−' : '+') + num(Math.abs(r.ret) * 100, 1) + '%') + '</span>' +
+          '<span class="cf-cell cf-cell--wd ' + withdrawalClass + '">' + (!r.accum && r.startPort > 0 ? num(r.wdRate, 1) + '%' : '—') + '</span>' +
+          '<span class="cf-cell cf-cell--ending' + (r.shortfall ? ' cf-down' : '') + '"><span>' + ending + '</span>' + shortfallNote + '</span>' +
         '</div>'
       );
     };
@@ -397,17 +401,19 @@ export function renderCashflow(scn, allScns, {
     return (
       '<div class="cf" data-cash-path-id="' + esc(selected?.pathId ?? (typicalPath ? 'typical' : '')) + '" data-cash-path-kind="' + esc(selected?.kind ?? (typicalPath ? 'typical' : '')) + '">' +
         '<div class="cf__head">' +
-          '<div class="cf__pills">' + pills + '</div>' +
-          '<div class="cf__path-controls" id="scn-cf-path-controls"></div>' +
+          scenarioPicker +
           (hasWorking
             ? '<button class="cf-ret-toggle ' + (cashFromRetirement ? 'is-on' : '') + '" type="button" data-cash-retstart aria-pressed="' + (cashFromRetirement ? 'true' : 'false') + '">Start at retirement</button>'
             : '') +
+          '<div class="cf__path-controls" id="scn-cf-path-controls"></div>' +
         '</div>' +
-        summaryStrip +
-        taxDisclosure +
-        '<div class="cf-table">' +
-          '<div class="cf-table__head cf-grid">' + headCells + '</div>' +
-          (empty || phases) +
+        '<div class="cf-panel">' +
+          summaryStrip +
+          taxDisclosure +
+          '<div class="cf-table">' +
+            '<div class="cf-table__head cf-grid">' + headCells + '</div>' +
+            (empty || phases) +
+          '</div>' +
         '</div>' +
       '</div>'
     );

@@ -10,6 +10,13 @@ function simulationByIndex(result, simIndex){
   return result.sims.find(simulation => simulation?.simIndex === simIndex) ?? null;
 }
 
+function federalTaxTotal(simulation){
+  const rows = simulation?.rows;
+  if(!Array.isArray(rows) || rows.length === 0) return null;
+  if(rows.some(row => !Number.isFinite(row?.taxes))) return null;
+  return rows.reduce((total, row) => total + row.taxes, 0);
+}
+
 function freezeSelectedResult(result){
   return Object.freeze({
     ...result,
@@ -92,12 +99,16 @@ export function createCashFlowController({
         if(simIndex === null) throw new Error('baseline Typical simulation identity is unavailable');
         const simulation = simulationByIndex(scenario.res, simIndex);
         if(!simulation?.rows) throw new Error('shared Typical simulation is unavailable');
+        const summary = digest(simulation);
         return freezeSelectedResult({
           kind,
           pathId,
           simulation,
           rows: buildRows(simulation, { plan: scenarioPlan, currentYear: displayYear }),
-          summary: digest(simulation),
+          summary: {
+            ...summary,
+            federalTotal: federalTaxTotal(simulation),
+          },
           taxScope: scenario.res?.federalFunding?.semantics?.convergence === 'per-year-to-one-cent'
             ? 'MODELED_FEDERAL_LINE_24'
             : null,

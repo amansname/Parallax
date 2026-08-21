@@ -497,7 +497,7 @@ export function renderHouseholdWizardNetWorth(ctx){
       <h2>${group.label}</h2>
       <div class="nw-tile-grid">
         ${group.categories.map(category => {
-          const hasEntries = entriesByCategory[category.id].length > 0;
+          const hasEntries = presence[category.id];
           return `
             <button type="button" class="nw-tile ${hasEntries ? 'has-entries' : ''}"
               data-hh-action="net-worth-open-category" data-category-id="${category.id}">
@@ -518,45 +518,15 @@ export function renderHouseholdWizardNetWorth(ctx){
 
   const entryView = `
     <div class="nw-entry-view">
-      <div class="nw-mobile-total">
-        <span>Total Net Worth</span>
-        <strong>${hasWiredData ? money(netWorthTotal) : '—'}</strong>
-      </div>
       <main class="nw-grid-region">${tiles}</main>
-      <footer class="nw-entry-footer">
-        <button type="button" class="nw-secondary-button" data-hh-action="step-back">Back</button>
-        <button type="button" class="nw-primary-button"
-          data-hh-action="net-worth-show-summary">Continue</button>
-      </footer>
-    </div>
-  `;
-
-  const summaryView = `
-    <div class="nw-summary-view">
-      <main class="nw-summary-main">
-        <header class="nw-summary-hero">
-          <span>Total Net Worth</span>
-          <strong>${hasWiredData ? money(netWorthTotal) : '—'}</strong>
-          <div>
-            <p><span>Assets</span><b>${hasWiredData ? money(assetTotal) : '—'}</b></p>
-            <p><span>Liabilities</span><b>${hasWiredData ? money(liabilityTotal) : '—'}</b></p>
-          </div>
-        </header>
-        <div class="nw-summary-grid">
-          ${CATEGORIES.map(category => `
-            <article class="nw-summary-card">
-              ${icon(category.icon, 'nw-summary-icon')}
-              <strong>${category.label}</strong>
-              <span>${amountForCategory(category.id)}</span>
-            </article>
-          `).join('')}
+      <aside class="nw-rail" aria-label="Net worth total">
+        <span class="nw-total-label">Net Worth</span>
+        <strong>${hasWiredData ? money(netWorthTotal) : '—'}</strong>
+        <div class="nw-rail-actions">
+          <button type="button" class="nw-primary-button" data-hh-action="step-next">Continue</button>
+          <button type="button" class="nw-secondary-button" data-hh-action="step-back">Back</button>
         </div>
-      </main>
-      <footer class="nw-summary-footer">
-        <button type="button" class="nw-secondary-button"
-          data-hh-action="net-worth-show-entry">Back</button>
-        <button type="button" class="nw-primary-button" data-hh-action="step-next">Continue</button>
-      </footer>
+      </aside>
     </div>
   `;
 
@@ -565,7 +535,7 @@ export function renderHouseholdWizardNetWorth(ctx){
   return `
     <div class="hh-screen nw-workflow" data-hh-wizard-screen="net-worth"
       id="hh-panel-net-worth" role="tabpanel" aria-labelledby="hh-nav-net-worth">
-      ${uiState.netWorthView === 'summary' ? summaryView : entryView}
+      ${entryView}
       ${renderPanel({
         category: activeCategory,
         entries: activeCategory ? entriesByCategory[activeCategory.id] : [],
