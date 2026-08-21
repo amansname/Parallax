@@ -204,7 +204,7 @@ export function buildHistoricalCashFlowResult({
     ? realHistoricalRows.at(-2) ?? null
     : realHistoricalRows.at(-1);
   const endingRow = historical.failed ? null : realHistoricalRows.at(-1);
-  const peakRow = historical.failed || digest.peakWdAge == null
+  const peakRow = digest.peakWdAge == null
     ? null
     : realHistoricalRows.find(row => row.age === digest.peakWdAge) ?? null;
   const summary = Object.freeze({
@@ -223,8 +223,8 @@ export function buildHistoricalCashFlowResult({
     endingBalance: endingRow?.balance ?? null,
     endingAge: endingRow?.age ?? null,
     endingYear: calendarYearForRetirementRow(endingRow, retirementBaseYear),
-    peakWdRate: historical.failed ? null : digest.peakWdRate,
-    peakWdAge: historical.failed ? null : digest.peakWdAge,
+    peakWdRate: digest.peakWdRate,
+    peakWdAge: digest.peakWdAge,
     peakWdYear: calendarYearForRetirementRow(peakRow, retirementBaseYear),
   });
   const simulation = Object.freeze({

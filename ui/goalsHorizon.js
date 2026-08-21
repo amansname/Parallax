@@ -126,16 +126,19 @@ function renderLane(goal,index,span,state,disabled){
   </div>`;
 }
 
-function renderAddPanel(disabled){
+function renderAddRail(disabled){
   const starters=GOAL_CATEGORIES.map(category=>
     `<button class="gh-starter" type="button" data-add-category="${category.key}" style="--goal-color:${category.color}"${disabledAttr(disabled)}>
       ${icon(category.key,'gh-starter__icon')}<span>${category.label}</span>
     </button>`
   ).join('');
-  return `<div class="gh-add-panel">
-    <div class="gh-field-label">What is it for?</div>
-    <div class="gh-starters">${starters}</div>
-  </div>`;
+  return `<aside class="gh-rail gh-add-rail" aria-label="Add a goal">
+    <header class="gh-rail__header">
+      <div class="gh-add-rail__heading"><span class="gh-field-label">Add a goal</span><strong>Choose a category</strong></div>
+      <button class="gh-rail__close" type="button" data-action="close" aria-label="Close add goal">×</button>
+    </header>
+    <div class="gh-rail__body"><div class="gh-starters">${starters}</div></div>
+  </aside>`;
 }
 
 function renderRail(goal,index,span,disabled){
@@ -207,7 +210,7 @@ function renderRail(goal,index,span,disabled){
     </div>
     <footer class="gh-rail__footer">
       ${goal.system
-        ? '<span class="gh-rail__system-note">Always part of the plan</span>'
+        ? ''
         : `<button class="gh-delete" type="button" data-action="delete"${disabledAttr(disabled)}>Delete goal</button>`}
       <span class="gh-rail__footer-spacer"></span>
       ${goal.system ? '' : `<button class="gh-ghost" type="button" data-action="duplicate"${disabledAttr(disabled)}>Duplicate</button>`}
@@ -271,7 +274,8 @@ export function createGoalsHorizonController(deps){
       : '<div class="gh-empty">Nothing on the horizon yet — add a goal and it will land right here on the timeline.</div>';
     const selected=selectedRecord();
     const toast=state.toast ? `<div class="gh-toast" role="status"><span>Deleted “${escHtml(state.toast.goal.name || 'Untitled goal')}”</span><button type="button" data-action="undo">Undo</button><button type="button" data-action="dismiss-toast" aria-label="Dismiss">×</button></div>` : '';
-    return `<div class="gh-page${selected ? '' : ' is-editor-closed'}">
+    const addRail=state.addOpen ? renderAddRail(isDisabled) : '';
+    return `<div class="gh-page${selected || state.addOpen ? '' : ' is-editor-closed'}">
       <div class="gh-main">
         <section class="gh-card" aria-label="Goals horizon">
           <div class="gh-track">
@@ -280,12 +284,11 @@ export function createGoalsHorizonController(deps){
             <div class="gh-lanes" data-axis-min="${currentSpan.axisMin}" data-axis-max="${currentSpan.axisMax}">${lanes}</div>
           </div>
           <div class="gh-add-row">
-            <button class="gh-add-toggle" type="button" data-action="toggle-add" aria-expanded="${state.addOpen}"${disabledAttr(isDisabled)}><span>+</span>${state.addOpen?'Never mind':'Add a goal'}</button>
-            ${state.addOpen?renderAddPanel(isDisabled):''}
+            <button class="gh-add-toggle" type="button" data-action="toggle-add" aria-expanded="${state.addOpen}"${disabledAttr(isDisabled)}><span>+</span>Add a goal</button>
           </div>
         </section>
       </div>
-      ${renderRail(selected?.goal,selected?.index,currentSpan,isDisabled)}
+      ${selected ? renderRail(selected.goal,selected.index,currentSpan,isDisabled) : addRail}
       ${toast}
     </div>`;
   };
@@ -372,6 +375,7 @@ export function createGoalsHorizonController(deps){
     }
     if(action==='close'||action==='done'){
       state.selectedId=null;
+      state.addOpen=false;
       rerender();
       return;
     }

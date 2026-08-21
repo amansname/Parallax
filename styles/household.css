@@ -978,6 +978,12 @@
   font-variant-numeric: tabular-nums;
 }
 
+.page[data-page="household"] .nw-edit-entry {
+  width: 26px;
+  height: 26px;
+  color: var(--nw-ink-mute);
+}
+
 .page[data-page="household"] .nw-remove-entry {
   width: 26px;
   height: 26px;

@@ -279,6 +279,37 @@ test('Net Worth presents the approved category workflow and canonical portfolio 
   assert.doesNotMatch(html, /data-account-field|data-hh-action="add-account"/);
 });
 
+test('Net Worth exposes saved canonical accounts for in-place editing', () => {
+  const row = wizard({ netWorthPanelCategory: 'investment' }).render('net-worth');
+  assert.match(row, /data-hh-action="net-worth-edit-entry"/);
+  assert.match(row, /data-account-id="acct-1"/);
+  assert.match(row, /data-account-type-id="brokerage_taxable"/);
+
+  const form = wizard({
+    netWorthPanelCategory: 'investment',
+    netWorthDraft: {
+      categoryId: 'investment',
+      name: 'Joint brokerage',
+      type: 'Brokerage (taxable)',
+      custom: false,
+      owner: 'joint',
+      link: '',
+      linkLabel: '',
+      linkAvailable: false,
+      value: '$1,450,000',
+      accountTypeId: 'brokerage_taxable',
+      canonicalTax: 'Taxable',
+      shellOnly: false,
+      owners: ['client', 'spouse', 'joint'],
+      editSource: 'account',
+      editId: 'acct-1',
+    },
+  }).render('net-worth');
+  assert.match(form, /value="Joint brokerage"[\s\S]*data-net-worth-draft="name"/);
+  assert.match(form, /value="\$1,450,000"[\s\S]*data-net-worth-draft="value"/);
+  assert.match(form, />Save changes<\/button>/);
+});
+
 test('Net Worth requires a valid owner and hides spouse ownership when no spouse exists', () => {
   const html = wizard({
     netWorthPanelCategory: 'bank',
@@ -424,16 +455,15 @@ test('Tax page omits confirmation checkbox markup', () => {
   assert.doesNotMatch(html, /data-tax-confirmation/);
 });
 
-test('Tax page exposes two bound IRMAA lookback rows with year-specific filing status', () => {
+test('Tax page exposes two IRMAA MAGI rows and one authoritative filing-status reminder', () => {
   const html = wizard().render('tax');
   assert.match(html, /data-tax-input-section="irmaa-lookback"/);
   assert.match(html, /data-irmaa-tax-year="2024"/);
   assert.match(html, /data-irmaa-tax-year="2025"/);
   assert.match(html, /data-tax-field="irmaa\.lookback\.2024\.magi"/);
   assert.match(html, /data-tax-field="irmaa\.lookback\.2025\.magi"/);
-  assert.match(html, /data-tax-field="irmaa\.lookback\.2024\.filingStatus"/);
-  assert.match(html, /data-tax-field="irmaa\.lookback\.2025\.filingStatus"/);
-  assert.equal((html.match(/data-tax-field="irmaa\.lookback\.\d{4}\.filingStatus"/g) || []).length, 2);
+  assert.doesNotMatch(html, /data-tax-field="irmaa\.lookback\.\d{4}\.filingStatus"/);
+  assert.equal((html.match(/>Filing status<\/span>/g) || []).length, 1);
   assert.equal((html.match(/data-tax-summary-box=/g) || []).length, 5);
   assert.equal((html.match(/data-irmaa-tax-year=/g) || []).length, 2);
   assert.doesNotMatch(html, /data-hh-action="set-tax-view"/);
@@ -443,15 +473,10 @@ test('Tax page exposes two bound IRMAA lookback rows with year-specific filing s
 test('Summary remains minimal and omits the rejected status and unlock sections', () => {
   const html = wizard().render('summary');
   assert.match(html, /data-summary-metric="portfolio"/);
-  assert.match(html, /data-summary-metric="income"/);
-  assert.match(html, /data-summary-metric="federal-tax"/);
-  assert.match(html, /data-summary-income-status="ready"/);
-  assert.match(html, /data-summary-tax-status="ready"/);
-  assert.match(html, /data-summary-tax-scope="FULL_1040"/);
+  assert.doesNotMatch(html, /data-summary-metric="income"|Base-year income/);
+  assert.doesNotMatch(html, /data-summary-metric="federal-tax"|Modeled federal tax/);
   const unavailable = wizard({ taxReady: false }).render('summary');
-  assert.match(unavailable, /data-summary-income-status="not-calculable"/);
-  assert.match(unavailable, /data-summary-tax-status="not-calculable"/);
-  assert.match(unavailable, /data-summary-tax-scope="NOT_CALCULABLE"/);
+  assert.doesNotMatch(unavailable, /data-summary-income-status|data-summary-tax-status/);
   assert.match(html, /Portfolio by tax treatment/);
   assert.match(html, /<table class="hh-summary-irmaa"/);
   assert.match(html, /<th scope="col">Item<\/th><th scope="col">Value<\/th>/);
@@ -468,17 +493,14 @@ test('Summary remains minimal and omits the rejected status and unlock sections'
   assert.doesNotMatch(unavailable, /data-summary-irmaa/);
 });
 
-test('Summary shows available-input income and tax without incompleteness flags', () => {
+test('Summary omits unreliable income and tax headlines for partial facts', () => {
   const html = wizard({
     taxReady: false,
     partialIncome: true,
     partialTax: true,
   }).render('summary');
-  assert.match(html, /data-summary-income-status="partial"/);
-  assert.match(html, /\$125,000/);
-  assert.match(html, /data-summary-tax-status="partial"/);
-  assert.match(html, /data-summary-tax-scope="available-inputs"/);
-  assert.match(html, /Modeled federal tax[\s\S]*\$18,734/);
+  assert.doesNotMatch(html, /data-summary-income-status|Base-year income|\$125,000/);
+  assert.doesNotMatch(html, /data-summary-tax-status|Modeled federal tax|\$18,734/);
   assert.doesNotMatch(html, /more facts needed/i);
   assert.doesNotMatch(html, /additional tax facts/i);
   assert.doesNotMatch(html, /needs additional facts/i);
@@ -486,10 +508,7 @@ test('Summary shows available-input income and tax without incompleteness flags'
 
 test('Summary Continue to Scenarios is available even when tax summary is not calculable', () => {
   const incomplete = wizard({ taxReady: false });
-  assert.match(
-    incomplete.render('summary'),
-    /data-summary-tax-status="not-calculable"/,
-  );
+  assert.doesNotMatch(incomplete.render('summary'), /data-summary-tax-status/);
   assert.doesNotMatch(
     incomplete.footer('summary'),
     /data-tax-completion-required="true"/,

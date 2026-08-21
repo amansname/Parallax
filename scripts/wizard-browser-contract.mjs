@@ -1569,11 +1569,8 @@ async function verifyPlanningSourceAndTaxFlow(page){
         'irmaa.lookback.2024.magi',
         'irmaa.lookback.2025.magi',
       ])
-      && irmaaInputs.filingFields === 2
-      && JSON.stringify(irmaaInputs.filingFieldNames) === JSON.stringify([
-        'irmaa.lookback.2024.filingStatus',
-        'irmaa.lookback.2025.filingStatus',
-      ])
+      && irmaaInputs.filingFields === 0
+      && JSON.stringify(irmaaInputs.filingFieldNames) === JSON.stringify(['', ''])
       && irmaaInputs.viewToggleCount === 0
       && irmaaInputs.view === 'detailed'
       && irmaaInputs.summaryBoxes === 5
@@ -1581,7 +1578,8 @@ async function verifyPlanningSourceAndTaxFlow(page){
         && frame.right === '0px'
         && frame.radius === '0px')
       && irmaaInputs.controlWidths.length === 4
-      && irmaaInputs.controlWidths.every(width => width >= 180 && width <= 320)
+      && irmaaInputs.controlWidths.slice(0, 2).every(width => width >= 180 && width <= 320)
+      && irmaaInputs.controlWidths.slice(2).every(width => width >= 320 && width <= 560)
       && Math.abs(irmaaInputs.controlWidths[0] - irmaaInputs.controlWidths[1]) <= 1
       && Math.abs(irmaaInputs.controlWidths[2] - irmaaInputs.controlWidths[3]) <= 1
       && !irmaaInputs.outputCopy,
@@ -1621,10 +1619,9 @@ async function verifyPlanningSourceAndTaxFlow(page){
       .map(row => [...row.querySelectorAll('td')]
         .map(cell => cell.textContent.trim()));
     return {
-      income: document.querySelector('[data-summary-metric="income"]')
-        ?.dataset.summaryIncomeStatus || '',
-      tax: document.querySelector('[data-summary-metric="federal-tax"]')
-        ?.dataset.summaryTaxStatus || '',
+      removedMetricCount: document.querySelectorAll(
+        '[data-summary-metric="income"], [data-summary-metric="federal-tax"]',
+      ).length,
       tableCount: document.querySelectorAll('table[data-summary-irmaa]').length,
       headers,
       rows,
@@ -1635,8 +1632,8 @@ async function verifyPlanningSourceAndTaxFlow(page){
     };
   });
   requireCondition(
-    derivedSummary.income === 'ready' && derivedSummary.tax === 'ready',
-    `Derived Tax summary did not calculate: ${JSON.stringify(derivedSummary)}`,
+    derivedSummary.removedMetricCount === 0,
+    `Summary restored removed income or federal-tax headlines: ${JSON.stringify(derivedSummary)}`,
   );
   requireCondition(
     derivedSummary.tableCount === 1
@@ -1731,18 +1728,13 @@ async function verifyPlanningSourceAndTaxFlow(page){
 
   await goToWizardStep(page, 'summary');
   const afterSummary = await page.evaluate(() => ({
-    income: document.querySelector('[data-summary-metric="income"]')
-      ?.dataset.summaryIncomeStatus || '',
-    tax: document.querySelector('[data-summary-metric="federal-tax"]')
-      ?.dataset.summaryTaxStatus || '',
-    scope: document.querySelector('[data-summary-metric="federal-tax"]')
-      ?.dataset.summaryTaxScope || '',
+    removedMetricCount: document.querySelectorAll(
+      '[data-summary-metric="income"], [data-summary-metric="federal-tax"]',
+    ).length,
   }));
   requireCondition(
-    afterSummary.income === 'ready'
-      && afterSummary.tax === 'ready'
-      && afterSummary.scope === 'FULL_1040',
-    `Completed Tax facts did not reach Summary: ${JSON.stringify(afterSummary)}`,
+    afterSummary.removedMetricCount === 0,
+    `Summary restored removed income or federal-tax headlines: ${JSON.stringify(afterSummary)}`,
   );
   await requireUnique(
     page,

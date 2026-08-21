@@ -121,8 +121,9 @@ test('historical Cash Flow stops at and reports the first underfunded retirement
   assert.equal(result.summary.fundedThroughYear, null);
   assert.equal(result.summary.endingBalance, null);
   assert.equal(result.summary.endingAge, null);
-  assert.equal(result.summary.peakWdRate, null);
-  assert.equal(result.summary.peakWdAge, null);
+  assert.equal(result.summary.peakWdRate, firstRetirement.wdRate);
+  assert.equal(result.summary.peakWdAge, firstRetirement.age);
+  assert.equal(result.summary.peakWdYear, 2028);
   assert.equal('totalModeledShortfall' in result.summary, false);
   assert.equal(result.taxScope, 'MODELED_FEDERAL_LINE_24');
 });

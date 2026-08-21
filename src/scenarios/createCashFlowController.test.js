@@ -19,8 +19,14 @@ function simulation(simIndex, balance){
   };
 }
 
-function buildRows(selected){
-  return selected.rows.map(row => ({ ...row, ending: row.balance }));
+function buildRows(selected, { plan, currentYear = 2026 } = {}){
+  const currentAge = plan?.household?.primary?.currentAge ?? 65;
+  return selected.rows.map(row => ({
+    ...row,
+    year: currentYear + (row.age - currentAge),
+    accum: row.phase === 'accum',
+    ending: row.balance,
+  }));
 }
 
 test('Typical Cash Flow compares every scenario on the baseline p50 market index', () => {
@@ -179,4 +185,78 @@ test('Typical Cash Flow fails closed when a scenario lacks the exact shared simI
   assert.match(result.error, /retirement handoff could not be verified/);
   assert.deepEqual(result.rows, []);
   assert.notEqual(result.simulation, unrelatedAtPositionSeven);
+});
+
+test('historical Cash Flow compares its outcome-year balance with the same scenario Typical row', () => {
+  const typical = {
+    simIndex: 7,
+    rows: [
+      { age: 65, phase: 'ret', balance: 700_000, taxes: 0 },
+      { age: 66, phase: 'ret', balance: 600_000, taxes: 0 },
+    ],
+  };
+  const scenario = {
+    base: true,
+    name: 'Baseline',
+    res: {
+      sims: [typical],
+      paths: { p50: { simIndex: 7 } },
+    },
+  };
+  const plan = {
+    meta: { planningAsOfYear: 2026 },
+    household: { primary: { currentAge: 65 } },
+    goals: [],
+  };
+  const cases = [
+    {
+      summary: {
+        outcome: 'underfunded',
+        firstUnderfundedYear: 2026,
+        peakWdRate: 8.1,
+      },
+      row: { age: 65, phase: 'ret', balance: 0, taxes: 0 },
+      expectedYear: 2026,
+      expectedTypical: 700_000,
+      expectedDelta: -700_000,
+    },
+    {
+      summary: {
+        outcome: 'survives',
+        endingYear: 2027,
+        endingBalance: 650_000,
+        peakWdRate: 4.2,
+      },
+      row: { age: 66, phase: 'ret', balance: 650_000, taxes: 0 },
+      expectedYear: 2027,
+      expectedTypical: 600_000,
+      expectedDelta: 50_000,
+    },
+  ];
+
+  for(const entry of cases){
+    const historical = {
+      kind: 'historical',
+      pathId: 'historical-1973',
+      simulation: { rows: [entry.row] },
+      summary: entry.summary,
+      taxScope: 'MODELED_FEDERAL_LINE_24',
+    };
+    const controller = createCashFlowController({
+      getScenarios: () => [scenario],
+      scenarioInputsByResult: new WeakMap([[scenario.res, { plan, overrides: {} }]]),
+      selection: { id: 'historical-1973' },
+      historicalCache: { get: () => historical },
+      buildRows,
+    });
+
+    const result = controller.resultForScenario(scenario);
+
+    assert.equal(result.error, undefined);
+    assert.equal(result.summary.comparisonYear, entry.expectedYear);
+    assert.equal(result.summary.comparisonBalance, entry.row.balance);
+    assert.equal(result.summary.typicalComparisonBalance, entry.expectedTypical);
+    assert.equal(result.summary.deltaVsTypical, entry.expectedDelta);
+    assert.equal(Object.isFrozen(result.summary), true);
+  }
 });

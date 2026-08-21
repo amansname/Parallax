@@ -21,6 +21,45 @@ function freezeSelectedResult(result){
   return Object.freeze({
     ...result,
     rows: Object.freeze([...(result.rows ?? [])]),
+    summary: result.summary && typeof result.summary === 'object'
+      ? Object.freeze({ ...result.summary })
+      : result.summary,
+  });
+}
+
+function exactRetirementRowForYear(rows, year, label){
+  if(!Number.isInteger(year)) throw new Error(`${label} comparison year is unavailable`);
+  const matches = (Array.isArray(rows) ? rows : [])
+    .filter(row => !row?.accum && row?.year === year);
+  if(matches.length !== 1 || !Number.isFinite(matches[0]?.ending)){
+    throw new Error(`${label} comparison row is unavailable`);
+  }
+  return matches[0];
+}
+
+function historicalSummaryWithTypicalComparison({ summary, historicalRows, typicalRows }){
+  const comparisonYear = summary?.outcome === 'underfunded'
+    ? summary.firstUnderfundedYear
+    : summary?.outcome === 'survives'
+      ? summary.endingYear
+      : null;
+  const historicalRow = exactRetirementRowForYear(
+    historicalRows,
+    comparisonYear,
+    'historical'
+  );
+  const typicalRow = exactRetirementRowForYear(typicalRows, comparisonYear, 'Typical');
+  if(summary.outcome === 'survives'
+      && (!Number.isFinite(summary.endingBalance)
+        || Math.abs(summary.endingBalance - historicalRow.ending) > 0.01)){
+    throw new Error('historical plan-end balance does not match its comparison row');
+  }
+  return Object.freeze({
+    ...summary,
+    comparisonYear,
+    comparisonBalance: historicalRow.ending,
+    typicalComparisonBalance: typicalRow.ending,
+    deltaVsTypical: historicalRow.ending - typicalRow.ending,
   });
 }
 
@@ -122,11 +161,25 @@ export function createCashFlowController({
         periodId: pathId,
         scenarioId: `cash_flow_${scenario.name}`,
       });
+      const historicalRows = buildRows(historical.simulation, {
+        plan: scenarioPlan,
+        currentYear: displayYear,
+      });
+      const simIndex = baselineP50SimulationIndex(getScenarios());
+      if(simIndex === null) throw new Error('baseline Typical simulation identity is unavailable');
+      const typicalSimulation = simulationByIndex(scenario.res, simIndex);
+      if(!typicalSimulation?.rows) throw new Error('shared Typical simulation is unavailable');
+      const typicalRows = buildRows(typicalSimulation, {
+        plan: scenarioPlan,
+        currentYear: displayYear,
+      });
       return freezeSelectedResult({
         ...historical,
-        rows: buildRows(historical.simulation, {
-          plan: scenarioPlan,
-          currentYear: displayYear,
+        rows: historicalRows,
+        summary: historicalSummaryWithTypicalComparison({
+          summary: historical.summary,
+          historicalRows,
+          typicalRows,
         }),
       });
     }catch(error){

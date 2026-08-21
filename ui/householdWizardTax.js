@@ -179,14 +179,6 @@ export function renderHouseholdWizardTax(ctx){
     single: 'Single',
     headOfHousehold: 'Head of household',
   }[plan.meta?.filingStatus] || 'Unsupported saved filing status';
-  const irmaaFilingStatusOptions = selected => [
-    ['single', 'Single'],
-    ['marriedFilingJointly', 'Married filing jointly'],
-    ['headOfHousehold', 'Head of household'],
-    ['marriedFilingSeparately', 'Married filing separately'],
-  ].map(([value, label]) => (
-    `<option value="${value}" ${selected === value ? 'selected' : ''}>${label}</option>`
-  )).join('');
 
   return `
     <div class="hh-screen hh-tax-screen" data-hh-wizard-screen="tax"
@@ -220,7 +212,6 @@ export function renderHouseholdWizardTax(ctx){
           <div class="hh-irmaa-lookback-row hh-irmaa-lookback-row--head" aria-hidden="true">
             <span>Tax year</span>
             <span>MAGI</span>
-            <span>Filing status</span>
           </div>
           ${irmaaLookback.map(row => {
             const prefix = `irmaa.lookback.${row.taxYear}`;
@@ -233,13 +224,6 @@ export function renderHouseholdWizardTax(ctx){
                     id: `hh-${prefix.replaceAll('.', '-')}-magi`,
                   })}
                 </span>
-                <label class="hh-sel hh-irmaa-lookback-status">
-                  <span class="hh-sr-only">Filing status for ${row.taxYear}</span>
-                  <select data-hh-field="${prefix}.filingStatus"
-                    data-tax-field="${prefix}.filingStatus">
-                    ${irmaaFilingStatusOptions(row.filingStatus)}
-                  </select>
-                </label>
               </div>
             `;
           }).join('')}

@@ -145,6 +145,13 @@ function closeIcon(){
   </svg>`;
 }
 
+function editIcon(){
+  return `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"
+    stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 20h4l11-11a2.8 2.8 0 0 0-4-4L4 16zM13.5 6.5l4 4"></path>
+  </svg>`;
+}
+
 function ownerLabel(owner){
   if(owner === 'client') return 'Client';
   if(owner === 'spouse') return 'Spouse';
@@ -182,6 +189,19 @@ function renderSavedRow(entry, esc){
       : entry.source === 'mortgage'
         ? `data-entry-source="mortgage" data-property-index="${entry.index}"`
         : `data-entry-source="shell" data-shell-id="${esc(entry.id)}"`;
+  const editButton = entry.source === 'account' && entry.editable ? `
+    <button type="button" class="nw-icon-button nw-edit-entry"
+      data-hh-action="net-worth-edit-entry" ${sourceAttrs}
+      data-entry-category-id="${esc(entry.categoryId)}"
+      data-entry-name="${esc(entry.name || '')}"
+      data-entry-type="${esc(entry.type || '')}"
+      data-entry-owner="${esc(entry.ownerId || '')}"
+      data-entry-value="${esc(entry.balance)}"
+      data-account-type-id="${esc(entry.accountTypeId || '')}"
+      data-canonical-tax="${esc(entry.canonicalTax || '')}"
+      data-owners="${esc((entry.owners || []).join(','))}"
+      aria-label="Edit ${esc(entry.name || entry.type || 'account')}">${editIcon()}</button>
+  ` : '';
   return `
     <div class="nw-saved-row">
       <div class="nw-saved-copy">
@@ -190,6 +210,7 @@ function renderSavedRow(entry, esc){
       </div>
       <div class="nw-saved-actions">
         <span>${esc(entry.value || '—')}</span>
+        ${editButton}
         <button type="button" class="nw-icon-button nw-remove-entry"
           data-hh-action="net-worth-remove-entry" ${sourceAttrs}
           aria-label="Remove ${esc(entry.name || entry.type || 'entry')}">${closeIcon()}</button>
@@ -226,9 +247,14 @@ function renderTypeButton(type, category, plan, esc){
 function renderPanel({ category, entries, draft, moreOpen, plan, mortgageMeta, esc }){
   if(!category) return '';
   const selected = Boolean(draft && (draft.type || draft.custom));
+  const editingAccount = draft?.editSource === 'account';
   const chips = category.chips || 4;
-  const topTypes = category.types.slice(0, chips);
-  const restTypes = category.types.slice(chips);
+  const availableTypes = editingAccount
+    ? category.types.filter(type => type.accountTypeId && type.shellOnly !== true)
+    : category.types;
+  const topTypes = availableTypes.slice(0, chips);
+  const restTypes = availableTypes.slice(chips);
+  const showMore = restTypes.length > 0 || !editingAccount;
   const owners = ownersForPlan(
     Array.isArray(draft?.owners) && draft.owners.length ? draft.owners : ALL_OWNERS,
     plan,
@@ -258,15 +284,17 @@ function renderPanel({ category, entries, draft, moreOpen, plan, mortgageMeta, e
   const picker = !selected ? `
     <div class="nw-type-picker">
       ${topTypes.map(type => renderTypeButton(type, category, plan, esc)).join('')}
-      <button type="button" class="nw-type-chip nw-type-chip--more"
-        data-hh-action="net-worth-toggle-more">
-        More
-        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"
-          stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-          <path d="m6 9 6 6 6-6"></path>
-        </svg>
-      </button>
-      ${moreOpen ? `
+      ${showMore ? `
+        <button type="button" class="nw-type-chip nw-type-chip--more"
+          data-hh-action="net-worth-toggle-more">
+          More
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"
+            stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <path d="m6 9 6 6 6-6"></path>
+          </svg>
+        </button>
+      ` : ''}
+      ${showMore && moreOpen ? `
         <div class="nw-more-menu">
           ${restTypes.map(type => `
             <button type="button" data-hh-action="net-worth-pick-type"
@@ -277,14 +305,16 @@ function renderPanel({ category, entries, draft, moreOpen, plan, mortgageMeta, e
               data-owners="${ownersForPlan(type.owners, plan).join(',')}">${esc(type.label)}</button>
           `).join('')}
           ${restTypes.length ? '<div class="nw-more-rule"></div>' : ''}
-          <button type="button" class="nw-type-own"
-            data-hh-action="net-worth-pick-custom" data-category-id="${category.id}">
-            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"
-              stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M16.5 4.5a2.1 2.1 0 0 1 3 3L8 19l-4 1 1-4z"></path>
-            </svg>
-            Type your own
-          </button>
+          ${editingAccount ? '' : `
+            <button type="button" class="nw-type-own"
+              data-hh-action="net-worth-pick-custom" data-category-id="${category.id}">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"
+                stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M16.5 4.5a2.1 2.1 0 0 1 3 3L8 19l-4 1 1-4z"></path>
+              </svg>
+              Type your own
+            </button>
+          `}
         </div>
       ` : ''}
     </div>
@@ -366,7 +396,7 @@ function renderPanel({ category, entries, draft, moreOpen, plan, mortgageMeta, e
               data-net-worth-resolved-link-available="${resolvedLinkAvailable ? 'true' : 'false'}"
               data-net-worth-owner-required="${ownerRequired ? 'true' : 'false'}"
               data-net-worth-link-required="${linkRequired ? 'true' : 'false'}"
-              ${saveDisabled ? 'disabled' : ''}>Save</button>
+              ${saveDisabled ? 'disabled' : ''}>${editingAccount ? 'Save changes' : 'Save'}</button>
           ` : `
             <button type="button" class="nw-primary-button"
               data-hh-action="net-worth-close-panel">Done</button>
@@ -396,14 +426,23 @@ export function renderHouseholdWizardNetWorth(ctx){
   for(const account of accounts){
     const treatment = treatmentLabel(accountTreatment(account.typeId)?.label);
     const categoryId = categoryForAccount(account);
+    const accountType = getAccountTypeById(account.typeId);
+    const accountOwners = ownersForPlan(accountType?.wizardOwners || [], plan);
     entriesByCategory[categoryId].push({
       source: 'account',
       id: account.id,
+      categoryId,
       name: account.displayName,
       type: displayTypeForAccount(account),
       owner: ownerLabel(account.owner),
+      ownerId: account.owner,
       tax: categoryId === 'investment' ? treatment : '',
+      canonicalTax: treatment,
       value: money(account.balance),
+      balance: account.balance,
+      accountTypeId: account.typeId,
+      owners: accountOwners,
+      editable: accountType?.wizardEnabled === true && accountOwners.length > 0,
     });
   }
 
