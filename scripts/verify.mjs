@@ -2000,7 +2000,7 @@ try {
     contract.rows.forEach(row => {
       if(row.cells.length !== scenarioCount
           || !row.baseMeta?.includes(`age ${row.cells[0].value}`)
-          || row.cells.some(cell => Number(cell.value) !== contract.retirementAges[cell.scnId] + 3)){
+          || row.cells.some(cell => Number(cell.value) !== contract.retirementAges[cell.scnId])){
         throw new Error(`retirement-relative goal ages are unresolved: ${JSON.stringify(contract)}`);
       }
     });
