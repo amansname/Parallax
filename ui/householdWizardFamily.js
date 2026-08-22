@@ -82,7 +82,7 @@ export function renderHouseholdWizardFamily(ctx){
               data-hh-field="${owner}.planEndAge"
               data-wizard-scope="family" data-wizard-field="${owner}.planEndAge">
           </label>
-          <label class="hh-field hh-field--wide">
+          <label class="hh-field hh-field--social-security-benefit">
             <span>Annual Social Security at full retirement age</span>
             <input type="text" inputmode="decimal"
               value="${moneyFieldValue(plan.income?.socialSecurity?.[ssKey]?.pia)}"

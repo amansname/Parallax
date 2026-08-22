@@ -59,11 +59,14 @@ export function axes(W,H,ageStart,ageEnd,maxBal,{ layout, fmtM, grid, axisInk })
   for(let i=0;i<=4;i++){const y=y0+(y1-y0)/4*i; g+=`<line x1="${x0}" y1="${y}" x2="${x1}" y2="${y}" stroke="${grid}"/>`;}
   // y labels (right-aligned in the left gutter)
   for(let i=0;i<=4;i++){const v=maxBal*(1-i/4); const y=y0+(y1-y0)/4*i;
-    g+=`<text x="${x0-12}" y="${y+4}" fill="${axisInk}" font-size="14" style="font-family:var(--f)" text-anchor="end">${fmtM(v)}</text>`;}
+    g+=`<text x="${x0-18}" y="${y+5}" fill="${axisInk}" font-size="13" style="font-family:var(--f)" text-anchor="end">${fmtM(v)}</text>`;}
   // x age ticks
   const span=ageEnd-ageStart;
-  for(let k=0;k<=5;k++){const a=Math.round(ageStart+span*k/5); const x=x0+(x1-x0)*k/5;
-    g+=`<text x="${x}" y="${H-9}" fill="${axisInk}" font-size="14" style="font-family:var(--f)" text-anchor="${k===0?'start':k===5?'end':'middle'}">Age ${a}</text>`;}
+  const ages=[ageStart];
+  for(let age=Math.ceil((ageStart+1)/5)*5; age<ageEnd; age+=5) ages.push(age);
+  if(ageEnd!==ageStart) ages.push(ageEnd);
+  ages.forEach((age,index)=>{const x=span>0 ? x0+(x1-x0)*(age-ageStart)/span : x0;
+    g+=`<text x="${x}" y="${H-12}" fill="${axisInk}" font-size="13" style="font-family:var(--f)" text-anchor="${index===0?'start':index===ages.length-1?'end':'middle'}">Age ${age}</text>`;});
   return g;
 }
 

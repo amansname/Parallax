@@ -331,27 +331,23 @@
 }
 
 .page[data-page="household"] .hh-birth-date {
-  display: grid;
-  width: max-content;
+  display: block;
+  width: 100%;
   max-width: 100%;
   height: var(--h-ctl);
-  grid-template-columns: 5.5ch auto 5.5ch auto 8ch; /* geometry: MM / DD / YYYY */
-  align-items: center;
-  gap: var(--sp-1);
 }
 
-.page[data-page="household"] .hh-birth-date-part {
+.page[data-page="household"] .hh-birth-date-input {
+  width: 100%;
   height: var(--h-ctl);
-  padding: 0 var(--sp-2);
+  padding: 0 var(--sp-3);
   border: var(--bw) solid var(--rule);
   border-radius: var(--r-ctl);
   background: transparent;
   color: var(--ink);
   font-size: var(--fs-body);
-  text-align: center;
+  text-align: left;
 }
-
-.page[data-page="household"] .hh-birth-date-sep { color: var(--muted); font-size: var(--fs-body); }
 
 .page[data-page="household"] .hh-sr-only {
   position: absolute !important;
@@ -367,12 +363,16 @@
 /* ── step 01 · family ────────────────────────────────────────────────────── */
 .page[data-page="household"] .hh-family-people {
   display: grid;
+  width: min(1200px, 100%); /* reference: two 592px cards plus a 16px gap */
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--sp-4);
   margin: 0;
 }
 
-.page[data-page="household"] .hh-family-people.is-single { grid-template-columns: minmax(0, 560px); }
+.page[data-page="household"] .hh-family-people.is-single {
+  width: min(592px, 100%);
+  grid-template-columns: minmax(0, 1fr);
+}
 
 .page[data-page="household"] .hh-person-card {
   min-width: 0;
@@ -409,12 +409,6 @@
   min-width: 0;
   justify-self: start;
   text-align: left;
-}
-
-/* A full-width row exists so a long label can breathe, not so the control can.
-   An amount field keeps the column width of the fields above it. */
-.page[data-page="household"] .hh-person-fields .hh-field--wide input[inputmode="decimal"] {
-  max-width: calc((100% - var(--sp-4)) / 2);
 }
 
 .page[data-page="household"] .hh-field--date { grid-column: auto; }
@@ -1513,7 +1507,9 @@
     padding-right: var(--sp-6);
   }
 
-  .page[data-page="household"] .hh-family-people { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .page[data-page="household"] .hh-family-people {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 
   /* The total rail drops below the categories so the tile grid keeps the full
      content width — the browser verifier measures that equality here. */
@@ -1551,6 +1547,10 @@
   .page[data-page="household"] .hh-summary-metrics,
   .page[data-page="household"] .hh-form-grid,
   .page[data-page="household"] .nw-form-grid { grid-template-columns: minmax(0, 1fr); }
+
+  .page[data-page="household"] .hh-field--social-security-benefit > span {
+    white-space: normal;
+  }
 
   .page[data-page="household"] .hh-tax-profile {
     grid-template-columns: minmax(0, 1fr);

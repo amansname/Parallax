@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   assembleIsoBirthDate,
+  formatIsoBirthDate,
+  parseDisplayedBirthDate,
   splitIsoBirthDate,
 } from './birthDateInput.js';
 
@@ -24,4 +26,11 @@ test('assembleIsoBirthDate requires a four-digit year', () => {
 
 test('assembleIsoBirthDate rejects incomplete parts', () => {
   assert.equal(assembleIsoBirthDate({ month: '1', day: '', year: '2003' }), null);
+});
+
+test('single birth-date field matches the standalone presentation', () => {
+  assert.equal(formatIsoBirthDate('1960-04-12'), '04 / 12 / 1960');
+  assert.equal(parseDisplayedBirthDate('04 / 12 / 1960'), '1960-04-12');
+  assert.equal(parseDisplayedBirthDate('4/12/1960'), '1960-04-12');
+  assert.equal(parseDisplayedBirthDate('04 / 12'), null);
 });
