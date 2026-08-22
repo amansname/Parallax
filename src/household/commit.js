@@ -223,6 +223,9 @@ export function bindHouseholdEditor({
   });
 
   root.addEventListener('focusout', event => {
+    // Replacing the wizard view blurs its focused control while the old DOM is
+    // being removed. Do not turn that teardown blur into a nested edit/render.
+    if(root.dataset.wizardReady === 'false') return;
     const control = event.target.closest?.('.hh-tax-amount');
     if(control) formatCommittedTaxAmount(control);
     if(!control || control.dataset.householdCommittedValue === control.value) return;

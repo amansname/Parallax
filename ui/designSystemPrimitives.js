@@ -46,6 +46,9 @@ const CHIP_SELECTORS = [
   '.goal-state',
   '.gh-chip',
   '.seq-chip',
+  '.cf-scenario-picker',
+  '.cf-ret-toggle',
+  '.cf__path-controls',
 ];
 
 const STEPPER_BUTTON_SELECTORS = [
@@ -100,7 +103,9 @@ function decorateInputs(root) {
     const type = (element.getAttribute('type') || 'text').toLowerCase();
     if (['button', 'checkbox', 'color', 'file', 'hidden', 'image', 'radio', 'range', 'reset', 'submit'].includes(type)) return;
     element.classList.add('px-input');
-    if (type === 'number' || ['numeric', 'decimal'].includes(element.inputMode)) {
+    if (element.matches('.cmp-lev-in,.cmp-goal-in')) {
+      element.classList.add('px-input--inline');
+    } else if (type === 'number' || ['numeric', 'decimal'].includes(element.inputMode)) {
       element.classList.add('px-input--numeric');
     }
   });

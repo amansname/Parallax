@@ -1,1038 +1,1105 @@
-@layer legacy {
+/* =============================================================================
+   main.css — design-system entry and shared application shell
 
-:root{
-  /* VISUAL SYSTEM â€” role-based surface, text, border, and accent tokens.
-     Do not encode theme names, color doctrines, or redesign concepts here.
-     Tokens describe UI function only, so future agents do not resurrect old design directions. */
-  --bg-deep:#080a0d; --bg:#0b0d11;
-  --surface:rgba(255,255,255,.013); --surface-2:rgba(255,255,255,.022); --surface-3:rgba(255,255,255,.035);
-  --rule:rgba(231,222,201,.08); --rule-bright:rgba(198,166,98,.24); --rule-faint:rgba(231,222,201,.055);
-  --line-faint:rgba(231,222,201,.055); --line:rgba(231,222,201,.10); --line-strong:rgba(231,222,201,.17); --line-accent:rgba(198,166,98,.38);
-  --ink:#ddd5c4; --ink-bright:#e7dec9; --ink-mute:#878e96; --ink-faint:#7d848c; --ink-ghost:rgba(135,142,150,.35);
-  /* Running body copy, quieter than --ink (no dedicated token before). */
-  --ink-body:#9097a0;
-  /* Neutral amount/number tone for tables and ledgers. */
-  --num:#b8ad92;
-  /* Primary accent â€” small emphasis only (links, active rules, key figures). */
-  --accent:#c6a662; --accent-bright:#d8c084; --accent-deep:#b08f4e; --accent-glow:rgba(198,166,98,.18);
-  /* Accent fill + border for active pills, chips, and soft accent surfaces. */
-  --accent-soft:rgba(198,166,98,.22); --accent-bd:rgba(198,166,98,.35);
-  --pill-fill:var(--accent-soft); --pill-bd:var(--accent-bd);
-  /* Champagne action button (RUN/Solve) on charcoal ink. */
-  --btn:linear-gradient(180deg,#d8c084,#c6a662); --btn-ink:#15181d;
-  /* Underlined input fields + shared focus treatment (screenshot 09). */
-  --input:rgba(231,222,201,.03); --input-focus-bg:rgba(198,166,98,.06); --input-focus-ring:rgba(198,166,98,.45);
-  /* Chart chrome: gridlines + axis text. */
-  --grid:rgba(231,222,201,.06); --axis:#878e96;
-  /* Highlight tone for hero financial values. */
-  --value-highlight:#e7dec9;
-  /* Status roles. Positive is reserved for genuinely positive/healthy signals. */
-  --status-positive:#8fa57e; --status-positive-bright:#a9c19a;
-  --negative:#c0795f; --negative-bright:#d08a6e;
-  /* Short status aliases, caution amber, and disabled state. */
-  --ok:#8fa57e; --warn:#cd9a52; --neg:#c0795f;
-  --disabled-text:rgba(135,142,150,.4); --disabled-fill:rgba(231,222,201,.02);
-  /* Secondary decorative accent for category swatches / scenario slots. */
-  --accent-secondary:#8fa57e;
-  /* Type roles. Serif for headlines/hero numerals, sans for UI. */  /* Shared app page background: near-black charcoal with restrained warm and
-     cool atmospheric depth. Page-specific styles may refine this foundation. */
-  --app-page-bg:
-    radial-gradient(1000px 720px at 18% -12%,rgba(198,166,98,.05),transparent 60%),
-    radial-gradient(880px 620px at 100% 0%,rgba(124,133,137,.028),transparent 62%),
-    linear-gradient(180deg,#0d0f12 0%,#0b0d11 55%,#0a0c0f 100%);
-  /* Canonical restrained glass treatment. */
-  --glass-fill:linear-gradient(145deg,rgba(255,255,255,.025),transparent 36%),var(--surface-2);
-  --glass-stroke:var(--line); --glass-glint:rgba(231,222,201,.045);
-  --glass-shadow:0 24px 54px -48px rgba(0,0,0,.75); --glass-blur:18px;
-  --page-x:30px; --panel-radius:18px;
+   This file is linked first, so the design system loads here: tokens and the
+   canonical primitives become the base layer that every surface stylesheet
+   refines, instead of an override layer stacked on top of them.
+   ============================================================================= */
+
+@import url("design-system/styles.css?v=__PARALLAX_ARTIFACT_ID__");
+
+  /* reset */  *,
+*::before,
+*::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html,
+body {
+  color-scheme: dark;
+  font-size: var(--fs-body);
+  -webkit-font-smoothing: antialiased;
 }
-*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-html,body{height:100%;background:var(--bg);font-family:var(--f);color:var(--ink);font-size:14px;-webkit-font-smoothing:antialiased;overflow:hidden;color-scheme:dark}
-/* Dark, intentional <select> controls app-wide. color-scheme:dark makes the
-   NATIVE option popup render dark (was white â€” the "looks like a mistake" box);
-   the rest gives every select a themed control + custom chevron so it reads as
-   designed rather than a raw browser widget. Per-page rules may refine this. */
-select{
-  color-scheme:dark;
-  -webkit-appearance:none;appearance:none;
-  background-color:var(--fill-04,rgba(255,255,255,.04));
-  color:var(--text-2,#d9d4c9);
-  border:1px solid var(--line-08,rgba(255,255,255,.10));
-  border-radius:var(--r-sm,8px);
-  padding:6px 30px 6px 11px;cursor:pointer;
-  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none' stroke='%23c6a662' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M3 4.5 L6 7.5 L9 4.5'/></svg>");
-  background-repeat:no-repeat;background-position:right 10px center;
+
+a { color: var(--ink); text-decoration: none; }
+a:hover { color: var(--acc-2); }
+/* ── application shell ──────────────────────────────────────────────────────
+   The wrap is the document column: header, then exactly one mounted page.
+   Page-level composition belongs to each surface stylesheet, not here.
+   Select controls take the `.px-select` primitive, applied at runtime. */
+.wrap {
+  display: flex;
+  min-height: 100vh;
+  height: auto;
+  flex-direction: column;
+  overflow: visible;
 }
-select:hover{border-color:rgba(198,166,98,.32)}
-select:focus{outline:none;border-color:var(--gold,#c6a662)}
-select option{background:#14161b;color:var(--text-2,#d9d4c9)}
-.wrap{height:100vh;display:flex;flex-direction:column;overflow:hidden}
 
-/* The former .hh-shell token-pin and all retired .hh-bar/.hh-f/.acct-* rules have
-   been removed (CP4 cleanup). The Household page is now the Folio console, fully
-   scoped in styles/household.css. */
+/* Exactly one page is mounted at a time. `.on` is the controller's contract and
+   is never restyled beyond showing the page. */
+.page {
+  display: none;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  padding: 0;
+}
 
-/* â”€â”€â”€ PANEL LAYER â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-   Shared page shell. The single panel treatment is declared with the app-shell
-   selectors near the end of this file, after component layout rules. */
-.page{flex:1 1 auto;min-height:0;display:none;flex-direction:column;padding:0 28px 22px}
-.page.on{display:flex}
-.eyebrow{font-size:14px;color:var(--ink-mute);letter-spacing:.26em;text-transform:uppercase;font-weight:500;display:flex;align-items:center;gap:12px}
-.eyebrow::after{content:'';flex:1;height:1px;background:linear-gradient(90deg,var(--rule-bright),transparent);max-width:320px}
+.page.on { display: flex; }
 
-/* SCENARIOS */
-.page[data-page="scenarios"]{overflow-y:auto;overflow-x:hidden}
-.scn-band{position:sticky;top:56px;z-index:20;display:grid;grid-template-columns:148px repeat(3,1fr);column-gap:14px}
-/* Opaque backdrop behind the WHOLE sticky band (not just a 10px lip) so scrolling
-   lever rows can't bleed through the translucent glass column-cards. */
-.scn-band::before{content:'';position:absolute;left:0;right:0;top:-10px;bottom:0;background:var(--bg);z-index:-1}
-.band-cell{padding:14px 14px 14px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;min-height:172px}
-/* Each scenario is a floating glass column-card: circle (rounded top) â†’ levers â†’
-   median (rounded bottom). The label gutter stays transparent. Column-gap channels
-   let the gradient show between cards so they read as separate, not one welded grid. */
-.band-cell:not(.label){background:var(--surface);border-radius:14px 14px 0 0}
-.band-cell.label{align-items:flex-start;justify-content:flex-end}
-.band-cell.label span{font-size:14px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink-mute);font-weight:500}
-.col-name{font-size:14px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink-bright);font-weight:600;text-align:center;display:flex;align-items:center;justify-content:center;gap:7px}
-.col-name.base-tag{color:var(--accent-bright)}
-.col-dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
-/* Inline rename field â€” looks like the label until focused, then shows it's
-   editable. Sized to content via a generous max so longer names fit. */
-.col-rename{font-family:var(--f);font-size:14px;letter-spacing:.16em;text-transform:uppercase;font-weight:600;color:var(--ink-bright);background:transparent;border:none;border-bottom:1px dashed transparent;text-align:center;width:128px;padding:1px 2px;outline:none}
-.col-rename:hover{border-bottom-color:var(--rule-bright)}
-.col-rename:focus{border-bottom-color:var(--accent)}
-.col-x{background:none;border:none;color:var(--ink-faint);font-size:14px;cursor:pointer;padding:0 2px;line-height:1;opacity:0;transition:opacity .15s,color .15s}
-.band-cell:hover .col-x{opacity:1}
-.col-x:hover{color:var(--negative-bright)}
-.add-scen,.solve-btn{margin-top:8px;background:none;border:1px dashed var(--rule-bright);color:var(--ink-mute);font-family:var(--f);font-size:14px;letter-spacing:.14em;text-transform:uppercase;font-weight:600;padding:5px 10px;border-radius:4px;cursor:pointer;display:block}
-.add-scen:hover,.solve-btn:hover{border-color:var(--accent);color:var(--accent)}
+/* =============================================================================
+   SOLVER — "what would it take?"
+
+   Rendered into #solve-panel on the Scenarios page. The frozen reference does
+   not photograph this surface, so it is built from the same locked tokens and
+   primitives as Compare: no new values, no new components, and the same rules
+   for where accent and status colour may appear.
+   ============================================================================= */
+.solve-panel {
+  margin: 0 0 var(--sp-6);
+  padding: var(--sp-6);
+  border: var(--bw) solid var(--line);
+  border-radius: var(--r-panel);
+  background: var(--panel);
+  box-shadow: var(--elev-panel);
+}
+
+.solve-panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-4);
+}
+
+.solve-panel-title {
+  color: var(--body);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+}
+
+.solve-panel-title b { color: var(--ink); font-weight: var(--fw-body-strong); }
+
+.solve-scope {
+  margin: var(--sp-1) 0 var(--sp-4);
+  color: var(--body);
+  font-size: var(--fs-caption);
+  line-height: var(--lh-caption);
+  text-wrap: pretty;
+}
+
+.solve-clear {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-eyebrow);
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.solve-clear:hover { color: var(--neg); }
+/* The goal form: a row of labelled fields and the action that runs them. */
+.sf-form {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--sp-6);
+  flex-wrap: wrap;
+}
+
+.sf-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.sf-lbl {
+  color: var(--body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-eyebrow);
+  line-height: var(--lh-eyebrow);
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+}
+
+.sf-box-wrap { display: flex; align-items: baseline; gap: var(--sp-1); }
+
+.sf-prefix,
+.sf-suffix { color: var(--body); font-size: var(--fs-caption); }
+
+.sf-box {
+  width: 64px; /* geometry: percentage field */
+  height: auto;
+  padding: 2px var(--sp-2);
+  border: 0;
+  border-bottom: var(--bw) solid var(--rule);
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: var(--fs-heading);
+  font-weight: var(--fw-heading);
+  text-align: right;
+  -moz-appearance: textfield;
+  font-variant-numeric: tabular-nums;
+}
+
+.sf-box:hover { border-bottom-color: var(--line); }
+.sf-box:focus { border-bottom-color: var(--acc); background: var(--acc-tint); outline: 0; }
+.sf-box::-webkit-outer-spin-button,
+.sf-box::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+.sf-money { width: 150px; /* geometry: currency field */ }
+
+.sf-select {
+  width: auto;
+  height: auto;
+  padding: 2px var(--sp-6) 2px 0; /* geometry: native caret room */
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: var(--fs-heading);
+  font-weight: var(--fw-heading);
+}
+
+.sf-hint { padding-bottom: 2px; color: var(--body); font-size: var(--fs-caption); }
+.sf-params { display: contents; }
+.sf-go { margin-left: auto; }
 /* Solver goal form â€” full-width card in #solve-panel (NOT the cramped gutter).
    A row of labeled fields + the Find button, each field with room to breathe. */
-.sf-form{display:flex;flex-wrap:wrap;align-items:flex-end;gap:22px}
-.sf-field{display:flex;flex-direction:column;gap:7px}
-.sf-lbl{font-family:var(--f);font-size:14px;letter-spacing:.15em;text-transform:uppercase;color:var(--ink-faint);font-weight:600}
-.sf-box-wrap{display:flex;align-items:baseline;gap:4px}
-.sf-prefix,.sf-suffix{font-family:var(--f);font-size:17px;font-weight:600;color:var(--ink-mute)}
-/* Same idiom as every other input in the app: dashed underline, transparent,
-   accent on focus. Just bigger. */
-.sf-box{font-family:var(--f);font-size:19px;font-weight:500;color:var(--ink);background:rgba(255,255,255,.05);border:none;border-radius:6px;padding:3px 6px;outline:none;width:64px;text-align:right;-moz-appearance:textfield;transition:background .15s}
-.sf-box:focus{background:var(--input-focus-bg);box-shadow:0 0 0 1px var(--input-focus-ring)}
-.sf-box::-webkit-outer-spin-button,.sf-box::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
-.sf-box:hover{border-bottom-color:var(--accent)}
-.sf-box:focus{border-bottom:1px solid var(--accent)}
-.sf-money{width:150px}
-.sf-go{font-family:var(--f);font-size:14px;letter-spacing:.14em;text-transform:uppercase;font-weight:700;padding:11px 20px;border-radius:6px;cursor:pointer;border:1px solid var(--accent);background:var(--accent);color:var(--btn-ink);margin-left:auto}
-.sf-go:hover{background:var(--accent-bright);border-color:var(--accent-bright)}
-/* Per-row loading spinner during a solve. Sits in place of the lever value
-   until that row resolves; tiny pulse so it reads as work in progress. */
-.lev-val.solving{color:var(--ink-faint);font-style:italic;opacity:.7}
-.lev-val.solving::after{content:'';display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--accent);margin-left:6px;animation:pulse 1.1s infinite}
-@keyframes pulse{0%,100%{opacity:.3}50%{opacity:1}}
-/* When a lever value was set by the solver, mark it subtly so the advisor knows
-   it came from a solve (not their drag). Underline in the accent tone; removed on edit. */
-.lev-val.solved{color:var(--accent)}
-.lev-val.solved-capped{color:var(--negative-bright)}
-/* Solver panel (form + solo-answer results) */
-.solve-panel{margin:0 0 20px;padding:18px 22px;border-radius:14px}
-.solve-panel-head{display:flex;align-items:baseline;justify-content:space-between;gap:18px;margin-bottom:14px}
-.solve-panel-title{font-family:var(--f);font-size:14px;letter-spacing:.02em;color:var(--ink-mute);font-weight:500;line-height:1.5}
-.solve-panel-title b{font-family:var(--f);color:var(--ink-bright);font-weight:700}
-.solve-scope{font-family:var(--f);font-size:13px;line-height:1.45;color:var(--ink-faint);margin:4px 0 14px}
-.solve-clear{font-family:var(--f);font-size:14px;color:var(--ink-faint);background:none;border:none;cursor:pointer;letter-spacing:.1em;text-transform:uppercase;font-weight:600;padding:0;white-space:nowrap}
-.solve-clear:hover{color:var(--negative)}
-.sf-select{font-family:var(--f);font-size:18px;font-weight:500;color:var(--ink);background:transparent;border:none;padding:2px 18px 2px 3px;outline:none;cursor:pointer;-webkit-appearance:none;appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--ink-mute) 50%),linear-gradient(135deg,var(--ink-mute) 50%,transparent 50%);background-position:calc(100% - 9px) 11px,calc(100% - 4px) 11px;background-size:5px 5px,5px 5px;background-repeat:no-repeat}
-.sf-select:hover,.sf-select:focus{border-bottom-color:var(--accent)}
-.sf-hint{font-family:var(--f);font-size:14px;color:var(--ink-faint);font-style:italic;padding-bottom:3px}
-.sf-params{display:contents}
-/* Solo-answer rows: one lever per row â€” name Â· wasâ†’needs Â· reached% Â· load */
-.solo-list{display:flex;flex-direction:column}
-.solo-row{display:grid;grid-template-columns:140px 1fr 150px 64px;align-items:center;gap:18px;padding:13px 0;border-top:1px solid var(--rule-faint)}
-.solo-row:first-child{border-top:none}
-.solo-name{font-family:var(--f);font-size:14px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink);font-weight:600}
-.solo-move{display:flex;align-items:baseline;gap:10px;font-family:var(--f);font-variant-numeric:tabular-nums}
-.solo-from{font-size:14px;color:var(--ink-faint)}
-.solo-arrow{color:var(--ink-faint);font-size:14px}
-.solo-to{font-size:18px;font-weight:700;color:var(--ink-bright)}
-.solo-delta{font-family:var(--f);font-size:14px;font-weight:600;color:var(--accent-bright);letter-spacing:.02em}
-.solo-row.unchanged .solo-delta{color:var(--status-positive)}
-.solo-pct{font-family:var(--f);font-size:14px;font-weight:600;letter-spacing:.04em;color:var(--status-positive)}
-.solo-pct.capped{color:var(--negative)}
-.solo-row.capped .solo-to{color:var(--ink-mute)}
-.solve-load{font-family:var(--f);font-size:14px;letter-spacing:.12em;text-transform:uppercase;font-weight:700;padding:6px 0;border-radius:4px;cursor:pointer;background:none;border:1px solid var(--rule-bright);color:var(--ink-faint)}
-.solve-load:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
-.solve-load:disabled{opacity:.3;cursor:default}
-.solo-allcapped{margin-top:14px;font-family:var(--f);font-size:14px;color:var(--negative);font-weight:600;letter-spacing:.02em}
-.solve-searching,.solve-empty{font-family:var(--f);font-size:14px;color:var(--ink-mute);font-weight:500}
-.solve-searching::after{content:'';display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent);margin-left:8px;animation:pulse 1.1s infinite}
+/* A lever that is currently being solved says so, in place, until it resolves. */
+.lev-val.solving,
+.solve-searching,
+.solve-empty {
+  color: var(--body);
+  font-size: var(--fs-body);
+}
+
+.lev-val.solving::after,
+.solve-searching::after {
+  content: '';
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-left: var(--sp-2);
+  border-radius: var(--r-pill);
+  background: var(--acc);
+  animation: pulse 1.1s infinite;
+}
+
+@keyframes pulse { 0%, 100% { opacity: .3; } 50% { opacity: 1; } }
+
+/* A value the solver set, rather than one the advisor moved. */
+.lev-val.solved { color: var(--acc); }
+.lev-val.solved-capped { color: var(--neg); }
+/* Solo answers: one lever per row — name, the move it would take, how far that
+   gets the plan, and the action that applies it. */
+.solo-list { display: flex; flex-direction: column; }
+
+.solo-row {
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr) 150px 64px; /* geometry: name, move, reach, action */
+  align-items: center;
+  gap: var(--sp-4);
+  padding: var(--sp-3) 0;
+  border-top: var(--bw) solid var(--rule-f);
+}
+
+.solo-row:first-child { border-top: 0; }
+
+.solo-name {
+  color: var(--body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-eyebrow);
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+}
+
+.solo-move {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.solo-from,
+.solo-arrow { color: var(--body); font-size: var(--fs-caption); }
+
+.solo-to {
+  color: var(--ink);
+  font-size: var(--fs-heading);
+  font-weight: var(--fw-heading);
+}
+
+.solo-delta { color: var(--acc); font-size: var(--fs-caption); }
+
+/* A lever that already clears the goal is favourable, not an edit to make. */
+.solo-row.unchanged .solo-delta,
+.solo-pct { color: var(--pos); font-size: var(--fs-caption); }
+
+/* A capped lever cannot reach the goal on its own, and says so. */
+.solo-pct.capped { color: var(--neg); }
+.solo-row.capped .solo-to { color: var(--body); }
+
+.solo-allcapped {
+  margin-top: var(--sp-4);
+  color: var(--neg);
+  font-size: var(--fs-body);
+}
+.solve-load,
+.cc-load {
+  min-height: var(--h-compact);
+  padding: 0 var(--sp-3);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-eyebrow);
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+}
+
+/* Combo answers: the gentlest PAIRS of moves that clear the goal. */
+.fold-cta { display: flex; justify-content: center; margin: 0; }
+
+.fold-tab {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-top: -1px;
+  padding: var(--sp-2) var(--sp-6);
+  border: var(--bw) solid var(--rule);
+  border-top: 0;
+  border-radius: 0 0 var(--r-ctl) var(--r-ctl);
+  background: var(--raised);
+  color: var(--acc);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-eyebrow);
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.fold-tab:hover { border-color: var(--acc-hair); }
+
+.combo-field {
+  margin: var(--sp-4) 0 var(--sp-6);
+  padding: var(--sp-6);
+  border: var(--bw) solid var(--line);
+  border-radius: var(--r-panel);
+  background: var(--panel);
+  box-shadow: var(--elev-panel);
+}
+
+.combo-head {
+  margin-bottom: var(--sp-1);
+  color: var(--ink);
+  font-size: var(--fs-emphasis);
+}
+
+.combo-sub {
+  margin-bottom: var(--sp-4);
+  color: var(--body);
+  font-size: var(--fs-body);
+}
+
+.combo-sub b { color: var(--acc); font-weight: var(--fw-body-strong); }
+
+.combo-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--sp-6);
+  margin-bottom: var(--sp-3);
+  padding: var(--sp-4);
+  border: var(--bw) solid var(--rule);
+  border-radius: var(--r-ctl);
+}
+
+.combo-card:last-child { margin-bottom: 0; }
+
+/* The leading combination is marked, not recoloured. */
+.combo-card.lead { border-color: var(--acc-hair); background: var(--acc-tint); }
+
+.cc-moves { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+
+.cpill {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-chip);
+  white-space: nowrap;
+}
+
+.cpill .pk {
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-eyebrow);
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+}
+
+.cpill .pv { font-size: var(--fs-body); font-weight: var(--fw-body-strong); }
+
+/* Pinned, moved, cut — three states of a lever inside one combination. */
+.cpill.pin { background: var(--raised); color: var(--body); }
+.cpill.pin .pk { color: var(--muted); }
+.cpill.move { background: var(--acc-tint); color: var(--acc); }
+.cpill.move .pk { color: var(--acc-2); }
+.cpill.cut { background: var(--neg-tint); color: var(--neg); }
+.cpill.cut .pk { color: var(--neg-soft); }
+
+.cc-plus { color: var(--muted); font-size: var(--fs-body); }
+.cc-conf { text-align: right; }
+
+.cc-conf .cv {
+  color: var(--pos);
+  font-size: var(--fs-heading);
+  font-weight: var(--fw-heading);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.cc-conf .ck {
+  color: var(--body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-eyebrow);
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+}
+
+.cc-conf .cd { margin-top: 2px; color: var(--pos); font-size: var(--fs-caption); }
+
+.combo-foot {
+  margin-top: var(--sp-4);
+  color: var(--body);
+  font-size: var(--fs-caption);
+  line-height: var(--lh-caption);
+  text-wrap: pretty;
+}
+
+.combo-empty,
+.combo-searching {
+  padding: var(--sp-1) 0;
+  color: var(--body);
+  font-size: var(--fs-body);
+}
+
+.combo-searching::after {
+  content: '';
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-left: var(--sp-2);
+  border-radius: var(--r-pill);
+  background: var(--acc);
+  animation: pulse 1.1s infinite;
+}
+
+/* The success ring rendered beside a solve result. */
+.circle-wrap { position: relative; width: 118px; height: 118px; /* geometry: gauge */ }
+
+.circle-val {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.circle-val .big {
+  color: var(--ink);
+  font-size: var(--fs-value);
+  font-weight: var(--fw-value);
+  line-height: var(--lh-value);
+  letter-spacing: var(--ls-value);
+  font-variant-numeric: tabular-nums;
+}
+
+.circle-val .lbl {
+  margin-top: var(--sp-1);
+  color: var(--body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-eyebrow);
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+}
 /* â”€â”€ Combo solver: the small solo widget folds DOWN into this bigger field.
    Same engine, same markets â€” the % on each card is the real Monte Carlo for
    that exact lever set. The cards are the gentlest PAIRS that clear the goal. */
-.fold-cta{display:flex;justify-content:center;margin:0}
-.fold-tab{margin-top:-1px;background:var(--surface-3);border:1px solid var(--rule-faint);border-top:none;border-radius:0 0 12px 12px;padding:7px 22px;font-family:var(--f);font-size:14px;letter-spacing:.14em;text-transform:uppercase;font-weight:700;color:var(--accent);cursor:pointer;display:flex;align-items:center;gap:8px}
-.fold-tab:hover{color:var(--accent-bright);border-color:var(--rule)}
-.combo-field{margin:14px 0 20px;padding:22px 24px;border-radius:16px}
-.combo-head{font-family:var(--f);font-size:14px;color:var(--ink-bright);font-weight:600;margin-bottom:3px}
-.combo-sub{font-size:14px;color:var(--ink-faint);margin-bottom:18px}
-.combo-sub b{color:var(--accent);font-family:var(--f);font-weight:700}
-.combo-card{display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:20px;padding:15px 18px;margin-bottom:11px;border-radius:13px}
-.combo-card:last-child{margin-bottom:0}
-.combo-card.lead{box-shadow:inset 0 0 0 1px var(--accent-bd)}
-.cc-moves{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
-.cpill{display:inline-flex;align-items:baseline;gap:7px;padding:7px 12px;border-radius:9px;font-family:var(--f);white-space:nowrap}
-.cpill .pk{font-family:var(--f);font-size:14px;letter-spacing:.12em;text-transform:uppercase;font-weight:700;opacity:.7}
-.cpill .pv{font-size:15px;font-weight:700}
-.cpill.pin{background:rgba(255,255,255,.04);color:var(--ink-mute)}
-.cpill.pin .pk{color:var(--ink-faint)}
-.cpill.move{background:var(--accent-soft);color:var(--accent)}
-.cpill.move .pk{color:var(--accent-deep)}
-.cpill.cut{background:rgba(190,130,116,.10);color:#BE8475}
-.cpill.cut .pk{color:#A86F62}
-.cc-plus{color:var(--ink-faint);font-size:15px;font-weight:300}
-.cc-conf{text-align:right;font-family:var(--f)}
-.cc-conf .cv{font-size:23px;font-weight:600;color:var(--status-positive);line-height:1}
-.cc-conf .ck{font-family:var(--f);font-size:14px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-faint);font-weight:600}
-.cc-conf .cd{font-family:var(--f);font-size:14px;font-weight:600;color:var(--status-positive);opacity:.85;margin-top:2px}
-.cc-load{font-family:var(--f);font-size:14px;letter-spacing:.12em;text-transform:uppercase;font-weight:700;padding:9px 16px;border-radius:7px;cursor:pointer;background:none;border:1px solid var(--rule-faint);color:var(--ink-mute)}
-.cc-load:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
-.cc-load:disabled{opacity:.3;cursor:default}
-.combo-foot{margin-top:16px;font-size:14px;color:var(--ink-faint);font-style:italic;line-height:1.5}
-.combo-empty,.combo-searching{font-family:var(--f);font-size:14px;color:var(--ink-mute);font-weight:500;padding:4px 0}
-.combo-searching::after{content:'';display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent);margin-left:8px;animation:pulse 1.1s infinite}
-.circle-wrap{position:relative;width:118px;height:118px}
-.circle-val{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
-.circle-val .big{font-size:28px;font-weight:400;line-height:1;font-family:var(--f);letter-spacing:-.01em}
-.circle-val .lbl{font-size:14px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-mute);margin-top:3px}
+.lev-val { display: flex; align-items: center; gap: var(--sp-2); }
+.lev-delta {
+  margin-left: auto;
+  color: var(--body);
+  font-size: var(--fs-caption);
+  font-variant-numeric: tabular-nums;
+}
 
-.scn-levers{display:grid;grid-template-columns:148px repeat(3,1fr);column-gap:14px}
-.lev-name{display:flex;align-items:center;padding:0 14px;min-height:62px;font-size:14px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-mute);font-weight:500;line-height:1.3}
-.lev-cell{display:flex;flex-direction:column;justify-content:center;gap:7px;border-bottom:1px solid var(--rule-faint);padding:0 16px;min-height:62px;background:var(--surface)}
-.lev-val{font-family:var(--f);font-size:16.5px;font-weight:500;color:var(--ink-mute);display:flex;align-items:center;gap:6px}
-.lev-val.base{color:var(--ink-mute)}
-.lev-val .unit{font-size:14px;color:var(--ink-faint);font-weight:500;letter-spacing:.04em}
-/* Baseline-delta chip â€” right-aligned so the deltas form a clean comparison
-   column down the right edge of each scenario. Muted/neutral (no good-bad hue). */
-.lev-delta{margin-left:auto;font-family:var(--f);font-size:14px;font-weight:600;letter-spacing:.02em;color:var(--ink-faint);font-variant-numeric:tabular-nums}
-/* Inline pension-amount input: appears when the lever lands on an age that has
-   no entered benefit yet. Looks like part of the value display (not an error).
-   The "$" prefix sits in the normal value color; the input is borderless and
-   inherits the typography so it reads as a natural prompt for a number. */
-.lev-val .pen-in{font-family:var(--f);font-size:15px;font-weight:500;color:inherit;background:transparent;border:none;border-radius:5px;width:84px;padding:1px 3px;outline:none;text-align:right;transition:background .15s}
-.lev-val .pen-in::placeholder{color:var(--ink-faint);font-weight:500}
-/* No spreadsheet underlines â€” editability shows as a soft glassy fill on
-   hover/focus instead, keeping the levers in the glass language. */
-.lev-val .pen-in:hover,.lev-val .lev-in:hover{background:rgba(255,255,255,.05)}
-.lev-val .pen-in:focus,.lev-val .lev-in:focus{background:var(--input-focus-bg);box-shadow:0 0 0 1px var(--input-focus-ring)}
-/* Inline type-in boxes for the dollar/age levers; width tuned per content. */
-.lev-val .lev-in{font-family:var(--f);font-size:16.5px;font-weight:500;color:inherit;background:transparent;border:none;border-radius:5px;width:78px;padding:1px 3px;outline:none;text-align:right;transition:background .15s}
-.lev-val .lev-in.age-in{width:34px;text-align:center}
-/* Resting state = clean numbers + deltas (no bar clutter). The slider fades in
-   when you hover/focus the cell, so drag-to-explore stays for live demos but the
-   grid reads as a comparison table at a glance. Touch (no hover) keeps it shown. */
-/* Dollar levers (spend / savings / one-time event): discreet. Hidden at rest so
-   the grid reads as clean numbers; a thin neutral line + accent dot fades in only
-   when you hover/focus the cell. No always-on fill-bar clutter. */
-.lev-slider{-webkit-appearance:none;width:100%;height:12px;background:transparent;cursor:pointer;margin:3px 0;opacity:0;transition:opacity .15s}
-.lev-cell:hover .lev-slider,.lev-slider:focus{opacity:1}
-.lev-slider::-webkit-slider-runnable-track{height:2px;border-radius:2px;background:var(--rule)}
-.lev-slider::-webkit-slider-thumb{-webkit-appearance:none;height:9px;width:9px;border-radius:50%;background:var(--accent);margin-top:-3.5px;border:2px solid var(--surface);box-shadow:0 1px 2px rgba(0,0,0,.15)}
-.lev-slider:disabled{opacity:.5;cursor:default}
+/* Inline pension-amount prompt: appears when a lever lands on an age with no
+   entered benefit yet. It reads as part of the value, not as an error. */
+.lev-val .pen-in,
+.lev-val .lev-in {
+  width: 84px; /* geometry: currency prompt */
+  height: auto;
+  padding: 2px var(--sp-2);
+  border: 0;
+  border-bottom: var(--bw) solid var(--rule);
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: var(--fs-body);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
 
-.lev-step{display:inline-flex;align-items:center;gap:7px;margin-left:auto}
-.step-btn{width:20px;height:20px;border-radius:5px;border:1px solid var(--rule-bright);background:var(--surface);color:var(--ink-mute);font-family:var(--f);font-size:14px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
-.step-btn:hover{border-color:var(--accent);color:var(--accent)}
-.scn-foot{display:grid;grid-template-columns:148px repeat(3,1fr);column-gap:14px}
-.foot-cell{padding:12px 14px;font-family:var(--f);font-size:14px;color:var(--ink-mute)}
-.foot-cell:not(:first-child){background:var(--surface);border-radius:0 0 14px 14px}
-.foot-cell b{color:var(--ink);font-weight:500}
+.lev-val .pen-in::placeholder { color: var(--muted); }
+.lev-val .pen-in:hover,
+.lev-val .lev-in:hover { border-bottom-color: var(--line); }
 
-/* Typical-path federal tax compare â€” same grid as goals/foot; visible on Scenarios. */
-.scn-tax{display:grid;grid-template-columns:148px repeat(3,1fr);column-gap:14px;margin-top:2px}
-.tax-head{display:flex;flex-direction:column;justify-content:center;padding:10px 14px 12px;font-size:14px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-mute);font-weight:500;line-height:1.35}
-.tax-head .tax-sub{display:block;margin-top:3px;font-size:14px;letter-spacing:.06em;text-transform:none;color:var(--ink-faint);font-weight:400}
-.tax-cell{display:flex;flex-direction:column;justify-content:center;gap:4px;padding:10px 16px 12px;background:var(--surface);border-radius:0 0 14px 14px;font-family:var(--f);font-size:14px;color:var(--ink-mute);line-height:1.35}
-.tax-pair{color:var(--ink);font-weight:500;font-size:14px}
-.tax-delta{font-size:14px;letter-spacing:.02em;color:var(--ink-faint)}
+.lev-val .pen-in:focus,
+.lev-val .lev-in:focus {
+  border-bottom-color: var(--acc);
+  background: var(--acc-tint);
+  outline: 0;
+}
 
-/* Goals section on the Scenarios tab â€” a read-only mirror of the base-plan
-   goals. Same 148px + N-column grid as the levers so rows stay registered.
-   Quiet (no inputs, no sliders): it's a reflection of the plan, not a lever. */
-.scn-goals{display:grid;grid-template-columns:148px repeat(3,1fr);column-gap:14px}
-.sg-head{display:flex;align-items:center;padding:14px 14px 8px;font-size:14px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:600}
-.sg-head.sg-col{background:var(--surface)}
-.sg-name{display:flex;flex-direction:column;justify-content:center;padding:0 14px;min-height:46px;font-size:14px;color:var(--ink-mute);line-height:1.25}
-.sg-name .sg-win{font-size:14px;letter-spacing:.04em;color:var(--ink-faint);margin-top:2px}
-.sg-cell{display:flex;align-items:center;gap:6px;border-bottom:1px solid var(--rule-faint);padding:0 16px;min-height:46px;background:var(--surface);font-family:var(--f);font-size:15px;font-weight:500;color:var(--ink-mute)}
-.sg-cell .sg-tag{font-size:14px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-faint);font-weight:500}
-.sg-total{display:flex;align-items:center;padding:0 14px;min-height:42px;font-size:14px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-faint);font-weight:500}
-.sg-tcell{display:flex;align-items:center;gap:6px;padding:0 16px;min-height:42px;background:var(--surface);font-family:var(--f);font-size:14px;font-weight:500;color:var(--ink)}
-.sg-empty{grid-column:1 / -1;padding:10px 14px;font-size:14px;color:var(--ink-faint);font-style:italic}
+.lev-val .lev-in.age-in { width: 42px; /* geometry: two digits */ text-align: center; }
+.lev-step { display: inline-flex; align-items: center; gap: var(--sp-2); margin-left: auto; }
 
-/* Shared chart chrome (used by the Sequencing chart). */
-.chart-head{display:flex;align-items:baseline;gap:16px;margin-bottom:6px;flex:0 0 auto}
-.chart-title{font-size:15px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-bright);font-weight:600}
-.chart-sub{font-size:14px;color:var(--ink-mute);letter-spacing:.06em;text-transform:uppercase}
-.lg{display:flex;align-items:center;gap:7px;font-size:14px;color:var(--ink-mute);letter-spacing:.04em}
-.lg .sw{width:16px;height:3px;border-radius:2px}
-.chart-body{flex:1 1 auto;min-height:0;position:relative}
-.chart-body svg{width:100%;height:100%;display:block}
+/* =============================================================================
+   NET WORTH LEDGER — the `#np-content` sub-pages
 
-/* SEQUENCING */
-/* Two path FINGERPRINTS, side by side: forward vs reversed. Each line is a
-   direct read of the engine's single-path result â€” no UI-computed metrics. */
-/* Damage window: how LONG the bad stretch lasts (short shock vs long grind). */
-/* Net Worth â€” the household sheet, split into four sub-pages by a sub-nav
-   beneath the main tabs. Balance Sheet uses the STATEMENT layout (leader-dotted
-   rows under thin accent section heads, like a printed financial statement).
-   Inflows / Outflows / Goals use the HYBRID layout: a left-gutter identity
-   block (title + description + running total) and a two-column facing body
-   split by a single vertical hairline. One visual family across the four. */
-.page[data-page="net-worth"]{padding-top:24px;overflow-y:auto}
+   Reached through the Goals tab's sub-navigation. Like the Solver, this surface
+   is not in the frozen reference, so it is built from the locked tokens and
+   primitives only. The Goals horizon sub-page is owned by styles/goals.css.
+   ============================================================================= */
 
-/* Sub-nav under the main tabs. NET WORTH sits left, bold and offset, separated
-   from the four sub-tabs by a fine vertical rule. Same accent-underline language
-   as the main tabs but smaller and quieter â€” the sub-nav is subordinate. */
-.subnav{display:flex;align-items:stretch;border-bottom:1px solid var(--rule);margin:-6px 0 28px;max-width:1100px}
-.subnav-title{font-family:var(--f);font-size:14px;letter-spacing:.26em;text-transform:uppercase;color:var(--ink-bright);font-weight:700;padding:14px 32px 14px 0;display:flex;align-items:center;border-right:1px solid var(--rule-bright);margin-right:28px}
-.stab{background:none;border:none;border-bottom:1px solid transparent;color:var(--ink-faint);font-family:var(--f);font-size:14px;letter-spacing:.18em;text-transform:uppercase;padding:14px 4px 13px 0;margin-right:30px;font-weight:500;cursor:pointer;margin-bottom:-1px;transition:color .15s,border-color .15s}
-.stab:hover{color:var(--ink-mute)}
-.stab.on{color:var(--ink-bright);font-weight:600;border-bottom-color:var(--accent)}
+.subnav {
+  display: flex;
+  align-items: stretch;
+  margin: 0 0 var(--sp-8);
+  border-bottom: var(--bw) solid var(--rule);
+}
 
-/* â”€â”€â”€ Net Worth page wrapper (shared by all four sub-pages) â”€â”€â”€â”€â”€â”€â”€
-   200px left gutter carries the page's summary (big number, breakdowns,
-   live totals) â€” the eye lands in the same place every time. Body to the
-   right holds the Statement ledger or the two-column Hybrid body. */
-.np-page{display:grid;grid-template-columns:200px 1fr;gap:20px 54px;max-width:1100px;align-items:start}
-/* Balance sheet is the widest page (gutter + two ledgers): give it more width so
-   Assets and Liabilities breathe and the account setup is easy to follow. */
-.np-page.np-bal{grid-template-columns:220px 1fr;max-width:1340px}
-.np-bal .bs-sheet{gap:0 72px}
-.np-bal .bs-col{padding:0 8px}
-/* Snapshot is its own diagnostic page: the four gauges read as ONE compact glass
-   panel â€” hairline-separated rows, smaller heroes, slim bars â€” not four forced
-   boxes. Constrained width so it reads as a focused report card, not a sprawl. */
-.np-snapshot-page{padding-top:4px}
-.np-snapshot-page .snap{display:flex;flex-direction:column;gap:0;max-width:560px;border-radius:14px;padding:2px 24px}
-.np-snapshot-page .metric{background:none;background-image:none;backdrop-filter:none;-webkit-backdrop-filter:none;
-  box-shadow:none;border-radius:0;padding:16px 0;gap:8px;border-top:1px solid var(--rule-faint)}
-.np-snapshot-page .metric:first-child{border-top:none}
-.np-snapshot-page .m-hero{font-size:28px}
-.np-snapshot-page .m-eye{margin-bottom:5px}
-.np-snapshot-page .m-sub{font-size:14px;margin-top:5px;line-height:1.4}
-.np-snapshot-page .stat-row{gap:6px 18px;margin-top:8px}
-.np-snapshot-page .stat-val{font-size:14px}
-.np-snapshot-page .stat-lbl{font-size:14px}
-.np-snapshot-page .cov,.np-snapshot-page .seg{height:28px}
-.np-snapshot-page .cov .fill{font-size:14px}
-.np-snapshot-page .cov-legend,.np-snapshot-page .seg-legend{font-size:14px;margin-top:6px}
-.np-gutter{position:sticky;top:0}
-.np-gutter .lbl{font-family:var(--f);font-size:14px;letter-spacing:.22em;text-transform:uppercase;color:var(--ink-faint);font-weight:600;margin-bottom:4px}
-.np-gutter .big-num{font-family:var(--f);font-size:30px;line-height:1.05;font-weight:600;color:var(--value-highlight);font-variant-numeric:tabular-nums;letter-spacing:-.01em}
-.np-gutter .big-sub{font-family:var(--f);font-size:14px;color:var(--ink-mute);margin-top:5px;font-weight:500;line-height:1.4}
-.np-gutter .gut-rule{border:none;border-top:1px solid var(--rule-faint);margin:20px 0 14px}
-.np-gutter .row{display:flex;justify-content:space-between;align-items:baseline;padding:5px 0;font-size:14px;color:var(--ink-mute);font-family:var(--f);font-weight:500}
-.np-gutter .row b{font-family:var(--f);font-weight:500;color:var(--ink);font-variant-numeric:tabular-nums}
+.subnav-title {
+  display: flex;
+  align-items: center;
+  margin-right: var(--sp-8);
+  padding: var(--sp-4) var(--sp-8) var(--sp-4) 0;
+  border-right: var(--bw) solid var(--rule);
+  color: var(--ink);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-eyebrow);
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+}
 
-/* â”€â”€â”€ Statement layout (Balance Sheet body) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-   Each section is a small caps header with an accent underline; rows are
-   "label â€¦ dotted leader â€¦ value", values are boxless inputs that take the accent tone
-   on focus (same edit language as the Scenarios levers). Subtotals close
-   each money section in slate, the statement's running truth. */
-/* Two-column ledger: Assets left | Liabilities right */
-.bs-sheet{display:grid;grid-template-columns:1fr 1px 1fr;gap:0 36px;max-width:none}
-.bs-col{min-width:0}
-.bs-divider{background:var(--rule-faint);align-self:stretch}
-/* Column title ("Assets" / "Liabilities") */
-.bs-title{font-family:var(--f);font-size:17px;font-weight:500;color:var(--ink);letter-spacing:-.01em;margin:0 0 4px}
-.bs-head{font-family:var(--f);font-size:14px;letter-spacing:.26em;text-transform:uppercase;color:var(--ink-mute);font-weight:600;margin:26px 0 8px;padding-bottom:8px;border-bottom:1px solid var(--accent)}
-.bs-head:first-of-type{margin-top:16px}
-.bs-row{display:flex;align-items:baseline;padding:7px 0;font-size:14px}
-.bs-row label{color:var(--ink-mute);font-weight:500;font-family:var(--f)}
-.bs-row.sub label{color:var(--ink-faint);font-size:14px;padding-left:18px;font-weight:400}
-.bs-dots{flex:1;border-bottom:1px dotted var(--rule-faint);margin:0 10px;transform:translateY(-3px)}
-.bs-row .field{display:flex;align-items:baseline;gap:3px}
-.bs-row .pre{color:var(--ink-faint);font-size:14px;font-family:var(--f)}
-.bs-row input{font-family:var(--f);font-size:14.5px;font-weight:500;color:var(--ink);background:transparent;border:none;border-bottom:1px dashed var(--rule-faint);padding:1px 1px;width:110px;text-align:right;outline:none;font-variant-numeric:tabular-nums;transition:border-color .15s,background .15s}
-.bs-row input:hover{border-bottom-color:var(--accent)}
-.bs-row input:focus{border-bottom:1px solid var(--accent);background:rgba(154,115,34,.05)}
-.bs-row select{font-family:var(--f);font-size:14px;font-weight:500;color:var(--ink);background:transparent;border:none;border-bottom:1px dashed var(--rule-faint);padding:1px 18px 1px 1px;outline:none;cursor:pointer;appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><path d='M0 0 L5 6 L10 0' fill='%23878e96'/></svg>");background-repeat:no-repeat;background-position:right 2px center}
-.bs-row select:hover,.bs-row select:focus{border-bottom-color:var(--accent)}
-.bs-row.sub input{font-size:14px;font-weight:400;color:var(--ink-mute);width:108px}
-.bs-sub{display:flex;align-items:baseline;padding:10px 0 4px;border-top:1px solid var(--rule-faint);margin-top:6px}
-.bs-sub-l{font-family:var(--f);font-size:14px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-faint);font-weight:600}
-.bs-sub-d{flex:1;border-bottom:1px dotted var(--rule-faint);margin:0 10px;transform:translateY(-3px)}
-.bs-sub-v{font-family:var(--f);font-size:14px;color:var(--accent-deep);font-weight:600;font-variant-numeric:tabular-nums}
-.bs-add{padding:12px 0 4px;font-size:14px;color:var(--accent);font-weight:500;font-style:italic;cursor:pointer}
-.bs-row .row-x{margin-left:8px;width:20px;height:20px;border:none;background:transparent;color:var(--ink-faint);font-size:16px;line-height:1;cursor:pointer;border-radius:4px;padding:0}
-/* Typed-account picker (Option A â€” bucket rows) + added-account rows + tags */
-.bs-row .acct-tag{font-family:var(--f);font-size:14px;letter-spacing:.06em;text-transform:uppercase;font-weight:600;padding:2px 6px;border-radius:20px;margin-left:9px}
-.acct-tag.traditional{color:var(--accent);background:rgba(197,145,82,.10)}
-.acct-tag.roth{color:var(--accent-secondary);background:rgba(180,89,145,.12)}
-.acct-tag.taxable{color:var(--accent-deep);background:rgba(154,115,34,.10)}
-.acct-picker{margin:12px 0 4px;border-radius:14px;padding:14px 16px}
-.acct-picker h5{font-family:var(--f);font-size:14px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-mute);font-weight:600;margin-bottom:11px}
-.acct-brow{display:flex;align-items:flex-start;gap:14px;padding:5px 0;border-bottom:1px solid var(--rule-faint)}
-.acct-brow:last-of-type{border-bottom:none}
-.acct-blabel{width:60px;font-family:var(--f);font-size:14px;letter-spacing:.1em;text-transform:uppercase;font-weight:700;padding-top:6px;flex:none}
-.acct-blabel.traditional{color:var(--accent)} .acct-blabel.roth{color:var(--accent-secondary)} .acct-blabel.taxable{color:var(--accent-deep)}
-.acct-chips{display:flex;flex-wrap:wrap;gap:6px}
-.acct-chip{border:1px solid var(--rule-faint);border-radius:8px;padding:4px 9px;font-family:var(--f);font-size:14px;background:var(--surface-2);cursor:pointer;color:var(--ink)}
-.acct-chip:hover{border-color:var(--accent-bright)}
-.acct-chip.sel{border-color:var(--accent);background:rgba(154,115,34,.12);font-weight:600;color:var(--accent-deep)}
-.acct-foot{display:flex;align-items:flex-end;gap:11px;margin-top:11px;padding-top:11px;border-top:1px solid var(--rule-faint)}
-.acct-foot .lbl{font-size:14px;color:var(--ink-faint);display:block;margin-bottom:4px}
-.acct-amt{font-family:var(--f);font-size:14px;font-weight:500;color:var(--ink);background:var(--surface-2);border:1px solid var(--rule-faint);border-radius:7px;padding:7px 10px;width:130px;text-align:right;outline:none}
-.acct-amt:focus{border-color:var(--accent)}
-.acct-add{font-family:var(--f);font-size:14px;letter-spacing:.12em;text-transform:uppercase;font-weight:700;padding:8px 15px;border-radius:7px;border:none;background:var(--accent);color:var(--btn-ink);cursor:pointer;margin-left:auto}
-.acct-add:disabled{opacity:.45;cursor:default}
-.bs-row .acct-x{margin-left:8px;width:20px;height:20px;border:none;background:transparent;color:var(--ink-faint);font-size:16px;line-height:1;cursor:pointer;border-radius:4px;padding:0}
-.bs-row .acct-x:hover{color:var(--negative-bright)}
-.bs-row .row-x:hover{color:var(--negative-bright);background:rgba(240,145,141,.08)}
+.stab {
+  position: relative;
+  margin: 0 var(--sp-8) -1px 0;
+  padding: var(--sp-4) 2px;
+  border: 0;
+  background: none;
+  color: var(--body);
+  font-size: var(--fs-nav);
+  font-weight: var(--fw-nav);
+  letter-spacing: var(--ls-nav);
+  text-transform: uppercase;
+  cursor: pointer;
+}
 
-/* â”€â”€â”€ Hybrid body (Inflows / Outflows / Goals) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-   Two facing columns split by a single vertical hairline. The gutter
-   (containing the page summary + column subtotals) is the shared np-gutter
-   one level up. */
-.hp-body{display:grid;grid-template-columns:1fr 1px 1fr;gap:0 36px}
-.hp-rule{background:var(--rule-bright);width:1px;align-self:stretch}
-.hp-col h4{font-family:var(--f);font-size:14px;letter-spacing:.22em;text-transform:uppercase;color:var(--ink-mute);font-weight:600;margin-bottom:18px;padding-bottom:8px;border-bottom:1px solid var(--rule-faint)}
-.hp-item{padding:11px 0;border-bottom:1px solid var(--rule-faint)}
-.hp-item:last-of-type{border-bottom:none}
-.hp-item .ti{display:flex;align-items:baseline;justify-content:space-between;gap:14px}
-.hp-item .nm{font-size:14px;color:var(--ink-bright);font-weight:500;flex:1;font-family:var(--f)}
-.hp-item .field{display:flex;align-items:baseline;gap:3px}
-.hp-item .pre{color:var(--ink-faint);font-size:14px;font-family:var(--f)}
-.hp-item input{font-family:var(--f);font-size:14.5px;font-weight:500;color:var(--ink);background:transparent;border:none;border-bottom:1px dashed var(--rule-faint);padding:1px 1px;width:96px;text-align:right;outline:none;font-variant-numeric:tabular-nums;transition:border-color .15s,background .15s}
-.hp-item input:hover{border-bottom-color:var(--accent)}
-.hp-item input:focus{border-bottom:1px solid var(--accent);background:rgba(154,115,34,.05)}
-.hp-item .row-x{margin-left:6px;width:18px;height:18px;border:none;background:transparent;color:var(--ink-faint);font-size:15px;line-height:1;cursor:pointer;border-radius:4px;padding:0}
-.hp-item .row-x:hover{color:var(--negative-bright);background:rgba(240,145,141,.08)}
-.hp-item .meta{margin-top:3px;font-size:14px;color:var(--ink-mute)}
-.hp-item .meta b{color:var(--ink);font-weight:500}
-.hp-add{margin-top:14px;font-size:14px;color:var(--accent);font-weight:500;font-style:italic;cursor:pointer}
+.stab:hover { color: var(--ink); }
+.stab.on { color: var(--ink); }
+
+.stab.on::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: var(--bw);
+  background: var(--acc);
+}
+
+/* A left gutter carrying the page's running total, then the ledger body. The
+   eye lands on the same figure in the same place on every sub-page. */
+.np-page {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr); /* geometry: summary gutter */
+  align-items: start;
+  gap: var(--sp-6) var(--sp-12);
+}
+
+.np-gutter { position: sticky; top: 0; }
+
+.np-gutter .lbl {
+  margin-bottom: var(--sp-1);
+  color: var(--body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-eyebrow);
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+}
+
+.np-gutter .big-num {
+  color: var(--ink);
+  font-size: var(--fs-value);
+  font-weight: var(--fw-value);
+  line-height: var(--lh-value);
+  letter-spacing: var(--ls-value);
+  font-variant-numeric: tabular-nums;
+}
+
+.np-gutter .big-sub {
+  margin-top: var(--sp-1);
+  color: var(--body);
+  font-size: var(--fs-caption);
+  line-height: var(--lh-caption);
+}
+
+.np-gutter .gut-rule {
+  margin: var(--sp-6) 0 var(--sp-4);
+  border: 0;
+  border-top: var(--bw) solid var(--rule-f);
+}
+
+.np-gutter .row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: var(--sp-1) 0;
+  color: var(--body);
+  font-size: var(--fs-caption);
+}
+
+.np-gutter .row b {
+  color: var(--ink);
+  font-weight: var(--fw-body);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Snapshot: a compact report card of engine-derived gauges, separated by
+   hairlines rather than boxed individually. */
+.np-snapshot-page .snap {
+  display: flex;
+  max-width: 560px; /* geometry: report-card measure */
+  flex-direction: column;
+  gap: 0;
+}
+
+.np-snapshot-page .metric {
+  gap: var(--sp-2);
+  padding: var(--sp-4) 0;
+  border-top: var(--bw) solid var(--rule-f);
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+
+.np-snapshot-page .metric:first-child { border-top: 0; }
+
+/* Two facing ledger columns split by a single hairline. */
+.hp-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--bw) minmax(0, 1fr);
+  gap: 0 var(--sp-8);
+}
+
+.hp-rule { width: var(--bw); align-self: stretch; background: var(--rule-f); }
+
+.hp-col h4 {
+  margin-bottom: var(--sp-4);
+  padding-bottom: var(--sp-2);
+  border-bottom: var(--bw) solid var(--rule-f);
+  color: var(--body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-eyebrow);
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+}
+
+.hp-item { padding: var(--sp-3) 0; border-bottom: var(--bw) solid var(--rule-f); }
+.hp-item:last-of-type { border-bottom: 0; }
+
+.hp-item .ti {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-4);
+}
+
+.hp-item .nm { flex: 1; color: var(--ink); font-size: var(--fs-body); }
+.hp-item .field { display: flex; align-items: baseline; gap: var(--sp-1); }
+.hp-item .pre,
+.hp-item .meta { color: var(--body); font-size: var(--fs-caption); }
+.hp-item .meta { margin-top: var(--sp-1); }
+.hp-item .meta b { color: var(--ink); font-weight: var(--fw-body); }
+
+.hp-add {
+  margin-top: var(--sp-4);
+  color: var(--acc);
+  font-size: var(--fs-body);
+  cursor: pointer;
+}
 
 /* â”€â”€â”€ Editable add-rows (income / expense / liability / goal) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
    A quiet ledger row: free-text name on the left, right-aligned amount, then a
    small age window. Boxless, dashed-underline inputs in the same language as
    every other field, so added rows read as data, not widgets. */
-.erows{margin-top:6px}
-.erow{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--rule-faint)}
-.erow:last-of-type{border-bottom:none}
-.erow input{font-family:var(--f);background:transparent;border:none;border-bottom:1px dashed var(--rule-faint);padding:1px 1px;outline:none;color:var(--ink);transition:border-color .15s,background .15s}
-.erow input:hover{border-bottom-color:var(--accent)}
-.erow input:focus{border-bottom:1px solid var(--accent);background:rgba(154,115,34,.05)}
-.er-name{flex:1 1 auto;min-width:60px;font-size:14px;font-weight:500;text-align:left;font-family:var(--f)!important;background:transparent;border:none;border-bottom:1px dashed var(--rule-faint);color:var(--ink);outline:none;padding:1px}
-.er-name:hover{border-bottom-color:var(--accent)}
-.er-name:focus{border-bottom:1px solid var(--accent);background:rgba(154,115,34,.05)}
-.prop-top .er-name{font-size:14px;font-weight:600}
-.er-name::placeholder{color:var(--ink-faint);font-style:italic}
-.er-amt{display:inline-flex;align-items:baseline;gap:2px;flex:0 0 auto}
-.er-amt .pre{color:var(--ink-faint);font-size:14px;font-family:var(--f)}
-.er-amt input{width:88px;text-align:right;font-size:14px;font-weight:500;font-variant-numeric:tabular-nums}
-.er-ages{flex:0 0 auto;display:inline-flex;align-items:center;gap:4px;font-size:14px;color:var(--ink-mute);white-space:nowrap}
+.erows { margin-top: var(--sp-1); }
+
+.erow {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) 0;
+  border-bottom: var(--bw) solid var(--rule-f);
+}
+
+.erow:last-of-type { border-bottom: 0; }
+
+/* Every editable cell in a ledger row uses the same underline idiom, so an
+   added row reads as data rather than as a widget. */
+.erow input,
+.er-name,
+.prop-name,
+.prop-f input {
+  height: auto;
+  padding: 2px var(--sp-1);
+  border: 0;
+  border-bottom: var(--bw) solid var(--rule);
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: var(--fs-body);
+  font-variant-numeric: tabular-nums;
+}
+
+.erow input:hover,
+.er-name:hover,
+.prop-name:hover,
+.prop-f input:hover { border-bottom-color: var(--line); }
+
+.erow input:focus,
+.er-name:focus,
+.prop-name:focus,
+.prop-f input:focus {
+  border-bottom-color: var(--acc);
+  background: var(--acc-tint);
+  outline: 0;
+}
+
+.er-name { flex: 1 1 auto; min-width: 60px; text-align: left; }
+.er-name::placeholder { color: var(--muted); }
+
+.er-amt { display: inline-flex; align-items: baseline; gap: 2px; flex: 0 0 auto; }
+.er-amt input { width: 88px; /* geometry: currency field */ text-align: right; }
+
+.er-ages {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--sp-1);
+  color: var(--body);
+  font-size: var(--fs-caption);
+  white-space: nowrap;
+}
 /* Read-only liability line mirrored from a property's mortgage (no inputs). */
-.ro-name{flex:1 1 auto;min-width:0;font-family:var(--f);font-size:14px;font-weight:500;color:var(--ink-mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ro-amt{flex:0 0 auto;font-family:var(--f);font-size:14px;font-weight:500;color:var(--ink);font-variant-numeric:tabular-nums}
-.ro-tag{flex:0 0 auto;font-family:var(--f);font-size:14px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-faint);font-weight:700;border:1px solid var(--rule-faint);border-radius:4px;padding:2px 5px}
-.er-num{width:34px;text-align:center;font-size:14px;font-weight:500;color:var(--ink);font-variant-numeric:tabular-nums}
-.er-dash{color:var(--ink-faint)}
-.erow .row-x{flex:0 0 auto;width:18px;height:18px;border:none;background:transparent;color:var(--ink-faint);font-size:15px;line-height:1;cursor:pointer;border-radius:4px;padding:0}
-.erow .row-x:hover{color:var(--negative-bright);background:rgba(240,145,141,.08)}
+.ro-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--body);
+  font-size: var(--fs-body);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ro-amt {
+  flex: 0 0 auto;
+  color: var(--ink);
+  font-size: var(--fs-body);
+  font-variant-numeric: tabular-nums;
+}
+
+.ro-tag {
+  flex: 0 0 auto;
+  padding: 2px var(--sp-1);
+  border: var(--bw) solid var(--rule);
+  border-radius: var(--r-chip);
+  color: var(--body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-eyebrow);
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+}
+
+.er-num { width: 42px; /* geometry: two digits */ text-align: center; }
+.er-dash { color: var(--muted); }
+
+/* Row delete. Destructive, so it is the one place aubergine appears in a row. */
+.row-x {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-chip);
+  background: none;
+  color: var(--muted);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.row-x:hover { background: var(--neg-tint); color: var(--neg); }
 /* Income rows carry a second line (growth + taxable share); wrap so the divider
    sits below the whole pair, not between the two lines. */
-.erow-wrap{border-bottom:1px solid var(--rule-faint)}
-.erow-wrap:last-of-type{border-bottom:none}
-.erow-wrap .erow{border-bottom:none}
-.er-extra{display:flex;align-items:center;gap:5px;padding:0 0 8px 2px;font-size:14px;color:var(--ink-mute)}
-.er-xk,.er-xs{font-size:14px;color:var(--ink-mute);white-space:nowrap}
-.er-xsep{color:var(--ink-faint);margin:0 3px}
-.er-extra .er-num{width:32px}
-.er-extra .er-gw{width:40px}
+.erow-wrap { border-bottom: var(--bw) solid var(--rule-f); }
+.erow-wrap:last-of-type { border-bottom: 0; }
+.erow-wrap .erow { border-bottom: 0; }
+
+.er-extra {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: 0 0 var(--sp-2) 2px;
+  color: var(--body);
+  font-size: var(--fs-caption);
+}
+
+.er-xk,
+.er-xs { color: var(--body); font-size: var(--fs-caption); white-space: nowrap; }
+.er-xsep { margin: 0 2px; color: var(--muted); }
+.er-extra .er-num { width: 32px; /* geometry: two digits, compact */ }
+.er-extra .er-gw { width: 40px; /* geometry: growth rate */ }
 
 /* Property card â€” name + value/basis + an optional mortgage sub-block. */
-.prop{margin:10px 0;padding:14px 16px;border-radius:14px}
-.prop-top{display:flex;align-items:center;gap:10px;margin-bottom:9px}
-.prop-name{flex:1 1 auto;background:transparent;border:none;border-bottom:1px dashed var(--rule-faint);font-family:var(--f);font-size:14px;font-weight:600;color:var(--ink);outline:none;padding:1px}
-.prop-name:focus{border-bottom:1px solid var(--accent)}
-.prop .row-x{width:18px;height:18px;border:none;background:transparent;color:var(--ink-faint);font-size:15px;cursor:pointer;border-radius:4px;padding:0}
-.prop .row-x:hover{color:var(--negative-bright);background:rgba(240,145,141,.08)}
-.prop-grid,.prop-mort{display:flex;flex-wrap:wrap;align-items:center;gap:6px 18px}
-.prop-mort{margin-top:9px;padding-top:9px;border-top:1px solid var(--rule-faint)}
-.prop-f{display:inline-flex;align-items:baseline;gap:5px;font-size:14px}
-.prop-f.narrow input{width:42px}
-.prop-f input{font-family:var(--f);background:transparent;border:none;border-bottom:1px dashed var(--rule-faint);outline:none;color:var(--ink);font-size:14px;font-weight:500;width:96px;text-align:right;font-variant-numeric:tabular-nums;padding:1px}
-.prop-f input:focus{border-bottom:1px solid var(--accent)}
-.prop-f .pre{color:var(--ink-faint);font-size:14px;font-family:var(--f)}
-.er-k{font-family:var(--f);font-size:14px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-faint);font-weight:700}
-.er-sub{font-size:14px;color:var(--ink-mute)}
-.er-suf{color:var(--ink-faint);font-size:14px}
-.prop-meta{margin-top:9px;font-size:14px;color:var(--accent);font-style:italic}
+.prop {
+  margin: var(--sp-3) 0;
+  padding: var(--sp-4);
+  border: var(--bw) solid var(--rule);
+  border-radius: var(--r-ctl);
+}
+
+.prop-top {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-2);
+}
+
+.prop-grid,
+.prop-mort {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1) var(--sp-4);
+  flex-wrap: wrap;
+}
+
+.prop-mort {
+  margin-top: var(--sp-2);
+  padding-top: var(--sp-2);
+  border-top: var(--bw) solid var(--rule-f);
+}
+
+.prop-f {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--sp-1);
+  font-size: var(--fs-caption);
+}
+
+.prop-f input { width: 96px; /* geometry: currency field */ text-align: right; }
+.prop-f.narrow input { width: 42px; /* geometry: two digits */ }
+.prop-f .pre { color: var(--body); font-size: var(--fs-caption); }
+
+.er-k {
+  color: var(--body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-eyebrow);
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+}
+
+.er-sub,
+.er-suf { color: var(--body); font-size: var(--fs-caption); }
+.prop-meta { margin-top: var(--sp-2); color: var(--acc); font-size: var(--fs-caption); }
 
 /* â”€â”€â”€ Snapshot (the diagnosis) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
    Not ledger rows â€” a small set of diagnostic GAUGES, each a relationship
    between numbers the client already entered (income floor, withdrawal rate,
    tax location). The visual tells the truth; no advisor-sentence narration.
    Each metric is a band: name + hero number on the left, the picture right. */
-.snap{max-width:1100px;display:grid;grid-template-columns:1fr 1fr;gap:28px;align-items:start}
-.metric{display:flex;flex-direction:column;gap:20px;padding:26px 28px 30px;border-radius:14px}
-.m-eye{font-family:var(--f);font-size:14px;letter-spacing:.22em;text-transform:uppercase;color:var(--ink-faint);font-weight:600;margin-bottom:10px}
-.m-hero{font-family:var(--f);font-size:46px;line-height:1;font-weight:700;color:var(--value-highlight);letter-spacing:-.02em;font-variant-numeric:tabular-nums}
-.m-sub{font-family:var(--f);font-size:14px;color:var(--ink-mute);margin-top:8px;font-weight:500;line-height:1.45}
-/* Floating stat rows â€” labels above the numbers, no bar */
-.stat-row{display:flex;gap:22px;flex-wrap:wrap;margin-top:2px}
-.stat-item{display:flex;flex-direction:column;gap:5px}
-.stat-lbl{font-family:var(--f);font-size:14px;letter-spacing:.15em;text-transform:uppercase;color:var(--ink-faint);font-weight:600}
-.stat-val{font-family:var(--f);font-size:16px;font-weight:600;color:var(--ink-bright);font-variant-numeric:tabular-nums;letter-spacing:-.01em}
-/* coverage bar (income floor): filled = guaranteed, hatched = portfolio-drawn */
-.cov{height:40px;border-radius:6px;overflow:hidden;display:flex;background:repeating-linear-gradient(135deg,rgba(255,255,255,.05),rgba(255,255,255,.05) 7px,rgba(255,255,255,.09) 7px,rgba(255,255,255,.09) 14px);box-shadow:inset 0 0 0 1px var(--rule)}
-.cov .fill{background:linear-gradient(180deg,var(--accent-bright),var(--accent-deep));display:flex;align-items:center;padding-left:14px;color:#e7dec9;font-family:var(--f);font-size:14px;font-weight:600;white-space:nowrap;min-width:0;overflow:hidden}
-.cov-legend,.seg-legend{display:flex;flex-wrap:wrap;gap:14px 26px;margin-top:14px;font-family:var(--f);font-size:14px;color:var(--ink-mute);font-weight:500}
-.cov-legend .k,.seg-legend .k{display:flex;align-items:center;gap:8px}
-.cov-legend .sw,.seg-legend .sw{width:11px;height:11px;border-radius:2px;flex:none}
-.cov-legend b,.seg-legend b{font-family:var(--f);color:var(--ink-bright);font-weight:600;margin-left:3px}
+.snap {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: var(--sp-8);
+}
+
+.metric {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-6);
+  padding: var(--sp-6);
+  border: var(--bw) solid var(--line);
+  border-radius: var(--r-panel);
+  background: var(--panel);
+}
+
+.m-eye {
+  margin-bottom: var(--sp-2);
+  color: var(--body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-eyebrow);
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+}
+
+.m-hero {
+  color: var(--ink);
+  font-size: var(--fs-title);
+  font-weight: var(--fw-title);
+  line-height: var(--lh-title);
+  letter-spacing: var(--ls-title);
+  font-variant-numeric: tabular-nums;
+}
+
+.m-sub {
+  margin-top: var(--sp-2);
+  color: var(--body);
+  font-size: var(--fs-caption);
+  line-height: var(--lh-caption);
+  text-wrap: pretty;
+}
+
+.stat-row { display: flex; gap: var(--sp-6); flex-wrap: wrap; }
+.stat-item { display: flex; flex-direction: column; gap: var(--sp-1); }
+
+.stat-lbl {
+  color: var(--body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-eyebrow);
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+}
+
+.stat-val {
+  color: var(--ink);
+  font-size: var(--fs-body);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Coverage: the filled share is guaranteed income, the field behind it is what
+   the portfolio has to carry. */
+.cov {
+  display: flex;
+  height: 28px; /* geometry: coverage bar */
+  overflow: hidden;
+  border-radius: var(--r-chip);
+  background: var(--raised);
+  box-shadow: inset 0 0 0 var(--bw) var(--rule);
+}
+
+.cov .fill {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  overflow: hidden;
+  padding-left: var(--sp-3);
+  background: var(--acc-hair);
+  color: var(--ink);
+  font-size: var(--fs-caption);
+  white-space: nowrap;
+}
+
+.cov-legend,
+.seg-legend {
+  display: flex;
+  gap: var(--sp-3) var(--sp-6);
+  margin-top: var(--sp-3);
+  flex-wrap: wrap;
+  color: var(--body);
+  font-size: var(--fs-caption);
+}
+
+.cov-legend .k,
+.seg-legend .k { display: flex; align-items: center; gap: var(--sp-2); }
+
+.cov-legend .sw,
+.seg-legend .sw {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: var(--r-pill);
+}
+
+.cov-legend b,
+.seg-legend b { margin-left: 2px; color: var(--ink); font-weight: var(--fw-body); }
 /* withdrawal rate zone badge â€” three labeled zones, active one highlighted.
    No linear bar: a bar implies "how close to danger" which is the wrong frame.
    The coloured hero number already carries the meaning; this just names the zone. */
-.wr-zones{display:flex;gap:0;border-radius:8px;overflow:hidden;border:1px solid var(--rule-faint)}
-.wr-zone{flex:1;padding:9px 0;text-align:center;font-family:var(--f);font-size:14px;letter-spacing:.1em;font-weight:700;text-transform:uppercase;color:var(--ink-faint);background:transparent;transition:background .15s}
-.wr-zone.active-safe{background:rgba(120,160,120,.18);color:var(--status-positive-bright)}
-.wr-zone.active-caution{background:rgba(110,90,60,.45);color:var(--value-highlight)}
-.wr-zone.active-stress{background:rgba(100,45,40,.55);color:var(--negative-bright)}
-.g-note{margin-top:30px;font-family:var(--f);font-size:14px;color:var(--ink-mute);font-weight:500;line-height:1.5}
-.g-note b{font-family:var(--f);color:var(--ink-bright);font-weight:600}
-/* segmented proportion bar (tax location) */
-.seg{height:40px;border-radius:6px;overflow:hidden;display:flex;box-shadow:inset 0 0 0 1px var(--rule)}
-.seg div{display:flex;align-items:center;justify-content:center;color:#e7dec9;font-family:var(--f);font-size:14px;font-weight:600;min-width:0;overflow:hidden}
-.seg .s-tax{background:linear-gradient(180deg,#4a7a8a,#345c6a)}
-.seg .s-def{background:linear-gradient(180deg,#BFA78F,#8f7a5f)}
-.seg .s-roth{background:linear-gradient(180deg,#3d7a5a,#2c5c42)}
-
-/* Year-by-year cash-flow drawer on the Scenarios page. Three scenarios side
-   by side; each scenario's columns are softly tinted in its line color so the
-   eye groups them without needing dividers. The Age column is sticky so the
-   advisor can scroll into late years and still know which row they're reading. */
-/* â”€â”€ Path Story + Plan Assessment â€” editorial statement layout â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-   No boxes: verdict sentences set large in the serif voice, hero numbers
-   directly on the page in one open stat line with hairline dividers, a
-   full-bleed unframed chart, annotated readings separated by rules, and a
-   two-column dotted-leader ledger. Role tokens only. */
-.ledger{display:grid;grid-template-columns:1fr 1fr;gap:8px 70px;margin:16px 0 8px}
-.ledger h5{grid-row:1;font-family:var(--f);font-style:italic;font-size:14.5px;font-weight:600;color:var(--ink-bright);margin-bottom:8px}
-.led-row{display:flex;align-items:baseline;padding:7px 0;font-family:var(--f);font-size:14px;color:var(--ink-mute)}
-.led-row .dots{flex:1;border-bottom:1px dotted var(--rule-faint);margin:0 10px;transform:translateY(-3px)}
-.led-row b{font-family:var(--f);font-size:14px;font-weight:600;color:var(--ink-bright);font-variant-numeric:tabular-nums;white-space:nowrap}
-.led-none{font-family:var(--f);font-style:italic;font-size:14px;color:var(--ink-faint);padding:7px 0}
-@media (max-width:760px){
-  .ledger{grid-template-columns:1fr}
-  .ledger h5{grid-row:auto}
+/* Withdrawal-rate zone. Three named zones, the active one marked — deliberately
+   not a linear bar, which would imply "distance to danger". */
+.wr-zones {
+  display: flex;
+  overflow: hidden;
+  border: var(--bw) solid var(--rule);
+  border-radius: var(--r-ctl);
 }
-.cf-toggle{margin:18px 0 12px;display:flex;justify-content:flex-end;align-items:center;gap:10px;flex-wrap:wrap;flex-shrink:0}
-.cf-toggle button{background:transparent;border:1px solid var(--rule);color:var(--ink-mute);font-family:var(--f);font-size:14px;letter-spacing:.16em;text-transform:uppercase;padding:8px 16px;border-radius:5px;cursor:pointer}
-.cf-toggle button:hover{color:var(--accent);border-color:var(--accent)}
-/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-   PHONE / TOUCH (iOS-first). The desktop layout is a fixed 100vh, no-scroll,
-   multi-column grid â€” unusable on a phone. Below 760px we: let the whole app
-   scroll vertically; stack the header; enlarge sliders and tap targets; and
-   keep the three scenario columns column-aligned by letting that block scroll
-   horizontally as a unit (band + levers + foot share one min-width so their
-   columns stay registered). Charts already scale via SVG viewBox.
-   â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-@media (max-width:760px){
-  html,body{overflow:auto;font-size:15px;-webkit-text-size-adjust:100%}
-  .wrap{height:auto;min-height:100vh;overflow:visible}
 
-  /* Header responsive rules live in styles/header.css. */
+.wr-zone {
+  flex: 1;
+  padding: var(--sp-2) 0;
+  background: transparent;
+  color: var(--body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-eyebrow);
+  letter-spacing: var(--ls-eyebrow);
+  text-align: center;
+  text-transform: uppercase;
+}
 
-  .page{padding:0 14px 28px}
-  .page[data-page="scenarios"]{overflow-x:visible}
+.wr-zone.active-safe { background: var(--pos-bg); color: var(--pos); }
+.wr-zone.active-caution { background: var(--acc-tint-2); color: var(--acc); }
+.wr-zone.active-stress { background: var(--neg-bg); color: var(--neg); }
 
-  /* Scenario comparison: scroll the band+levers+foot together horizontally so
-     the % circles, sliders, and totals stay in the same three columns. */
-  .scn-band,.scn-levers,.scn-goals,.scn-tax,.scn-foot{min-width:620px}
-  .scn-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:4px}
-  .scn-band{position:static;box-shadow:none}
-  .scn-band::before{display:none}
+.g-note {
+  margin-top: var(--sp-8);
+  color: var(--body);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  text-wrap: pretty;
+}
 
-  /* Bigger touch targets on the sliders; touch has no hover so keep them shown. */
-  .lev-slider{height:30px;opacity:1}
-  .lev-slider::-webkit-slider-thumb{height:22px;width:22px;margin-top:-10px;border-width:3px}
-  .lev-slider::-webkit-slider-runnable-track{height:3px}
-  .lev-val{font-size:18px}
+.g-note b { color: var(--ink); font-weight: var(--fw-body-strong); }
 
-  .chart-head{flex-wrap:wrap;gap:6px 14px}
+/* Tax location: three shares of one bar, in the same ink / bronze / body order
+   the Household summary uses, so the reading transfers between screens. */
+.snap .seg,
+.np-snapshot-page .seg {
+  display: flex;
+  height: 28px; /* geometry: proportion bar */
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--r-chip);
+  box-shadow: inset 0 0 0 var(--bw) var(--rule);
+}
 
-  /* Inputs: single column. */
-  .np-page{grid-template-columns:1fr;gap:18px}
-  .np-gutter{position:static}
-  .hp-body{grid-template-columns:1fr;gap:18px}
-  .hp-rule{display:none}
-  .snap{grid-template-columns:1fr}
-  .metric{gap:14px;padding:20px 18px 22px}
-  .subnav{overflow-x:auto;-webkit-overflow-scrolling:touch;flex-wrap:nowrap}
-  .stab,.subnav-title{white-space:nowrap}
-  .subnav-title{border-right:none;padding-right:12px;margin-right:12px}
-  .inp-row input,.inp-row select{font-size:16px;width:120px} /* 16px avoids iOS zoom-on-focus */
+.snap .seg div,
+.np-snapshot-page .seg div {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  font-size: var(--fs-caption);
+}
 
-  /* Cash-flow drawer scrolls both axes on a phone. */
-  .cf-scroll{max-height:none}
-  .cf-toggle{justify-content:stretch}
-  .cf-toggle button{width:100%}
+.seg .s-tax { background: var(--ink); color: var(--page); }
+.seg .s-def { background: var(--acc); color: var(--page); }
+.seg .s-roth { background: var(--body); color: var(--page); }
 
-  /* Goals statement rows wrap on a phone: name + dollars on the first line,
-     window + toggle + measured cost flowing underneath. The thread itself
-     stays full fidelity and pans horizontally (.gt-scroll). */
-  .gl-rows .erow.gl-row{flex-wrap:wrap;row-gap:4px}
-  .gl-row .er-name{flex:1 1 100%}
-  .gl-row .gl-dots{display:none}
-  .gl-cost{min-width:0;flex:1 1 100%;text-align:left}
+/* A two-column reading ledger: label, leader, figure. */
+.ledger {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-2) var(--sp-12);
+  margin: var(--sp-4) 0 var(--sp-2);
+}
+
+.ledger h5 {
+  grid-row: 1;
+  margin-bottom: var(--sp-2);
+  color: var(--ink);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-body-strong);
+}
+
+.led-row {
+  display: flex;
+  align-items: baseline;
+  padding: var(--sp-2) 0;
+  color: var(--body);
+  font-size: var(--fs-body);
+}
+
+.led-row .dots {
+  flex: 1;
+  margin: 0 var(--sp-3);
+  border-bottom: var(--bw) dotted var(--rule);
+  transform: translateY(-3px);
+}
+
+.led-row b {
+  color: var(--ink);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-body-strong);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.led-none { padding: var(--sp-2) 0; color: var(--muted); font-size: var(--fs-body); }
+
+.cf-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  margin: var(--sp-4) 0 var(--sp-3);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+/* ── responsive ──────────────────────────────────────────────────────────── */
+@media (max-width: 1279px) {
+  .np-page { grid-template-columns: minmax(0, 1fr); gap: var(--sp-6); }
+  .np-gutter { position: static; }
+  .snap { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 760px) {
+  html,
+  body { font-size: 15px; -webkit-text-size-adjust: 100%; }
+
+  .subnav { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .stab,
+  .subnav-title { white-space: nowrap; }
+  .subnav-title { margin-right: var(--sp-3); padding-right: var(--sp-3); border-right: 0; }
+
+  .hp-body { grid-template-columns: minmax(0, 1fr); gap: var(--sp-6); }
+  .hp-rule { display: none; }
+  .metric { padding: var(--sp-4); }
+  .solo-row { grid-template-columns: minmax(0, 1fr); gap: var(--sp-2); }
+  .sf-form { gap: var(--sp-4); }
+  .sf-go { margin-left: 0; }
+  .combo-card { grid-template-columns: minmax(0, 1fr); gap: var(--sp-3); }
+  .cc-conf { text-align: left; }
 }
 /* ===== Goals â€” tributaries ==================================================
-   One gold thread runs across the plan's ages; each kept recurring goal is a
+   The old Goals "tributaries" thread, its life-area chips and the balance-sheet
    ribbon peeling off at its start age (width âˆ its annual amount), so the
-   thread visibly thins at every draw. One-time goals are diamonds on the
-   spine. Below: one statement row per goal (the same boxless .erow inputs the
-   ledger pages use) with a what-if keep/drop toggle and the engine-measured
-   cost of keeping the goal. No cards, no gauges; facts only. */
-.gl-wrap{max-width:1240px;width:100%;margin:0 auto;padding-top:6px}
-.gt-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
-.gt-scroll svg{display:block;width:100%;min-width:640px;height:auto}
-.gt-spine{stroke:var(--accent);stroke-width:2.5px;fill:none}
-.gt-flow{stroke:var(--accent);fill:none;opacity:.5;transition:opacity .18s}
-.gt-flow.on{stroke:var(--accent-bright);opacity:.92}
-.gt-flow.ghost{stroke:var(--ink-faint);stroke-width:1.5px;stroke-dasharray:2 6;opacity:.35}
-.gt-once{fill:var(--accent-bright);transition:opacity .18s}
-.gt-once.on{filter:drop-shadow(0 0 6px var(--accent-glow))}
-.gt-once.ghost{fill:none;stroke:var(--accent-bright);stroke-width:1.5px;opacity:.5}
-.gt-hit{stroke:transparent;fill:none;pointer-events:stroke;cursor:pointer}
-.gt-hit.dot{fill:transparent;stroke:none;pointer-events:all}
-.gt-lbl{font-family:var(--f);font-size:14px;fill:var(--ink-faint)}
-.gt-lbl.on{fill:var(--ink-bright)}
-.gt-tick{font-family:var(--f);font-size:14px;fill:var(--ink-ghost)}
-.gt-ret{stroke:var(--rule-bright);stroke-dasharray:1 5}
-.gl-facts{font-family:var(--f);font-size:14px;color:var(--ink-mute);padding:16px 2px 6px;border-bottom:1px solid var(--rule)}
-.gl-facts b{font-family:var(--f);color:var(--ink-bright);font-weight:600;font-variant-numeric:tabular-nums}
-.gl-rows .erow.gl-row{gap:10px;padding:10px 2px}
-.gl-row .er-name{flex:0 1 220px}
-.gl-row .gl-dots{flex:1 1 auto;border-bottom:1px dotted var(--rule-faint);transform:translateY(-3px);min-width:30px}
-.gl-win{display:inline-flex;align-items:baseline;gap:5px;font-size:14px;color:var(--ink-mute);white-space:nowrap}
-.gl-win .er-num{width:46px}
-.gl-keep{background:none;border:none;cursor:pointer;font-family:var(--f);font-size:14px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-mute);padding:2px 0;border-bottom:1px dashed var(--rule);transition:color .15s}
-.gl-keep:hover{color:var(--accent-bright);border-bottom-color:var(--accent-bright)}
-.gl-cost{font-family:var(--f);font-size:14px;color:var(--ink-faint);min-width:185px;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
-.gl-cost b{color:var(--ink);font-weight:600}
-.gl-row.sel .er-name{color:var(--ink-bright);border-bottom-color:var(--accent)}
-.gl-row.dropped .er-name,.gl-row.dropped .er-amt,.gl-row.dropped .gl-win{opacity:.45}
-.gl-row.dropped .gl-keep{color:var(--accent-bright)}
-.gl-adds{display:flex;gap:28px}
-.gl-adds .hp-add{margin-top:16px}
-.gl-runs{margin-top:20px;padding-top:12px;border-top:1px solid var(--rule-faint);font-family:var(--f);font-size:14px;color:var(--ink-mute);display:flex;gap:34px;flex-wrap:wrap}
-.gl-runs b{font-family:var(--f);color:var(--ink-bright);font-weight:600;font-variant-numeric:tabular-nums}
-.gl-runs .gl-scope{flex-basis:100%;font-size:13px;color:var(--ink-faint)}
-.gl-none{font-family:var(--f);font-style:italic;color:var(--ink-faint);padding:18px 0}
-/* Life-area chips + intake strip. Areas are STRUCTURE only â€” the tool never
-   suggests goal content; the client names the goal in their own words. */
-.ga-chips{display:flex;flex-wrap:wrap;gap:9px;padding:2px 2px 16px}
-.ga-chip{border:1px solid var(--rule-faint);border-radius:20px;padding:6px 16px;font-family:var(--f);font-size:14px;letter-spacing:.14em;text-transform:uppercase;font-weight:600;background:var(--surface-3);color:var(--ink-faint);cursor:pointer;transition:all .18s}
-.ga-chip.lit{color:var(--ink);border-color:var(--rule-bright);background:var(--surface-2)}
-.ga-chip.open{color:var(--accent-bright);border-color:var(--accent);background:var(--surface-2);box-shadow:0 0 10px var(--accent-glow)}
-.ga-intake{display:flex;align-items:baseline;gap:18px;padding:4px 2px 18px;border-bottom:1px solid var(--rule);margin-bottom:4px}
-.ga-intake .er-name{flex:0 1 340px;font-size:14px}
-.ga-presets{display:inline-flex;gap:16px}
-.ga-preset{background:none;border:none;font-family:var(--f);font-size:14px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-mute);padding:2px 0;border-bottom:1px dashed var(--rule);cursor:pointer;white-space:nowrap;transition:color .15s}
-.ga-preset.sel{color:var(--accent-bright);border-bottom-color:var(--accent-bright)}
-.ga-go{font-family:var(--f);font-size:14px;letter-spacing:.12em;text-transform:uppercase;font-weight:700;padding:6px 14px;border-radius:7px;border:none;background:var(--accent);color:var(--btn-ink);cursor:pointer}
-.ga-tag{font-family:var(--f);font-size:14px;letter-spacing:.1em;text-transform:uppercase;font-weight:600;color:var(--ink-faint);border:1px solid var(--rule-faint);border-radius:20px;padding:2px 8px;white-space:nowrap}
-/* Unpriced ("price later") goal states â€” amount 0 is engine-inert, so these
-   markers keep the picture complete without inventing a number. */
-.er-amt.unpriced .pre{color:var(--ink-ghost)}
-.er-amt.unpriced input::placeholder{color:var(--ink-ghost);font-style:italic;font-weight:400}
-.gl-keep-slot{min-width:42px}
-.gl-cost.unpriced-cell{color:var(--ink-ghost);font-style:italic}
-.gt-flow.unpriced{stroke:var(--ink-faint);stroke-dasharray:3 4;opacity:.45}
-.gt-once.unpriced{fill:none;stroke:var(--ink-faint);stroke-width:1.5px;stroke-dasharray:3 3;opacity:.6}
-.gt-lbl.unpriced{fill:var(--ink-ghost);font-style:italic}
-
+   ledger were removed with the old visual system. Goals is now the horizon
+   timeline, owned by styles/goals.css. */
+/* An unpriced goal is engine-inert at zero; these markers keep the picture
+   complete without inventing a number. */
+.er-amt.unpriced .pre,
+.er-amt.unpriced input::placeholder { color: var(--muted); }
 /* Keep application content in a predictable stacking context. */
-.wrap{position:relative;z-index:1}
-.eyebrow{color:rgba(230,211,178,.70);font-family:var(--f);font-size:15px}
-.eyebrow::after{background:linear-gradient(90deg,rgba(232,205,161,.32),transparent)}
-.np-gutter{
-  padding-top:4px;
-  color:var(--ink-mute);
+.wrap { position: relative; z-index: 1; }
+/* An engine suggestion offered inline. Bronze, because it is an action the
+   advisor may take — never presented as a result. */
+.suggest {
+  border-color: var(--acc-hair);
+  background: var(--acc-tint);
+  color: var(--acc);
 }
-.np-gutter .big-num,.m-hero{
-  font-family:var(--f);
-  color:var(--value-highlight);
-  text-shadow:0 0 18px rgba(242,221,186,.13);
-}
-.np-gutter .big-num{font-size:38px}
-.np-gutter .lbl,.bs-head,.hp-col h4,.m-eye,.stat-lbl,.acct-picker h5,.er-k{
-  color:rgba(230,211,178,.62);
-  letter-spacing:.24em;
-}
-.bs-title{
-  font-family:var(--f);
-  font-size:25px;
-  color:var(--ink-bright);
-  text-shadow:0 0 16px rgba(242,221,186,.10);
-}
-.bs-head{border-bottom-color:rgba(228,189,130,.78)}
-.bs-divider,.hp-rule{background:linear-gradient(180deg,transparent,rgba(206,226,246,.18),transparent)}
-.bs-row label,.hp-item .nm,.prop-name,.er-name,.ro-name,.np-gutter .row{
-  color:rgba(234,217,191,.82);
-}
-.bs-row input,.hp-item input,.erow input,.prop-f input,.prop-name,.er-name,.bs-row select,.acct-amt,.sf-box,.sf-select,.lev-val .pen-in,.lev-val .lev-in{
-  color:var(--ink-bright);
-  caret-color:var(--accent-bright);
-}
-.bs-row select{
-  background-color:transparent!important;
-  color:var(--ink-bright);
-}
-.acct-picker{
-  margin-top:16px;
-  padding:16px 18px;
-  border-radius:18px;
-}
-.acct-chip{
-  background:rgba(245,224,188,.075);
-  border-color:rgba(245,224,188,.14);
-  color:rgba(245,232,207,.82);
-  border-radius:9px;
-}
-.acct-chip.sel{
-  background:linear-gradient(180deg,rgba(198,166,98,.28),rgba(176,143,78,.18));
-  color:var(--ink-bright);
-}
-.acct-add,.sf-go{
-  background:var(--btn);
-  color:var(--btn-ink);
-  border-radius:9px;
-}
-.prop{border-radius:18px}
-.prop-meta,.bs-add,.hp-add{color:var(--accent-bright)}
-.chart-title{
-  font-family:var(--f);
-  color:var(--ink-bright);
-  font-size:21px;
-}
-.band-cell:not(.label),.lev-cell,.foot-cell,.goal-cell{
-  background:rgba(231,222,201,.05);
-}
-.circle-val .big{font-family:var(--f);color:var(--value-highlight)}
-.np-snapshot-page .snap{
-  max-width:640px;
-  border-radius:22px;
-}
-.np-snapshot-page .metric{
-  width:100%;
-  max-width:none;
-  border:0;
-  border-top:1px solid rgba(245,224,188,.10);
-  border-radius:0;
-  background:transparent;
-  background-image:none;
-  box-shadow:none;
-  backdrop-filter:none;
-  -webkit-backdrop-filter:none;
-  padding:18px 0;
-}
-.np-snapshot-page .metric:first-child{border-top:0}
-.suggest{
-  background:rgba(28,18,10,.78)!important;
-  border-color:rgba(228,189,130,.45)!important;
-  color:var(--accent-bright)!important;
-  backdrop-filter:blur(18px);
-}
-@media (max-width:760px){
-  .np-page,.np-page.np-bal{max-width:none}
-}
-/* ===== Shared density pass =================================================
-   Layout refinements live here; visual tokens are owned by the root contract. */
-html,body{font-size:14px;text-rendering:geometricPrecision}
-body{
-  background-color:var(--bg);
-  background-image:var(--app-page-bg);
-  background-attachment:fixed;
+/* END */
+/* The `#np-content` sub-pages carry the same canvas gutter as every other
+   surface. */
+.page[data-page='net-worth'] { padding: var(--sp-8) 40px 80px; /* geometry: canvas gutter */ }
+
+@media (max-width: 1279px) {
+  .page[data-page='net-worth'] { padding-inline: var(--sp-6); }
 }
 
-.page{padding:0 var(--page-x) 26px}
-.page[data-page="net-worth"]{padding-top:20px}
-.subnav{
-  max-width:min(1640px,calc(100vw - (var(--page-x) * 2)));
-  margin:0 0 26px;
-  background:linear-gradient(90deg,rgba(235,213,178,.020),transparent 68%);
-}
-.stab{
-  font-size:14px;
-  letter-spacing:.215em;
-  padding-top:14px;
-  padding-bottom:13px;
-  margin-right:28px;
-}
-.eyebrow{font-size:14px;letter-spacing:.28em}
-
-.np-page{
-  max-width:min(1370px,calc(100vw - (var(--page-x) * 2)));
-  gap:18px 56px;
-}
-.np-page.np-bal{
-  max-width:min(1600px,calc(100vw - (var(--page-x) * 2)));
-  grid-template-columns:205px minmax(0,1fr);
-}
-.np-bal .bs-sheet{gap:0 78px}
-.np-gutter .big-num{font-size:35px}
-.np-gutter .lbl{font-size:14px}
-.np-gutter .row{font-size:14px}
-.bs-title{font-size:23px;margin-bottom:3px}
-.bs-head,.hp-col h4,.m-eye,.acct-picker h5,.er-k{font-size:14px;letter-spacing:.245em}
-.bs-row{
-  display:grid;
-  grid-template-columns:max-content minmax(36px,1fr) minmax(120px,max-content);
-  align-items:baseline;
-  gap:0 10px;
-  padding:6.5px 0;
-  font-size:14px;
-}
-.bs-row .field{justify-content:flex-end;min-width:120px}
-.bs-row input,.bs-row select,.hp-item input,.erow input,.prop-f input,.acct-amt{
-  font-size:14.5px;
-  font-variant-numeric:tabular-nums;
-}
-.bs-row input{width:108px}
-.bs-row select{min-width:120px;text-align:right}
-.bs-sub-v{font-size:14px}
-.hp-rule,.bs-divider{opacity:.86}
-.hp-col h4{margin-bottom:16px}
-.hp-item{padding:10px 0}
-.hp-item .ti{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:13px;align-items:baseline}
-.hp-item .nm{font-size:14px}
-.hp-item .meta{font-size:14px;line-height:1.35}
-.hp-add,.bs-add{font-size:14px}
-.erow{gap:7px}
-.er-name,.ro-name{font-size:14px}
-.prop{padding:13px 15px;border-radius:var(--panel-radius)}
-.prop-grid,.prop-mort{gap:6px 16px}
-
-.acct-picker{padding:15px 17px;border-radius:var(--panel-radius)}
-.acct-chip,
-.cf-toggle button,
-.fold-tab{
-  background:var(--surface-2)!important;
-  border-color:var(--line)!important;
-  box-shadow:inset 0 1px 0 var(--glass-glint);
-}
-.acct-chip{font-size:14px;padding:4px 8px}
-.acct-add,.sf-go{
-  border:1px solid rgba(255,232,190,.36);
-  box-shadow:inset 0 1px 0 rgba(255,244,218,.4),0 12px 28px -18px rgba(232,189,126,.74);
-}
-
-.metric{gap:18px;padding:24px 26px 28px;border-radius:var(--panel-radius)}
-.m-hero{font-size:42px}
-.m-sub{font-size:14px}
-.stat-val{font-size:15.5px}
-.np-snapshot-page .snap{max-width:600px;border-radius:20px}
-.np-snapshot-page .metric{
-  background:transparent!important;
-  border-left:0!important;
-  border-right:0!important;
-  border-bottom:0!important;
-  box-shadow:none!important;
-  backdrop-filter:none!important;
-  -webkit-backdrop-filter:none!important;
-  padding:16px 0;
-}
-.np-snapshot-page .m-hero{font-size:30px}
-
-.band-cell:not(.label),
-.lev-cell,
-.foot-cell:not(:first-child),
-.sg-head.sg-col,
-.sg-cell,
-.sg-tcell{
-  background:linear-gradient(135deg,rgba(255,244,218,.040),rgba(255,244,218,.012))!important;
-  border-color:rgba(248,226,190,.105)!important;
-}
-.band-cell:not(.label){
-  background:linear-gradient(145deg,rgba(255,244,218,.055),rgba(255,244,218,.014) 54%,rgba(0,0,0,.030))!important;
-  box-shadow:inset 0 1px 0 rgba(255,248,226,.13),0 20px 56px -44px rgba(0,0,0,.74);
-}
-.circle-val .big{font-size:27px}
-.lev-name{font-size:14px;min-height:58px}
-.lev-cell{min-height:58px;padding:0 15px}
-.lev-val,.lev-val .lev-in{font-size:16px}
-.lev-val .pen-in{font-size:14.5px}
-.step-btn{background:var(--surface-2);border-color:var(--line);color:var(--ink-mute)}
-.foot-cell{padding:11px 13px;font-size:14px}
-.sg-cell{min-height:43px;font-size:14.5px}
-.sg-name{min-height:43px;font-size:14px}
-
-.solve-panel{padding:16px 20px;border-radius:var(--panel-radius)}
-.solve-panel-title{font-size:14px}
-.sf-box,.sf-select{font-size:17px}
-.combo-field{padding:20px 22px;border-radius:18px}
-.combo-card{padding:14px 16px;border-radius:15px}
-
-.cf-toggle{gap:9px}
-.cf-toggle button{font-size:14px;padding:7px 15px}
-.cf-drawer{border-radius:var(--panel-radius)}
-.cf-drawer-head{padding:11px 16px;font-size:14px}
-
-.chart-title{font-size:19px}
-.chart-sub{font-size:14px}
-
-
-
-
-.suggest{
-  background:
-    linear-gradient(135deg,rgba(255,244,218,.075),rgba(255,244,218,.022)),
-    rgba(26,17,10,.12)!important;
-  border-color:rgba(228,189,130,.42)!important;
-  box-shadow:inset 0 1px 0 rgba(255,244,218,.20),0 18px 42px -30px rgba(0,0,0,.80)!important;
-}
-
-@media (min-width:2400px){
-  :root{--page-x:42px}
-  .np-page.np-bal{max-width:1760px}
-  .np-page{max-width:1500px}
-}
-@media (max-width:760px){
-  :root{--page-x:16px}
-  .bs-row{grid-template-columns:max-content minmax(20px,1fr) minmax(104px,max-content)}
-}
-
-/* Shared app-shell layout. Visual roles are defined once in the root contract. */
-body .page[data-page="net-worth"],
-body .page[data-page="sequencing"]{
-  position:relative;
-  padding:24px 56px 34px;
-}
-/* All page tabs sit on the shared charcoal background. Household gets its own
-   slightly-subtler variant via household.css, but we anchor it here too so any
-   future regression (e.g. losing the household.css link) still shows charcoal.
-   Goals mounts .gl-ledger, so the :has() selector targets that sub-view only. */
-body .page[data-page="household"],
-body .page[data-page="sequencing"],
-body .page[data-page="net-worth"]:has(.gl-wrap),
-body .page[data-page="net-worth"]:has(.gl-ledger){
-  background:var(--app-page-bg);
-  background-attachment:fixed;
-}
-body .subnav,
-body .cf-drawer,
-body .np-snapshot-page .snap,
-body .metric,
-body .prop,
-body .acct-picker,
-body .solve-panel,
-body .combo-field,
-body .combo-card{
-  background:var(--glass-fill);
-  border:1px solid var(--glass-stroke);
-  backdrop-filter:blur(var(--glass-blur)) saturate(1.03);
-  -webkit-backdrop-filter:blur(var(--glass-blur)) saturate(1.03);
-  box-shadow:inset 0 1px 0 var(--glass-glint),var(--glass-shadow);
-}
-body .subnav{
-  width:100%;
-  max-width:1568px;
-  margin:0 auto 28px;
-  padding:0 24px;
-  border-radius:10px;
-}
-body .np-page,
-body .np-page.np-bal,
-body .gl-wrap{
-  /* width:100% keeps these flex-column panels filling the page up to the cap;
-     without it the auto side-margins below collapse them to content width and
-     center them as narrow cards (e.g. the Sequencing Resilience chart). */
-  width:100%;
-  max-width:1568px;
-  margin-left:auto;
-  margin-right:auto;
-}
-body .np-gutter .big-num,
-body .m-hero{
-  color:var(--ink-bright)!important;
-}
-body .bs-title{
-  color:var(--ink)!important;
-}
-body .bs-row label,
-body .hp-item .nm{
-  color:var(--ink)!important;
-}
-body .bs-row input,
-body .hp-item input,
-body .erow input,
-body .er-name,
-body .prop-f input{
-  font-weight:300!important;
-  color:var(--ink)!important;
-}
-body .bs-head,
-body .hp-col h4,
-body .m-eye{
-  color:var(--ink-mute)!important;
-}
-
-@media (max-width:760px){
-  body .page[data-page="net-worth"],
-  body .page[data-page="sequencing"]{
-    padding:28px 22px 34px;
-    overflow-x:hidden;
-  }
-  body .subnav{
-    display:none;
-  }
-  body .np-page,
-  body .np-page.np-bal{
-    display:block;
-    width:100%;
-    max-width:none;
-  }
-  body .np-gutter{
-    position:static;
-    margin-bottom:28px;
-  }
-  body .np-gutter .big-num{
-    font-size:42px;
-    line-height:1;
-  }
-  body .bs-sheet,
-  body .hp-body{
-    display:block;
-  }
-  body .bs-divider,
-  body .hp-rule{
-    display:none;
-  }
-  body .bs-col,
-  body .hp-col{
-    min-width:0;
-    padding:0;
-  }
-  body .bs-row,
-  body .hp-item .ti,
-  body .erow{
-    gap:8px;
-  }
-  body .bs-row label,
-  body .hp-item .nm,
-  body .ro-name{
-    min-width:0;
-    overflow:hidden;
-    text-overflow:ellipsis;
-  }
-  body .bs-row input,
-  body .hp-item input{
-    width:88px;
-  }
-  body .snap,
-  body .ledger{
-    grid-template-columns:1fr;
-  }
-}
-
+@media (max-width: 760px) {
+  .page[data-page='net-worth'] { padding: var(--sp-6) var(--sp-4) 80px; }
 }

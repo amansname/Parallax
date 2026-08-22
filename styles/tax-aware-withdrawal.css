@@ -1,463 +1,475 @@
-/* Tax-Aware Withdrawal planner â€” scoped to the Withdrawal Planner tab. */
+/* =============================================================================
+   tax-aware-withdrawal.css — Withdrawal Planner presentation.
 
-@layer legacy {
+   Authored from the finalized Graphite & Aubergine reference. Panel chrome
+   comes from the `.px-panel` primitive that the runtime decorator applies to
+   `.taw-card--inputs` and `.taw-card`; this file adds only the planner's own
+   composition and its data-visualisation geometry.
 
-.page[data-page="tax-buckets"] .taw-blocked {
-  max-width: 42ch;
-  margin: 48px auto;
-  padding: 0 32px;
-  color: var(--ink-mute);
-  font-size: 14px;
-  line-height: 1.5;
-  text-wrap: pretty;
-}
-.page[data-page="tax-buckets"] #tax-buckets-view {
-  height: 100%;
-  min-height: 0;
-}
+   The nine amount slots (three income rows, the total, and five slider values)
+   share one right edge. Nothing between them and the card may introduce
+   asymmetric horizontal padding or a scrollbar gutter.
+   ============================================================================= */
 
-.page[data-page="tax-buckets"] .taw-root {
-  display: flex;
+.taw-root {
+  display: block;
   width: 100%;
-  max-width: 1900px;
-  height: 100%;
-  min-height: 0;
-  margin: 0 auto;
-  padding: clamp(14px, 2.2vh, 20px) clamp(16px, 3vw, 36px) clamp(16px, 2.2vh, 26px);
-  box-sizing: border-box;
+  min-height: calc(100vh - 68px); /* geometry: header offset */
+  margin: 0;
+  padding: var(--sp-8) 40px 80px; /* geometry: reference canvas gutter */
 }
 
-.page[data-page="tax-buckets"] .taw-grid {
-  display: flex;
-  flex: 1 1 auto;
-  flex-wrap: wrap;
+.taw-grid {
+  display: grid;
+  width: 100%;
+  grid-template-columns: 400px minmax(0, 1fr); /* geometry: reference input rail */
   align-items: stretch;
-  gap: 22px;
+  gap: var(--sp-6);
+}
+
+/* Production wraps the input card in `.taw-left`; it is a pass-through so the
+   card itself is the grid item that stretches. */
+.taw-left {
+  display: flex;
   min-width: 0;
-  min-height: 0;
-}
-
-.page[data-page="tax-buckets"] .taw-left {
-  display: flex;
-  flex: 0 1 360px;
   flex-direction: column;
-  min-width: 340px;
-  max-width: 440px;
-  min-height: 0;
 }
 
-.page[data-page="tax-buckets"] .taw-card--inputs {
+.taw-card--inputs,
+.taw-card {
   display: flex;
-  flex: 1 1 auto;
+  min-width: 0;
   flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
+  padding: var(--sp-6);
 }
 
-.page[data-page="tax-buckets"] .taw-income-list {
+.taw-card--inputs { flex: 1 1 auto; }
+
+.taw-income-list {
   display: flex;
-  flex: none;
   flex-direction: column;
-  gap: 7px;
-  padding-bottom: 2px;
+  padding: 0;
 }
 
-.page[data-page="tax-buckets"] .taw-income-heading {
-  margin-bottom: 4px;
-  color: rgba(198, 166, 98, .78);
-  font: 600 10.5px/1 var(--f);
-  letter-spacing: .15em;
+.taw-income-heading {
+  margin-bottom: var(--sp-3);
+  color: var(--body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-eyebrow);
+  line-height: var(--lh-eyebrow);
+  letter-spacing: var(--ls-eyebrow);
   text-transform: uppercase;
 }
 
-.page[data-page="tax-buckets"] .taw-income-row,
-.page[data-page="tax-buckets"] .taw-income-total,
-.page[data-page="tax-buckets"] .taw-rate-summary > div {
+.taw-income-row,
+.taw-income-total,
+.taw-rate-summary > div {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 10px;
+  gap: var(--sp-2);
+  padding: var(--sp-1) 0;
   white-space: nowrap;
 }
 
-.page[data-page="tax-buckets"] .taw-income-row > span:first-child,
-.page[data-page="tax-buckets"] .taw-rate-summary > div > span:first-child {
-  color: var(--ink-body);
-  font: 400 14px/1.3 var(--f);
+.taw-income-row > span:first-child,
+.taw-rate-summary > div > span:first-child {
+  color: var(--body);
+  font-size: var(--fs-body);
 }
 
-.page[data-page="tax-buckets"] .taw-income-row > span:last-child {
-  color: var(--num);
-  font: 400 16px/1 var(--f);
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-}
-
-.page[data-page="tax-buckets"] .taw-income-total {
-  margin-top: 2px;
-  padding-top: 9px;
-  border-top: 1px solid rgba(231, 222, 201, .09);
-}
-
-.page[data-page="tax-buckets"] .taw-income-total > span:first-child {
-  color: var(--ink-body);
-  font: 500 13px/1 var(--f);
-}
-
-.page[data-page="tax-buckets"] .taw-income-total > span:last-child {
-  color: #b8ad92;
-  font: 400 19px/1 var(--f);
+.taw-income-row > span:last-child {
+  color: var(--ink);
+  font-size: var(--fs-emphasis);
   font-variant-numeric: tabular-nums;
 }
 
-.page[data-page="tax-buckets"] .taw-divider {
+.taw-income-total {
+  margin-top: var(--sp-1);
+  padding-top: var(--sp-3);
+  border-top: var(--bw) solid var(--rule-f);
+}
+
+.taw-income-total > span:first-child {
+  color: var(--body);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-body-strong);
+}
+
+.taw-income-total > span:last-child {
+  color: var(--ink);
+  font-size: var(--fs-emphasis);
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 10px rgba(167, 156, 132, .18);
+}
+
+.taw-divider {
   flex: none;
-  height: 1px;
-  margin: 14px 0;
-  background: rgba(231, 222, 201, .09);
+  height: var(--bw);
+  margin: var(--sp-4) 0;
+  background: var(--rule);
 }
 
-.page[data-page="tax-buckets"] .taw-sliders {
+/* No scroll container here: a scrollbar gutter would break the shared right
+   edge that the browser verifier measures across all nine amount slots. */
+.taw-sliders {
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
-  gap: 22px;
-  min-height: 300px;
-  overflow-x: hidden;
-  overflow-y: auto;
+  gap: var(--sp-6);
 }
 
-.page[data-page="tax-buckets"] .taw-slider-block {
+.taw-slider-block {
+  min-width: 0;
   flex: none;
 }
 
-.page[data-page="tax-buckets"] .taw-slider-head {
+.taw-slider-head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--sp-2);
 }
 
-.page[data-page="tax-buckets"] .taw-slider-label {
+.taw-slider-label {
   color: var(--ink);
-  font: 500 13px/1.2 var(--f);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-body-strong);
   white-space: nowrap;
 }
 
-.page[data-page="tax-buckets"] .taw-slider-meta {
+.taw-slider-meta {
   display: flex;
-  align-items: baseline;
-  gap: 11px;
   min-width: 0;
+  align-items: baseline;
+  gap: var(--sp-3);
   white-space: nowrap;
 }
 
-.page[data-page="tax-buckets"] .taw-slider-val {
-  color: var(--ink-bright);
-  font: 400 16px/1 var(--f);
+.taw-slider-val {
+  color: var(--ink);
+  font-size: var(--fs-emphasis);
   font-variant-numeric: tabular-nums;
 }
 
-.page[data-page="tax-buckets"] .taw-tax-caused {
-  color: var(--ink-faint);
-  font: 400 12.5px/1 var(--f);
+.taw-tax-caused {
+  color: var(--body);
+  font-size: var(--fs-caption);
   white-space: nowrap;
 }
 
-.page[data-page="tax-buckets"] .taw-tax-caused [data-taw-caused-val] {
-  color: var(--ink-faint);
-}
-
-.page[data-page="tax-buckets"] .taw-range {
+/* The reference draws the track, its filled portion and the thumb as three
+   elements. Production uses a native range input, so the same geometry is
+   rebuilt on the track and thumb pseudo-elements. `--taw-fill` carries the
+   filled proportion; until a lever reports one it stays 0% and the track reads
+   as an untouched control, which is exactly the reference's `off` state. */
+.taw-range {
   -webkit-appearance: none;
   appearance: none;
   display: block;
   width: 100%;
-  height: 18px;
-  margin-top: 9px;
+  height: 15px; /* geometry: thumb-sized hit target */
+  margin-top: var(--sp-3);
   background: transparent;
   cursor: pointer;
   transition: none;
 }
 
-.page[data-page="tax-buckets"] .taw-range:disabled {
-  cursor: default;
-  opacity: .5;
+.taw-range:disabled { color: var(--disabled); cursor: not-allowed; }
+
+.taw-range::-webkit-slider-runnable-track {
+  height: 4px; /* geometry: slider track */
+  border-radius: var(--r-bar);
+  background:
+    linear-gradient(to right,
+      rgba(177, 132, 92, .6) 0 var(--taw-fill, 0%),
+      var(--rule) var(--taw-fill, 0%) 100%);
 }
 
-.page[data-page="tax-buckets"] .taw-range::-webkit-slider-runnable-track {
-  height: 4px;
-  border-radius: 2px;
-  background: rgba(231, 222, 201, .13);
-}
-
-.page[data-page="tax-buckets"] .taw-range::-webkit-slider-thumb {
+.taw-range::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 16px;
-  height: 16px;
-  margin-top: -6px;
+  width: 15px; /* geometry: slider thumb */
+  height: 15px;
+  margin-top: -5.5px;
   border: 0;
-  border-radius: 50%;
-  background: linear-gradient(180deg, var(--accent-bright), var(--accent));
-  box-shadow: 0 0 0 4px rgba(198, 166, 98, .13);
+  border-radius: var(--r-pill);
+  background: var(--acc);
+  box-shadow: 0 0 0 4px rgba(177, 132, 92, .13);
 }
 
-.page[data-page="tax-buckets"] .taw-range::-moz-range-track {
-  height: 4px;
-  border-radius: 2px;
-  background: rgba(231, 222, 201, .13);
+.taw-range::-moz-range-track {
+  height: 4px; /* geometry: slider track */
+  border-radius: var(--r-bar);
+  background:
+    linear-gradient(to right,
+      rgba(177, 132, 92, .6) 0 var(--taw-fill, 0%),
+      var(--rule) var(--taw-fill, 0%) 100%);
 }
 
-.page[data-page="tax-buckets"] .taw-range::-moz-range-thumb {
-  width: 16px;
-  height: 16px;
+.taw-range::-moz-range-thumb {
+  width: 15px; /* geometry: slider thumb */
+  height: 15px;
   border: 0;
-  border-radius: 50%;
-  background: var(--accent);
+  border-radius: var(--r-pill);
+  background: var(--acc);
+  box-shadow: 0 0 0 4px rgba(177, 132, 92, .13);
 }
 
-.page[data-page="tax-buckets"] .taw-rate-summary {
+/* A lever at zero is inert, not accented. */
+.taw-range.off::-webkit-slider-thumb { background: var(--body); box-shadow: none; }
+.taw-range.off::-moz-range-thumb { background: var(--body); box-shadow: none; }
+
+.taw-rate-summary {
   display: flex;
   flex: none;
   flex-direction: column;
-  gap: 10px;
-  margin-top: 18px;
-  padding-top: 12px;
-  border-top: 1px solid rgba(231, 222, 201, .09);
+  margin-top: var(--sp-6);
+  padding-top: var(--sp-3);
+  border-top: var(--bw) solid var(--rule);
 }
 
-.page[data-page="tax-buckets"] .taw-rate-summary > div > span:last-child {
-  color: var(--accent-bright);
-  font: 400 16px/1 var(--f);
+.taw-rate-summary > div > span:last-child {
+  color: var(--acc);
+  font-size: var(--fs-emphasis);
   font-variant-numeric: tabular-nums;
 }
 
-.page[data-page="tax-buckets"] .taw-card {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
-  border: 1px solid rgba(231, 222, 201, .085);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, .02);
-}
+.taw-card--thresholds { min-width: 0; }
 
-.page[data-page="tax-buckets"] .taw-card--thresholds {
-  flex: 1 1 380px;
-  min-width: 340px;
-  min-height: 400px;
-  padding: 18px 22px 20px;
-}
-
-.page[data-page="tax-buckets"] .taw-thresholds-head {
+.taw-thresholds-head {
   display: flex;
   flex: none;
   align-items: baseline;
-  gap: 12px;
+  gap: var(--sp-3);
 }
 
-.page[data-page="tax-buckets"] .taw-thresholds-head > span:first-child {
-  color: var(--ink-mute);
-  font: 600 10.5px/1 var(--f);
-  letter-spacing: .15em;
+.taw-thresholds-head > span:first-child {
+  color: var(--body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-eyebrow);
+  line-height: var(--lh-eyebrow);
+  letter-spacing: var(--ls-eyebrow);
   text-transform: uppercase;
   white-space: nowrap;
 }
 
-.page[data-page="tax-buckets"] .taw-federal-tax {
+.taw-federal-tax {
   margin-left: auto;
-  color: var(--ink-faint);
-  font: 400 12.5px/1 var(--f);
+  color: var(--body);
+  font-size: var(--fs-caption);
   white-space: nowrap;
 }
 
-.page[data-page="tax-buckets"] .taw-cols {
-  display: flex;
-  flex: 1 1 auto;
-  flex-wrap: wrap;
-  gap: 20px;
-  min-height: 0;
-  margin-top: 20px;
+.taw-federal-tax b,
+.taw-federal-tax [data-taw-federal-tax] {
+  color: var(--ink);
+  font-weight: var(--fw-body);
+  font-variant-numeric: tabular-nums;
 }
 
-.page[data-page="tax-buckets"] .taw-col {
+.taw-cols {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--sp-6);
+  margin-top: var(--sp-6);
+}
+
+.taw-col {
   display: flex;
-  flex: 1 1 170px;
+  min-width: 0;
   flex-direction: column;
-  min-width: 150px;
-  min-height: 0;
 }
 
-.page[data-page="tax-buckets"] .taw-col-name {
+/* Two lines are reserved so all four rates sit on one baseline. */
+.taw-col-name {
+  min-height: 2.4em; /* geometry: two-line column label */
   flex: none;
-  min-height: 2.4em;
-  color: rgba(198, 166, 98, .78);
-  font: 600 10.5px/1.3 var(--f);
-  letter-spacing: .15em;
+  color: var(--body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-eyebrow);
+  letter-spacing: var(--ls-eyebrow);
   text-transform: uppercase;
   text-wrap: pretty;
 }
 
-.page[data-page="tax-buckets"] .taw-col-rate {
+.taw-col-rate {
   flex: none;
-  margin-top: 4px;
-  font: 400 18px/1.1 var(--f);
+  margin-top: var(--sp-1);
+  color: var(--ink);
+  font-size: var(--fs-heading);
   font-variant-numeric: tabular-nums;
 }
 
-.page[data-page="tax-buckets"] .taw-col-bar {
+.taw-col-rate.q { color: var(--body); }
+
+/* The bar is one calm raised field. Depth reads from the fill hairline, the
+   faint gap tint and the glow edge — never from a second saturated fill. */
+.taw-col-bar {
   position: relative;
-  flex: 1 1 auto;
-  min-height: 120px;
-  margin-top: 14px;
+  height: 326px; /* geometry: threshold plot */
+  flex: none;
+  margin-top: var(--sp-4);
   overflow: hidden;
-  border-radius: 5px;
-  background: rgba(231, 222, 201, .045);
+  border-radius: var(--r-chip);
+  background: var(--raised);
 }
 
-.page[data-page="tax-buckets"] .taw-col-base,
-.page[data-page="tax-buckets"] .taw-col-fill,
-.page[data-page="tax-buckets"] .taw-col-gap {
+.taw-col-base,
+.taw-col-fill,
+.taw-col-gap {
   position: absolute;
   right: 0;
   left: 0;
   transition: height .22s cubic-bezier(.4, 0, .2, 1), bottom .22s cubic-bezier(.4, 0, .2, 1);
 }
 
-.page[data-page="tax-buckets"] .taw-col-base {
-  bottom: 0;
-}
+.taw-col-base { bottom: 0; }
+.taw-col-fill { border-top: var(--bw) solid rgba(177, 132, 92, .2); }
+.taw-col-gap { z-index: 1; background: rgba(127, 119, 114, .03); }
 
-.page[data-page="tax-buckets"] .taw-col-fill {
-  bottom: 0;
-}
-
-.page[data-page="tax-buckets"] .taw-col-gap {
-  z-index: 1;
-  background: linear-gradient(0deg, rgba(231, 222, 201, .05), rgba(231, 222, 201, .012));
-}
-
-.page[data-page="tax-buckets"] .taw-col-edge {
+.taw-col-edge {
   position: absolute;
   right: 0;
   left: 0;
   z-index: 3;
-  height: 1px;
+  height: var(--bw);
+  box-shadow: 0 0 12px 1px rgba(177, 132, 92, .18);
   transition: bottom .22s cubic-bezier(.4, 0, .2, 1);
 }
 
-.page[data-page="tax-buckets"] .taw-col-edge span {
+.taw-col-edge span {
   position: absolute;
-  right: 5px;
-  bottom: 5px;
-  color: var(--ink-bright);
-  font: 500 13px/1 var(--f);
-  text-shadow: 0 1px 3px rgba(11, 13, 17, .95);
+  right: var(--sp-1);
+  bottom: var(--sp-1);
+  color: var(--ink);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-body-strong);
+  text-shadow: 0 1px 3px rgba(24, 25, 24, .95);
   white-space: nowrap;
 }
 
-.page[data-page="tax-buckets"] .taw-mark {
+/* A capped column would print its value off the top of the plot. */
+.taw-col-edge.capped span { top: var(--sp-1); bottom: auto; }
+
+.taw-mark {
   position: absolute;
   right: 0;
   left: 0;
   z-index: 2;
-  height: 11px;
+  height: 11px; /* geometry: bracket tick band */
 }
 
-.page[data-page="tax-buckets"] .taw-mark-tick {
+.taw-mark-tick {
   position: absolute;
-  top: 5px;
-  height: 1px;
+  top: 5px; /* geometry: centred in the tick band */
+  width: 7px; /* geometry: resting tick */
+  height: var(--bw);
+  background: rgba(169, 153, 138, .22);
   transition: width .2s cubic-bezier(.4, 0, .2, 1), background .25s ease;
 }
 
-.page[data-page="tax-buckets"] .taw-mark-tick--l { left: 0; }
-.page[data-page="tax-buckets"] .taw-mark-tick--r { right: 0; }
+.taw-mark-tick--l { left: 0; }
+.taw-mark-tick--r { right: 0; }
 
-.page[data-page="tax-buckets"] .taw-mark-chip {
+.taw-mark.crossed .taw-mark-tick { width: 50%; background: rgba(169, 153, 138, .32); }
+
+.taw-mark-chip {
   position: absolute;
-  top: -5px;
+  top: -5px; /* geometry: straddles the tick */
   left: 5px;
-  padding: 2.5px 6px;
-  border-radius: 4px;
-  background: rgba(11, 13, 17, .88);
-  font: 500 13px/1 var(--f);
+  padding: 2px var(--sp-2);
+  border-radius: var(--r-chip);
+  background: rgba(24, 25, 24, .9);
+  color: var(--acc);
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-body-strong);
   pointer-events: none;
   transition: opacity .18s ease;
   white-space: nowrap;
 }
 
-.page[data-page="tax-buckets"] .taw-col-foot {
+.taw-col-foot {
   display: flex;
   flex: none;
   align-items: baseline;
   justify-content: space-between;
-  gap: 8px;
-  margin-top: 14px;
+  gap: var(--sp-2);
+  margin-top: var(--sp-4);
 }
 
-.page[data-page="tax-buckets"] .taw-col-foot-label {
+.taw-col-foot-label {
   min-width: 0;
   overflow: hidden;
-  color: var(--ink-faint);
-  font: 400 12.5px/1 var(--f);
+  color: var(--body);
+  font-size: var(--fs-caption);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.page[data-page="tax-buckets"] .taw-col-foot-val {
-  color: var(--ink-bright);
-  font: 500 13px/1 var(--f);
+.taw-col-foot-val {
+  color: var(--ink);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-body-strong);
   white-space: nowrap;
 }
 
-.page[data-page="tax-buckets"] .taw-slider-val,
-.page[data-page="tax-buckets"] .taw-col-rate,
-.page[data-page="tax-buckets"] .taw-col-foot-val,
-.page[data-page="tax-buckets"] .taw-col-edge span,
-.page[data-page="tax-buckets"] [data-taw-baseline-total],
-.page[data-page="tax-buckets"] [data-taw-fact-ss],
-.page[data-page="tax-buckets"] [data-taw-fact-other],
-.page[data-page="tax-buckets"] [data-taw-fact-wages],
-.page[data-page="tax-buckets"] [data-taw-caused-val],
-.page[data-page="tax-buckets"] [data-taw-federal-tax],
-.page[data-page="tax-buckets"] [data-taw-effective-rate],
-.page[data-page="tax-buckets"] [data-taw-marginal-rate] {
+/* Unavailable planner state. Carries its own reason text from the controller;
+   never a bare dash. */
+.taw-blocked {
+  display: flex;
+  max-width: 62ch;
+  align-items: flex-start;
+  gap: var(--sp-3);
+  margin: var(--sp-8) 40px; /* geometry: matches the canvas gutter */
+  padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--r-ctl);
+  background: var(--raised);
+  box-shadow: inset 0 0 0 var(--bw) var(--acc-hair);
+  color: var(--body);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  text-wrap: pretty;
+}
+
+/* Value slots never animate: the browser verifier reads them immediately after
+   a lever moves. */
+.taw-slider-val,
+.taw-col-rate,
+.taw-col-foot-val,
+.taw-col-edge span,
+[data-taw-baseline-total],
+[data-taw-fact-ss],
+[data-taw-fact-other],
+[data-taw-fact-wages],
+[data-taw-caused-val],
+[data-taw-federal-tax],
+[data-taw-effective-rate],
+[data-taw-marginal-rate] {
   transition: none;
 }
 
-@media (max-width: 720px) {
-  .page[data-page="tax-buckets"] .taw-root {
-    height: auto;
-    min-height: 100%;
-  }
+@media (max-width: 1279px) {
+  .taw-root { padding: var(--sp-6) var(--sp-6) 80px; }
+  .taw-grid { grid-template-columns: minmax(0, 1fr); }
+  .taw-cols { gap: var(--sp-4); }
+}
 
-  .page[data-page="tax-buckets"] .taw-grid {
-    flex: 0 0 100%;
-    width: 100%;
-  }
-
-  .page[data-page="tax-buckets"] .taw-left,
-  .page[data-page="tax-buckets"] .taw-card--thresholds {
-    flex: 1 1 100%;
-    min-width: 0;
-    max-width: none;
-  }
-
-  .page[data-page="tax-buckets"] .taw-card--inputs {
-    min-height: 650px;
-  }
+@media (max-width: 760px) {
+  .taw-root { padding: var(--sp-6) var(--sp-4) 80px; }
+  .taw-card--inputs,
+  .taw-card { padding: var(--sp-6) var(--sp-4); }
+  /* The four thresholds stay on one axis: splitting them into a 2x2 would
+     break the side-by-side comparison the column set exists to make. */
+  .taw-cols { gap: var(--sp-3); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .page[data-page="tax-buckets"] .taw-col-base,
-  .page[data-page="tax-buckets"] .taw-col-fill,
-  .page[data-page="tax-buckets"] .taw-col-gap,
-  .page[data-page="tax-buckets"] .taw-col-edge,
-  .page[data-page="tax-buckets"] .taw-mark-tick,
-  .page[data-page="tax-buckets"] .taw-mark-chip {
+  .taw-col-base,
+  .taw-col-fill,
+  .taw-col-gap,
+  .taw-col-edge,
+  .taw-mark-tick,
+  .taw-mark-chip {
     transition: none !important;
   }
-}
-
 }

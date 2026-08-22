@@ -138,6 +138,40 @@ test('visible Tax Next confirms canonical Tax facts before navigating', () => {
   assert.deepEqual(headerStatuses, ['Current Tax facts are incomplete']);
 });
 
+test('wizard teardown blur does not dispatch a nested Tax edit', () => {
+  const listeners = {};
+  const root = {
+    dataset: { wizardReady: 'false' },
+    addEventListener(type, listener){ listeners[type] = listener; },
+  };
+  let dispatched = 0;
+  const control = {
+    value: '125,000',
+    dataset: { householdCommittedValue: '120,000' },
+    closest(selector){ return selector === '.hh-tax-amount' ? this : null; },
+    dispatchEvent(){ dispatched += 1; },
+  };
+
+  bindHouseholdEditor({
+    root,
+    wizardRoot: root,
+    transientState: {},
+    guardPlanMutation: () => true,
+    commitWizardEdit: () => ({}),
+    syncHousehold(){},
+    navigateWizard(){},
+    syncHeaderStatus(){},
+    liveCommas(){},
+  });
+
+  listeners.focusout({ target: control });
+  assert.equal(dispatched, 0);
+
+  root.dataset.wizardReady = 'true';
+  listeners.focusout({ target: control });
+  assert.equal(dispatched, 1);
+});
+
 test('family DOB is one atomic edit across profile, plan age, and canonical taxpayers', () => {
   let current = plan();
   const boundary = createHouseholdWizardCommitBoundary({

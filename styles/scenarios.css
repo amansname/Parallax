@@ -1,661 +1,1322 @@
 /* =============================================================================
-   scenarios.css â€” THE single authoritative Scenarios style layer (production)
-   -----------------------------------------------------------------------------
-   Lifted from the canonical handoff (css/tokens.css + css/scenarios.css) and
-   adapted for production:
+   scenarios.css — the single authoritative Scenarios style layer.
 
-   â€¢ Tokens live on .page[data-page="scenarios"] (NOT :root) so nothing leaks.
-   â€¢ EVERY selector is scoped beneath .page[data-page="scenarios"].
-   â€¢ No global html/body resets, no !important, no specificity escalation.
-   â€¢ The outer prototype ".shell" glass + the prototype top bar / logo are
-     intentionally NOT reproduced here â€” production already owns the global
-     header, logo and orb. This also removes the "glass box inside a glass box"
-     nesting the prototype had: each view now floats one primary glass surface
-     directly on the page background.
+   Authored from the finalized Graphite & Aubergine reference, covering the
+   Compare, Focus and Cash Flow views.
 
-   Risk-band tone colors that depend on a scenario are passed inline by the view
-   layer (style="--tone:â€¦") and consumed here via var(--tone).
+   The reference names Compare's parts generically (.grid, .row, .cell, .val).
+   Production emits scoped names for the same parts (.compare__grid, .lever,
+   .cell--lev, .cmp-lev-val). Renaming live DOM hooks would buy nothing visually
+   and would put controller and verifier selectors at risk, so the reference's
+   VISUAL spec is authored onto the production names instead.
+
+   Scenario tone is still passed inline as `--tone`, and now resolves to the
+   system's own semantic tokens (--pos / --acc / --neg).
    ============================================================================= */
 
-/* ---- Tokens + page base (scenarios route only) ---------------------------- */
-@layer legacy {
-
 .page[data-page="scenarios"] {
-  /* Page background (fixed, behind the floating glass) */
-  --page-bg: var(--app-page-bg);
-
-  /* Risk-band tones */
-  --tone-green: #8fa57e;
-  --tone-amber: #cd9a52;
-  --tone-rust:  #c0795f;
-  --tone-green-glow: rgba(143,165,126,0.45);
-  --tone-amber-glow: rgba(205,154,82,0.42);
-  --tone-rust-glow:  rgba(192,121,95,0.42);
-
-  /* Gold accent */
-  --gold:        #c6a662;
-  --gold-bright: #d8c084;
-  --gold-soft:   #b08f4e;
-  --gold-eyebrow: #c6a662;
-
-  /* Text ramp */
-  --text-hi:   #e7dec9;
-  --text-1:    #ddd5c4;
-  --text-2:    #c2bbab;
-  --text-2b:   #b8ad92;
-  --text-3:    #9097a0;
-  --text-4:    #878e96;
-  --text-5:    #7d848c;
-  --text-6:    #6b727a;
-  --text-mute: #5d646c;
-  --text-dim:  #7d848c;
-  --text-nav:  #878e96;
-
-  /* Status text */
-  --pass:      #8fa57e;
-  --marginal:  #cd9a52;
-  --down:      #c0795f;
-  --down-deep: #a86c52;
-
-  /* Hairlines + fills */
-  --line-06: rgba(231,222,201,0.06);
-  --line-07: rgba(231,222,201,0.07);
-  --line-08: rgba(231,222,201,0.08);
-  --line-09: rgba(231,222,201,0.09);
-  --line-10: rgba(231,222,201,0.10);
-  --line-11: rgba(231,222,201,0.11);
-  --fill-02: rgba(231,222,201,0.02);
-  --fill-03: rgba(231,222,201,0.03);
-  --fill-04: rgba(231,222,201,0.04);
-  --fill-05: rgba(231,222,201,0.05);
-  --fill-08: rgba(231,222,201,0.08);
-  --ring-track: rgba(231,222,201,0.07);
-
-  /* Layered glass gradients */
-  --glass-panel:
-    radial-gradient(110% 85% at 0% 0%, rgba(231,222,201,0.018), transparent 48%),
-    rgba(14,16,19,0.94);
-  --glass-card:
-    linear-gradient(145deg, rgba(255,255,255,0.014), transparent 42%),
-    rgba(14,16,19,0.91);
-  --glass-card-active:
-    radial-gradient(115% 150% at 0% 0%, rgba(198,166,98,0.075), transparent 58%),
-    rgba(14,16,19,0.95);
-  --glass-summary:
-    radial-gradient(120% 130% at 0% 0%, rgba(198,166,98,0.045), transparent 60%),
-    rgba(14,16,19,0.92);
-  --glass-table: transparent;
-
-  /* Elevation shadows */
-  --shadow-panel: 0 24px 54px -48px rgba(0,0,0,0.78), inset 0 1px 0 rgba(231,222,201,0.035);
-  --shadow-card:  0 18px 42px -38px rgba(0,0,0,0.72), inset 0 1px 0 rgba(231,222,201,0.025);
-  --shadow-card-active: 0 20px 46px -40px rgba(0,0,0,0.76), inset 0 1px 0 rgba(198,166,98,0.055);
-  --shadow-rail: var(--shadow-card);
-  --shadow-table: none;
-  --shadow-summary: var(--shadow-card);
-
-  /* Backdrop blur strengths */
-  --blur-panel: blur(18px) saturate(105%);
-  --blur-rail:  blur(14px) saturate(104%);
-  --blur-table: none;
-
-  /* Radii */
-  --r-sm:  7px;
-  --r-md:  8px;
-  --r-lg:  11px;
-  --r-card: 14px;
-  --r-xl:  16px;
-  --r-panel: 16px;
-  --r-pill: 999px;
-
-  /* Layout */
-  --max-w: 1320px;
-  --rail-w: 360px;
-
-  /* Page surface */
-  font-family: var(--f);
-  font-feature-settings: 'tnum' 1;            /* tabular figures for ledgers */
-  -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
-  color: var(--text-1);
-  background: var(--page-bg);
-  background-attachment: fixed;
+  min-height: calc(100vh - 68px); /* geometry: header offset */
+  padding: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background: var(--page);
+  color: var(--body);
 }
 
-.page[data-page="scenarios"] *,
-.page[data-page="scenarios"] *::before,
-.page[data-page="scenarios"] *::after { box-sizing: border-box; }
+.scn-stage {
+  width: 100%;
+  margin: 0;
+  padding: var(--sp-8) 40px 80px; /* geometry: reference canvas gutter */
+}
 
-/* Centered planning stage shared by Compare, Focus, and Cash Flow. */
-.page[data-page="scenarios"] .scn-stage { width: 100%; max-width: var(--max-w); margin: 0 auto; padding: 36px 0 48px; }
+/* ── toolbar ─────────────────────────────────────────────────────────────── */
+.page[data-page="scenarios"] .toolbar {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-8);
+  margin-bottom: var(--sp-8);
+}
 
-/* Accessible focus ring for every interactive control in the page. */
-.page[data-page="scenarios"] :focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; border-radius: var(--r-sm); }
+.page[data-page="scenarios"] .toolbar__left {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-8);
+}
 
-/* ---- Toolbar -------------------------------------------------------------- */
-.page[data-page="scenarios"] .toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 32px; gap: 24px; }
-.page[data-page="scenarios"] .toolbar__left { display: flex; align-items: center; gap: 26px; }
-.page[data-page="scenarios"] .page-title { font-family: var(--f); font-weight: 300; font-size: 30px; color: var(--text-1); margin: 0; }
-.page[data-page="scenarios"] .page-sub { font-size: 14px; color: var(--text-5); margin: 5px 0 0; letter-spacing: 0.01em; }
-.page[data-page="scenarios"] .toolbar__actions { display: flex; align-items: center; gap: 11px; }
+.page[data-page="scenarios"] .toolbar__actions {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-3);
+  margin-left: auto;
+}
 
-/* Segmented Compare / Focus control */
-.page[data-page="scenarios"] .seg { display: inline-flex; border-radius: var(--r-lg); background: var(--fill-03); border: 1px solid var(--line-08); padding: 4px; }
-.page[data-page="scenarios"] .seg__btn { padding: 7px 17px; border-radius: var(--r-md); font-size: 14px; cursor: pointer; background: transparent; color: var(--text-4); border: 0; font-family: inherit; transition: background .15s, color .15s; }
-.page[data-page="scenarios"] .seg__btn.is-active { background: var(--fill-08); color: var(--text-1); }
+/* `.seg` carries `.px-seg`; only the optical alignment is added here. */
+.page[data-page="scenarios"] .seg { margin-top: 2px; /* geometry: optical alignment */ }
+.page[data-page="scenarios"] .seg__btn { border-radius: 0; }
+.page[data-page="scenarios"] .btn__plus { color: var(--body); }
 
-/* Pill buttons (Add / Solve) */
-.page[data-page="scenarios"] .btn { display: inline-flex; align-items: center; gap: 7px; padding: 10px 16px; border-radius: var(--r-lg); background: var(--fill-04); border: 1px solid var(--line-08); font-family: inherit; font-size: 14px; color: var(--text-1); cursor: pointer; }
-.page[data-page="scenarios"] .btn__plus { font-size: 15px; color: var(--text-4); }
+/* Cash Flow toggle. `.cash-chip` carries `.px-chip--pill` and the switch inside
+   carries `.px-switch`, so only the on-state tint is stated. */
+.page[data-page="scenarios"] .cash-chip__label {
+  color: var(--body);
+  font-size: var(--fs-body);
+  letter-spacing: 0;
+  text-transform: none;
+}
 
-/* Cash Flow toggle chip */
-.page[data-page="scenarios"] .cash-chip { display: inline-flex; align-items: center; gap: 10px; padding: 9px 15px; border-radius: var(--r-lg); cursor: pointer; transition: background .15s, border-color .15s; background: var(--fill-03); border: 1px solid var(--line-07); font-family: inherit; }
-.page[data-page="scenarios"] .cash-chip__label { font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-4); }
-.page[data-page="scenarios"] .switch { position: relative; width: 32px; height: 17px; border-radius: var(--r-pill); background: var(--line-10); transition: background .15s; }
-.page[data-page="scenarios"] .switch__knob { position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; border-radius: 50%; background: var(--text-2); box-shadow: 0 1px 3px rgba(0,0,0,0.3); transition: left .15s, background .15s; }
-.page[data-page="scenarios"] .cash-chip.is-on { background: rgba(198,166,98,0.10); border-color: rgba(198,166,98,0.45); }
-.page[data-page="scenarios"] .cash-chip.is-on .cash-chip__label { color: var(--gold-bright); }
-.page[data-page="scenarios"] .cash-chip.is-on .switch { background: rgba(198,166,98,0.5); }
-.page[data-page="scenarios"] .cash-chip.is-on .switch__knob { left: 17px; background: var(--gold-bright); }
+.page[data-page="scenarios"] .cash-chip.is-on {
+  border-color: var(--acc-hair);
+  background: var(--acc-tint);
+}
 
-/* ---- Reusable bits -------------------------------------------------------- */
-.page[data-page="scenarios"] .glass-panel { position: relative; border-radius: var(--r-panel); background: var(--glass-panel); border: 1px solid var(--line-09); box-shadow: var(--shadow-panel); backdrop-filter: var(--blur-panel); -webkit-backdrop-filter: var(--blur-panel); }
-/* .eyebrow is a class the rest of the app also styles (serif font + a trailing
-   rule line for the native-glass pages). Assert this layer's authority over it
-   for the Scenarios page: sans font, plain label, no trailing line. */
-.page[data-page="scenarios"] .eyebrow { display: block; font-family: var(--f); font-size: 14px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--gold-eyebrow); }
-.page[data-page="scenarios"] .eyebrow::after { content: none; }
-.page[data-page="scenarios"] .divider { height: 1px; background: var(--line-06); }
+.page[data-page="scenarios"] .cash-chip.is-on .cash-chip__label { color: var(--ink); }
+.page[data-page="scenarios"] .cash-chip.is-on .switch { background: var(--acc-hair); }
+.page[data-page="scenarios"] .cash-chip.is-on .switch__knob { left: 18px; background: var(--acc); }
 
-/* Progress ring (size + tone set inline; --tone is the scenario color) */
+.page[data-page="scenarios"] .divider { height: var(--bw); background: var(--rule-f); }
+
+/* ── success ring ────────────────────────────────────────────────────────────
+   The reference draws this as a masked disc; production renders an SVG arc.
+   Same read: a quiet track with the scenario's semantic tone on the arc. */
 .page[data-page="scenarios"] .ring { position: relative; flex: none; }
 .page[data-page="scenarios"] .ring svg { display: block; transform: rotate(-90deg); }
-.page[data-page="scenarios"] .ring__track { fill: none; stroke: var(--ring-track); }
+.page[data-page="scenarios"] .ring__track { fill: none; stroke: var(--rule); }
 .page[data-page="scenarios"] .ring__arc { fill: none; stroke: var(--tone); stroke-linecap: round; }
-.page[data-page="scenarios"] .ring__label { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
-.page[data-page="scenarios"] .numeral { font-family: var(--f); font-weight: 300; color: var(--text-hi); line-height: 1; }
-.page[data-page="scenarios"] .numeral .pct { color: var(--text-3); }
+.page[data-page="scenarios"] .ring__label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.page[data-page="scenarios"] .numeral {
+  color: var(--ink);
+  font-size: var(--fs-value);
+  font-weight: var(--fw-value);
+  line-height: var(--lh-value);
+  letter-spacing: var(--ls-value);
+  font-variant-numeric: tabular-nums;
+}
+
+.page[data-page="scenarios"] .numeral .pct { color: var(--body); font-size: var(--fs-emphasis); }
 
 /* =============================================================================
    COMPARE VIEW
    ============================================================================= */
-.page[data-page="scenarios"] .compare { border-radius: var(--r-panel); padding: 10px 20px 18px; background: var(--glass-panel); border: 1px solid var(--line-09); box-shadow: var(--shadow-panel); backdrop-filter: var(--blur-panel); -webkit-backdrop-filter: var(--blur-panel); }
-.page[data-page="scenarios"] .compare__grid { display: grid; grid-template-columns: 280px 1fr 1fr 1fr; align-items: center; }
-.page[data-page="scenarios"] .compare__rule { grid-column: 1 / -1; height: 1px; background: var(--line-07); }
+.page[data-page="scenarios"] .compare { padding: var(--sp-8) var(--sp-8) var(--sp-2); }
 
-.page[data-page="scenarios"] .lever { padding: 13px 14px; }
-.page[data-page="scenarios"] .lever__name { font-size: 14px; letter-spacing: 0.13em; text-transform: uppercase; color: var(--text-4); }
-/* Gutter header aligns to the TOP of the header band, level with the scenario
-   column names â€” no bottom-pinned void above it. */
-.page[data-page="scenarios"] .lever--head { padding: 20px 14px; align-self: start; }
-.page[data-page="scenarios"] .lever--head .lever__name { color: var(--gold-eyebrow); letter-spacing: 0.18em; }
-.page[data-page="scenarios"] .lever__hint { font-size: 14px; color: var(--text-6); margin-top: 6px; }
-
-.page[data-page="scenarios"] .scol { padding: 20px 18px; align-self: start; }
-.page[data-page="scenarios"] .scol__head { display: flex; align-items: center; gap: 9px; }
-.page[data-page="scenarios"] .scol__head--menu { justify-content: space-between; }
-.page[data-page="scenarios"] .scol__dot { width: 7px; height: 7px; border-radius: 50%; background: var(--tone); box-shadow: 0 0 8px var(--tone-glow); }
-.page[data-page="scenarios"] .scol__name { font-family: var(--f); font-weight: 300; font-size: 18px; white-space: nowrap; color: var(--text-1); }
-.page[data-page="scenarios"] .scol__menu { font-size: 16px; color: var(--text-nav); line-height: 0.5; background: transparent; border: 0; cursor: pointer; padding: 4px 8px; margin: -4px -8px; border-radius: var(--r-sm); }
-.page[data-page="scenarios"] .scol__menu:hover { color: #d8cfb8; background: var(--fill-04); }
-
-/* â‹¯ popover: Rename / Delete for non-baseline plans. One primary glass card,
-   scoped tokens, â‰¥14px text, warm two-tone ink â€” no white. */
-.page[data-page="scenarios"] .scol__head--menu { position: relative; }
-.page[data-page="scenarios"] .scol__pop {
-  position: absolute; top: calc(100% + 7px); right: 0; z-index: 40;
-  min-width: 156px; padding: 6px;
-  display: flex; flex-direction: column; gap: 2px;
-  background: var(--glass-card);
-  border: 1px solid var(--line-10);
-  border-radius: var(--r-lg);
-  box-shadow: var(--shadow-card);
-  backdrop-filter: var(--blur-rail);
-}
-.page[data-page="scenarios"] .scol__pop-item {
-  display: block; width: 100%; text-align: left;
-  padding: 9px 11px; border: 0; border-radius: var(--r-sm);
-  background: transparent; color: var(--text-2b);
-  font-size: 14px; font-weight: 500; letter-spacing: 0.02em;
-  font-family: inherit; cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
-}
-.page[data-page="scenarios"] .scol__pop-item:hover { background: var(--fill-05); color: #d8cfb8; }
-.page[data-page="scenarios"] .scol__pop-item--danger { color: var(--down); }
-.page[data-page="scenarios"] .scol__pop-item--danger:hover { background: rgba(192,121,95,0.10); color: var(--down); }
-
-/* Inline rename input â€” replaces .scol__name in place */
-.page[data-page="scenarios"] .scol__rename {
-  font-family: var(--f); font-weight: 300; font-size: 18px;
-  color: #d8cfb8; caret-color: var(--gold);
-  background: var(--fill-03);
-  border: 1px solid rgba(198,166,98,0.45); border-radius: var(--r-sm);
-  padding: 2px 8px; outline: none;
-  width: 148px; min-width: 0;
-}
-.page[data-page="scenarios"] .scol__metric { display: flex; align-items: center; gap: 13px; margin-top: 14px; }
-.page[data-page="scenarios"] .scol__prob { font-family: var(--f); font-weight: 300; font-size: 30px; color: var(--text-hi); line-height: 1; }
-.page[data-page="scenarios"] .scol__prob .pct { font-size: 14px; color: var(--text-3); }
-.page[data-page="scenarios"] .scol__median { font-size: 14px; color: var(--text-4); margin-top: 5px; }
-.page[data-page="scenarios"] .scol__median b { color: var(--text-1); font-weight: 400; }
-.page[data-page="scenarios"] .scol__tag { margin-top: 14px; }
-.page[data-page="scenarios"] .tag-ref { font-size: 14px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--gold-eyebrow); border: 1px solid rgba(198,166,98,0.32); border-radius: var(--r-sm); padding: 3px 9px; }
-.page[data-page="scenarios"] .tag-delta { display: inline-flex; align-items: center; gap: 7px; padding: 0; font-size: 14px; color: var(--down); }
-
-.page[data-page="scenarios"] .cell { padding: 8px 18px; }
-.page[data-page="scenarios"] .cell__val { padding: 7px 0; }
-.page[data-page="scenarios"] .cell__num { font-family: var(--f); font-size: 17.5px; color: var(--text-2); }
-.page[data-page="scenarios"] .cell--same .cell__val { padding: 7px 13px; }
-.page[data-page="scenarios"] .cell--same .cell__num { color: var(--text-dim); }
-.page[data-page="scenarios"] .cell--delta__box { display: inline-flex; flex-direction: column; gap: 2px; padding: 7px 13px; }
-.page[data-page="scenarios"] .cell--delta .cell__num { color: var(--text-1); }   /* changed chip value stays primary */
-.page[data-page="scenarios"] .cell__delta { font-size: 14px; color: var(--gold-soft); }
-.page[data-page="scenarios"] .cell--goal { padding: 14px 18px; }
-.page[data-page="scenarios"] .goal-pill { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text-2); }
-.page[data-page="scenarios"] .goal-pill__dot { width: 5px; height: 5px; border-radius: 50%; background: var(--tone, var(--tone-green)); }
-.page[data-page="scenarios"] .goal-note { font-size: 14px; color: var(--text-6); }
-.page[data-page="scenarios"] .goal-added { font-size: 14px; color: var(--gold-soft); }
-
-/* Goals section header â€” visible, stable expand/collapse toggle (chevron). */
-.page[data-page="scenarios"] .goals-head {
-  display: flex; align-items: center; gap: 9px;
-  cursor: pointer; user-select: none; border-radius: var(--r-sm);
-  transition: background .12s;
-}
-.page[data-page="scenarios"] .goals-head:hover { background: rgba(255,255,255,0.03); }
-.page[data-page="scenarios"] .goals-head:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
-.page[data-page="scenarios"] .goals-chev { color: var(--text-4); transition: transform .15s; flex: none; }
-.page[data-page="scenarios"] .goals-head[aria-expanded="true"] .goals-chev { transform: rotate(180deg); }
-
-/* Expanded per-goal detail rows â€” editable per column (amount / start / end) */
-.page[data-page="scenarios"] .goal-detail { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; }
-.page[data-page="scenarios"] .goal-detail__name { font-size: 14px; color: var(--text-3); }
-.page[data-page="scenarios"] .goal-detail__meta { font-size: 14px; color: var(--text-6); }
-.page[data-page="scenarios"] .cell--goal-detail { padding: 10px 18px; }
-.page[data-page="scenarios"] .cmp-goal-row { display: flex; align-items: center; gap: 5px; flex-wrap: nowrap; }
-.page[data-page="scenarios"] .cmp-goal-row .cmp-unit { font-size: 14px; color: var(--text-5); white-space: nowrap; }
-.page[data-page="scenarios"] .cmp-goal-in {
-  font-family: var(--f);
-  font-size: 16px;
-  color: var(--text-1);
-  background: transparent;
-  border: none;
-  border-bottom: 1px solid var(--line-09);
-  padding: 1px 2px 2px;
-  outline: none;
-  width: 66px;
-  text-align: right;
-  border-radius: 3px 3px 0 0;
-  font-variant-numeric: tabular-nums;
-  transition: background .15s, border-color .15s;
-}
-.page[data-page="scenarios"] .cmp-goal-in--age { width: 34px; text-align: center; }
-.page[data-page="scenarios"] .cmp-goal-in:focus { background: rgba(198,166,98,0.07); border-bottom-color: var(--gold); }
-.page[data-page="scenarios"] .cmp-goal-in::-webkit-inner-spin-button,
-.page[data-page="scenarios"] .cmp-goal-in::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
-/* "edited in this plan" marker */
-.page[data-page="scenarios"] .cmp-goal-edited { width: 6px; height: 6px; border-radius: 50%; background: var(--gold); flex: none; box-shadow: 0 0 6px rgba(198,166,98,0.5); }
-.page[data-page="scenarios"] .cell--goal-detail.is-overridden .cmp-goal-in { color: var(--gold-bright); }
-
-/* Compare lever cells â€” always-visible stable controls.
-   No hidden overlays, no click-to-reveal, no pop-out steppers. */
-.page[data-page="scenarios"] .cell--lev {
-  padding: 8px 14px;
-}
-
-/* Shared layout for the control row inside each cell */
-.page[data-page="scenarios"] .cmp-lev-row {
-  display: flex;
+.page[data-page="scenarios"] .compare__grid {
+  display: grid;
+  grid-template-columns: 250px repeat(3, minmax(0, 1fr)); /* geometry: lever label column */
   align-items: center;
-  gap: 6px;
-  flex-wrap: nowrap;
-}
-.page[data-page="scenarios"] .cmp-delta-row {
-  margin-top: 4px;
+  gap: 0 var(--sp-6);
 }
 
-/* Dollar lever: always-visible type-in input */
-.page[data-page="scenarios"] .cmp-lev-in {
-  font-family: var(--f);
-  font-size: 19px;
-  font-weight: 400;
-  color: var(--text-1);
-  background: transparent;
-  border: none;
-  border-bottom: 1px solid var(--line-09);
-  padding: 1px 2px 2px;
-  outline: none;
-  width: 88px;
-  text-align: right;
-  -moz-appearance: textfield;
-  border-radius: 3px 3px 0 0;
-  transition: background .15s, border-color .15s;
-  font-variant-numeric: tabular-nums;
+.page[data-page="scenarios"] .compare__rule {
+  grid-column: 1 / -1;
+  height: var(--bw);
+  background: var(--rule-f);
 }
-.page[data-page="scenarios"] .cmp-lev-in:focus {
-  background: rgba(198,166,98,0.07);
-  border-bottom-color: var(--gold);
-}
-.page[data-page="scenarios"] .cmp-lev-in--age { width: 34px; text-align: center; }
-.page[data-page="scenarios"] .cmp-lev-in::-webkit-inner-spin-button,
-.page[data-page="scenarios"] .cmp-lev-in::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
-.page[data-page="scenarios"] .cmp-lev-row .cmp-unit {
-  font-size: 14px;
-  color: var(--text-5);
+
+.page[data-page="scenarios"] .lever { padding: var(--sp-3) 0; }
+.page[data-page="scenarios"] .lever--head { padding: var(--sp-6) 0; align-self: start; }
+
+.page[data-page="scenarios"] .lever__name,
+.page[data-page="scenarios"] .rlabel {
+  color: var(--body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-eyebrow);
+  line-height: var(--lh-eyebrow);
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
   white-space: nowrap;
 }
 
-/* Discrete lever: always-visible âˆ’ / value / + */
-.page[data-page="scenarios"] .cmp-step-btn {
-  width: 24px;
-  height: 24px;
-  flex: none;
+.page[data-page="scenarios"] .lever__hint {
+  margin-top: var(--sp-2);
+  color: var(--body);
+  font-size: var(--fs-body);
+}
+
+/* ── scenario column head ────────────────────────────────────────────────── */
+.page[data-page="scenarios"] .scol { padding: var(--sp-6) 0; align-self: start; }
+
+.page[data-page="scenarios"] .scol__head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.page[data-page="scenarios"] .scol__head--menu { position: relative; justify-content: space-between; }
+
+.page[data-page="scenarios"] .scol__dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: var(--r-pill);
+  background: var(--tone);
+}
+
+.page[data-page="scenarios"] .scol__name {
+  color: var(--ink);
+  font-size: var(--fs-heading);
+  font-weight: var(--fw-heading);
+  line-height: var(--lh-heading);
+  letter-spacing: var(--ls-heading);
+  white-space: nowrap;
+}
+
+.page[data-page="scenarios"] .scol__menu {
+  margin-left: auto;
+  color: var(--muted);
+  letter-spacing: .14em;
+  cursor: pointer;
+}
+
+/* Rename / Delete popover for a non-baseline plan. */
+.page[data-page="scenarios"] .scol__pop {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + var(--sp-2));
+  right: 0;
+  display: flex;
+  min-width: 156px; /* geometry: two-item menu */
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--sp-1);
+  border: var(--bw) solid var(--line);
+  border-radius: var(--r-panel);
+  background: var(--panel);
+  box-shadow: var(--elev-panel);
+}
+
+.page[data-page="scenarios"] .scol__pop-item {
+  display: block;
+  width: 100%;
+  padding: var(--sp-2) var(--sp-3);
+  border: 0;
+  border-radius: var(--r-chip);
+  background: none;
+  color: var(--body);
+  font-size: var(--fs-body);
+  text-align: left;
+  cursor: pointer;
+}
+
+.page[data-page="scenarios"] .scol__pop-item:hover { background: var(--sel); color: var(--ink); }
+.page[data-page="scenarios"] .scol__pop-item--danger { color: var(--neg); }
+.page[data-page="scenarios"] .scol__pop-item--danger:hover { background: var(--neg-tint); color: var(--neg); }
+
+.page[data-page="scenarios"] .scol__rename {
+  width: 148px; /* geometry: plan name field */
+  min-width: 0;
+  height: auto;
+  padding: 2px var(--sp-2);
+  border: var(--bw) solid var(--acc-edge);
+  border-radius: var(--r-chip);
+  background: var(--acc-tint);
+  color: var(--ink);
+  font-size: var(--fs-heading);
+  font-weight: var(--fw-heading);
+  caret-color: var(--acc);
+}
+
+.page[data-page="scenarios"] .scol__metric {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  margin-top: var(--sp-4);
+}
+
+.page[data-page="scenarios"] .scol__prob {
+  color: var(--ink);
+  font-size: var(--fs-value);
+  font-weight: var(--fw-value);
+  line-height: var(--lh-value);
+  letter-spacing: var(--ls-value);
+  font-variant-numeric: tabular-nums;
+}
+
+.page[data-page="scenarios"] .scol__prob .pct { color: var(--body); font-size: var(--fs-emphasis); }
+
+.page[data-page="scenarios"] .scol__median {
+  margin-top: var(--sp-2);
+  color: var(--body);
+  font-size: var(--fs-body);
+}
+
+.page[data-page="scenarios"] .scol__median b { color: var(--ink); font-weight: var(--fw-body); }
+.page[data-page="scenarios"] .scol__tag { margin-top: var(--sp-4); }
+
+/* `.tag-ref` and `.tag-delta` carry `.px-chip`; only tracking is stated. */
+.page[data-page="scenarios"] .tag-ref,
+.page[data-page="scenarios"] .tag-delta {
+  font-size: var(--fs-eyebrow);
+  letter-spacing: .11em;
+  text-transform: uppercase;
+}
+
+.page[data-page="scenarios"] .tag-delta { border-color: transparent; background: var(--neg-bg); color: var(--neg); }
+
+/* ── lever cells ─────────────────────────────────────────────────────────── */
+.page[data-page="scenarios"] .cell,
+.page[data-page="scenarios"] .cell--lev { padding: var(--sp-3) 0; }
+
+.page[data-page="scenarios"] .cell__val { padding: 0; }
+
+.page[data-page="scenarios"] .cell__num {
+  color: var(--ink);
+  font-size: var(--fs-heading);
+  font-weight: var(--fw-heading);
+  font-variant-numeric: tabular-nums;
+}
+
+.page[data-page="scenarios"] .cell--same .cell__num { color: var(--body); }
+.page[data-page="scenarios"] .cell--delta .cell__num { color: var(--ink); }
+
+.page[data-page="scenarios"] .cell__delta,
+.page[data-page="scenarios"] .cmp-delta-row {
+  margin-top: var(--sp-1);
+  color: var(--body);
+  font-size: var(--fs-caption);
+}
+
+.page[data-page="scenarios"] .cell--goal { padding: var(--sp-4) 0; }
+
+/* The dot is neutral: the label itself says whether the column is edited. */
+.page[data-page="scenarios"] .goal-pill {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  border-radius: var(--r-md);
-  background: var(--fill-04);
-  border: 1px solid var(--line-09);
-  color: var(--text-2);
-  font-size: 16px;
+  gap: var(--sp-2);
+  color: var(--body);
+  font-size: var(--fs-body);
+}
+
+.page[data-page="scenarios"] .goal-pill__dot {
+  width: 5px;
+  height: 5px;
+  flex: 0 0 auto;
+  border-radius: var(--r-pill);
+  background: var(--body);
+}
+
+.page[data-page="scenarios"] .goal-note { color: var(--body); font-size: var(--fs-body); }
+.page[data-page="scenarios"] .goal-added { color: var(--acc); font-size: var(--fs-caption); }
+
+.page[data-page="scenarios"] .goals-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  border-radius: var(--r-chip);
   cursor: pointer;
-  font-family: inherit;
-  transition: background .12s, border-color .12s, color .12s;
+  user-select: none;
 }
-.page[data-page="scenarios"] .cmp-step-btn:hover {
-  background: var(--fill-08);
-  border-color: rgba(198,166,98,0.45);
-  color: var(--gold-bright);
+
+.page[data-page="scenarios"] .goals-head:hover { background: var(--sel); }
+.page[data-page="scenarios"] .goals-chev { flex: none; color: var(--muted); transition: transform .15s; }
+.page[data-page="scenarios"] .goals-head[aria-expanded="true"] .goals-chev { transform: rotate(180deg); }
+
+/* ── expanded per-goal rows ──────────────────────────────────────────────── */
+.page[data-page="scenarios"] .goal-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  padding: var(--sp-3) 0;
 }
+
+.page[data-page="scenarios"] .goal-detail__name { color: var(--ink); font-size: var(--fs-body); }
+.page[data-page="scenarios"] .goal-detail__meta { color: var(--muted); font-size: var(--fs-caption); }
+.page[data-page="scenarios"] .cell--goal-detail { padding: var(--sp-3) 0; }
+
+.page[data-page="scenarios"] .cmp-goal-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+
+.page[data-page="scenarios"] .cmp-goal-row .cmp-unit { white-space: nowrap; }
+
+.page[data-page="scenarios"] .cmp-goal-in {
+  width: 82px; /* geometry: goal amount */
+  height: auto;
+  padding: 2px var(--sp-2);
+  border: 0;
+  border-bottom: var(--bw) solid var(--rule);
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: var(--fs-emphasis);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.page[data-page="scenarios"] .cmp-goal-in--age { width: 42px; /* geometry: two digits */ text-align: center; }
+.page[data-page="scenarios"] .cmp-goal-in:hover { border-bottom-color: var(--line); }
+.page[data-page="scenarios"] .cmp-goal-in:focus {
+  border-bottom-color: var(--acc);
+  background: var(--acc-tint);
+  outline: 0;
+}
+.page[data-page="scenarios"] .cmp-goal-in::-webkit-inner-spin-button,
+.page[data-page="scenarios"] .cmp-goal-in::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+
+/* "edited in this plan" marker — one of the accent's permitted uses. */
+.page[data-page="scenarios"] .cmp-goal-edited {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: var(--r-pill);
+  background: var(--acc);
+}
+
+.page[data-page="scenarios"] .cell--goal-detail.is-overridden .cmp-goal-in { color: var(--acc); }
+
+/* Compare lever cells — always-visible, stable controls. No hidden overlays,
+   no click-to-reveal, no pop-out steppers. */
+.page[data-page="scenarios"] .cmp-lev-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: nowrap;
+}
+
+/* A dollar lever is typed directly. The underline is the whole affordance —
+   the value stays the loudest thing in the cell. */
+.page[data-page="scenarios"] .cmp-lev-in {
+  width: 114px; /* geometry: currency width */
+  height: auto;
+  padding: 2px var(--sp-2);
+  border: 0;
+  border-bottom: var(--bw) solid var(--rule);
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: var(--fs-heading);
+  font-weight: var(--fw-heading);
+  text-align: right;
+  -moz-appearance: textfield;
+  font-variant-numeric: tabular-nums;
+}
+
+.page[data-page="scenarios"] .cmp-lev-in:hover { border-bottom-color: var(--line); }
+.page[data-page="scenarios"] .cmp-lev-in:focus {
+  border-bottom-color: var(--acc);
+  background: var(--acc-tint);
+  outline: 0;
+}
+
+.page[data-page="scenarios"] .cmp-lev-in--age {
+  width: 42px; /* geometry: two digits */
+  padding: 2px;
+  font-size: var(--fs-emphasis);
+  text-align: center;
+}
+
+.page[data-page="scenarios"] .cmp-lev-in::-webkit-inner-spin-button,
+.page[data-page="scenarios"] .cmp-lev-in::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+
+.page[data-page="scenarios"] .cmp-unit,
+.page[data-page="scenarios"] .dollar {
+  color: var(--body);
+  font-size: var(--fs-caption);
+  white-space: nowrap;
+}
+
+/* Discrete lever: minus / value / plus, all three always present. The buttons
+   carry `.px-stepper-btn`. */
 .page[data-page="scenarios"] .cmp-lev-val {
-  font-family: var(--f);
-  font-size: 19px;
-  color: var(--text-1);
-  min-width: 72px;
+  min-width: 70px; /* geometry: value column */
+  color: var(--ink);
+  font-size: var(--fs-heading);
+  font-weight: var(--fw-heading);
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
 
 /* =============================================================================
    FOCUS VIEW
+
+   The frozen reference does not photograph this view. Everything below is built
+   from the same locked tokens and primitives as Compare — no new values, no new
+   components, and the same semantic rules for accent and status colour.
    ============================================================================= */
-.page[data-page="scenarios"] .focus { display: flex; gap: 28px; align-items: start; }
-.page[data-page="scenarios"] .focus__panel { flex: 1; padding: 38px 40px 30px; }
-.page[data-page="scenarios"] .focus__head { display: flex; align-items: center; justify-content: space-between; }
-.page[data-page="scenarios"] .focus__title { display: flex; align-items: center; gap: 11px; }
-.page[data-page="scenarios"] .focus__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--tone); }
-.page[data-page="scenarios"] .focus__name { font-family: var(--f); font-weight: 300; font-size: 24px; white-space: nowrap; color: var(--text-1); }
-.page[data-page="scenarios"] .badge-editing { font-size: 14px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--gold-eyebrow); border: 1px solid rgba(198,166,98,0.32); border-radius: var(--r-sm); padding: 3px 9px; margin-left: 4px; }
-.page[data-page="scenarios"] .focus__menu { font-size: 18px; color: var(--text-nav); line-height: 0.5; background: transparent; border: 0; cursor: pointer; padding: 0; }
+.page[data-page="scenarios"] .focus { display: flex; align-items: start; gap: var(--sp-8); }
+.page[data-page="scenarios"] .focus__panel { min-width: 0; flex: 1; padding: var(--sp-8); }
 
-.page[data-page="scenarios"] .hero { display: flex; align-items: center; gap: 42px; margin-top: 28px; }
-.page[data-page="scenarios"] .hero__ringwrap { display: flex; flex-direction: column; align-items: center; flex: none; }
-.page[data-page="scenarios"] .hero__ringlabel { font-size: 14px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--text-5); margin-bottom: 12px; }
-.page[data-page="scenarios"] .hero__numeral { font-family: var(--f); font-weight: 300; font-size: 44px; color: var(--text-hi); line-height: 1; }
-.page[data-page="scenarios"] .hero__numeral .pct { font-size: 21px; color: var(--text-3); }
-.page[data-page="scenarios"] .hero__right { flex: 1; }
-.page[data-page="scenarios"] .kicker { font-size: 14px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-5); }
-.page[data-page="scenarios"] .hero__median { font-family: var(--f); font-weight: 300; font-size: 34px; color: var(--text-1); margin-top: 4px; }
+.page[data-page="scenarios"] .focus__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+}
 
-.page[data-page="scenarios"] .range { margin-top: 16px; }
-.page[data-page="scenarios"] .range__head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
-.page[data-page="scenarios"] .range__label { font-size: 14px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-5); }
-.page[data-page="scenarios"] .range__bounds { font-size: 14px; color: var(--text-4); }
-.page[data-page="scenarios"] .range__bar { position: relative; height: 8px; border-radius: var(--r-pill); background: linear-gradient(90deg, var(--fill-04), rgba(255,255,255,0.12)); }
-.page[data-page="scenarios"] .range__marker { position: absolute; top: 50%; transform: translate(-50%, -50%); width: 3px; height: 17px; border-radius: 2px; background: var(--tone); }
-.page[data-page="scenarios"] .viability { display: flex; align-items: center; gap: 9px; }
-.page[data-page="scenarios"] .viability__dot { width: 6px; height: 6px; border-radius: 50%; background: var(--tone); }
-.page[data-page="scenarios"] .viability__text { font-size: 14px; color: var(--text-3); }
+.page[data-page="scenarios"] .focus__title { display: flex; align-items: center; gap: var(--sp-3); }
 
-.page[data-page="scenarios"] .assum-grid { display: grid; grid-template-columns: 1fr 1fr; column-gap: 44px; row-gap: 22px; }
-.page[data-page="scenarios"] .assum__label { font-size: 14px; letter-spacing: 0.13em; text-transform: uppercase; color: var(--text-4); }
-.page[data-page="scenarios"] .assum__stepper { display: flex; align-items: center; gap: 13px; margin-top: 9px; }
-.page[data-page="scenarios"] .stepper-btn { width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; border-radius: var(--r-md); background: var(--fill-05); border: 1px solid var(--line-10); color: var(--text-2); font-size: 16px; flex: none; cursor: pointer; font-family: inherit; }
-.page[data-page="scenarios"] .assum__value { font-family: var(--f); font-size: 20px; color: var(--text-1); min-width: 92px; text-align: center; }
-.page[data-page="scenarios"] .assum__delta { font-size: 14px; color: var(--gold-soft); }
+.page[data-page="scenarios"] .focus__dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: var(--r-pill);
+  background: var(--tone);
+}
 
-.page[data-page="scenarios"] .goals__head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
-.page[data-page="scenarios"] .goals__title { display: flex; align-items: baseline; gap: 12px; }
-.page[data-page="scenarios"] .goals__count { font-size: 14px; color: var(--text-5); }
-.page[data-page="scenarios"] .goals__manage { font-size: 14px; color: var(--text-4); background: transparent; border: 0; cursor: pointer; font-family: inherit; }
-.page[data-page="scenarios"] .goal-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; }
-.page[data-page="scenarios"] .goal-row.is-off { opacity: 0.42; }
-.page[data-page="scenarios"] .goal-row__left { display: flex; align-items: center; gap: 14px; }
-.page[data-page="scenarios"] .goal-state { min-width: 42px; padding: 3px 8px; border-radius: var(--r-pill); flex: none; font-size: 10px; line-height: 1.2; text-align: center; color: var(--text-5); background: var(--line-08); }
-.page[data-page="scenarios"] .goal-state--on { color: #b8d6bf; background: rgba(127,176,140,0.22); }
-.page[data-page="scenarios"] .goal-row__body { display: flex; align-items: center; gap: 8px; }
-.page[data-page="scenarios"] .goal-added-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--gold); flex: none; }
-.page[data-page="scenarios"] .goal-row__name { font-size: 14.5px; color: var(--text-2); }
-.page[data-page="scenarios"] .goal-row.is-off .goal-row__name { text-decoration: line-through; }
-.page[data-page="scenarios"] .goal-row__meta { font-size: 14px; color: var(--text-6); margin-top: 1px; }
+.page[data-page="scenarios"] .focus__name {
+  color: var(--ink);
+  font-size: var(--fs-title);
+  font-weight: var(--fw-title);
+  line-height: var(--lh-title);
+  letter-spacing: var(--ls-title);
+  white-space: nowrap;
+}
+
+.page[data-page="scenarios"] .badge-editing {
+  font-size: var(--fs-eyebrow);
+  letter-spacing: .11em;
+  text-transform: uppercase;
+}
+
+.page[data-page="scenarios"] .focus__menu {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  letter-spacing: .14em;
+  cursor: pointer;
+}
+
+/* One display metric per screen: the plan's success probability. */
+.page[data-page="scenarios"] .hero {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-12);
+  margin-top: var(--sp-8);
+}
+
+.page[data-page="scenarios"] .hero__ringwrap {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+}
+
+.page[data-page="scenarios"] .hero__ringlabel {
+  margin-bottom: var(--sp-3);
+  color: var(--body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-eyebrow);
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+}
+
+.page[data-page="scenarios"] .hero__numeral {
+  color: var(--ink);
+  font-size: var(--fs-display);
+  font-weight: var(--fw-display);
+  line-height: var(--lh-display);
+  letter-spacing: var(--ls-display);
+  font-variant-numeric: tabular-nums;
+}
+
+.page[data-page="scenarios"] .hero__numeral .pct { color: var(--body); font-size: var(--fs-heading); }
+.page[data-page="scenarios"] .hero__right { min-width: 0; flex: 1; }
+
+.page[data-page="scenarios"] .kicker {
+  color: var(--body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-eyebrow);
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+}
+
+.page[data-page="scenarios"] .hero__median {
+  margin-top: var(--sp-1);
+  color: var(--ink);
+  font-size: var(--fs-title);
+  font-weight: var(--fw-title);
+  line-height: var(--lh-title);
+  letter-spacing: var(--ls-title);
+  font-variant-numeric: tabular-nums;
+}
+
+.page[data-page="scenarios"] .range { margin-top: var(--sp-4); }
+
+.page[data-page="scenarios"] .range__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: var(--sp-2);
+}
+
+.page[data-page="scenarios"] .range__label {
+  color: var(--body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-eyebrow);
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+}
+
+.page[data-page="scenarios"] .range__bounds {
+  color: var(--body);
+  font-size: var(--fs-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+.page[data-page="scenarios"] .range__bar {
+  position: relative;
+  height: 4px; /* geometry: data bar */
+  border-radius: var(--r-bar);
+  background: var(--rule);
+}
+
+.page[data-page="scenarios"] .range__marker {
+  position: absolute;
+  top: 50%;
+  width: 3px; /* geometry: median mark */
+  height: 15px;
+  border-radius: var(--r-bar);
+  background: var(--tone);
+  transform: translate(-50%, -50%);
+}
+
+.page[data-page="scenarios"] .viability { display: flex; align-items: center; gap: var(--sp-2); }
+
+.page[data-page="scenarios"] .viability__dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: var(--r-pill);
+  background: var(--tone);
+}
+
+.page[data-page="scenarios"] .viability__text { color: var(--body); font-size: var(--fs-body); }
+
+.page[data-page="scenarios"] .assum-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: var(--sp-12);
+  row-gap: var(--sp-6);
+}
+
+.page[data-page="scenarios"] .assum__label {
+  color: var(--body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-eyebrow);
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+}
+
+.page[data-page="scenarios"] .assum__stepper {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  margin-top: var(--sp-2);
+}
+
+.page[data-page="scenarios"] .assum__value {
+  min-width: 92px; /* geometry: assumption value column */
+  color: var(--ink);
+  font-size: var(--fs-heading);
+  font-weight: var(--fw-heading);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.page[data-page="scenarios"] .assum__delta { color: var(--body); font-size: var(--fs-caption); }
+
+.page[data-page="scenarios"] .goals__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--sp-1);
+}
+
+.page[data-page="scenarios"] .goals__title { display: flex; align-items: baseline; gap: var(--sp-3); }
+.page[data-page="scenarios"] .goals__count { color: var(--body); font-size: var(--fs-body); }
+
+.page[data-page="scenarios"] .goals__manage {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--acc);
+  font-size: var(--fs-body);
+  cursor: pointer;
+}
+
+.page[data-page="scenarios"] .goal-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  padding: var(--sp-2) 0;
+}
+
+/* An unfunded goal is stated, not faded below readability. */
+.page[data-page="scenarios"] .goal-row.is-off .goal-row__name { color: var(--muted); text-decoration: line-through; }
+.page[data-page="scenarios"] .goal-row__left { display: flex; align-items: center; gap: var(--sp-4); }
+
+.page[data-page="scenarios"] .goal-state {
+  min-width: 42px; /* geometry: state column */
+  justify-content: center;
+  font-size: var(--fs-eyebrow);
+  text-align: center;
+}
+
+.page[data-page="scenarios"] .goal-state--on {
+  border-color: transparent;
+  background: var(--pos-bg);
+  color: var(--pos);
+}
+
+.page[data-page="scenarios"] .goal-row__body { display: flex; align-items: center; gap: var(--sp-2); }
+
+.page[data-page="scenarios"] .goal-added-dot {
+  width: 5px;
+  height: 5px;
+  flex: none;
+  border-radius: var(--r-pill);
+  background: var(--acc);
+}
+
+.page[data-page="scenarios"] .goal-row__name { color: var(--ink); font-size: var(--fs-body); }
+.page[data-page="scenarios"] .goal-row__meta,
+.page[data-page="scenarios"] .goal-row__sub {
+  margin-top: var(--sp-1);
+  color: var(--muted);
+  font-size: var(--fs-caption);
+}
+
 .page[data-page="scenarios"] .goal-row__amt { text-align: right; }
-.page[data-page="scenarios"] .goal-row__amt b { font-size: 14.5px; color: var(--text-2); font-weight: 400; }
-.page[data-page="scenarios"] .goal-row__sub { font-size: 14px; color: var(--text-6); margin-top: 1px; }
+.page[data-page="scenarios"] .goal-row__amt b {
+  color: var(--ink);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-body);
+  font-variant-numeric: tabular-nums;
+}
 
-/* right rail */
-.page[data-page="scenarios"] .focus__rail { width: var(--rail-w); flex: none; display: flex; flex-direction: column; gap: 13px; }
-.page[data-page="scenarios"] .rail__head { display: flex; align-items: center; justify-content: space-between; padding: 0 2px 2px; }
-.page[data-page="scenarios"] .rail__head-label { font-size: 14px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--text-5); }
-.page[data-page="scenarios"] .rail__head-hint { font-size: 14px; color: var(--text-4); }
-.page[data-page="scenarios"] .rail-card { border-radius: var(--r-card); padding: 16px 18px; cursor: pointer; text-align: left; width: 100%; font-family: inherit; background: var(--glass-card); border: 1px solid var(--line-08); box-shadow: var(--shadow-rail); backdrop-filter: var(--blur-rail); -webkit-backdrop-filter: var(--blur-rail); }
-.page[data-page="scenarios"] .rail-card.is-active { background: var(--glass-card-active); border-color: rgba(198,166,98,0.36); box-shadow: var(--shadow-card-active); }
-.page[data-page="scenarios"] .rail-card__head { display: flex; align-items: center; justify-content: space-between; }
-.page[data-page="scenarios"] .rail-card__title { display: flex; align-items: center; gap: 9px; }
-.page[data-page="scenarios"] .rail-card__dot { width: 7px; height: 7px; border-radius: 50%; background: var(--tone); }
-.page[data-page="scenarios"] .rail-card__name { font-size: 14.5px; white-space: nowrap; color: var(--text-1); }
-.page[data-page="scenarios"] .rail-card__tag { font-size: 14px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-5); }
-.page[data-page="scenarios"] .rail-card__tag--focus { color: var(--gold-eyebrow); }
-.page[data-page="scenarios"] .rail-card__tag--delta { font-size: 14px; color: var(--down); letter-spacing: 0; text-transform: none; }
-.page[data-page="scenarios"] .rail-card__metric { display: flex; align-items: center; gap: 13px; margin-top: 12px; }
-.page[data-page="scenarios"] .rail-card__prob { font-family: var(--f); font-weight: 300; font-size: 22px; color: var(--text-hi); line-height: 1; }
-.page[data-page="scenarios"] .rail-card__prob .pct { font-size: 14px; color: var(--text-3); }
-.page[data-page="scenarios"] .rail-card__median-l { font-size: 14px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-6); }
-.page[data-page="scenarios"] .rail-card__median { font-family: var(--f); font-weight: 300; font-size: 18px; color: var(--text-1); margin-top: 1px; }
-.page[data-page="scenarios"] .rail-add { border-radius: var(--r-card); padding: 15px; border: 1px dashed var(--line-11); display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--text-4); font-size: 14px; background: transparent; cursor: pointer; width: 100%; font-family: inherit; }
+/* ── plan rail ───────────────────────────────────────────────────────────── */
+.page[data-page="scenarios"] .focus__rail {
+  display: flex;
+  width: 360px; /* geometry: plan rail */
+  flex: none;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
 
-.page[data-page="scenarios"] .stress-rail { margin-top: 4px; border-radius: var(--r-card); padding: 18px 20px 14px; background: var(--glass-card); border: 1px solid var(--line-08); box-shadow: var(--shadow-rail); backdrop-filter: var(--blur-rail); -webkit-backdrop-filter: var(--blur-rail); }
-.page[data-page="scenarios"] .stress-rail__head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
-.page[data-page="scenarios"] .stress-rail__verdict { font-size: 14px; letter-spacing: 0.04em; }
-.page[data-page="scenarios"] .stress-rail__row { display: flex; align-items: center; gap: 12px; padding: 7px 0; }
-.page[data-page="scenarios"] .stress-rail__icon { width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex: none; }
-.page[data-page="scenarios"] .stress-rail__icon--pass { background: rgba(143,185,154,0.14); border: 1px solid rgba(143,185,154,0.42); }
-.page[data-page="scenarios"] .stress-rail__icon--marginal { background: rgba(214,168,106,0.13); border: 1px solid rgba(214,168,106,0.42); color: var(--marginal); font-size: 14px; }
-.page[data-page="scenarios"] .stress-rail__body { flex: 1; display: flex; align-items: baseline; gap: 8px; }
-.page[data-page="scenarios"] .stress-rail__year { font-family: var(--f); font-weight: 300; font-size: 16px; color: var(--text-1); }
-.page[data-page="scenarios"] .stress-rail__name { font-size: 14px; color: var(--text-5); }
-.page[data-page="scenarios"] .stress-rail__result { font-size: 14px; letter-spacing: 0.05em; text-transform: uppercase; }
+.page[data-page="scenarios"] .rail__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 0 var(--sp-1);
+}
+
+.page[data-page="scenarios"] .rail__head-label {
+  color: var(--body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-eyebrow);
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+}
+
+.page[data-page="scenarios"] .rail__head-hint { color: var(--body); font-size: var(--fs-caption); }
+
+.page[data-page="scenarios"] .rail-card {
+  width: 100%;
+  padding: var(--sp-4);
+  border: var(--bw) solid var(--rule);
+  border-radius: var(--r-ctl);
+  text-align: left;
+  cursor: pointer;
+}
+
+.page[data-page="scenarios"] .rail-card:hover { border-color: var(--line); background: var(--sel); }
+.page[data-page="scenarios"] .rail-card.is-active {
+  border-color: var(--acc-hair);
+  background: var(--acc-tint);
+  box-shadow: var(--elev-select);
+}
+
+.page[data-page="scenarios"] .rail-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+}
+
+.page[data-page="scenarios"] .rail-card__title { display: flex; align-items: center; gap: var(--sp-2); }
+
+.page[data-page="scenarios"] .rail-card__dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: var(--r-pill);
+  background: var(--tone);
+}
+
+.page[data-page="scenarios"] .rail-card__name { color: var(--ink); font-size: var(--fs-body); white-space: nowrap; }
+
+.page[data-page="scenarios"] .rail-card__tag {
+  color: var(--body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-eyebrow);
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.page[data-page="scenarios"] .rail-card__tag--focus { color: var(--acc); }
+.page[data-page="scenarios"] .rail-card__tag--delta {
+  color: var(--body);
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-body);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.page[data-page="scenarios"] .rail-card__metric {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  margin-top: var(--sp-3);
+}
+
+.page[data-page="scenarios"] .rail-card__prob {
+  color: var(--ink);
+  font-size: var(--fs-heading);
+  font-weight: var(--fw-heading);
+  line-height: var(--lh-heading);
+  font-variant-numeric: tabular-nums;
+}
+
+.page[data-page="scenarios"] .rail-card__prob .pct { color: var(--body); font-size: var(--fs-caption); }
+
+.page[data-page="scenarios"] .rail-card__median-l {
+  color: var(--muted);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-eyebrow);
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+}
+
+.page[data-page="scenarios"] .rail-card__median {
+  margin-top: var(--sp-1);
+  color: var(--ink);
+  font-size: var(--fs-body);
+  font-variant-numeric: tabular-nums;
+}
+
+.page[data-page="scenarios"] .rail-add {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  padding: var(--sp-4);
+  border: var(--bw) dashed var(--rule);
+  border-radius: var(--r-ctl);
+  background: transparent;
+  color: var(--body);
+  font-size: var(--fs-body);
+  cursor: pointer;
+}
+
+.page[data-page="scenarios"] .rail-add:hover { border-color: var(--acc-hair); color: var(--acc); }
+
+.page[data-page="scenarios"] .stress-rail {
+  margin-top: var(--sp-1);
+  padding: var(--sp-4) var(--sp-4) var(--sp-2);
+  border: var(--bw) solid var(--line);
+  border-radius: var(--r-panel);
+  background: var(--panel);
+}
+
+.page[data-page="scenarios"] .stress-rail__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: var(--sp-3);
+}
+
+.page[data-page="scenarios"] .stress-rail__verdict { font-size: var(--fs-caption); }
+
+.page[data-page="scenarios"] .stress-rail__row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) 0;
+}
+
+.page[data-page="scenarios"] .stress-rail__icon {
+  display: flex;
+  width: 22px; /* geometry: outcome badge */
+  height: 22px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-caption);
+}
+
+.page[data-page="scenarios"] .stress-rail__icon--pass {
+  background: var(--pos-bg);
+  box-shadow: inset 0 0 0 var(--bw) rgba(130, 154, 120, .42);
+  color: var(--pos);
+}
+
+.page[data-page="scenarios"] .stress-rail__icon--marginal {
+  background: var(--raised);
+  box-shadow: inset 0 0 0 var(--bw) var(--acc-hair);
+  color: var(--acc);
+}
+
+.page[data-page="scenarios"] .stress-rail__body {
+  display: flex;
+  flex: 1;
+  align-items: baseline;
+  gap: var(--sp-2);
+}
+
+.page[data-page="scenarios"] .stress-rail__year {
+  color: var(--ink);
+  font-size: var(--fs-body);
+  font-variant-numeric: tabular-nums;
+}
+
+.page[data-page="scenarios"] .stress-rail__name { color: var(--body); font-size: var(--fs-caption); }
+
+.page[data-page="scenarios"] .stress-rail__result {
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-eyebrow);
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+}
 
 /* =============================================================================
    CASH FLOW VIEW
    ============================================================================= */
-.page[data-page="scenarios"] .cf__head { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; margin-bottom: 22px; }
-.page[data-page="scenarios"] .cf__pills { display: inline-flex; flex-wrap: nowrap; gap: 7px; }
-.page[data-page="scenarios"] .cf-pill { display: inline-flex; align-items: center; gap: 7px; padding: 6px 13px; border-radius: var(--r-pill); font-size: 14px; white-space: nowrap; cursor: pointer; background: transparent; border: 1px solid var(--line-07); color: var(--text-4); font-family: inherit; }
-.page[data-page="scenarios"] .cf-pill.is-active { background: rgba(198,166,98,0.14); border-color: rgba(198,166,98,0.32); color: var(--text-1); }
-.page[data-page="scenarios"] .cf-pill__dot { width: 6px; height: 6px; border-radius: 50%; background: var(--tone); }
+.page[data-page="scenarios"] .cf__head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-6);
+  flex-wrap: wrap;
+}
+
+/* Scenario picker, retirement marker and path selector all read as one family
+   of pill controls sitting above the ledger. */
+.page[data-page="scenarios"] .cf-scenario-picker,
+.page[data-page="scenarios"] .cf-ret-toggle,
+.page[data-page="scenarios"] .cf-pill,
+.page[data-page="scenarios"] .cf__path-controls .scn-path {
+  display: inline-flex;
+  min-height: var(--h-compact);
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 0 var(--sp-3);
+  border: var(--bw) solid var(--rule);
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--body);
+  font-size: var(--fs-body);
+  letter-spacing: 0;
+  text-transform: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.page[data-page="scenarios"] .cf-pill.is-active,
+.page[data-page="scenarios"] .cf-ret-toggle.is-on {
+  border-color: var(--acc-hair);
+  background: var(--acc-tint);
+  color: var(--ink);
+}
+
+.page[data-page="scenarios"] .cf-pill__dot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: var(--r-pill);
+  background: var(--tone);
+}
+
+.page[data-page="scenarios"] .cf-scenario-picker {
+  position: relative;
+  padding: 0;
+  border-color: var(--acc-hair);
+  background: var(--acc-tint);
+}
+
+.page[data-page="scenarios"] .cf-scenario-picker__dot {
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  left: var(--sp-3);
+  width: 7px;
+  height: 7px;
+  border-radius: var(--r-pill);
+  background: var(--tone);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.page[data-page="scenarios"] .cf-scenario-picker select {
+  width: auto;
+  min-width: 138px; /* geometry: selected scenario control */
+  min-height: var(--h-compact);
+  height: auto;
+  padding: 0 28px 0 30px; /* geometry: dot and native caret room */
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+}
 
 .page[data-page="scenarios"] .cf__path-controls {
   display: inline-flex;
   align-items: center;
-  padding-left: 14px;
-  margin-left: 4px;
-  border-left: 1px solid var(--line-08);
+  margin: 0;
+  padding: 0;
+  border: 0;
 }
 
-.page[data-page="scenarios"] .cf-ret-toggle { padding: 6px 13px; border-radius: var(--r-pill); font-family: inherit; font-size: 14px; cursor: pointer; background: transparent; border: 1px solid var(--line-07); color: var(--text-4); }
-.page[data-page="scenarios"] .cf-ret-toggle.is-on { background: rgba(198,166,98,0.10); border-color: rgba(198,166,98,0.45); color: var(--gold-bright); }
-
 .page[data-page="scenarios"] .cf__path-controls .scn-path {
+  flex-direction: row;
+  color: var(--body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-eyebrow);
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+}
+
+.page[data-page="scenarios"] .cf__path-controls .scn-path .px-field__label {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  padding: 5px 11px;
-  border-radius: var(--r-pill);
-  border: 1px solid var(--line-07);
-  background: transparent;
-  font-family: var(--f);
-  font-size: 14px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-4);
+  margin: 0;
+  line-height: 1;
 }
 
 .page[data-page="scenarios"] .cf__path-controls .scn-path select {
+  width: auto;
   height: auto;
-  min-width: 0;
-  padding: 0;
-  background: transparent;
+  padding: 0 24px 0 0; /* geometry: native caret room */
   border: 0;
-  font-family: var(--f);
-  font-size: 14px;
-  line-height: 1.3;
-  color: var(--text-1);
-  outline: none;
-  cursor: pointer;
+  background-color: transparent;
+  color: var(--ink);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-body);
+  letter-spacing: 0;
+  text-transform: none;
 }
 
-/* summary strip â€” floats directly on the page, no glass box */
-.page[data-page="scenarios"] .cf-summary { display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-wrap: wrap; padding: 4px 0 18px; margin-bottom: 16px; border-bottom: 1px solid var(--line-07); }
-.page[data-page="scenarios"] .cf-summary__id { display: flex; align-items: center; gap: 16px; }
-.page[data-page="scenarios"] .cf-summary__sub { font-size: 14px; color: var(--text-5); }
-.page[data-page="scenarios"] .cf-summary__stats { display: flex; align-items: stretch; }
-.page[data-page="scenarios"] .cf-stat { padding: 0 18px; }
-.page[data-page="scenarios"] .cf-stat + .cf-stat { border-left: 1px solid var(--line-08); }
-.page[data-page="scenarios"] .cf-stat:last-child { padding-right: 0; }
-.page[data-page="scenarios"] .cf-stat__label { font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-5); }
-.page[data-page="scenarios"] .cf-stat__value { font-family: var(--f); font-weight: 300; font-size: 22px; color: var(--text-1); margin-top: 5px; }
-.page[data-page="scenarios"] .cf-stat__peak { display: flex; align-items: baseline; gap: 7px; margin-top: 5px; }
-.page[data-page="scenarios"] .cf-stat__peak-age { font-size: 14px; color: var(--text-5); }
-.page[data-page="scenarios"] .cf-summary--historical { justify-content: flex-end; flex-wrap: nowrap; }
-.page[data-page="scenarios"] .cf-summary--historical .cf-summary__stats {
-  display: grid;
-  width: min(100%, 690px);
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  margin-left: auto;
-}
-.page[data-page="scenarios"] .cf-summary--historical .cf-stat {
+/* The ledger keeps all eleven columns and scrolls inside its own panel, so the
+   page itself never scrolls horizontally. */
+.page[data-page="scenarios"] .cf-panel { overflow-x: auto; }
+
+/* ── summary strip ───────────────────────────────────────────────────────── */
+.page[data-page="scenarios"] .cf-summary {
   display: flex;
-  flex-direction: column;
-  min-width: 0;
-  padding-inline: 18px;
+  align-items: center;
+  gap: var(--sp-6);
+  margin: 0;
+  padding: var(--sp-6) var(--sp-8);
+  border-bottom: var(--bw) solid var(--rule);
+  flex-wrap: nowrap;
+}
+
+.page[data-page="scenarios"] .cf-summary__id { display: flex; align-items: center; gap: var(--sp-4); }
+
+.page[data-page="scenarios"] .cf-summary__sub {
+  color: var(--body);
+  font-size: var(--fs-emphasis);
+  white-space: nowrap;
+}
+
+.page[data-page="scenarios"] .cf-summary__stats { display: flex; align-items: stretch; margin-left: auto; }
+
+.page[data-page="scenarios"] .cf-stat {
+  padding: 0 var(--sp-8);
+  border-left: var(--bw) solid var(--rule-f);
   text-align: right;
 }
+
+.page[data-page="scenarios"] .cf-stat:first-child { border-left: 0; }
+.page[data-page="scenarios"] .cf-stat:last-child { padding-right: 0; }
+.page[data-page="scenarios"] .cf-summary__id .cf-stat { padding-left: 0; text-align: left; }
+
+.page[data-page="scenarios"] .cf-stat__label {
+  color: var(--body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-eyebrow);
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.page[data-page="scenarios"] .cf-stat__value {
+  margin-top: var(--sp-3);
+  color: var(--ink);
+  font-size: var(--fs-value);
+  font-weight: var(--fw-value);
+  line-height: var(--lh-value);
+  letter-spacing: var(--ls-value);
+  font-variant-numeric: tabular-nums;
+}
+
+.page[data-page="scenarios"] .cf-stat__value--probability { color: var(--pos); }
+
+.page[data-page="scenarios"] .cf-stat__peak {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  margin: 0;
+}
+
+.page[data-page="scenarios"] .cf-stat__peak-age {
+  color: var(--body);
+  font-size: var(--fs-body);
+  white-space: nowrap;
+}
+
+.page[data-page="scenarios"] .cf-summary--historical {
+  justify-content: flex-end;
+  padding-top: 0;
+  flex-wrap: nowrap;
+}
+
+.page[data-page="scenarios"] .cf-summary--historical .cf-summary__stats {
+  display: grid;
+  width: min(100%, 690px); /* geometry: compact three-metric cluster */
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0 0 0 auto;
+}
+
+.page[data-page="scenarios"] .cf-summary--historical .cf-stat {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  padding-inline: var(--sp-4);
+  text-align: right;
+}
+
 .page[data-page="scenarios"] .cf-summary--historical .cf-stat__label {
-  min-height: 4.05em;
+  min-height: 4.05em; /* geometry: three-line label bay */
   line-height: 1.35;
   white-space: normal;
 }
 
+/* ── tax scope and warnings ──────────────────────────────────────────────── */
 .page[data-page="scenarios"] .cf-tax-disclosure {
   display: grid;
-  gap: 8px;
-  margin: -6px 4px 16px;
-  font-size: 14px;
-  line-height: 1.45;
-  color: var(--text-4);
+  gap: var(--sp-2);
+  margin: 0;
+  padding: var(--sp-4) var(--sp-8);
+  border-bottom: var(--bw) solid var(--rule-f);
+  color: var(--body);
 }
+
+.page[data-page="scenarios"] .cf-tax-scope {
+  color: var(--body);
+  font-size: var(--fs-caption);
+  line-height: var(--lh-caption);
+  text-wrap: pretty;
+}
+
+/* A degraded or partial tax result says so; it is never a silent blank. */
 .page[data-page="scenarios"] .cf-tax-warnings,
 .page[data-page="scenarios"] .cf-tax-fallback {
-  padding: 10px 12px;
-  border: 1px solid rgba(198, 166, 98, 0.24);
-  border-radius: 10px;
-  background: rgba(198, 166, 98, 0.06);
-  color: var(--text-3);
+  padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--r-ctl);
+  background: var(--raised);
+  box-shadow: inset 0 0 0 var(--bw) var(--acc-hair);
+  color: var(--body);
+  font-size: var(--fs-body);
+  text-wrap: pretty;
 }
-.page[data-page="scenarios"] .cf-tax-warnings__label { margin-bottom: 3px; color: var(--gold-bright); }
-.page[data-page="scenarios"] .cf-tax-warnings ul { margin: 0; padding-left: 18px; }
-.page[data-page="scenarios"] .cf-tax-warnings li + li { margin-top: 3px; }
 
-/* the ledger table */
-.page[data-page="scenarios"] .cf-table { border-radius: 0; overflow: visible; background: transparent; border: 0; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; font-variant-numeric: tabular-nums; }
-/* shared 11-column grid for header + every data row. Each numeric column gets
-   a minimum sized to ITS OWN header (14px uppercase, nowrap) so headers never
-   collide at narrow widths, then grows proportionally; digits align via
-   tabular-nums on .cf-table.
-   Order: Year Age Income RMD Essential Goals Tax Draw Return WDRate Ending */
+.page[data-page="scenarios"] .cf-tax-warnings__label { margin-bottom: var(--sp-1); color: var(--acc); }
+.page[data-page="scenarios"] .cf-tax-warnings ul { margin: 0; padding-left: var(--sp-4); }
+.page[data-page="scenarios"] .cf-tax-warnings li + li { margin-top: var(--sp-1); }
+
+/* ── the ledger ──────────────────────────────────────────────────────────── */
+.page[data-page="scenarios"] .cf-table {
+  min-width: 1180px; /* geometry: complete eleven-column ledger */
+  overflow: visible;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Year Age Income RMD Essential Goals Tax Draw Return WDRate Ending */
 .page[data-page="scenarios"] .cf-grid {
   display: grid;
-  grid-template-columns:
-    64px 40px
-    minmax(72px, 1fr)   /* Income */
-    minmax(56px, 1fr)   /* RMD */
-    minmax(94px, 1fr)   /* Essential */
-    minmax(64px, 1fr)   /* Goals */
-    minmax(52px, 1fr)   /* Tax */
-    minmax(72px, 1fr)   /* Draw â€” parenthetical outflows e.g. ($62K) */
-    minmax(72px, 0.8fr) /* Return */
-    minmax(80px, 0.8fr) /* WD Rate */
-    minmax(76px, 1.1fr);/* Ending */
-  column-gap: 12px;
+  grid-template-columns: 98px 58px 1fr 1fr 1fr 1.3fr 1fr 1fr .92fr .92fr 1.08fr; /* geometry: ledger columns */
+  align-items: center;
+  gap: 0 var(--sp-3);
 }
-.page[data-page="scenarios"] .cf-table__head { padding: 11px 6px; border-bottom: 1px solid var(--line-09); }
-.page[data-page="scenarios"] .cf-th { font-size: 12px; letter-spacing: 0.10em; text-transform: uppercase; color: var(--text-5); white-space: nowrap; }
+
+.page[data-page="scenarios"] .cf-table__head { padding: var(--sp-4) var(--sp-8) var(--sp-3); }
+
+.page[data-page="scenarios"] .cf-th {
+  color: var(--body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-eyebrow);
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
 .page[data-page="scenarios"] .cf-th--r { text-align: right; }
 
 .page[data-page="scenarios"] .cf-band { padding: 0; }
-.page[data-page="scenarios"] .cf-band.is-shaded { background: transparent; }
+.page[data-page="scenarios"] .cf-band.is-shaded { background: rgba(50, 51, 47, .34); }
 
-.page[data-page="scenarios"] .cf-row { align-items: center; padding: 11px 6px; border-bottom: 1px solid var(--line-06); }
-.page[data-page="scenarios"] .cf-row__year { display: inline-flex; align-items: center; gap: 6px; font-family: var(--f); font-size: 13px; color: var(--text-2); }
-.page[data-page="scenarios"] .cf-row__mark { width: 10px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
-.page[data-page="scenarios"] .cf-row__mark-dot { flex-shrink: 0; }
-.page[data-page="scenarios"] .cf-row__mark-dot--ret { width: 6px; height: 6px; border-radius: 50%; background: #a8d4e8; box-shadow: 0 0 0 2.5px rgba(168, 212, 232, 0.45); }
-.page[data-page="scenarios"] .cf-row__mark-dot--rmd { width: 6px; height: 6px; border-radius: 50%; background: transparent; border: 2px solid #c9a8a0; box-shadow: 0 0 0 1px rgba(201, 168, 160, 0.25); }
-.page[data-page="scenarios"] .cf-cell { font-family: var(--f); font-size: 13px; text-align: right; white-space: nowrap; }
-.page[data-page="scenarios"] .cf-cell--age { color: var(--text-4); text-align: left; }
-.page[data-page="scenarios"] .cf-cell--essential { color: var(--text-2b); }
-.page[data-page="scenarios"] .cf-cell--tax { color: var(--text-2b); }
-.page[data-page="scenarios"] .cf-cell--draw { color: var(--text-2); }
-.page[data-page="scenarios"] .cf-cell--zero { color: var(--text-mute); }
-.page[data-page="scenarios"] .cf-cell--wd { font-size: 13px; }
-.page[data-page="scenarios"] .cf-cell--ending { display: flex; flex-direction: column; align-items: flex-end; font-size: 13px; font-weight: 500; color: var(--text-2); }
-.page[data-page="scenarios"] .cf-row__shortfall { font-family: var(--f); font-size: 10px; font-weight: 600; letter-spacing: .02em; color: var(--down-deep); }
-.page[data-page="scenarios"] .cf-row__goals-wrap { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; }
-.page[data-page="scenarios"] .cf-row__goaltag { font-family: var(--f); font-size: 12px; letter-spacing: 0.02em; white-space: nowrap; color: #CDA877; }
-
-/* ---- Narrow desktop safety (no global shrink; only the wide grids breathe) */
-@media (max-width: 1380px) {
-  .page[data-page="scenarios"] .scn-stage { padding-left: 24px; padding-right: 24px; }
-  .page[data-page="scenarios"] .cf-grid { column-gap: 6px; }
-  .page[data-page="scenarios"] .cf-row,
-  .page[data-page="scenarios"] .cf-table__head { padding-left: 18px; padding-right: 18px; }
+.page[data-page="scenarios"] .cf-row {
+  align-items: center;
+  padding: var(--sp-3) var(--sp-8);
+  border-top: var(--bw) solid var(--rule-f);
+  font-size: var(--fs-caption);
+  font-variant-numeric: tabular-nums;
 }
 
-/* â”€â”€ Scenario unavailable state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-   A scenario with no probability states its reason instead of showing a bare
-   dash. The engine always knew why; this is what carries it to the screen. */
+.page[data-page="scenarios"] .cf-row:hover { background: var(--sel); }
+
+.page[data-page="scenarios"] .cf-row__year {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  color: var(--ink);
+}
+
+.page[data-page="scenarios"] .cf-row__mark {
+  display: flex;
+  width: 8px; /* geometry: milestone gutter */
+  flex: 0 0 auto;
+  justify-content: center;
+}
+
+.page[data-page="scenarios"] .cf-row__mark-dot {
+  display: block;
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border-radius: var(--r-pill);
+}
+
+/* Retirement and the first RMD are outlined marks, not filled dots: they are
+   milestones on the row, never a status colour on the money. */
+.page[data-page="scenarios"] .cf-row__mark-dot--ret { border: var(--bw) solid var(--pos); }
+.page[data-page="scenarios"] .cf-row__mark-dot--rmd {
+  width: 6px;
+  height: 6px;
+  border: var(--bw) solid var(--rule);
+  background: none;
+}
+
+.page[data-page="scenarios"] .cf-cell { color: var(--body); text-align: right; white-space: nowrap; }
+.page[data-page="scenarios"] .cf-cell--age { color: var(--body); text-align: left; }
+.page[data-page="scenarios"] .cf-cell--zero { color: var(--muted); }
+
+.page[data-page="scenarios"] .cf-cell--ending {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  color: var(--ink);
+}
+
+.page[data-page="scenarios"] .cf-row__shortfall {
+  color: var(--neg);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-eyebrow);
+  letter-spacing: .04em;
+}
+
+.page[data-page="scenarios"] .cf-row__goals-wrap {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+}
+
+.page[data-page="scenarios"] .cf-row__goaltag {
+  order: -1;
+  height: auto;
+  padding: 2px var(--sp-2);
+  font-size: var(--fs-eyebrow);
+  letter-spacing: .04em;
+  white-space: nowrap;
+}
+
+/* Direction and withdrawal pressure are the only coloured values in the row. */
+.page[data-page="scenarios"] .cf-up { color: var(--pos); }
+.page[data-page="scenarios"] .cf-down,
+.page[data-page="scenarios"] .cf-wd-hi { color: var(--neg); }
+.page[data-page="scenarios"] .cf-wd-mid { color: var(--neg-soft); }
+.page[data-page="scenarios"] .cf-wd-lo { color: var(--body); }
+
+/* =============================================================================
+   Unavailable state — a scenario with no probability states its reason instead
+   of showing a bare dash. The engine always knew why; this carries it to screen.
+   ============================================================================= */
 .page[data-page="scenarios"] .scn-issue {
   display: flex;
   align-items: flex-start;
-  gap: 7px;
-  margin-top: 10px;
-  padding: 8px 10px;
-  border: 1px solid rgba(214, 168, 106, 0.34);
-  border-radius: 7px;
-  background: rgba(214, 168, 106, 0.08);
+  gap: var(--sp-3);
+  margin-top: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--r-ctl);
+  background: var(--raised);
+  box-shadow: inset 0 0 0 var(--bw) var(--acc-hair);
+  color: var(--body);
   text-align: left;
+  text-wrap: pretty;
 }
-.page[data-page="scenarios"] .scn-issue__mark {
-  flex: none;
-  width: 15px;
-  height: 15px;
-  border-radius: 50%;
-  border: 1px solid rgba(214, 168, 106, 0.5);
-  color: var(--marginal);
-  font-size: 10px;
-  line-height: 13px;
-  text-align: center;
-  font-weight: 600;
-}
-.page[data-page="scenarios"] .scn-issue__text {
-  font-size: 12px;
-  line-height: 1.45;
-  color: var(--marginal);
-}
-.page[data-page="scenarios"] .scn-issue--hero {
-  max-width: 340px;
-  margin: 14px auto 0;
-}
-.page[data-page="scenarios"] .scn-issue--rail .scn-issue__text { font-size: 11px; }
 
+.page[data-page="scenarios"] .scn-issue__mark {
+  display: grid;
+  width: 15px; /* geometry: reason marker */
+  height: 15px;
+  flex: none;
+  place-items: center;
+  border: var(--bw) solid var(--acc-hair);
+  border-radius: var(--r-pill);
+  color: var(--acc);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-eyebrow);
+}
+
+.page[data-page="scenarios"] .scn-issue__text {
+  color: var(--body);
+  font-size: var(--fs-caption);
+  line-height: var(--lh-caption);
+}
+
+.page[data-page="scenarios"] .scn-issue--hero { max-width: 340px; margin: var(--sp-4) auto 0; }
+
+/* ── responsive ──────────────────────────────────────────────────────────── */
+@media (max-width: 1279px) {
+  .scn-stage { padding-inline: var(--sp-6); }
+  .page[data-page="scenarios"] .compare { overflow-x: auto; }
+  .page[data-page="scenarios"] .compare__grid { min-width: 1080px; /* geometry: full compare contract */ }
+  .page[data-page="scenarios"] .focus { flex-direction: column; }
+  .page[data-page="scenarios"] .focus__rail { width: 100%; }
+}
+
+@media (max-width: 760px) {
+  .scn-stage { padding: var(--sp-6) var(--sp-4) 80px; }
+  .page[data-page="scenarios"] .toolbar,
+  .page[data-page="scenarios"] .toolbar__left,
+  .page[data-page="scenarios"] .toolbar__actions { flex-wrap: wrap; }
+  .page[data-page="scenarios"] .toolbar__actions { width: 100%; margin-left: 0; }
+  .page[data-page="scenarios"] .cf-summary { align-items: flex-start; flex-direction: column; }
+  .page[data-page="scenarios"] .cf-summary__stats { width: 100%; margin: 0; overflow-x: auto; }
+  .page[data-page="scenarios"] .cf-stat { padding: 0 var(--sp-4); }
+  .page[data-page="scenarios"] .cf-summary--historical .cf-summary__stats {
+    grid-template-columns: repeat(3, minmax(180px, 1fr));
+  }
+  .page[data-page="scenarios"] .assum-grid { grid-template-columns: minmax(0, 1fr); }
 }
