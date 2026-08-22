@@ -58,7 +58,10 @@ export function deltaVsBaseline(scn, baseline) {
     return (scn.prob - baseline.prob);   // presentation subtraction, not a re-simulation
   }
 
-export function renderCompare(scns, baseline, { plan, goalsExpandedState, esc, downTri }) {
+export function renderCompare(scns, baseline, { plan, planEndAge, goalsExpandedState, esc, downTri }) {
+    const displayGoalEndAge = value => (
+      Number(value) >= 999 && Number.isFinite(planEndAge) ? planEndAge : value
+    );
     const heads = scns.map((s, i) => {
       const d = deltaVsBaseline(s, baseline);
       const tag = s.isBaseline
@@ -160,7 +163,9 @@ export function renderCompare(scns, baseline, { plan, goalsExpandedState, esc, d
       ? '<div class="cell--goal lever goals-head" data-goals-toggle role="button" tabindex="0" aria-expanded="' + (goalsExpanded ? 'true' : 'false') + '"><span class="lever__name">Goals</span>' + goalsChevron + '<span class="lever__hint" style="margin:0 0 0 4px;">· edit per plan</span></div>'
       : '<div class="cell--goal lever"><span class="lever__name">Goals</span></div>';
     const goalDetailRows = goalsExpanded ? baseGoals.map((bg, gi) => {
-      const baseWin = bg.once ? ('at age ' + bg.startAge) : ('age ' + bg.startAge + '–' + bg.endAge);
+      const baseWin = bg.once
+        ? ('at age ' + bg.startAge)
+        : ('age ' + bg.startAge + '–' + displayGoalEndAge(bg.endAge));
       const baseFunding = bg.fundingNote ? (' · ' + bg.fundingNote) : '';
       const gut = '<div class="lever goal-detail"><span class="goal-detail__name">' + esc(bg.name) + '</span><span class="goal-detail__meta">base: ' + esc(baseWin + baseFunding) + '</span></div>';
       const cells = scns.map((s) => {
@@ -175,7 +180,7 @@ export function renderCompare(scns, baseline, { plan, goalsExpandedState, esc, d
           ageIn = '<span class="cmp-unit">/yr · age </span>' +
             '<input class="cmp-goal-in cmp-goal-in--age" type="text" inputmode="numeric" data-scn-id="' + esc(s.id) + '" data-goal-idx="' + g.idx + '" data-goal-field="startAge" value="' + esc(String(g.startAge)) + '">' +
             '<span class="cmp-unit">–</span>' +
-            '<input class="cmp-goal-in cmp-goal-in--age" type="text" inputmode="numeric" data-scn-id="' + esc(s.id) + '" data-goal-idx="' + g.idx + '" data-goal-field="endAge" value="' + esc(String(g.endAge)) + '">';
+            '<input class="cmp-goal-in cmp-goal-in--age" type="text" inputmode="numeric" data-scn-id="' + esc(s.id) + '" data-goal-idx="' + g.idx + '" data-goal-field="endAge" value="' + esc(String(displayGoalEndAge(g.endAge))) + '">';
         }
         const editedDot = g.overridden ? '<span class="cmp-goal-edited" title="Edited in this plan" aria-label="Edited in this plan"></span>' : '';
         const deltaChip = (!s.isBaseline && g.amountDelta) ? '<span class="cell__delta">' + (g.amountDelta > 0 ? '+' : '−') + '$' + Math.abs(g.amountDelta).toLocaleString('en-US') + '</span>' : '';

@@ -1,0 +1,14 @@
+/* =============================================================================
+   tokens/fonts.css — self-hosted webfont declarations
+
+   Hanken Grotesk (variable, 100–900 + italic) — Google Fonts OFL-1.1
+   (see assets/fonts/hanken-grotesk/OFL.txt)
+
+   ONE FAMILY, EVERY ROLE. Display sizes use weight 300; interface text 400–700.
+   Spectral was retired (read as old-fashioned); its declarations are removed so
+   nothing can reference it by accident. The files remain under
+   assets/fonts/spectral/ but are unused — safe to delete.
+   ============================================================================= */
+
+@font-face{font-family:'Hanken Grotesk';font-style:normal;font-weight:100 900;src:url('../assets/fonts/hanken-grotesk/HankenGrotesk-VariableFont_wght.ttf?v=__PARALLAX_ARTIFACT_ID__') format('truetype-variations');font-display:swap}
+@font-face{font-family:'Hanken Grotesk';font-style:italic;font-weight:100 900;src:url('../assets/fonts/hanken-grotesk/HankenGrotesk-Italic-VariableFont_wght.ttf?v=__PARALLAX_ARTIFACT_ID__') format('truetype-variations');font-display:swap}

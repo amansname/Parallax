@@ -17,6 +17,9 @@ export function renderHouseholdWizardSummary(ctx){
   return `
     <div class="hh-screen hh-summary-screen" data-hh-wizard-screen="summary"
       id="hh-panel-summary" role="tabpanel" aria-labelledby="hh-nav-summary">
+      <header class="hh-screen-intro">
+        <span class="t-eyebrow">Step 04</span>
+      </header>
       <section class="hh-summary-metrics">
         <div class="hh-summary-metric hh-summary-metric--hero" data-summary-metric="portfolio">
           <span>Portfolio</span>

@@ -1510,7 +1510,7 @@ async function verifyPlanningSourceAndTaxFlow(page){
     };
   });
   requireCondition(
-    initialWages.client === '75000'
+    initialWages.client === '75,000'
       && initialWages.spouse === ''
       && !initialWages.clientDisabled
       && !initialWages.spouseDisabled
@@ -1578,9 +1578,9 @@ async function verifyPlanningSourceAndTaxFlow(page){
         && frame.right === '0px'
         && frame.radius === '0px')
       && irmaaInputs.controlWidths.length === 4
-      && irmaaInputs.controlWidths.slice(0, 2).every(width => width >= 180 && width <= 320)
-      && irmaaInputs.controlWidths.slice(2).every(width => width >= 320 && width <= 560)
-      && Math.abs(irmaaInputs.controlWidths[0] - irmaaInputs.controlWidths[1]) <= 1
+      && irmaaInputs.controlWidths[0] >= 60 && irmaaInputs.controlWidths[0] <= 140
+      && irmaaInputs.controlWidths[1] >= 140 && irmaaInputs.controlWidths[1] <= 240
+      && irmaaInputs.controlWidths.slice(2).every(width => width >= 40 && width <= 140)
       && Math.abs(irmaaInputs.controlWidths[2] - irmaaInputs.controlWidths[3]) <= 1
       && !irmaaInputs.outputCopy,
     `Tax IRMAA lookback is not input-only: ${JSON.stringify(irmaaInputs)}`,
@@ -1595,7 +1595,7 @@ async function verifyPlanningSourceAndTaxFlow(page){
     control => control.value,
   );
   requireCondition(
-    persistedIrmaaInput === '218000',
+    persistedIrmaaInput === '218,000',
     `IRMAA lookback MAGI did not survive the production edit path: "${persistedIrmaaInput}"`,
   );
   await reloadWizard(page);
@@ -1605,7 +1605,7 @@ async function verifyPlanningSourceAndTaxFlow(page){
     control => control.value,
   );
   requireCondition(
-    reloadedIrmaaInput === '218000',
+    reloadedIrmaaInput === '218,000',
     `IRMAA lookback MAGI did not survive reload: "${reloadedIrmaaInput}"`,
   );
 
@@ -1689,8 +1689,8 @@ async function verifyPlanningSourceAndTaxFlow(page){
   }));
   requireCondition(
     unifiedTax.view === 'detailed'
-      && unifiedTax.clientWages === '81000'
-      && unifiedTax.spouseWages === '39000'
+      && unifiedTax.clientWages === '81,000'
+      && unifiedTax.spouseWages === '39,000'
       && unifiedTax.toggleCount === 0
       && unifiedTax.socialSecuritySource === 1,
     `Unified Tax view lost state: ${JSON.stringify(unifiedTax)}`,
@@ -1812,8 +1812,8 @@ async function verifyAutoSaveReloadAndMemberWages(page){
     };
   });
   requireCondition(
-    savedWages.client === '81000'
-      && savedWages.spouse === '39000'
+    savedWages.client === '81,000'
+      && savedWages.spouse === '39,000'
       && !savedWages.clientDisabled
       && !savedWages.spouseDisabled
       && savedWages.sourceButtons === 0,

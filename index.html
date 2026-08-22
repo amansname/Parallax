@@ -19,7 +19,7 @@
 <link rel="stylesheet" href="styles/header.css?v=__PARALLAX_ARTIFACT_ID__"/>
 <link rel="stylesheet" href="styles/tax-buckets.css?v=__PARALLAX_ARTIFACT_ID__"/>
 <link rel="stylesheet" href="styles/tax-aware-withdrawal.css?v=__PARALLAX_ARTIFACT_ID__"/>
-<link rel="stylesheet" href="styles/graphite-aubergine.css?v=__PARALLAX_ARTIFACT_ID__"/>
+<link rel="stylesheet" href="styles/parallax-layout.css?v=__PARALLAX_ARTIFACT_ID__"/>
 </head>
 <body>
 <div class="wrap">
@@ -29,11 +29,11 @@
     </div>
     <div class="hdr__bar">
       <nav class="hdr-tabs hdr__tabs" aria-label="Primary planning sections">
-        <button class="htab on" type="button" data-page="household" aria-current="page">Household</button>
-        <button class="htab" type="button" data-page="net-worth" data-sub-target="goals">Goals</button>
-        <button class="htab" type="button" data-page="scenarios">Scenarios</button>
-        <button class="htab" type="button" data-page="tax-buckets">Withdrawal planner</button>
-        <button class="htab" type="button" data-page="sequencing">Sequencing</button>
+        <button class="htab px-nav on is-active" type="button" data-page="household" aria-current="page">Household</button>
+        <button class="htab px-nav" type="button" data-page="net-worth" data-sub-target="goals">Goals</button>
+        <button class="htab px-nav" type="button" data-page="scenarios">Scenarios</button>
+        <button class="htab px-nav" type="button" data-page="tax-buckets">Withdrawal planner</button>
+        <button class="htab px-nav" type="button" data-page="sequencing">Sequencing</button>
       </nav>
       <div class="hdr-right hdr__right">
         <div class="cluster" data-state="saved" hidden aria-hidden="true">
@@ -41,7 +41,7 @@
             <span class="dot" aria-hidden="true"></span>
             <span id="status" class="status" role="status" aria-live="polite">Ready</span>
           </span>
-          <button id="run-btn" class="run-btn cluster__run" type="button">Run</button>
+          <button id="run-btn" class="run-btn cluster__run px-btn px-btn--ghost" type="button">Run</button>
         </div>
       </div>
     </div>
@@ -62,18 +62,19 @@
       <aside class="hh-sidebar">
         <div class="hh-sidebar-head">
           <div>
+            <div class="hh-sidebar-kicker">Planning intake</div>
             <div class="hh-sidebar-name" id="hh-rail-name">New household</div>
           </div>
           <div class="hh-menu">
-            <button class="hh-menu__btn" id="hh-menu-btn" type="button"
+            <button class="hh-menu__btn px-btn px-btn--ghost px-btn--icon px-btn--compact" id="hh-menu-btn" type="button"
                     aria-haspopup="true" aria-expanded="false"
                     title="Household options">•••</button>
             <div class="hh-menu__pop" id="hh-menu-pop" hidden>
-              <select class="hh-rail__switch-sel" id="hh-switch"
+              <select class="hh-rail__switch-sel px-select" id="hh-switch"
                       title="Open household" aria-label="Open household"></select>
-              <button class="hh-rail-act hh-rail-act--new" id="hh-new"
+              <button class="hh-rail-act hh-rail-act--new px-btn px-btn--primary" id="hh-new"
                       data-hh-action="new-household" type="button">New household</button>
-              <button class="hh-rail-act" id="hh-load-demo"
+              <button class="hh-rail-act px-btn" id="hh-load-demo"
                       data-hh-action="load-demo" type="button">Load demo</button>
             </div>
           </div>
@@ -83,25 +84,25 @@
           <div class="hh-progress-track"><span id="hh-progress-bar"></span></div>
         </div>
         <nav class="hh-stepper" role="tablist" aria-label="Household intake steps">
-          <button class="hh-step" id="hh-nav-family" data-hh-wizard-nav="family"
+          <button class="hh-step px-nav" id="hh-nav-family" data-hh-wizard-nav="family"
                   type="button" role="tab" aria-controls="hh-panel-family">
             <span class="hh-step__num">01</span>
-            <span><strong>Family</strong><small>People and filing</small></span>
+            <span><strong>Family</strong></span>
           </button>
-          <button class="hh-step" id="hh-nav-net-worth" data-hh-wizard-nav="net-worth"
+          <button class="hh-step px-nav" id="hh-nav-net-worth" data-hh-wizard-nav="net-worth"
                   type="button" role="tab" aria-controls="hh-panel-net-worth">
             <span class="hh-step__num">02</span>
-            <span><strong>Net Worth</strong><small id="hh-nav-summary-net-worth">0 accounts</small></span>
+            <span><strong>Net Worth</strong></span>
           </button>
-          <button class="hh-step" id="hh-nav-tax" data-hh-wizard-nav="tax"
+          <button class="hh-step px-nav" id="hh-nav-tax" data-hh-wizard-nav="tax"
                   type="button" role="tab" aria-controls="hh-panel-tax">
             <span class="hh-step__num">03</span>
-            <span><strong>Tax</strong><small>Federal 1040 inputs</small></span>
+            <span><strong>Tax</strong></span>
           </button>
-          <button class="hh-step" id="hh-nav-summary" data-hh-wizard-nav="summary"
+          <button class="hh-step px-nav" id="hh-nav-summary" data-hh-wizard-nav="summary"
                   type="button" role="tab" aria-controls="hh-panel-summary">
             <span class="hh-step__num">04</span>
-            <span><strong>Summary</strong><small>Review intake</small></span>
+            <span><strong>Summary</strong></span>
           </button>
         </nav>
       </aside>
@@ -133,7 +134,7 @@
       <!-- Toolbar: title + segmented Compare/Focus + Cash Flow toggle + actions -->
       <header class="toolbar">
         <div class="toolbar__left">
-          <div class="seg" role="tablist" aria-label="Scenario view">
+          <div class="seg px-seg" role="tablist" aria-label="Scenario view">
             <button class="seg__btn is-active" id="scn-seg-compare" type="button"
                     role="tab" aria-selected="true" aria-controls="scn-view">Compare</button>
             <button class="seg__btn" id="scn-seg-focus" type="button"
@@ -141,13 +142,13 @@
           </div>
         </div>
         <div class="toolbar__actions">
-          <button class="cash-chip" id="scn-cash-toggle" type="button"
+          <button class="cash-chip px-chip px-chip--pill" id="scn-cash-toggle" type="button"
                   role="switch" aria-checked="false">
             <span class="cash-chip__label">Cash Flow</span>
-            <span class="switch" aria-hidden="true"><span class="switch__knob"></span></span>
+            <span class="switch px-switch" aria-hidden="true"><span class="switch__knob px-switch__knob"></span></span>
           </button>
-          <button class="btn" id="scn-add" type="button"><span class="btn__plus" aria-hidden="true">+</span> Add</button>
-          <button class="btn" id="scn-solve" type="button">Solve</button>
+          <button class="btn px-btn" id="scn-add" type="button"><span class="btn__plus" aria-hidden="true">+</span> Add</button>
+          <button class="btn px-btn" id="scn-solve" type="button">Solve</button>
         </div>
       </header>
 
@@ -161,18 +162,17 @@
     <!-- Cash Flow owns this selector independently from Monte Carlo replay.
          The active Cash Flow view relocates the same bound node into its header. -->
     <div id="scn-cash-path-src" hidden>
-      <label class="scn-path" id="scn-cash-path">Path
-        <select id="cashflow-path-mode" aria-label="Cash Flow path"></select>
+      <label class="scn-path px-field" id="scn-cash-path"><span class="px-field__label">Path</span>
+        <select class="px-select" id="cashflow-path-mode" aria-label="Cash Flow path"></select>
         </label>
     </div>
   </section>
 
   <section class="page" data-page="sequencing">
-    <div class="eyebrow"><span>Sequencing</span></div>
     <div class="seq-bar">
       <div class="seq-pick">
         <span class="k">Plan</span>
-        <select id="seq-select"></select>
+        <select class="px-select" id="seq-select"></select>
       </div>
       <div class="seq-chips" id="seq-chips"></div>
     </div>

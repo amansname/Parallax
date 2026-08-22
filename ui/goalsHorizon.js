@@ -231,7 +231,7 @@ function liveCommas(input){
 }
 
 export function createGoalsHorizonController(deps){
-  const state={ selectedId:null, addOpen:false, flashId:null, toast:null, drag:null };
+  const state={ selectedId:null, addOpen:false, initialSelectionResolved:false, flashId:null, toast:null, drag:null };
   let root=null;
   let abortController=null;
   let toastTimer=null;
@@ -267,6 +267,12 @@ export function createGoalsHorizonController(deps){
 
   const render=()=>{
     const list=goals();
+    if(!state.initialSelectionResolved && list.length){
+      state.initialSelectionResolved=true;
+      if(state.selectedId===null && !state.addOpen){
+        state.selectedId=viewGoalId(list[0],0);
+      }
+    }
     const currentSpan=span();
     const isDisabled=disabled();
     const lanes=list.length

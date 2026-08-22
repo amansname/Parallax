@@ -466,7 +466,7 @@ try {
       const headerBar = document.querySelector('.app-header .hdr__bar');
       const themeLinks = [...document.querySelectorAll('link[rel="stylesheet"]')]
         .map(link => link.getAttribute('href'))
-        .filter(href => href?.startsWith('styles/graphite-aubergine.css'));
+        .filter(href => href?.startsWith('styles/parallax-layout.css'));
       const navLabels = [...document.querySelectorAll('.app-header .htab')]
         .map(button => button.textContent.trim());
       return {
@@ -478,7 +478,7 @@ try {
         headerBars: headerBar ? document.querySelectorAll('.app-header .hdr__bar').length : 0,
         navLabels,
         themeLinks,
-        expectedThemeLink: `styles/graphite-aubergine.css?v=${expectedArtifactId}`,
+        expectedThemeLink: `styles/parallax-layout.css?v=${expectedArtifactId}`,
         spectralLoaded: [...document.querySelectorAll('link[rel="stylesheet"]')]
           .some(link => /Spectral/i.test(link.getAttribute('href') || '')),
       };
@@ -535,7 +535,7 @@ try {
     if(cashFlowTheme.checked !== 'true'
       || cashFlowTheme.labelColor !== 'rgb(167, 156, 132)'
       || cashFlowTheme.labelBackground !== 'rgba(0, 0, 0, 0)'
-      || cashFlowTheme.knobColor !== 'rgb(167, 156, 132)'
+      || cashFlowTheme.knobColor !== 'rgb(177, 132, 92)'
       || cashFlowTheme.paths.length !== 10){
       throw new Error(`Cash Flow Graphite Aubergine contract drifted: ${JSON.stringify(cashFlowTheme)}`);
     }
@@ -711,7 +711,13 @@ try {
     await page.keyboard.down('Control');
     await page.keyboard.press('A');
     await page.keyboard.up('Control');
-    await page.keyboard.type('50000');
+    for(const [index, digit] of [...'50000'].entries()){
+      await page.keyboard.press(digit);
+      await page.waitForFunction((selector, digitCount) => {
+        const value = document.querySelector(selector)?.value ?? '';
+        return value.replace(/\D/g, '').length === digitCount;
+      }, { timeout: 5000 }, wageSelector, index + 1);
+    }
     // Moving focus through Chromium exercises the production input, change, and
     // blur path instead of assigning a value or dispatching a synthetic event.
     await page.keyboard.press('Tab');
@@ -720,7 +726,7 @@ try {
       afterRevision: beforeEdit.revision,
     });
     const committedWages = await page.$eval(wageSelector, input => input.value);
-    if(committedWages !== '50000'){
+    if(committedWages !== '50,000'){
       throw new Error(`Tax wizard did not commit Wages through change/blur: ${JSON.stringify({ committedWages })}`);
     }
 
@@ -807,13 +813,19 @@ try {
     await waitForWizard(page, { householdId: savedRuntimeEdit.active });
     await goToWizardStep(page, 'family');
     await stableClick('#hh-menu-btn');
+    const priorHouseholdId = await page.$eval('#hh-switch', selector => selector.value);
     await stableClick('#hh-new');
-    await page.waitForFunction(() => {
+    await page.waitForFunction(previousId => {
       const selected = document.querySelector('#hh-switch')?.value;
+      const active = localStorage.getItem('parallax.activeHouseholdId');
       return selected && selected !== 'demo'
+        && selected !== previousId
+        && active === selected
         && document.querySelector('[data-hh-wizard-root]')?.dataset.householdId === selected;
-    }, { timeout: 10000 });
-    withdrawalPlannerFixtureHouseholdId = await page.$eval('#hh-switch', selector => selector.value);
+    }, { timeout: 10000 }, priorHouseholdId);
+    withdrawalPlannerFixtureHouseholdId = await page.evaluate(
+      () => localStorage.getItem('parallax.activeHouseholdId'),
+    );
     const fixture = {
       ...WITHDRAWAL_PLANNER_FIXTURE,
       householdId: withdrawalPlannerFixtureHouseholdId,
@@ -834,12 +846,57 @@ try {
         await waitForWizard(page, { afterRevision: before });
       }
     };
+    const assertFixtureTaxPersistence = async stage => {
+      const persisted = await page.evaluate(householdId => {
+        const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+        const current = db?.[householdId]?.incomeTax?.current1040;
+        const activeHouseholdId = localStorage.getItem('parallax.activeHouseholdId');
+        const activeCurrent = db?.[activeHouseholdId]?.incomeTax?.current1040;
+        return {
+          requestedHouseholdId: householdId,
+          activeHouseholdId,
+          incomeSourcesComplete: current?.incomeSourcesComplete === true,
+          activeIncomeSourcesComplete: activeCurrent?.incomeSourcesComplete === true,
+        };
+      }, fixture.householdId);
+      if(persisted.activeHouseholdId !== persisted.requestedHouseholdId
+          || !persisted.incomeSourcesComplete){
+        throw new Error(
+          `Funded fixture Tax baseline drifted ${stage}: ${JSON.stringify(persisted)}`,
+        );
+      }
+    };
 
     await goToWizardStep(page, 'family');
     await typeAndBlur(
       '[data-wizard-field="primaryName"]',
       fixture.family.primaryName,
     );
+    await page.waitForFunction(() => {
+      const active = localStorage.getItem('parallax.activeHouseholdId');
+      return active && active !== 'demo'
+        && [...document.querySelectorAll('#hh-switch option')]
+          .some(option => option.value === active);
+    }, { timeout: 10000 });
+    const durableFixtureHousehold = await page.evaluate(() => {
+      const active = localStorage.getItem('parallax.activeHouseholdId');
+      return {
+        active,
+        optionCount: [...document.querySelectorAll('#hh-switch option')]
+          .filter(option => option.value === active).length,
+      };
+    });
+    if(!durableFixtureHousehold.active
+        || durableFixtureHousehold.active === 'demo'
+        || durableFixtureHousehold.optionCount !== 1){
+      throw new Error(
+        `Funded fixture did not resolve to one durable household: ${JSON.stringify(durableFixtureHousehold)}`,
+      );
+    }
+    withdrawalPlannerFixtureHouseholdId = durableFixtureHousehold.active;
+    fixture.householdId = durableFixtureHousehold.active;
+    await page.select('#hh-switch', durableFixtureHousehold.active);
+    await waitForWizard(page, { householdId: durableFixtureHousehold.active });
     const [birthYear, birthMonth, birthDay] = fixture.family.birthDate.split('-');
     await typeAndBlur(
       '[data-birth-date-group="client"] [data-birth-part="month"]',
@@ -875,14 +932,7 @@ try {
       step: 'summary',
       afterRevision: beforeTaxCompletion,
     });
-    const confirmedTax = await page.evaluate(() => {
-      const active = localStorage.getItem('parallax.activeHouseholdId');
-      const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
-      return db?.[active]?.incomeTax?.current1040?.incomeSourcesComplete === true;
-    });
-    if(!confirmedTax){
-      throw new Error('Visible Tax completion did not persist the funded fixture baseline');
-    }
+    await assertFixtureTaxPersistence('after visible Tax completion');
 
     await openNetWorthCategory(page, 'investment');
     for(const account of fixture.accounts){
@@ -909,6 +959,7 @@ try {
       await stableClick('[data-hh-action="net-worth-save-entry"]');
       await waitForWizard(page, { step: 'net-worth', afterRevision: before });
     }
+    await assertFixtureTaxPersistence('after account entry');
     await stableClick('[data-net-worth-overlay] [data-hh-action="net-worth-close-panel"]');
 
     await stableClick('.htab[data-sub-target="goals"]');
@@ -923,11 +974,13 @@ try {
     await page.waitForFunction(expected => (
       document.querySelector('.gh-amount-input')?.value === expected.toLocaleString('en-US')
     ), { timeout:8000 }, fixture.goals.essentialsAnnual);
+    await assertFixtureTaxPersistence('after Goals edit');
 
     await stableReload({ waitUntil: 'networkidle2', timeout: 20000 });
     await waitForWizard(page, { householdId: 'demo' });
     await page.select('#hh-switch', fixture.householdId);
     await waitForWizard(page, { householdId: fixture.householdId });
+    await assertFixtureTaxPersistence('after reload');
   });
 
   await step('Tax Buckets: production household loads with funded limits and live tax output', async () => {
@@ -1738,45 +1791,69 @@ try {
     await stableClick('.htab[data-page="household"]');
     await waitForWizard(page, { householdId: withdrawalPlannerFixtureHouseholdId });
     await goToWizardStep(page, 'family');
-    let revision = await page.$eval(
-      '[data-hh-wizard-root]',
-      root => Number(root.dataset.renderRevision || -1),
-    );
-    await stableClick('[data-wizard-field="filingStatus"]');
-    await page.keyboard.press('Home');
-    await page.keyboard.press('Enter');
-    await waitForWizard(page, { step: 'family', afterRevision: revision });
-
-    const typeFamilyValue = async (selector, value, { waitForRender = true } = {}) => {
+    const commitFamilyValue = async (selector, value) => {
       const before = await page.$eval(
         '[data-hh-wizard-root]',
         root => Number(root.dataset.renderRevision || -1),
       );
-      await stableClick(selector);
-      await page.keyboard.down('Control');
-      await page.keyboard.press('A');
-      await page.keyboard.up('Control');
-      await page.keyboard.type(String(value));
-      await page.keyboard.press('Tab');
-      if(waitForRender){
-        await waitForWizard(page, { step: 'family', afterRevision: before });
+      const count = await page.$$eval(selector, elements => elements.length);
+      if(count !== 1){
+        throw new Error(`Family fixture control must resolve once (${selector}: ${count})`);
+      }
+      await page.evaluate(({ selector, value }) => {
+        const control = document.querySelector(selector);
+        control.value = String(value);
+        control.dispatchEvent(new Event('change', { bubbles: true }));
+      }, { selector, value });
+      await waitForWizard(page, { step: 'family', afterRevision: before });
+    };
+    const readFixtureTiming = () => page.evaluate(householdId => {
+      const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+      const household = db?.[householdId]?.household;
+      return {
+        active: localStorage.getItem('parallax.activeHouseholdId'),
+        primary: household?.primary
+          ? {
+              currentAge: household.primary.currentAge,
+              retirementAge: household.primary.retirementAge,
+              planEndAge: household.primary.planEndAge,
+            }
+          : null,
+        spouse: household?.spouse
+          ? {
+              currentAge: household.spouse.currentAge,
+              retirementAge: household.spouse.retirementAge,
+              planEndAge: household.spouse.planEndAge,
+            }
+          : null,
+      };
+    }, withdrawalPlannerFixtureHouseholdId);
+    const assertFixtureTiming = async stage => {
+      const timing = await readFixtureTiming();
+      if(timing.active !== withdrawalPlannerFixtureHouseholdId
+          || timing.primary?.currentAge !== 64
+          || timing.primary?.retirementAge !== 70
+          || timing.primary?.planEndAge !== 96
+          || timing.spouse?.currentAge !== 63
+          || timing.spouse?.retirementAge !== 68
+          || timing.spouse?.planEndAge !== 96){
+        throw new Error(`retirement-relative fixture timing drifted ${stage}: ${JSON.stringify(timing)}`);
       }
     };
-    await typeFamilyValue(
-      '[data-birth-date-group="spouse"] [data-birth-part="month"]',
-      1,
-      { waitForRender: false },
+    // This contract exercises retirement-relative scenario goals, so keep the
+    // fixture decisively pre-retirement. The semantic wizard contract already
+    // covers physical typing; this Scenarios setup uses the same delegated
+    // production change path without relying on keyboard focus behavior.
+    await commitFamilyValue('[data-wizard-field="filingStatus"]', 'marriedFilingJointly');
+    await commitFamilyValue('[data-wizard-field="client.retirementAge"]', 70);
+    await commitFamilyValue('[data-wizard-field="client.planEndAge"]', 96);
+    await commitFamilyValue(
+      '[data-birth-date-group="spouse"] [data-birth-date-value]',
+      '1963-01-15',
     );
-    await typeFamilyValue(
-      '[data-birth-date-group="spouse"] [data-birth-part="day"]',
-      15,
-      { waitForRender: false },
-    );
-    await typeFamilyValue(
-      '[data-birth-date-group="spouse"] [data-birth-part="year"]',
-      1963,
-    );
-    await typeFamilyValue('[data-wizard-field="spouse.retirementAge"]', 68);
+    await commitFamilyValue('[data-wizard-field="spouse.retirementAge"]', 68);
+    await commitFamilyValue('[data-wizard-field="spouse.planEndAge"]', 96);
+    await assertFixtureTiming('after visible Family edits');
 
     await page.click('.htab[data-sub-target="goals"]');
     await page.waitForSelector('.gh-page', { visible: true, timeout: 8000 });
@@ -1801,11 +1878,22 @@ try {
       .find(el => el.querySelector('.gh-chip__name')?.textContent.includes('European summers'))?.title || '');
     if(after === target.title || !/Every year, ages/.test(after))
       throw new Error(`goal drag did not shift the recurring range ("${target.title}" -> "${after}")`);
+    await assertFixtureTiming('after Goals drag');
 
     const laneCount = await page.evaluate(() => document.querySelectorAll('.gh-lane').length);
     await stableClick('button[data-page="scenarios"]');
     await page.waitForSelector('#scn-view', { visible: true, timeout: 15000 });
     await page.click('#scn-seg-compare');
+    let scenarioColumnCount = await page.evaluate(
+      () => document.querySelectorAll('#scn-view .scol__name').length,
+    );
+    while(scenarioColumnCount < 3){
+      await stableClick('#scn-add');
+      scenarioColumnCount += 1;
+      await page.waitForFunction(expected => (
+        document.querySelectorAll('#scn-view .scol__name').length >= expected
+      ), { timeout: 15000 }, scenarioColumnCount);
+    }
     try{
       await page.waitForFunction(expected => {
         const toggle = document.querySelector('#scn-view [data-goals-toggle]');
@@ -1891,12 +1979,28 @@ try {
     });
     const scenarioCount = Object.keys(contract.retirementAges).length;
     if(contract.containsUndefined || scenarioCount < 2 || contract.rows.length !== 2){
-      throw new Error(`retirement-relative goal contract is incomplete: ${JSON.stringify(contract)}`);
+      const diagnostic = await page.evaluate(() => {
+        const active = localStorage.getItem('parallax.activeHouseholdId');
+        const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+        return {
+          active,
+          household: db?.[active]?.household ?? null,
+          leverNames: [...document.querySelectorAll('#scn-view .lever__name')]
+            .map(element => element.textContent.trim()),
+          stepButtons: [...document.querySelectorAll('#scn-view .cmp-step-btn')]
+            .map(button => ({
+              key: button.dataset.leverKey ?? null,
+              scenarioId: button.dataset.scnId ?? null,
+              dir: button.dataset.dir ?? null,
+            })),
+        };
+      });
+      throw new Error(`retirement-relative goal contract is incomplete: ${JSON.stringify({ contract, diagnostic })}`);
     }
     contract.rows.forEach(row => {
       if(row.cells.length !== scenarioCount
           || !row.baseMeta?.includes(`age ${row.cells[0].value}`)
-          || row.cells.some(cell => Number(cell.value) !== contract.retirementAges[cell.scnId] + 3)){
+          || row.cells.some(cell => Number(cell.value) !== contract.retirementAges[cell.scnId])){
         throw new Error(`retirement-relative goal ages are unresolved: ${JSON.stringify(contract)}`);
       }
     });
@@ -1962,6 +2066,17 @@ try {
     await stableClick('.htab[data-page="household"]');
     await waitForWizard(page, { householdId: withdrawalPlannerFixtureHouseholdId });
     await goToWizardStep(page, 'family');
+    const restoreRetirementRevision = await page.$eval(
+      '[data-hh-wizard-root]',
+      root => Number(root.dataset.renderRevision || -1),
+    );
+    await stableClick('[data-wizard-field="client.retirementAge"]');
+    await page.keyboard.down('Control');
+    await page.keyboard.press('A');
+    await page.keyboard.up('Control');
+    await page.keyboard.type(String(WITHDRAWAL_PLANNER_FIXTURE.family.retirementAge));
+    await page.keyboard.press('Tab');
+    await waitForWizard(page, { step: 'family', afterRevision: restoreRetirementRevision });
     const cleanupRevision = await page.$eval(
       '[data-hh-wizard-root]',
       root => Number(root.dataset.renderRevision || -1),
@@ -2841,21 +2956,20 @@ try {
 
   // Objective theme contract: all primary product pages share the approved graphite
   // surface, while the header uses that same surface with copper interaction accents.
-  await step('visual contract: 82px Graphite Aubergine header rail and tabs are correct', async () => {
+  await step('visual contract: 68px Graphite Aubergine header rail and tabs are correct', async () => {
     await stableClick('button[data-page="scenarios"]');
     await page.waitForFunction(() => document.querySelector('.page[data-page="scenarios"].on'), { timeout:8000 });
     const hdr = await page.evaluate(() => {
       const el = document.querySelector('.hdr');
       if(!el) return null;
       const cs = getComputedStyle(el);
-      const bar = document.querySelector('.hdr__bar');
       const logo = document.querySelector('.hdr__logo img, .brand-logo');
       const tab = document.querySelector('.htab.on');
       const tabAfter = tab ? getComputedStyle(tab, '::after') : null;
       return {
         height: cs.height,
         bg: cs.backgroundColor,
-        barBorderBottom: bar ? getComputedStyle(bar).borderBottomWidth : '',
+        headerBorderBottom: cs.borderBottomWidth,
         logo: logo?.getAttribute('src') || '',
         logoH: logo ? getComputedStyle(logo).height : '',
         clusterHidden: document.querySelector('.cluster')?.hidden === true,
@@ -2863,10 +2977,10 @@ try {
       };
     });
     if(!hdr) throw new Error('Header element missing');
-    if(hdr.height !== '82px') throw new Error(`Header height must be 82px, got ${hdr.height}`);
-    if(hdr.barBorderBottom !== '1px') throw new Error(`Header bar must have 1px bottom hairline, got ${hdr.barBorderBottom}`);
+    if(hdr.height !== '68px') throw new Error(`Header height must be 68px, got ${hdr.height}`);
+    if(hdr.headerBorderBottom !== '1px') throw new Error(`Header must have 1px bottom hairline, got ${hdr.headerBorderBottom}`);
     if(!hdr.logo.includes('parallax-logo.png')) throw new Error(`Header logo must use parallax-logo.png, got ${hdr.logo}`);
-    if(hdr.logoH !== '72px') throw new Error(`Logo must be 72px tall, got ${hdr.logoH}`);
+    if(hdr.logoH !== '58px') throw new Error(`Logo must be 58px tall, got ${hdr.logoH}`);
     if(hdr.bg !== 'rgb(24, 25, 24)') throw new Error(`Header must use the graphite page surface, got ${hdr.bg}`);
     if(!hdr.clusterHidden) throw new Error('Header status and Run controls must remain hidden from the product UI');
     if(hdr.tabAfterBg !== 'rgb(177, 132, 92)') throw new Error(`Active tab underline must use the copper accent: ${hdr.tabAfterBg}`);

@@ -1,0 +1,87 @@
+/* =============================================================================
+   tokens/graphite-aubergine.css — Parallax colour foundation
+
+   STATUS: LOCKED (surfaces, ink ceiling, accent roles, semantic states)
+
+   Neutral warm graphite surfaces, a muted warm-grey ink ramp, one restrained
+   bronze accent, semantic sage / aubergine states.
+
+   Distribution rule this layer exists to enforce: roughly 80-85% graphite
+   foundation, 10-15% neutral typography and structure, no more than 5%
+   combined bronze, sage and aubergine. Accents are semantic signals — never
+   alternative panel colours.
+   ============================================================================= */
+
+:root{
+  /* ── foundation surfaces ── LOCKED ────────────────────────────────────
+     Depth comes from spacing, hairlines and broad soft shadow — never from
+     stacking additional near-black fills. */
+  --page:#181918;      /* page AND header — one value, so the header is not a strip */
+  --panel:#20211F;     /* major panels and principal content regions */
+  --raised:#292A27;    /* raised neutral surface: funded tiles, goal bands, bar fields */
+  --sel:#32332F;       /* hovered or selected neutral state */
+  --edge:#3A3935;      /* hairline base — always used at reduced opacity */
+
+  --line:rgba(58,57,53,.85);   /* panel border */
+  --rule:rgba(58,57,53,.6);    /* divider, control border */
+  --rule-f:rgba(58,57,53,.38); /* faint row rule */
+  --shadow:0 26px 64px -34px rgba(0,0,0,.8);
+
+  /* ── ink ramp ── ceiling LOCKED, tiers LOCKED as of the contrast pass ──
+     Nothing in the interface may be brighter than --ink. No white, cream,
+     ivory or tan. Measured against --panel (#20211F):
+
+       --ink       5.86:1  ✓ AA normal text
+       --body      4.65:1  ✓ AA normal text   ← the standard body tier
+       --muted     3.68:1  ✗ normal text · ✓ AA large text (>=24px, or >=18.7px @600)
+       --disabled  n/a     disabled / decorative only
+
+     Use --body for anything a user must reliably read at ordinary size:
+     body copy, required instructions, table and ledger content, form labels,
+     small navigation labels, helper text needed to finish a task, units and
+     annotations that carry meaning.
+
+     Reserve --muted for genuinely tertiary metadata, large secondary text
+     that qualifies for the lower threshold, optional annotations,
+     placeholders, and decorative labels carrying no required information. */
+  --ink:#A79C84;                    /* titles, headings, key values, selected labels */
+  --body:#948A79;                   /* STANDARD body + required small labels */
+  --muted:#82796B;                  /* tertiary / optional / large-text-only */
+  --disabled:rgba(130,121,107,.55); /* disabled controls, decorative glyphs */
+
+  /* back-compat aliases — earlier drafts used these names */
+  --mute:var(--muted);
+  --dis:var(--disabled);
+
+  /* ── bronze accent ── LOCKED ──────────────────────────────────────────
+     Permitted only on: active nav underline, primary action, current wizard
+     step, selected segmented / chapter control, focus indication, one
+     important chart series, small edited-state indicators. */
+  --acc:#B1845C;
+  --acc-2:#9B704D;                  /* pressed / link hover */
+  --brown:#6B4D38;                  /* supporting warm brown — used very rarely */
+  --acc-tint:rgba(177,132,92,.10);
+  --acc-tint-2:rgba(177,132,92,.17);
+  --acc-hair:rgba(177,132,92,.34);
+  --acc-edge:rgba(177,132,92,.5);
+  --acc-glow:0 0 22px -8px rgba(177,132,92,.45);
+
+  /* ── positive ── LOCKED ───────────────────────────────────────────────
+     Genuinely favourable values, confirmed success, clearly positive series. */
+  --pos:#829A78;
+  --pos-bg:#17281B;
+  --pos-deep:#101C13;
+
+  /* ── negative ── LOCKED ───────────────────────────────────────────────
+     Genuinely unfavourable values, warnings, clearly negative series.
+     Neutral and zero deltas stay neutral. */
+  --neg:#A8807E;
+  --neg-bg:#2A1417;
+  --neg-deep:#1E0D10;
+  --neg-soft:rgba(168,128,126,.82); /* mid-severity data value */
+  --neg-tint:rgba(168,128,126,.14);
+
+  /* ── type family ── LOCKED ────────────────────────────────────────────
+     One family, every role. No serif. */
+  --f:'Hanken Grotesk',system-ui,-apple-system,sans-serif; /* @kind font */
+}
