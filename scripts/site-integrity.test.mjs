@@ -24,6 +24,7 @@ test('deploy allowlist excludes tests and repository-only files', () => {
   assert.equal(isDeployableSourcePath('src/main.js'), true);
   assert.equal(isDeployableSourcePath('ui/household.js'), true);
   assert.equal(isDeployableSourcePath('styles/main.css'), true);
+  assert.equal(isDeployableSourcePath('styles/design-system/assets/fonts/hanken-grotesk/HankenGrotesk-VariableFont_wght.ttf'), true);
   assert.equal(isDeployableSourcePath('assets/parallax-logo.png'), true);
   assert.equal(isDeployableSourcePath('src/state.test.js'), false);
   assert.equal(isDeployableSourcePath('src/tax/tests/integration.js'), false);

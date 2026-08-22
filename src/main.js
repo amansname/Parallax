@@ -40,7 +40,7 @@ import {
 import { createTaxBucketsController } from '../ui/taxBuckets.js';
 import { pathModeLabel, drawSeqChart, renderPrints, syncPathControls, updatePathReplayMode } from '../ui/sequencing.js';
 import { buildSimulationRows, renderCashflow } from '../ui/cashflow.js';
-import { toneForProb, toneGlow, wdColor, ring, num as scenarioNum, renderCompare, renderFocus } from '../ui/scenarios.js';
+import { toneForProb, wdColor, ring, num as scenarioNum, renderCompare, renderFocus } from '../ui/scenarios.js';
 import { solvePanelHTML, goalParamsHtml, comboPillValue } from '../ui/solver.js';
 import {
   buildRetirementEntryPlan,

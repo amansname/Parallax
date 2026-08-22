@@ -20,7 +20,7 @@ const EXACT_DEPLOY_FILES = new Set([
 const ALLOWED_EXTENSIONS = new Map([
   ['assets', new Set(['.gif', '.ico', '.jpeg', '.jpg', '.json', '.otf', '.png', '.svg', '.ttf', '.webp', '.woff', '.woff2'])],
   ['src', new Set(['.js', '.json'])],
-  ['styles', new Set(['.css'])],
+  ['styles', new Set(['.css', '.ttf'])],
   ['ui', new Set(['.js'])],
 ]);
 
