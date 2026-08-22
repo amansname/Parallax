@@ -405,6 +405,14 @@ test('Tax exposes one complete input view without the Simplified/Detailed toggle
   assert.match(html, /all three Schedule 2 components/i);
 });
 
+test('Tax preserves an incomplete reason code without rendering readiness copy', () => {
+  const html = wizard({ taxReady: false }).render('tax');
+  assert.match(html, /data-tax-readiness="needs-facts"/);
+  assert.match(html, /data-tax-reason="CURRENT_1040_LINE9_DEFERRED"/);
+  assert.match(html, /class="hh-tax-readiness"[\s\S]*?hidden>/);
+  assert.doesNotMatch(html, /Additional tax facts are needed/);
+});
+
 test('legacy MFS is visible as unsupported instead of displaying MFJ', () => {
   const value = plan();
   value.meta.filingStatus = 'marriedFilingSeparately';

@@ -446,10 +446,11 @@ export function renderHouseholdWizardTax(ctx){
 
       <div class="hh-tax-readiness"
         data-tax-readiness="${taxSummary.status === 'ready' ? 'ready' : 'needs-facts'}"
-        data-tax-reason="${esc(taxSummary.reasonCodes?.[0] || '')}">
+        data-tax-reason="${esc(taxSummary.reasonCodes?.[0] || '')}"
+        ${taxSummary.status === 'ready' ? '' : 'hidden'}>
         ${taxSummary.status === 'ready'
           ? `<span class="hh-status-dot"></span> Tax inputs are ready`
-          : `<span class="hh-status-dot"></span> ${esc(taxSummary.message || 'Additional tax facts are needed')}`}
+          : ''}
       </div>
     </div>
   `;

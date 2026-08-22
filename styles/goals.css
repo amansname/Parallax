@@ -226,20 +226,40 @@
   padding: var(--sp-6) 0;
 }
 
+/* Adding a goal is the primary action on this screen, so it takes the primary
+   button treatment rather than sitting as a text link under the timeline. Kept
+   at the standard control height — findable, not a banner. */
 .gh-add-toggle {
-  display: flex;
+  display: inline-flex;
+  height: var(--h-ctl);
   align-items: center;
   gap: var(--sp-2);
-  padding: 0;
-  border: 0;
-  background: none;
+  padding: 0 var(--sp-4);
+  border: var(--bw) solid var(--acc-hair);
+  border-radius: var(--r-ctl);
+  background: var(--acc-tint);
   color: var(--acc);
   font-size: var(--fs-body);
-  font-weight: var(--fw-body);
+  font-weight: var(--fw-body-strong);
+  line-height: 1;
+  white-space: nowrap;
   cursor: pointer;
 }
 
-.gh-add-toggle:hover { color: var(--acc-2); }
+.gh-add-toggle:hover {
+  border-color: var(--acc-edge);
+  background: var(--acc-tint-2);
+  color: var(--acc);
+}
+
+.gh-add-toggle:active { background: var(--acc-hair); }
+.gh-add-toggle[disabled] {
+  border-color: var(--rule-f);
+  background: none;
+  color: var(--disabled);
+  cursor: not-allowed;
+}
+
 .gh-add-toggle span { font-size: var(--fs-emphasis); font-weight: var(--fw-emphasis); }
 
 .gh-add-panel {

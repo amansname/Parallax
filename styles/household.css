@@ -409,6 +409,12 @@
   text-align: left;
 }
 
+/* A full-width row exists so a long label can breathe, not so the control can.
+   An amount field keeps the column width of the fields above it. */
+.page[data-page="household"] .hh-person-fields .hh-field--wide input[inputmode="decimal"] {
+  max-width: calc((100% - var(--sp-4)) / 2);
+}
+
 .page[data-page="household"] .hh-field--date { grid-column: auto; }
 
 .page[data-page="household"] .hh-form-section {
@@ -934,17 +940,29 @@
 
 /* Tax year, filing status and deduction method read across one row; the two
    IRMAA lookback years stack beneath them at a shared width. The summary boxes
-   are layout only — square, unfilled, no card chrome of their own. */
+   are layout only — square, unfilled, no card chrome of their own.
+
+   The row is sized to its three controls and sits left, rather than being
+   stretched across the canvas: three short facts spread over 1,600px read as
+   three unrelated things. */
 .page[data-page="household"] .hh-tax-profile {
   display: grid;
-  width: 100%;
-  max-width: none;
-  grid-template-columns: max-content max-content max-content;
-  justify-content: space-between;
-  gap: var(--sp-4);
+  width: max-content;
+  max-width: 100%;
+  grid-template-columns: repeat(3, max-content);
+  justify-content: start;
+  gap: var(--sp-8);
   margin: 0;
   padding-bottom: var(--sp-4);
   border-bottom: var(--bw) solid var(--rule);
+}
+
+.page[data-page="household"] .hh-tax-profile [data-tax-field="taxYear"] {
+  width: 96px; /* geometry: four digits */
+}
+
+.page[data-page="household"] .hh-deduction-method select {
+  width: 208px; /* geometry: longest deduction option */
 }
 
 .page[data-page="household"] .hh-tax-profile > * {
@@ -1141,14 +1159,22 @@
 
 .page[data-page="household"] .hh-tax-readiness { color: var(--body); font-size: var(--fs-caption); }
 
+/* A titled group inside the tax flow, not a card. Boxing a single dropdown made
+   the Social Security source read as something bolted on after the fact; a
+   hairline and a heading place it in the same sequence as the numbered
+   sections above it. */
 .page[data-page="household"] .hh-tax-subsection {
-  padding: var(--sp-4);
-  border: var(--bw) solid var(--rule);
-  border-radius: var(--r-ctl);
+  padding: var(--sp-4) 0 0;
+  border: 0;
+  border-top: var(--bw) solid var(--rule-f);
+  border-radius: 0;
 }
 
 .page[data-page="household"] .hh-tax-subsection-head { margin-bottom: var(--sp-3); }
-.page[data-page="household"] .hh-field--compact-select { max-width: 360px; /* geometry */ }
+
+.page[data-page="household"] .hh-field--compact-select {
+  max-width: 260px; /* geometry: longest source option */
+}
 
 .page[data-page="household"] .hh-tax-mini-grid {
   display: grid;
