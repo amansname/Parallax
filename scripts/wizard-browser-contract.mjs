@@ -1578,9 +1578,9 @@ async function verifyPlanningSourceAndTaxFlow(page){
         && frame.right === '0px'
         && frame.radius === '0px')
       && irmaaInputs.controlWidths.length === 4
-      && irmaaInputs.controlWidths[0] >= 60 && irmaaInputs.controlWidths[0] <= 140
-      && irmaaInputs.controlWidths[1] >= 140 && irmaaInputs.controlWidths[1] <= 240
-      && irmaaInputs.controlWidths.slice(2).every(width => width >= 40 && width <= 140)
+      && irmaaInputs.controlWidths[0] >= 288 && irmaaInputs.controlWidths[0] <= 290
+      && irmaaInputs.controlWidths[1] >= 288 && irmaaInputs.controlWidths[1] <= 290
+      && irmaaInputs.controlWidths.slice(2).every(width => width >= 127 && width <= 129)
       && Math.abs(irmaaInputs.controlWidths[2] - irmaaInputs.controlWidths[3]) <= 1
       && !irmaaInputs.outputCopy,
     `Tax IRMAA lookback is not input-only: ${JSON.stringify(irmaaInputs)}`,

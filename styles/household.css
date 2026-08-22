@@ -405,6 +405,8 @@
 }
 
 .page[data-page="household"] .hh-person-fields :is(input, select) {
+  width: 100%;
+  min-width: 0;
   justify-self: start;
   text-align: left;
 }
@@ -938,31 +940,18 @@
   gap: var(--sp-6);
 }
 
-/* Tax year, filing status and deduction method read across one row; the two
-   IRMAA lookback years stack beneath them at a shared width. The summary boxes
-   are layout only — square, unfilled, no card chrome of their own.
-
-   The row is sized to its three controls and sits left, rather than being
-   stretched across the canvas: three short facts spread over 1,600px read as
-   three unrelated things. */
+/* Tax year, filing status and deduction method use the reference's three equal
+   columns across a 900px profile row. */
 .page[data-page="household"] .hh-tax-profile {
   display: grid;
-  width: max-content;
+  width: min(900px, 100%);
   max-width: 100%;
-  grid-template-columns: repeat(3, max-content);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   justify-content: start;
-  gap: var(--sp-8);
+  gap: var(--sp-4);
   margin: 0;
   padding-bottom: var(--sp-4);
   border-bottom: var(--bw) solid var(--rule);
-}
-
-.page[data-page="household"] .hh-tax-profile [data-tax-field="taxYear"] {
-  width: 96px; /* geometry: four digits */
-}
-
-.page[data-page="household"] .hh-deduction-method select {
-  width: 208px; /* geometry: longest deduction option */
 }
 
 .page[data-page="household"] .hh-tax-profile > * {
@@ -1027,7 +1016,7 @@
   width: max-content;
   max-width: 100%;
   min-height: 0;
-  grid-template-columns: 88px 12ch; /* geometry: year, MAGI */
+  grid-template-columns: 88px 128px; /* reference geometry: year, MAGI */
   align-items: center;
   gap: var(--sp-4);
   padding: var(--sp-2) 0;
@@ -1052,8 +1041,10 @@
   font-size: var(--fs-caption);
 }
 
-.page[data-page="household"] .hh-irmaa-lookback-input,
+.page[data-page="household"] .hh-irmaa-lookback-input { width: 128px; }
+
 .page[data-page="household"] .hh-irmaa-lookback-row .hh-tax-amount {
+  width: 100%;
   max-width: 100%;
   justify-self: start;
   text-align: right;
@@ -1146,6 +1137,8 @@
 }
 
 .page[data-page="household"] .hh-tax-row .hh-tax-amount {
+  width: 190px; /* reference geometry: amount column */
+  max-width: 100%;
   justify-self: end;
   text-align: right;
   font-variant-numeric: tabular-nums;
