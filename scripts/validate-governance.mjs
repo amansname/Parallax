@@ -111,7 +111,7 @@ if((prTemplate.match(/Every behavior described as fixed was reproduced/g) || [])
 
 const packageJson = JSON.parse(read('package.json') || '{}');
 const expectedScripts = {
-  'governance:check': 'node --test scripts/validate-pr-body.test.mjs scripts/site-integrity.test.mjs && node scripts/validate-governance.mjs',
+  'governance:check': 'node --test .claude/hooks/protect-ui-scope.test.mjs scripts/validate-pr-body.test.mjs scripts/site-integrity.test.mjs && node scripts/validate-governance.mjs',
   'governance:pr': 'node scripts/validate-pr-body.mjs',
   verify: 'node scripts/verify.mjs',
   preview: 'node scripts/preview.mjs',
