@@ -29,6 +29,26 @@ jobs:
       - run: npm run governance:check
       - run: npm run governance:pr
 
+  claude-ui-guard:
+    name: Claude UI replacement guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '24'
+      - run: node --test .claude/hooks/enforce-ui-boundary.test.mjs
+      - name: Enforce Claude UI PR boundary
+        if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'claude-ui/')
+        run: node .claude/hooks/enforce-ui-boundary.mjs --check-range "${{ github.event.pull_request.base.sha }}...${{ env.CANDIDATE_SHA }}"
+      - name: Enforce one design-system authority
+        if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'claude-ui/')
+        run: node .claude/hooks/enforce-ui-boundary.mjs --verify-replacement
+
   unit:
     name: Unit tests
     runs-on: ubuntu-latest

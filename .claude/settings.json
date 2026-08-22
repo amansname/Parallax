@@ -1,0 +1,123 @@
+{
+  "autoMemoryEnabled": false,
+  "disableAutoMode": "disable",
+  "permissions": {
+    "disableBypassPermissionsMode": "disable",
+    "allow": [
+      "Edit(/index.html)",
+      "Edit(/ui/**)",
+      "Edit(/styles/**)",
+      "Edit(/assets/**)",
+      "Write(/index.html)",
+      "Write(/ui/**)",
+      "Write(/styles/**)",
+      "Write(/assets/**)",
+      "Bash(git status --short --branch)",
+      "Bash(git rev-parse --show-toplevel)",
+      "Bash(git rev-parse HEAD)",
+      "Bash(git rev-parse main)",
+      "Bash(git branch --show-current)",
+      "Bash(git remote -v)",
+      "Bash(git worktree list --porcelain)",
+      "Bash(git diff *)",
+      "Bash(npm test)",
+      "Bash(npm run governance:check)",
+      "Bash(npm run verify)",
+      "Bash(npm run preview)",
+      "Bash(npm run site:build)",
+      "Bash(npm run site:verify)",
+      "Bash(node --test .claude/hooks/enforce-ui-boundary.test.mjs)",
+      "Bash(node .claude/hooks/enforce-ui-boundary.mjs --check-worktree main)",
+      "Bash(node .claude/hooks/enforce-ui-boundary.mjs --verify-replacement)",
+      "Bash(node .claude/hooks/create-ui-checkpoint.mjs)",
+      "Bash(node .claude/hooks/delete-presentation-file.mjs *)",
+      "PowerShell(git status --short --branch)",
+      "PowerShell(git rev-parse --show-toplevel)",
+      "PowerShell(git rev-parse HEAD)",
+      "PowerShell(git rev-parse main)",
+      "PowerShell(git branch --show-current)",
+      "PowerShell(git remote -v)",
+      "PowerShell(git worktree list --porcelain)",
+      "PowerShell(git diff *)",
+      "PowerShell(npm test)",
+      "PowerShell(npm run governance:check)",
+      "PowerShell(npm run verify)",
+      "PowerShell(npm run preview)",
+      "PowerShell(npm run site:build)",
+      "PowerShell(npm run site:verify)",
+      "PowerShell(node --test .claude/hooks/enforce-ui-boundary.test.mjs)",
+      "PowerShell(node .claude/hooks/enforce-ui-boundary.mjs --check-worktree main)",
+      "PowerShell(node .claude/hooks/enforce-ui-boundary.mjs --verify-replacement)",
+      "PowerShell(node .claude/hooks/create-ui-checkpoint.mjs)",
+      "PowerShell(node .claude/hooks/delete-presentation-file.mjs *)"
+    ],
+    "deny": [
+      "Edit(/.claude/**)",
+      "Edit(/.github/**)",
+      "Edit(/docs/**)",
+      "Edit(/scripts/**)",
+      "Edit(/src/**)",
+      "Edit(/test/**)",
+      "Edit(/verify-out/**)",
+      "Edit(/engine.js)",
+      "Edit(/engine.test.js)",
+      "Edit(/ui/**/*.test.js)",
+      "Edit(/ui/**/*.spec.js)",
+      "Edit(/ui/householdFactories.js)",
+      "Edit(/package.json)",
+      "Edit(/package-lock.json)",
+      "Edit(/AGENTS.md)",
+      "Edit(/CLAUDE.md)",
+      "Edit(/PRINCIPLES.md)",
+      "Edit(/README.md)",
+      "Edit(/BACKLOG.md)",
+      "Edit(/design-qa.md)",
+      "Edit(/.gitignore)",
+      "Edit(/.nojekyll)",
+      "Write(/.claude/**)",
+      "Write(/.github/**)",
+      "Write(/docs/**)",
+      "Write(/scripts/**)",
+      "Write(/src/**)",
+      "Write(/test/**)",
+      "Write(/verify-out/**)",
+      "Write(/engine.js)",
+      "Write(/engine.test.js)",
+      "Write(/ui/**/*.test.js)",
+      "Write(/ui/**/*.spec.js)",
+      "Write(/ui/householdFactories.js)",
+      "Write(/package.json)",
+      "Write(/package-lock.json)",
+      "Write(/AGENTS.md)",
+      "Write(/CLAUDE.md)",
+      "Write(/PRINCIPLES.md)",
+      "Write(/README.md)",
+      "Write(/BACKLOG.md)",
+      "Write(/design-qa.md)",
+      "Write(/.gitignore)",
+      "Write(/.nojekyll)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|NotebookEdit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/enforce-ui-boundary.mjs\""
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/enforce-ui-boundary.mjs\""
+          }
+        ]
+      }
+    ]
+  }
+}
