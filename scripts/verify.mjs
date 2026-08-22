@@ -616,6 +616,11 @@ try {
           && Math.abs(rects[3].left - rects[4].left) <= 1
           && Math.abs(rects[3].width - rects[4].width) <= 1,
         lookbackStacked: rects.length >= 5 && rects[4].top >= rects[3].bottom - 1,
+        taxableCompanions: document.querySelectorAll(
+          '[data-tax-field="income.taxableIra"], [data-tax-field="income.taxablePensions"]',
+        ).length,
+        socialSecuritySource: [...document.querySelectorAll('.hh-tax-subsection h3')]
+          .some(heading => heading.textContent.trim() === 'Social Security source'),
       };
     });
     if(taxStack.count !== 5
@@ -627,6 +632,8 @@ try {
       || !taxStack.topRowAligned
       || !taxStack.lookbackAligned
       || !taxStack.lookbackStacked
+      || taxStack.taxableCompanions !== 0
+      || !taxStack.socialSecuritySource
       || taxStack.wrapperRadii.some(radius => !Number.isFinite(radius) || radius !== 0)
       || taxStack.controlRadii.some(radius => !Number.isFinite(radius) || radius < 4)){
       throw new Error(`Tax profile and IRMAA layout drifted: ${JSON.stringify(taxStack)}`);
@@ -673,19 +680,13 @@ try {
     );
     const [birthYear, birthMonth, birthDay] =
       WITHDRAWAL_PLANNER_FIXTURE.family.birthDate.split('-');
-    for(const [part, value] of [
-      ['month', birthMonth],
-      ['day', birthDay],
-      ['year', birthYear],
-    ]){
-      const selector = `[data-birth-date-group="client"] [data-birth-part="${part}"]`;
-      await stableClick(selector);
-      await page.keyboard.down('Control');
-      await page.keyboard.press('A');
-      await page.keyboard.up('Control');
-      await page.keyboard.type(String(Number(value)));
-      await page.keyboard.press('Tab');
-    }
+    const birthDateSelector = '[data-birth-date-group="client"] [data-birth-date-display]';
+    await stableClick(birthDateSelector);
+    await page.keyboard.down('Control');
+    await page.keyboard.press('A');
+    await page.keyboard.up('Control');
+    await page.keyboard.type(`${birthMonth} / ${birthDay} / ${birthYear}`);
+    await page.keyboard.press('Tab');
     await waitForWizard(page, {
       step: 'family',
       afterRevision: familyRevision,
@@ -899,18 +900,8 @@ try {
     await waitForWizard(page, { householdId: durableFixtureHousehold.active });
     const [birthYear, birthMonth, birthDay] = fixture.family.birthDate.split('-');
     await typeAndBlur(
-      '[data-birth-date-group="client"] [data-birth-part="month"]',
-      Number(birthMonth),
-      { waitForRender: false },
-    );
-    await typeAndBlur(
-      '[data-birth-date-group="client"] [data-birth-part="day"]',
-      Number(birthDay),
-      { waitForRender: false },
-    );
-    await typeAndBlur(
-      '[data-birth-date-group="client"] [data-birth-part="year"]',
-      Number(birthYear),
+      '[data-birth-date-group="client"] [data-birth-date-display]',
+      `${birthMonth} / ${birthDay} / ${birthYear}`,
     );
     await typeAndBlur(
       '[data-wizard-field="client.retirementAge"]',
@@ -2941,6 +2932,36 @@ try {
         throw new Error(`${error.message}; state=${JSON.stringify(state)}; browser=${JSON.stringify(errs.slice(-5))}`);
       }
       const el = await page.$('.seq-chart');
+      const chartContract = await page.evaluate(() => {
+        const svg = document.querySelector('#seq-svg');
+        const ageLabels = [...svg.querySelectorAll('text')]
+          .filter(label => label.textContent.startsWith('Age '));
+        const valueLabels = [...svg.querySelectorAll('text')]
+          .filter(label => label.textContent.startsWith('$'));
+        return {
+          viewBox: svg.getAttribute('viewBox'),
+          width: svg.getBoundingClientRect().width,
+          height: svg.getBoundingClientRect().height,
+          ages: ageLabels.map(label => label.textContent.trim()),
+          ageY: ageLabels.map(label => Number(label.getAttribute('y'))),
+          ageSize: ageLabels.map(label => Number(label.getAttribute('font-size'))),
+          fills: [...ageLabels, ...valueLabels].map(label => label.getAttribute('fill')),
+          valueX: valueLabels.map(label => Number(label.getAttribute('x'))),
+          valueSize: valueLabels.map(label => Number(label.getAttribute('font-size'))),
+        };
+      });
+      if(chartContract.viewBox !== '0 0 1480 398'
+        || Math.abs(chartContract.width - 1470) > 1
+        || Math.abs(chartContract.height - 398) > 1
+        || !chartContract.ages.includes('Age 80')
+        || chartContract.ages.includes('Age 81')
+        || chartContract.ageY.some(value => value !== 386)
+        || chartContract.ageSize.some(value => value !== 13)
+        || chartContract.valueX.some(value => value !== 76)
+        || chartContract.valueSize.some(value => value !== 13)
+        || chartContract.fills.some(value => value !== 'rgba(127,119,114,.72)')){
+        throw new Error(`Sequencing reference geometry drifted: ${JSON.stringify(chartContract)}`);
+      }
       await el.screenshot({ path: join(OUT, '05-sequencing.png') });
     });
 

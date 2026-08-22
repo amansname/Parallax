@@ -1,4 +1,4 @@
-import { readBirthDateGroup, splitIsoBirthDate } from './birthDateInput.js';
+import { formatIsoBirthDate, readBirthDateGroup } from './birthDateInput.js';
 import { newWizardRowId } from './householdRecordSchema.js';
 
 function valueFromControl(control){
@@ -98,24 +98,21 @@ function updateNetWorthDraft(transientState, control){
 function birthDateValidityControl(control){
   if(!control?.matches?.('[data-birth-date-value]')) return control;
   const group = control.closest('[data-birth-date-group]');
-  return group?.querySelector('[data-birth-part="year"]') || control;
+  return group?.querySelector('[data-birth-date-display]') || control;
 }
 
 function clearBirthDateValidity(group){
   if(!group) return;
-  for(const part of group.querySelectorAll('[data-birth-part]')){
-    part.removeAttribute('aria-invalid');
-    if(typeof part.setCustomValidity === 'function') part.setCustomValidity('');
+  for(const input of group.querySelectorAll('[data-birth-date-display], [data-birth-part]')){
+    input.removeAttribute('aria-invalid');
+    if(typeof input.setCustomValidity === 'function') input.setCustomValidity('');
   }
 }
 
-function syncBirthDateParts(group, iso){
+function syncBirthDateDisplay(group, iso){
   if(!group) return;
-  const parts = splitIsoBirthDate(iso);
-  for(const name of ['month', 'day', 'year']){
-    const part = group.querySelector(`[data-birth-part="${name}"]`);
-    if(part) part.value = parts[name];
-  }
+  const display = group.querySelector('[data-birth-date-display]');
+  if(display) display.value = formatIsoBirthDate(iso);
 }
 
 export function bindHouseholdEditor({
@@ -187,9 +184,9 @@ export function bindHouseholdEditor({
   }
 
   root.addEventListener('input', event => {
-    const birthPart = event.target.closest?.('[data-birth-part]');
-    if(birthPart){
-      const group = birthPart.closest('[data-birth-date-group]');
+    const birthDateDisplay = event.target.closest?.('[data-birth-date-display]');
+    if(birthDateDisplay){
+      const group = birthDateDisplay.closest('[data-birth-date-group]');
       clearBirthDateValidity(group);
       const hidden = group?.querySelector('[data-birth-date-value]');
       const iso = group ? readBirthDateGroup(group) : null;
@@ -252,7 +249,7 @@ export function bindHouseholdEditor({
       if(!applied && priorValue != null){
         if(family.matches?.('[data-birth-date-value]')){
           family.value = priorValue;
-          syncBirthDateParts(family.closest('[data-birth-date-group]'), priorValue);
+          syncBirthDateDisplay(family.closest('[data-birth-date-group]'), priorValue);
         }else{
           family.value = priorValue;
         }

@@ -396,8 +396,8 @@ test('Tax exposes one complete input view without the Simplified/Detailed toggle
   assert.doesNotMatch(html, /data-hh-action="set-tax-view"/);
   assert.doesNotMatch(html, />Simplified<|>Detailed</);
   assert.match(html, /data-tax-view="detailed"/);
-  assert.match(html, /Taxable IRA amount/);
-  assert.match(html, /Taxable pension amount/);
+  assert.doesNotMatch(html, /Taxable IRA amount/);
+  assert.doesNotMatch(html, /Taxable pension amount/);
   assert.match(html, /Social Security source/);
   assert.match(html, /Schedule SE/);
   assert.match(html, /Resolved Schedule SE line 6/);

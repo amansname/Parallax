@@ -2269,7 +2269,7 @@ document.addEventListener('click', e=>{
     saveScenarios(); renderSolvePanel(); uiState.plansDirty=true; runAll();
   }
 });
-const GRID='var(--grid)', AXIS_INK='var(--axis)';
+const GRID='var(--grid)', AXIS_INK='rgba(127,119,114,.72)';
 function simByIndex(res, idx){
   if(!res || !Array.isArray(res.sims)) return null;
   return res.sims.find(s => s.simIndex === idx) || res.sims[idx] || null;

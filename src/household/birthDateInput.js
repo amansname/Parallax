@@ -32,8 +32,24 @@ export function assembleIsoBirthDate(parts){
   return `${String(yyyy).padStart(4, '0')}-${String(mm).padStart(2, '0')}-${String(dd).padStart(2, '0')}`;
 }
 
+/** Format stored YYYY-MM-DD for the single visible wizard field. */
+export function formatIsoBirthDate(iso){
+  const { month, day, year } = splitIsoBirthDate(iso);
+  if(!month || !day || !year) return '';
+  return `${month.padStart(2, '0')} / ${day.padStart(2, '0')} / ${year}`;
+}
+
+/** Parse the standalone field's MM / DD / YYYY presentation into ISO. */
+export function parseDisplayedBirthDate(value){
+  const match = String(value ?? '').trim().match(/^(\d{1,2})\s*\/\s*(\d{1,2})\s*\/\s*(\d{4})$/);
+  if(!match) return null;
+  return assembleIsoBirthDate({ month: match[1], day: match[2], year: match[3] });
+}
+
 export function readBirthDateGroup(group){
   if(!group?.querySelector) return null;
+  const display = group.querySelector('[data-birth-date-display]');
+  if(display) return parseDisplayedBirthDate(display.value);
   const part = name => group.querySelector(`[data-birth-part="${name}"]`)?.value;
   return assembleIsoBirthDate({
     month: part('month'),

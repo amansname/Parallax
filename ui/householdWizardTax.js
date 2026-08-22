@@ -33,14 +33,12 @@ export function renderHouseholdWizardTax(ctx){
     overridden: false,
     invalid: false,
   };
-  const showTaxableIra = detailed
-    || Number(income.iraDistributions) > 0
+  const showTaxableIra = Number(income.iraDistributions) > 0
     || Number(groupState('ira').values.iraDistributions) > 0
-    || Object.hasOwn(income, 'taxableIra');
-  const showTaxablePension = detailed
-    || Number(income.pensionAmount) > 0
+    || Number(income.taxableIra) > 0;
+  const showTaxablePension = Number(income.pensionAmount) > 0
     || Number(groupState('pension').values.pensionAmount) > 0
-    || Object.hasOwn(income, 'taxablePensions');
+    || Number(income.taxablePensions) > 0;
 
   const effectiveIncomeValue = (groupId, field, fallback) => {
     const group = groupState(groupId);
