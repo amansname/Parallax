@@ -1899,9 +1899,13 @@ try {
         const toggle = document.querySelector('#scn-view [data-goals-toggle]');
         const names = document.querySelectorAll('#scn-view .goal-detail__name');
         const inputs = document.querySelectorAll('#scn-view .cmp-goal-in');
+        const runButton = document.querySelector('#run-btn');
+        const status = document.querySelector('#status')?.textContent || '';
         const medians = [...document.querySelectorAll('#scn-view .scol__median b')]
           .map(element => element.textContent.trim());
-        return toggle?.getAttribute('aria-expanded') === 'true'
+        return runButton && !runButton.disabled
+          && /Plan updated|Partial run/i.test(status)
+          && toggle?.getAttribute('aria-expanded') === 'true'
           && names.length === expected
           && inputs.length >= expected
           && medians.length > 0
