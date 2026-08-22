@@ -40,7 +40,7 @@ export function pathOutcomeText(sim){
 }
 
 export function drawSeqChart(svg, runs, retAge, seqChartSvg, { grid, axisInk }){
-  const W=1000,H=320;
+  const W=1480,H=398;
   svg.innerHTML=seqChartSvg(runs, retAge,{
     width:W,
     height:H,
