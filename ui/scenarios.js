@@ -1,13 +1,5 @@
 const TONE = { green: 'var(--pos)', amber: 'var(--acc)', rust: 'var(--neg)' };
 
-const GLOW = {
-  'var(--pos)': 'var(--tone-green-glow)',
-  'var(--acc)': 'var(--tone-amber-glow)',
-  'var(--neg)': 'var(--tone-rust-glow)',
-};
-
-
-
 export function toneForProb(prob) {
     if (prob == null) return TONE.green;
     if (prob >= 85) return TONE.green;
@@ -15,14 +7,12 @@ export function toneForProb(prob) {
     return TONE.rust;
   }
 
-export function toneGlow(tone) { return GLOW[tone] || 'var(--tone-green-glow)'; }
-
 export function wdColor(wd, shortfall) {
-    if (shortfall) return 'var(--down-deep)';
-    if (wd < 3) return 'var(--tone-green)';
-    if (wd < 4.5) return 'var(--tone-amber)';
-    if (wd < 6) return 'var(--down)';
-    return 'var(--down-deep)';
+    if (shortfall) return 'var(--neg)';
+    if (wd < 3) return 'var(--pos)';
+    if (wd < 4.5) return 'var(--acc)';
+    if (wd < 6) return 'var(--neg-soft)';
+    return 'var(--neg)';
   }
 
 export function ring(size, r, sw, tone, pct, inner) {
@@ -71,7 +61,7 @@ export function renderCompare(scns, baseline, { plan, planEndAge, goalsExpandedS
             : '');
       return (
         '<div class="scol">' +
-          '<div class="scol__head ' + (i ? 'scol__head--menu' : '') + '" style="--tone:' + s.tone + ';--tone-glow:' + toneGlow(s.tone) + ';">' +
+          '<div class="scol__head ' + (i ? 'scol__head--menu' : '') + '" style="--tone:' + s.tone + ';">' +
             '<div class="scol__head"><span class="scol__dot"></span><span class="scol__name">' + esc(s.name) + '</span></div>' +
             (i ? '<button class="scol__menu" type="button" data-scn-id="' + esc(s.id) + '" aria-label="Options for ' + esc(s.name) + '" aria-haspopup="true">⋯</button>' : '') +
           '</div>' +
@@ -142,13 +132,13 @@ export function renderCompare(scns, baseline, { plan, planEndAge, goalsExpandedS
     const goalCells = scns.map((s) => {
       const active = s.goals.filter((g) => g.on).length;
       if (s.isBaseline) {
-        return '<div class="cell--goal"><span class="goal-pill" style="--tone:var(--tone-green);"><span class="goal-pill__dot"></span>' + active + ' active</span></div>';
+        return '<div class="cell--goal"><span class="goal-pill" style="--tone:var(--pos);"><span class="goal-pill__dot"></span>' + active + ' active</span></div>';
       }
       const changed = s.goals.some((g) => !g.sameAsBase);
       if (!changed) {
         return '<div class="cell--goal"><span class="goal-note">' + active + ' active · same as Baseline</span></div>';
       }
-      return '<div class="cell--goal"><span class="goal-pill" style="--tone:var(--gold);"><span class="goal-pill__dot"></span>' + active + ' active · edited</span></div>';
+      return '<div class="cell--goal"><span class="goal-pill" style="--tone:var(--acc);"><span class="goal-pill__dot"></span>' + active + ' active · edited</span></div>';
     }).join('');
 
     // Goals section: collapsible. The header row carries a visible chevron toggle
@@ -216,7 +206,7 @@ export function stressVerdict(stress) {
     const passed = stress.filter((r) => r.pass).length, total = stress.length;
     const all = total > 0 && passed === total;
     return { text: total === 0 ? '' : (all ? 'Survives all ' + total + ' eras' : 'Survives ' + passed + ' of ' + total + ' eras'),
-      color: all ? 'var(--pass)' : 'var(--marginal)' };
+      color: all ? 'var(--pos)' : 'var(--acc)' };
   }
 
 export function renderFocus(scns, baseline, focusedId, showRange, {
@@ -277,7 +267,7 @@ export function renderFocus(scns, baseline, focusedId, showRange, {
       '<div class="stress-rail__row">' +
         '<span class="stress-rail__icon ' + (st.pass ? 'stress-rail__icon--pass' : 'stress-rail__icon--marginal') + '">' + (st.pass ? checkIcon(1.9, 11) : '!') + '</span>' +
         '<div class="stress-rail__body"><span class="stress-rail__year">' + esc(st.year) + '</span><span class="stress-rail__name">' + esc(st.name) + '</span></div>' +
-        '<span class="stress-rail__result" style="color:' + (st.pass ? 'var(--pass)' : 'var(--marginal)') + ';">' + (st.pass ? 'Pass' : 'Marginal') + '</span>' +
+        '<span class="stress-rail__result" style="color:' + (st.pass ? 'var(--pos)' : 'var(--acc)') + ';">' + (st.pass ? 'Pass' : 'Marginal') + '</span>' +
       '</div>'
     )).join('');
     // Render the Historical Stress card from engine-derived per-scenario eras.
@@ -298,7 +288,7 @@ export function renderFocus(scns, baseline, focusedId, showRange, {
       stressBlock = (
         '<div class="stress-rail">' +
           '<div class="stress-rail__head"><span class="eyebrow" style="letter-spacing:0.16em;">Historical Stress</span></div>' +
-          '<div class="stress-rail__row" style="color:var(--marginal);font-size:11px;padding:8px 0;">Stress data incomplete (' + f.stress.length + '/' + stressEraCount + ' eras) — re-run the plan to resolve.</div>' +
+          '<div class="stress-rail__row" style="color:var(--acc);font-size:11px;padding:8px 0;">Stress data incomplete (' + f.stress.length + '/' + stressEraCount + ' eras) — re-run the plan to resolve.</div>' +
         '</div>'
       );
     }

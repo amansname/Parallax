@@ -55,12 +55,12 @@ function columnGeom(id, bounds, baseVal, addVal, hoverMark, formatMoney, formatP
         pos: pct(slot(k)),
         hit: `calc(${pct(slot(k))} - 5px)`,
         tickW: hovered || justCrossed ? '50%' : '7px',
-        bg: hovered || justCrossed
-          ? 'rgba(231,222,201,.2)'
-          : (v > total ? 'rgba(231,222,201,.3)' : 'rgba(231,222,201,.14)'),
+        bg: hovered || justCrossed || v <= total
+          ? 'rgba(169,153,138,.32)'
+          : 'rgba(169,153,138,.22)',
         label: bd[k].label || formatMoney(v),
         chipOpacity: hovered || justCrossed ? 1 : 0,
-        chipInk: justCrossed && !hovered ? 'var(--accent-bright)' : 'var(--ink-bright)',
+        chipInk: justCrossed && !hovered ? 'var(--acc)' : 'var(--ink)',
       };
     }),
   };
@@ -85,10 +85,10 @@ export function buildThresholdColumns({ result, hoverMark }) {
   const pc = formatWithdrawalPct;
   if (!result || result.error || result.code) {
     return [
-      { id: 'ord', name: 'Income Tax', current: '—', tone: 'var(--ink-bright)', footLabel: '—', foot: '—', ...BLANK_GEOM },
-      { id: 'ltcg', name: 'Long-term gains', current: '—', tone: 'var(--ok)', footLabel: '—', foot: '—', ...BLANK_GEOM },
-      { id: 'irmaa', name: 'Medicare IRMAA', current: '—', tone: 'var(--ink-faint)', footLabel: '—', foot: '—', ...BLANK_GEOM },
-      { id: 'ss', name: 'Social Security', current: '—', tone: 'var(--ink-bright)', footLabel: '—', foot: '—', ...BLANK_GEOM },
+      { id: 'ord', name: 'Income Tax', current: '—', tone: 'var(--ink)', footLabel: '—', foot: '—', ...BLANK_GEOM },
+      { id: 'ltcg', name: 'Long-term gains', current: '—', tone: 'var(--pos)', footLabel: '—', foot: '—', ...BLANK_GEOM },
+      { id: 'irmaa', name: 'Medicare IRMAA', current: '—', tone: 'var(--muted)', footLabel: '—', foot: '—', ...BLANK_GEOM },
+      { id: 'ss', name: 'Social Security', current: '—', tone: 'var(--ink)', footLabel: '—', foot: '—', ...BLANK_GEOM },
     ];
   }
 
@@ -150,9 +150,9 @@ export function buildThresholdColumns({ result, hoverMark }) {
     pc,
   );
 
-  const gold = 'linear-gradient(180deg,rgba(198,166,98,.7),rgba(198,166,98,.3))';
-  const sage = 'linear-gradient(180deg,rgba(143,165,126,.75),rgba(143,165,126,.32))';
-  const dim = 'linear-gradient(180deg,rgba(198,166,98,.28),rgba(198,166,98,.13))';
+  const gold = 'transparent';
+  const sage = 'transparent';
+  const dim = 'transparent';
   const blank = { fillBg: 'transparent', baseBg: 'transparent', edge: 'transparent', ...BLANK_GEOM };
 
   return [
@@ -160,12 +160,12 @@ export function buildThresholdColumns({ result, hoverMark }) {
       id: 'ord',
       name: 'Income Tax',
       current: m(taxDollars.ordinaryIncomeTax),
-      tone: 'var(--ink-bright)',
+      tone: 'var(--ink)',
       footLabel: pc(ord.rate),
       foot: Number.isFinite(ord.roomToNext) ? `${m(ord.roomToNext)} to next` : '—',
       fillBg: gold,
       baseBg: dim,
-      edge: 'rgba(216,192,132,.45)',
+      edge: 'transparent',
       ...(gOrd || blank),
       value: m(taxDollars.ordinaryIncomeTax),
     },
@@ -173,7 +173,7 @@ export function buildThresholdColumns({ result, hoverMark }) {
       id: 'ltcg',
       name: 'Long-term gains',
       current: m(taxDollars.preferentialIncomeTax),
-      tone: 'var(--ok)',
+      tone: 'var(--pos)',
       footLabel: Number.isFinite(ltcg.rate ?? lad.ltcg?.rates?.zero)
         ? `Next $ at ${pc(ltcg.rate ?? lad.ltcg.rates.zero)}`
         : '—',
@@ -182,7 +182,7 @@ export function buildThresholdColumns({ result, hoverMark }) {
         : '—',
       fillBg: sage,
       baseBg: dim,
-      edge: 'rgba(169,193,154,.45)',
+      edge: 'transparent',
       ...(gLtcg || blank),
       value: m(taxDollars.preferentialIncomeTax),
     },
@@ -190,7 +190,7 @@ export function buildThresholdColumns({ result, hoverMark }) {
       id: 'irmaa',
       name: 'Medicare IRMAA',
       current: m(taxDollars.irmaaPremium),
-      tone: 'var(--ink-faint)',
+      tone: 'var(--muted)',
       ...blank,
       footLabel: Number.isFinite(irmaa.incrementalAnnualHouseholdAdjustment)
         ? `${m(irmaa.incrementalAnnualHouseholdAdjustment)} vs baseline`
@@ -202,7 +202,7 @@ export function buildThresholdColumns({ result, hoverMark }) {
         : '\u2014',
       fillBg: gold,
       baseBg: dim,
-      edge: 'rgba(216,192,132,.45)',
+      edge: 'transparent',
       ...(gIrmaa || blank),
       value: m(taxDollars.irmaaPremium),
     },
@@ -210,12 +210,12 @@ export function buildThresholdColumns({ result, hoverMark }) {
       id: 'ss',
       name: 'Social Security',
       current: m(taxDollars.socialSecurityIncrementalModeledFederalIncomeTax),
-      tone: 'var(--ink-bright)',
+      tone: 'var(--ink)',
       footLabel: pc(ss.taxablePct),
       foot: Number.isFinite(ss.roomToNext) ? `${m(ss.roomToNext)} to next` : '—',
       fillBg: gold,
       baseBg: dim,
-      edge: 'rgba(216,192,132,.45)',
+      edge: 'transparent',
       ...(gSs || blank),
       value: m(taxDollars.socialSecurityIncrementalModeledFederalIncomeTax),
     },

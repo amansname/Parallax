@@ -1,21 +1,23 @@
-/* Tax Buckets tab — page shell for the withdrawal planner. */
+/* =============================================================================
+   tax-buckets.css — Withdrawal Planner page shell.
 
-@layer legacy {
+   The page sits on the shared graphite surface; depth comes from spacing,
+   hairlines and one broad panel shadow, never from a second near-black fill.
+   All planner presentation lives in styles/tax-aware-withdrawal.css — this file
+   owns only the page frame and its mount.
+   ============================================================================= */
 
 .page[data-page="tax-buckets"] {
   position: relative;
+  min-height: calc(100vh - 68px); /* geometry: header offset */
   padding: 0;
   overflow: auto;
-  background:
-    radial-gradient(120% 90% at 50% -20%, rgba(198, 166, 98, .07), transparent 60%),
-    linear-gradient(180deg, #0b0d11 0%, #070809 100%);
+  background: var(--page);
 }
 
 .page[data-page="tax-buckets"] #tax-buckets-view {
   position: relative;
-  flex: 1 1 auto;
-  min-height: 0;
   width: 100%;
-}
-
+  min-height: 100%;
+  flex: 1 1 auto;
 }

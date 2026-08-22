@@ -210,6 +210,7 @@ export function paintLeverSync(refs, key, value) {
   const slot = refs.sliders[key];
   if (!slot?.input || !slot?.val) return;
   slot.input.value = String(value);
+  slot.input.style.setProperty('--taw-fill', `${Math.min(100, Math.max(0, value / Number(slot.input.max || 1) * 100))}%`);
   slot.val.textContent = formatWithdrawalMoney(value);
 }
 

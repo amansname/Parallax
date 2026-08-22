@@ -1,213 +1,200 @@
-/* Global app header â€” single owner (see PARALLAX header handoff). */
-@layer legacy {
+/* =============================================================================
+   header.css — global application header, single owner.
 
-.app-header {
+   Geometry and type come from the finalized Graphite & Aubergine reference: a
+   68px rail on the page surface (never a contrasting strip), the logo at 58px,
+   uppercase nav labels in the nav type role, and a single 1px bronze underline
+   marking the active tab.
+
+   The hairline belongs to `.hdr__bar`, not to the header: it begins at the
+   logo's right edge and runs to the page edge. `scripts/verify.mjs` currently
+   asserts that border on `.hdr` and must be pointed at `.hdr__bar`.
+
+   The header element carries both `.hdr` (design-system name) and `.app-header`
+   (existing product query hook). Rules are written against `.hdr` so there is
+   exactly one owner; `.app-header` stays a live selector for `src/main.js` and
+   the browser verifier and is never restyled here.
+   ============================================================================= */
+
+.hdr {
   position: relative;
-  z-index: 50;
-  flex: 0 0 auto;
+  z-index: 50; /* preserved: header stays above page content */
   display: flex;
-  align-items: center;
-  gap: 36px;
   width: 100%;
-  height: 56px;
+  height: 68px; /* geometry: header rail */
+  align-items: center;
+  flex: 0 0 auto;
+  gap: var(--sp-8);
   margin: 0;
-  padding: 0 32px;
-  background: transparent;
-  border: 0;
-  border-bottom: var(--bw) solid var(--rule);
-  border-radius: 0;
-  box-shadow: none;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
+  padding: 0 var(--sp-8);
+  background: var(--page);
   overflow: visible;
 }
-.app-header .hdr__logo {
-  flex: 0 0 auto;
+
+.hdr__logo {
   display: flex;
+  height: 58px; /* geometry: brand slot */
+  flex: 0 0 auto;
   align-items: center;
-  /* Use most of the 56px rail so orb + wordmark read clearly. */
-  height: 48px;
-  position: relative;
-  z-index: 2;
 }
-.app-header .hdr__logo img {
+
+.hdr__logo img {
   display: block;
   width: auto;
   height: 100%;
   object-fit: contain;
-  object-position: left center;
-  filter: none;
 }
-.app-header .hdr__tabs {
-  align-self: stretch;
+
+/* The bar carries the tabs and the right cluster, and owns the header hairline:
+   the rule runs from the logo's right edge to the page edge, never beneath the
+   brand. Its negative right margin and matching padding carry it to that edge
+   through the header gutter. */
+.hdr__bar {
   display: flex;
-  align-items: stretch;
-  gap: 28px;
+  min-width: 0;
   height: 100%;
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
-.app-header .htab {
-  position: relative;
-  display: flex;
   align-items: center;
+  flex: 1 1 auto;
+  margin-right: calc(var(--sp-8) * -1);
+  padding-right: var(--sp-8);
+  border-bottom: var(--bw) solid var(--line);
+}
+
+.hdr__tabs {
+  display: flex;
   height: 100%;
-  padding: 0 2px;
-  appearance: none;
-  background: transparent;
-  border: 0;
-  color: var(--body);
-  font-family: var(--f);
-  font-size: 13px;
-  font-weight: 400;
-  line-height: 1;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  cursor: pointer;
+  align-items: stretch;
+  align-self: stretch;
+  gap: var(--sp-8);
 }
-.app-header .htab:hover {
-  color: var(--ink);
-}
-.app-header .htab.on {
-  color: var(--ink);
-}
-.app-header .htab.on::after {
+
+/* Every `.htab` also carries `.px-nav`, which supplies the nav type role, the
+   hover ink lift and the active ink. Only the underline is restated, because it
+   keys off the product's own `.on` state class rather than the derived one. */
+.htab.on { color: var(--ink); }
+
+.htab.on::after {
   content: "";
   position: absolute;
   z-index: 2;
-  left: 0;
   right: 0;
   bottom: -1px;
-  height: 1px;
+  left: 0;
+  height: var(--bw);
   background: var(--acc);
-  box-shadow: none;
 }
-.app-header .hdr__right {
+
+.hdr__right {
   display: flex;
+  min-width: 0;
+  height: 100%;
   align-items: center;
   margin-left: auto;
-  min-width: 0;
 }
-.app-header .cluster {
+
+.cluster {
   display: flex;
   align-items: center;
-  gap: 24px;
+  gap: var(--sp-6);
   overflow: visible;
-  padding: 0;
-  background: transparent;
-  border: 0;
-  border-radius: 0;
-  box-shadow: none;
 }
-.app-header .cluster[hidden] {
-  display: none;
-}
-.app-header .cluster__stat {
+
+.cluster[hidden] { display: none; }
+
+.cluster__stat {
   display: flex;
+  min-width: 0;
+  height: var(--h-ctl);
   align-items: center;
-  gap: 8px;
-  height: 36px;
-  padding: 0;
+  gap: var(--sp-2);
   color: var(--body);
-  font-family: var(--f);
-  font-size: 12.5px;
-  font-weight: 400;
-  line-height: 1;
-  letter-spacing: 0.12em;
+  font-size: var(--fs-nav);
+  font-weight: var(--fw-nav);
+  line-height: var(--lh-nav);
+  letter-spacing: var(--ls-nav);
   text-transform: uppercase;
   white-space: nowrap;
-  min-width: 0;
 }
-.app-header .status {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: min(28vw, 220px);
-}
-.app-header .dot {
+
+.cluster__stat .dot {
   width: 7px;
   height: 7px;
   flex: 0 0 auto;
-  border-radius: 50%;
-  background: var(--acc);
-}
-.app-header .cluster[data-state="saved"] .dot { background: var(--pos); }
-.app-header .cluster[data-state="edited"] .dot { background: var(--acc); }
-.app-header .cluster[data-state="needs-run"] .dot { background: var(--acc); }
-.app-header .cluster__run {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 36px;
-  padding: 0;
-  background: transparent;
-  border: 0;
-  border-radius: 0;
-  box-shadow: none;
-  font-family: var(--f);
-  font-size: 12.5px;
-  line-height: 1;
-  text-transform: uppercase;
-}
-.app-header .cluster__run {
-  min-width: 64px;
-  color: var(--acc);
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  cursor: pointer;
-}
-.app-header .cluster__run:hover {
-  color: var(--acc-2);
-}
-.app-header .cluster__run:disabled {
-  opacity: 0.45;
-  cursor: wait;
-}
-.app-header .htab:focus-visible,
-.app-header .cluster__run:focus-visible {
-  outline: var(--bw-focus) solid var(--acc);
-  outline-offset: var(--focus-offset);
+  border-radius: var(--r-pill);
+  background: var(--pos);
 }
 
+/* Readiness. Sage marks a saved, run-current plan; bronze marks work the
+   advisor still owes it. Both are semantic signals, never decoration. */
+.cluster[data-state="saved"] .dot { background: var(--pos); }
+.cluster[data-state="edited"] .dot,
+.cluster[data-state="needs-run"] .dot { background: var(--acc); }
+
+.status {
+  max-width: min(28vw, 220px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cluster__run {
+  display: flex;
+  min-width: 64px; /* geometry: stable action slot */
+  height: var(--h-ctl);
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-chip);
+  background: none;
+  color: var(--acc);
+  font-size: var(--fs-nav);
+  font-weight: 700;
+  line-height: var(--lh-nav);
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.cluster__run:hover { background: var(--acc-tint); color: var(--acc); }
+.cluster__run:disabled { color: var(--disabled); cursor: wait; }
+
+/* Narrow: the rail keeps its height and gutter proportions while the tab strip
+   scrolls inside the bar, so the page itself never scrolls horizontally. */
 @media (max-width: 1279px) {
-  .app-header {
-    flex-wrap: wrap;
-    height: auto;
-    min-height: 56px;
-    padding: 0 20px 0;
-    gap: 12px 20px;
+  .hdr {
+    gap: var(--sp-6);
+    padding: 0 var(--sp-6);
   }
-  .app-header .hdr__tabs {
-    order: 3;
-    flex: 1 1 100%;
-    height: 44px;
+
+  .hdr__bar {
+    margin-right: calc(var(--sp-6) * -1);
+    padding-right: var(--sp-6);
+  }
+
+  .hdr__tabs {
+    min-width: 0;
+    flex: 1 1 auto;
+    gap: var(--sp-6);
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
-    gap: 20px;
-    padding-bottom: 0;
   }
-  .app-header .hdr__right {
-    margin-left: auto;
-  }
-  .app-header .status {
-    max-width: min(40vw, 180px);
-  }
+
+  .status { max-width: min(40vw, 180px); }
 }
 
 @media (max-width: 760px) {
-  .app-header {
-    padding: 0 14px;
-    gap: 10px 14px;
+  .hdr {
+    gap: var(--sp-4);
+    padding: 0 var(--sp-4);
   }
-  .app-header .hdr__logo {
-    height: 40px;
-  }
-  .app-header .cluster {
-    gap: 16px;
-  }
-  .app-header .status {
-    max-width: 120px;
-  }
-}
 
+  .hdr__bar {
+    margin-right: calc(var(--sp-4) * -1);
+    padding-right: var(--sp-4);
+  }
+
+  .hdr__logo { height: 40px; /* geometry: compact brand slot */ }
+  .hdr__tabs { gap: var(--sp-4); }
+  .cluster { gap: var(--sp-4); }
+  .status { max-width: 120px; }
 }

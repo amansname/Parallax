@@ -2969,7 +2969,7 @@ try {
       return {
         height: cs.height,
         bg: cs.backgroundColor,
-        headerBorderBottom: cs.borderBottomWidth,
+        headerBorderBottom: getComputedStyle(document.querySelector('.hdr__bar')).borderBottomWidth,
         logo: logo?.getAttribute('src') || '',
         logoH: logo ? getComputedStyle(logo).height : '',
         clusterHidden: document.querySelector('.cluster')?.hidden === true,

@@ -58,8 +58,8 @@ export function renderPrints(container, runs, pathDigest){
   // grind hurts a withdrawing portfolio far more than a V-shaped '08 shock).
   const pct=v=>(v>=0?'+':'')+(v*100).toFixed(1)+'%';
   const outcome=r=> r.depletionAge!=null
-    ? {t:`Ran dry @ ${r.depletionAge}`, c:'var(--negative-bright)'}
-    : {t:`Survived · ${fmtM(r.terminalBalance)}`, c:'var(--status-positive-bright)'};
+    ? {t:`Ran dry @ ${r.depletionAge}`, cls:'neg'}
+    : {t:`Survived · ${fmtM(r.terminalBalance)}`, cls:'pos'};
   const card=(m,res)=>{
     const o=outcome(res);
     const d=pathDigest(res);
@@ -67,13 +67,13 @@ export function renderPrints(container, runs, pathDigest){
     // row would just read "—". Show it where it tells a story; omit it otherwise.
     const dwBlock = d.underwaterSpellMax ? `
       <div class="pr-row" style="border-bottom:none"><span class="pr-k">Duration</span><span class="pr-v">${d.underwaterSpellMax} yr${d.underwaterSpellMax>1?'s':''}</span></div>
-      <div class="dw-bar"><div class="dw-fill" style="width:${Math.min(100,d.underwaterSpellMax/12*100).toFixed(0)}%;background:#c0795f"></div></div>` : '';
+      <div class="dw-bar"><div class="dw-fill" style="width:${Math.min(100,d.underwaterSpellMax/12*100).toFixed(0)}%"></div></div>` : '';
     return `<div class="seq-print">
       <h4><span class="dot" style="border-color:${m.c}"></span>${m.y} · ${m.tag}</h4>
       <div class="pr-row"><span class="pr-k">First decade</span><span class="pr-v">${pct(d.first10Cagr)}</span></div>
       <div class="pr-row"><span class="pr-k">Lowest</span><span class="pr-v">${fmtM(d.minBalance)}</span></div>
       ${dwBlock}
-      <div class="pr-row"><span class="pr-k">Outcome</span><span class="pr-v" style="color:${o.c}">${o.t}</span></div>
+      <div class="pr-row"><span class="pr-k">Outcome</span><span class="pr-v ${o.cls}">${o.t}</span></div>
     </div>`;
   };
   container.innerHTML=runs.map(r=>card(r.m, r.res)).join('');

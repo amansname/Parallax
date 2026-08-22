@@ -3,10 +3,10 @@ import { selectedPathIndex } from './sequencing.js';
 
 
 export function cfWdColor(wd, shortfall) {
-    if (shortfall) return 'var(--down-deep)';
-    if (wd < 5) return 'var(--text-3)';
-    if (wd < 7) return 'var(--down)';
-    return 'var(--down-deep)';
+    if (shortfall) return 'var(--neg)';
+    if (wd < 5) return 'var(--body)';
+    if (wd < 7) return 'var(--neg-soft)';
+    return 'var(--neg)';
   }
 
 export function goalTagFor(plan, r, age) {
@@ -346,9 +346,9 @@ export function renderCashflow(scn, allScns, {
       const returnClass = r.ret == null ? 'cf-cell--zero' : (r.ret < 0 ? 'cf-down' : (r.ret > 0 ? 'cf-up' : ''));
       const withdrawalColor = cfWdColor(r.wdRate, r.shortfall);
       const withdrawalClass = !r.accum && r.startPort > 0
-        ? (withdrawalColor === 'var(--down-deep)'
+        ? (withdrawalColor === 'var(--neg)'
             ? 'cf-wd-hi'
-            : (withdrawalColor === 'var(--down)' ? 'cf-wd-mid' : 'cf-wd-lo'))
+            : (withdrawalColor === 'var(--neg-soft)' ? 'cf-wd-mid' : 'cf-wd-lo'))
         : 'cf-cell--zero';
       const isRetStart = retStartAge != null && !r.accum && r.age === retStartAge;
       const isRmdStart = rmdStartAge != null && r.age === rmdStartAge;
@@ -395,7 +395,7 @@ export function renderCashflow(scn, allScns, {
     const emptyMessage = selected?.error
       ? selected.error
       : 'No cash-flow data yet. Press Run — or check the plan inputs if the status bar shows a warning.';
-    const empty = rows.length ? '' : '<div class="cf-band"><div style="padding:26px 18px;color:var(--text-5);">' + esc(emptyMessage) + '</div></div>';
+    const empty = rows.length ? '' : '<div class="cf-band"><div style="padding:26px 18px;color:var(--muted);">' + esc(emptyMessage) + '</div></div>';
 
     return (
       '<div class="cf" data-cash-path-id="' + esc(selected?.pathId ?? (typicalPath ? 'typical' : '')) + '" data-cash-path-kind="' + esc(selected?.kind ?? (typicalPath ? 'typical' : '')) + '">' +
