@@ -3,6 +3,11 @@ verify-out/
 .cache/
 .parallax-artifact/
 
+# Local agent settings and isolated worktree directories are machine state.
+.claude/settings.local.json
+.claude/worktrees/
+.worktrees/
+
 # Throwaway visual studies stay out of version control (mock-first workflow).
 *.png
 variant-*.html
