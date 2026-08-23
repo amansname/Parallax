@@ -14,6 +14,23 @@ import {
 
 export const HHDB_KEY = 'parallax.households.v1';
 export const ACTIVE_KEY = 'parallax.activeHouseholdId';
+export const RETIRED_BUILT_IN_HOUSEHOLD_IDS = Object.freeze([
+  'demo',
+  'default-pre-retirement-solo',
+  'default-pre-retirement-couple',
+]);
+export const RETIRED_HOUSEHOLD_DISPLAY_NAMES = Object.freeze([
+  'New Household',
+  'Demo Household copy',
+  'Pre-Retirement Couple copy',
+]);
+
+const RETIRED_HOUSEHOLD_DISPLAY_NAME_SET = new Set(RETIRED_HOUSEHOLD_DISPLAY_NAMES);
+
+function householdDisplayName(household){
+  const meta = household?.meta || {};
+  return meta.name || meta.primaryName || 'Household';
+}
 
 export function createMemoryStorage(initial = {}){
   const store = new Map(Object.entries(initial));
@@ -62,7 +79,6 @@ export function readHouseholdStore(storage, keys = { dbKey: HHDB_KEY, activeKey:
 
 export function prepareHouseholdStore(readResult, dependencies){
   const {
-    createDemoHousehold,
     createBlankHousehold,
     createSelectableDefaultHouseholds = () => [],
     pristinePlan,
@@ -75,10 +91,9 @@ export function prepareHouseholdStore(readResult, dependencies){
   );
 
   function prepareRuntimeDefaults(){
-    const demo = createDemoHousehold(pristinePlan, preparationYear);
     const defaults = selectableDefaults();
     const seededDb = Object.fromEntries(
-      [demo, ...defaults].map(household => [household.meta.householdId, household]),
+      defaults.map(household => [household.meta.householdId, household]),
     );
     const migration = migrateHouseholdsDb(seededDb);
     if(!migration.ok){
@@ -107,7 +122,7 @@ export function prepareHouseholdStore(readResult, dependencies){
     return {
       ok: true,
       db: recordMigration.db,
-      activeHouseholdId: demo.meta.householdId,
+      activeHouseholdId: null,
       issuesByHousehold: Object.fromEntries(
         Object.keys(recordMigration.db).map(householdId => [householdId, []]),
       ),
@@ -126,7 +141,7 @@ export function prepareHouseholdStore(readResult, dependencies){
       message: READ_ONLY_MESSAGE,
       changed: false,
       pointerChanged: false,
-      hydrate: true,
+      hydrate: false,
       error: error || readResult.error,
     };
   }
@@ -140,18 +155,24 @@ export function prepareHouseholdStore(readResult, dependencies){
       ...runtimeDefaults,
       mode: 'normal',
       changed: true,
-      pointerChanged: readResult.activePointer !== runtimeDefaults.activeHouseholdId,
-      hydrate: true,
+      pointerChanged: readResult.activePointer !== null,
+      hydrate: false,
     };
   }
 
-  // Reserved records are application templates, never browser-owned truth.
-  // Recreate them from the current build on every boot so localhost and the
-  // deployed site cannot hydrate different copies from origin-scoped storage.
+  // Shipped records are application templates, never browser-owned truth.
+  // Recreate current templates on every boot and exclude retired reserved ids
+  // and exact known-junk display names so stale built-in copies cannot hydrate.
   const runtimeDefaultsById = runtimeDefaults.db;
-  const reservedIds = new Set(Object.keys(runtimeDefaultsById));
+  const reservedIds = new Set([
+    ...Object.keys(runtimeDefaultsById),
+    ...RETIRED_BUILT_IN_HOUSEHOLD_IDS,
+  ]);
   const savedHouseholds = Object.fromEntries(
-    Object.entries(readResult.database).filter(([householdId]) => !reservedIds.has(householdId)),
+    Object.entries(readResult.database).filter(([householdId, household]) => (
+      !reservedIds.has(householdId)
+        && !RETIRED_HOUSEHOLD_DISPLAY_NAME_SET.has(householdDisplayName(household))
+    )),
   );
   const databaseWithDefaults = {
     ...runtimeDefaultsById,
@@ -160,6 +181,14 @@ export function prepareHouseholdStore(readResult, dependencies){
   const defaultsRefreshed = Object.entries(runtimeDefaultsById).some(([householdId, household]) => (
     JSON.stringify(readResult.database[householdId]) !== JSON.stringify(household)
   ));
+  const retiredBuiltInIdsRemoved = RETIRED_BUILT_IN_HOUSEHOLD_IDS.filter(
+    householdId => Object.hasOwn(readResult.database, householdId),
+  );
+  const retiredNamedHouseholdIdsRemoved = Object.entries(readResult.database)
+    .filter(([, household]) => (
+      RETIRED_HOUSEHOLD_DISPLAY_NAME_SET.has(householdDisplayName(household))
+    ))
+    .map(([householdId]) => householdId);
 
   const migration = migrateHouseholdsDb(databaseWithDefaults);
   if(!migration.ok){
@@ -188,8 +217,8 @@ export function prepareHouseholdStore(readResult, dependencies){
 
   // Startup is deliberately origin-independent. Saved households remain in
   // the selector, but only an explicit visible selection may activate one.
-  const activeHouseholdId = runtimeDefaults.activeHouseholdId;
-  const pointerChanged = readResult.activePointer !== activeHouseholdId;
+  const activeHouseholdId = null;
+  const pointerChanged = readResult.activePointer !== null;
   const schemaFilled = JSON.stringify(migration.db) !== JSON.stringify(mergedDb);
 
   return {
@@ -197,9 +226,10 @@ export function prepareHouseholdStore(readResult, dependencies){
     mode: 'normal',
     db: mergedDb,
     activeHouseholdId,
-    changed: defaultsRefreshed || migration.changed || schemaFilled || recordMigration.changed,
+    changed: retiredBuiltInIdsRemoved.length > 0 || retiredNamedHouseholdIdsRemoved.length > 0
+      || defaultsRefreshed || migration.changed || schemaFilled || recordMigration.changed,
     pointerChanged,
-    hydrate: true,
+    hydrate: false,
     issuesByHousehold: migration.issuesByHousehold || {},
     repairsByHousehold: recordMigration.repairsByHousehold,
   };
@@ -234,7 +264,11 @@ export function commitPreparedHouseholdStore(storage, preparedResult, keys = { d
       dbWritten = true;
     }
     if(preparedResult.pointerChanged){
-      storage.setItem(keys.activeKey, preparedResult.activeHouseholdId);
+      if(preparedResult.activeHouseholdId == null){
+        storage.removeItem(keys.activeKey);
+      }else{
+        storage.setItem(keys.activeKey, preparedResult.activeHouseholdId);
+      }
     }
     return { ok: true, wrote: true };
   }catch(error){

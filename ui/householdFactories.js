@@ -4,6 +4,7 @@ import { createBlankTaxProfiles, createFact } from '../src/household/factEnvelop
 import { createIncomeTaxInputs } from '../src/household/incomeTaxModel.js';
 import { HOUSEHOLD_RECORD_SCHEMA_VERSION } from '../src/household/householdRecordSchema.js';
 import { createEmptyNetWorthRecords } from '../src/household/netWorthRecords.js';
+import { setWizardTaxField } from '../src/household/wizardTaxMutations.js';
 import { confirmWizardTaxInputs } from '../src/household/wizardTaxCompletion.js';
 import {
   SPENDING_SCHEMA_VERSION,
@@ -14,19 +15,9 @@ import {
 
 const clonePristinePlan = pristinePlan => JSON.parse(JSON.stringify(pristinePlan));
 
-/* Persistent first-run slot. It is intentionally blank: "demo" identifies a
-   convenient record, not a fictional household whose values can overwrite the
-   advisor's saved work. */
-export function createDemoHousehold(pristinePlan, currentYear){
-  const p = createBlankHousehold(pristinePlan, 'demo', currentYear);
-  p.meta.name = 'Demo Household';
-  p.meta.isDemo = true;
-  return p;
-}
-
 export const SHIPPED_DEFAULT_HOUSEHOLD_IDS = Object.freeze([
-  'default-pre-retirement-solo',
-  'default-pre-retirement-couple',
+  'now-household',
+  'future-household',
 ]);
 
 function addDefaultAccount(plan, {
@@ -35,6 +26,7 @@ function addDefaultAccount(plan, {
   const account = createAccount(typeId, { displayName, owner, balance });
   account.id = id;
   plan.portfolio.extraAccounts.push(account);
+  return account;
 }
 
 function setConfirmedBirthDate(plan, owner, iso){
@@ -62,132 +54,318 @@ function addWages(plan, {
   });
 }
 
-function createPreRetirementSolo(pristinePlan, currentYear){
+function setConfirmedForm8606Zero(plan, owner){
+  const traditionalIra = plan.taxProfiles[owner].traditionalIra;
+  for(const key of [
+    'priorYearCarryforwardBasis',
+    'currentYearNondeductibleContributions',
+    'outstandingRolloversAtYearEnd',
+    'otherForm8606Adjustments',
+  ]){
+    traditionalIra[key] = createFact(
+      0,
+      'confirmed',
+      'household-entry',
+      '2026-08-23T12:00:00Z',
+    );
+  }
+}
+
+function createNowHousehold(pristinePlan, currentYear){
   const plan = createBlankHousehold(
     pristinePlan,
     SHIPPED_DEFAULT_HOUSEHOLD_IDS[0],
     currentYear,
   );
-  const birthYear = currentYear - 64;
-  plan.meta.name = 'Pre-Retirement Solo';
-  plan.meta.primaryName = 'Sample Client';
+  plan.meta.name = 'Now Household';
+  plan.meta.primaryName = 'Aboysname';
+  plan.meta.spouseName = 'Agirlsname';
+  plan.meta.filingStatus = 'marriedFilingJointly';
+  plan.meta.planningAsOfYear = 2026;
   plan.meta.isSelectableDefault = true;
   plan.household.primary = {
-    currentAge: 64,
-    retirementAge: 66,
-    planEndAge: 96,
-    birthYear,
+    currentAge: 36,
+    retirementAge: 65,
+    planEndAge: 95,
+    birthYear: 1990,
     employmentStatus: 'employed',
   };
-  setConfirmedBirthDate(plan, 'client', `${birthYear}-01-15`);
+  plan.household.spouse = {
+    currentAge: 33,
+    retirementAge: 60,
+    planEndAge: 95,
+    birthYear: 1993,
+    employmentStatus: 'employed',
+  };
+  plan.income.socialSecurity = {
+    primary: { pia: 50_000, claimAge: 67 },
+    spouse: { pia: 50_000, claimAge: 67 },
+  };
+  setConfirmedBirthDate(plan, 'client', '1990-01-15');
+  setConfirmedBirthDate(plan, 'spouse', '1993-03-15');
   addDefaultAccount(plan, {
-    id: 'default-solo-traditional',
-    typeId: 'traditional_ira',
-    displayName: 'Traditional IRA',
+    id: 'now-client-401k',
+    typeId: '401k',
+    displayName: 'Aboysname 401(k)',
     owner: 'client',
-    balance: 1_600_000,
+    balance: 140_000,
   });
   addDefaultAccount(plan, {
-    id: 'default-solo-taxable',
+    id: 'now-spouse-401k',
+    typeId: '401k',
+    displayName: 'Agirlsname 401(k)',
+    owner: 'spouse',
+    balance: 220_000,
+  });
+  const jointBrokerage = addDefaultAccount(plan, {
+    id: 'now-joint-brokerage',
+    typeId: 'joint_brokerage',
+    displayName: 'Joint Brokerage',
+    owner: 'joint',
+    balance: 40_000,
+  });
+  jointBrokerage.taxReporting = {
+    inclusion: 'household-return',
+    reportingTaxpayer: 'return-level',
+    householdReturnShare: 1,
+  };
+  addDefaultAccount(plan, {
+    id: 'now-spouse-tod-brokerage',
     typeId: 'tod_brokerage',
-    displayName: 'TOD Brokerage',
-    owner: 'client',
-    balance: 800_000,
+    displayName: 'Agirlsname TOD Brokerage',
+    owner: 'spouse',
+    balance: 40_000,
   });
   addDefaultAccount(plan, {
-    id: 'default-solo-roth',
+    id: 'now-client-roth-ira',
     typeId: 'roth_ira',
-    displayName: 'Roth IRA',
+    displayName: 'Aboysname Roth IRA',
     owner: 'client',
-    balance: 400_000,
+    balance: 40_000,
   });
   addWages(plan, {
-    id: 'default-solo-wages',
+    id: 'now-client-wages',
     owner: 'client',
-    label: 'Client wages',
-    amount: 50_000,
-    startAge: 64,
-    endAge: 65,
+    label: 'Aboysname wages',
+    amount: 220_000,
+    startAge: 36,
+    endAge: 64,
   });
+  addWages(plan, {
+    id: 'now-spouse-wages',
+    owner: 'spouse',
+    label: 'Agirlsname wages',
+    amount: 210_000,
+    startAge: 33,
+    endAge: 59,
+  });
+
+  plan.properties = [{
+    name: 'Primary Home',
+    value: 800_000,
+    purchasePrice: 0,
+    netWorthMeta: { type: 'Primary Home', owner: 'joint' },
+    mortgage: {
+      balance: 545_000,
+      rate: 0,
+      termYears: 0,
+      netWorthMeta: {
+        present: true,
+        name: 'Mortgage',
+        type: 'Mortgage',
+        owner: 'joint',
+      },
+    },
+  }];
+
+  setWizardTaxField(plan, 'taxYear', 2026);
+  setWizardTaxField(plan, 'deductionMode', 'itemized-details');
+  setWizardTaxField(plan, 'deductions.itemized.medicalExpensesPaid', 0);
+  setWizardTaxField(plan, 'deductions.itemized.salt.eligibleTaxesPaid', 14_000);
+  setWizardTaxField(plan, 'deductions.itemized.salt.magi', 352_000);
+  setWizardTaxField(plan, 'deductions.itemized.mortgageInterestDeductible', 34_000);
+  setWizardTaxField(plan, 'deductions.itemized.charitableContributionsDeductible', 0);
+  setWizardTaxField(plan, 'deductions.itemized.otherItemizedDeductions', 0);
+  setWizardTaxField(plan, 'irmaa.lookback.2024.magi', 0);
+  setWizardTaxField(plan, 'irmaa.lookback.2025.magi', 0);
   confirmWizardTaxInputs(plan);
+
+  plan.goals = [
+    makeEssentialsGoal(240_000),
+    makeHealthcareGoal(11_000),
+    {
+      id: 'now-travel',
+      name: 'Travel',
+      amount: 35_000,
+      startAge: 65,
+      endAge: 75,
+      realGrowth: 0,
+      flexesWithSpending: true,
+    },
+  ];
+  plan.savings.annual = 46_000;
+  plan.portfolio.riskProfile = 5;
   return plan;
 }
 
-function createPreRetirementCouple(pristinePlan, currentYear){
+function createFutureHousehold(pristinePlan, currentYear){
   const plan = createBlankHousehold(
     pristinePlan,
     SHIPPED_DEFAULT_HOUSEHOLD_IDS[1],
     currentYear,
   );
-  const clientBirthYear = currentYear - 62;
-  const spouseBirthYear = currentYear - 60;
-  plan.meta.name = 'Pre-Retirement Couple';
-  plan.meta.primaryName = 'Sample Client';
-  plan.meta.spouseName = 'Sample Co-Client';
+  plan.meta.name = 'Future Household';
+  plan.meta.primaryName = 'amansname';
+  plan.meta.spouseName = 'awomansname';
   plan.meta.filingStatus = 'marriedFilingJointly';
+  plan.meta.planningAsOfYear = 2026;
   plan.meta.isSelectableDefault = true;
   plan.household.primary = {
-    currentAge: 62,
-    retirementAge: 67,
+    currentAge: 65,
+    retirementAge: 63,
     planEndAge: 95,
-    birthYear: clientBirthYear,
-    employmentStatus: 'employed',
+    birthYear: 1961,
+    employmentStatus: 'retired',
   };
   plan.household.spouse = {
-    currentAge: 60,
-    retirementAge: 65,
-    planEndAge: 97,
-    birthYear: spouseBirthYear,
-    employmentStatus: 'employed',
+    currentAge: 65,
+    retirementAge: 63,
+    planEndAge: 95,
+    birthYear: 1961,
+    employmentStatus: 'retired',
   };
-  plan.income.socialSecurity.spouse = { pia: null, claimAge: 67 };
-  setConfirmedBirthDate(plan, 'client', `${clientBirthYear}-02-15`);
-  setConfirmedBirthDate(plan, 'spouse', `${spouseBirthYear}-03-15`);
+  plan.income.socialSecurity = {
+    primary: { pia: 50_000, claimAge: 67 },
+    spouse: { pia: 50_000, claimAge: 67 },
+  };
+  setConfirmedBirthDate(plan, 'client', '1961-01-15');
+  setConfirmedBirthDate(plan, 'spouse', '1961-03-15');
+  setConfirmedForm8606Zero(plan, 'client');
+  setConfirmedForm8606Zero(plan, 'spouse');
+
   addDefaultAccount(plan, {
-    id: 'default-couple-traditional',
-    typeId: 'traditional_ira',
-    displayName: 'Client Traditional IRA',
+    id: 'future-client-rollover-ira',
+    typeId: 'rollover_ira',
+    displayName: 'amansname Rollover IRA',
     owner: 'client',
-    balance: 1_200_000,
+    balance: 1_800_000,
   });
   addDefaultAccount(plan, {
-    id: 'default-couple-taxable',
+    id: 'future-spouse-rollover-ira',
+    typeId: 'rollover_ira',
+    displayName: 'awomansname Rollover IRA',
+    owner: 'spouse',
+    balance: 1_500_000,
+  });
+  const jointBrokerage = addDefaultAccount(plan, {
+    id: 'future-joint-brokerage',
+    typeId: 'joint_brokerage',
+    displayName: 'Joint Brokerage',
+    owner: 'joint',
+    balance: 1_600_000,
+  });
+  jointBrokerage.taxReporting = {
+    inclusion: 'household-return',
+    reportingTaxpayer: 'return-level',
+    householdReturnShare: 1,
+  };
+  addDefaultAccount(plan, {
+    id: 'future-client-tod-brokerage',
     typeId: 'tod_brokerage',
-    displayName: 'Client TOD Brokerage',
+    displayName: 'amansname TOD Brokerage',
     owner: 'client',
+    balance: 800_000,
+  });
+  addDefaultAccount(plan, {
+    id: 'future-client-roth-ira',
+    typeId: 'roth_ira',
+    displayName: 'amansname Roth IRA',
+    owner: 'client',
+    balance: 700_000,
+  });
+  addDefaultAccount(plan, {
+    id: 'future-spouse-roth-ira',
+    typeId: 'roth_ira',
+    displayName: 'awomansname Roth IRA',
+    owner: 'spouse',
     balance: 600_000,
   });
-  addDefaultAccount(plan, {
-    id: 'default-couple-roth',
-    typeId: 'roth_ira',
-    displayName: 'Client Roth IRA',
-    owner: 'client',
-    balance: 350_000,
-  });
-  addWages(plan, {
-    id: 'default-couple-client-wages',
-    owner: 'client',
-    label: 'Client wages',
-    amount: 70_000,
-    startAge: 62,
-    endAge: 66,
-  });
-  addWages(plan, {
-    id: 'default-couple-spouse-wages',
-    owner: 'spouse',
-    label: 'Co-client wages',
-    amount: 40_000,
-    startAge: 60,
-    endAge: 64,
-  });
+
+  plan.properties = [{
+    name: 'Primary Home',
+    value: 900_000,
+    purchasePrice: 0,
+    netWorthMeta: { type: 'Primary Home', owner: 'joint' },
+    mortgage: {
+      balance: 240_000,
+      rate: 0,
+      termYears: 0,
+      netWorthMeta: {
+        present: true,
+        name: 'Mortgage',
+        type: 'Mortgage',
+        owner: 'joint',
+      },
+    },
+  }];
+
+  setWizardTaxField(plan, 'taxYear', 2026);
+  setWizardTaxField(plan, 'deductionMode', 'standard');
+  setWizardTaxField(plan, 'income.taxableInterest', 8_000);
+  setWizardTaxField(plan, 'income.ordinaryDividends', 15_000);
+  setWizardTaxField(plan, 'scheduleD.netLongTermGainOrLoss', 10_000);
+  setWizardTaxField(plan, 'irmaa.lookback.2024.magi', 42_000);
+  setWizardTaxField(plan, 'irmaa.lookback.2025.magi', 42_000);
   confirmWizardTaxInputs(plan);
+
+  plan.goals = [
+    {
+      ...makeEssentialsGoal(204_000),
+      startsAtRetirement: false,
+      startAge: 65,
+      endAge: 95,
+    },
+    {
+      ...makeHealthcareGoal(11_000),
+      startsAtRetirement: false,
+      startAge: 65,
+      endAge: 95,
+    },
+    {
+      id: 'future-travel-first-10',
+      name: 'Travel — first 10 years',
+      amount: 35_000,
+      startAge: 65,
+      endAge: 74,
+      realGrowth: 0,
+      flexesWithSpending: true,
+    },
+    {
+      id: 'future-travel-years-11-15',
+      name: 'Travel — years 11–15',
+      amount: 15_000,
+      startAge: 75,
+      endAge: 79,
+      realGrowth: 0,
+      flexesWithSpending: true,
+    },
+    {
+      id: 'future-education',
+      name: 'Education',
+      amount: 40_000,
+      startAge: 65,
+      endAge: 69,
+      realGrowth: 0,
+      flexesWithSpending: true,
+    },
+  ];
   return plan;
 }
 
 export function createSelectableDefaultHouseholds(pristinePlan, currentYear){
   return [
-    createPreRetirementSolo(pristinePlan, currentYear),
-    createPreRetirementCouple(pristinePlan, currentYear),
+    createNowHousehold(pristinePlan, currentYear),
+    createFutureHousehold(pristinePlan, currentYear),
   ];
 }
 

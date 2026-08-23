@@ -98,6 +98,14 @@
 .page[data-page="household"] .hh-menu__pop[hidden] { display: none; }
 .page[data-page="household"] .hh-rail-act { width: 100%; }
 
+.page[data-page="household"] .hh-stage.is-unselected .hh-sidebar-head { display: block; }
+.page[data-page="household"] .hh-stage.is-unselected .hh-menu { margin: var(--sp-4) 0 0; }
+.page[data-page="household"] .hh-stage.is-unselected .hh-menu__pop {
+  position: static;
+  width: 100%;
+  box-shadow: none;
+}
+
 .page[data-page="household"] .hh-progress { margin: 0; }
 
 .page[data-page="household"] .hh-progress > div:first-child {
@@ -390,6 +398,8 @@
 }
 
 .page[data-page="household"] .hh-card-action {
+  height: auto;
+  min-height: 0;
   margin-left: auto;
   padding: 0;
   color: var(--neg);
