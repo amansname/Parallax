@@ -2189,12 +2189,49 @@ try {
     const cmpStepBtns = await page.evaluate(() => document.querySelectorAll('#scn-view .compare .cmp-step-btn[data-scn-id]').length);
     const cmpInputs   = await page.evaluate(() => document.querySelectorAll('#scn-view .compare .cmp-lev-in[data-scn-id]').length);
     if(cmpStepBtns < 2 && cmpInputs < 1) throw new Error(`Compare lever controls missing (stepBtns=${cmpStepBtns}, inputs=${cmpInputs})`);
-    await page.evaluate(() => document.querySelector('#scn-view .compare .cmp-step-btn[data-dir="1"][data-scn-id]')?.click());
-    await new Promise(r => setTimeout(r, 250));
-    const cmpStatus = await page.evaluate(() => document.querySelector('#status')?.textContent || '');
-    if(!/Run to update/i.test(cmpStatus)) throw new Error(`Compare step button did not request a manual Run: "${cmpStatus}"`);
-    await page.evaluate(() => document.querySelector('#scn-view .compare .cmp-step-btn[data-dir="-1"][data-scn-id]')?.click());
-    await new Promise(r => setTimeout(r, 250));
+    const cmpStep = await page.evaluate(() => {
+      const button = document.querySelector(
+        '#scn-view .compare .cmp-step-btn[data-dir="1"][data-scn-id]',
+      );
+      return {
+        scenarioId: button?.dataset.scnId || '',
+        leverKey: button?.dataset.leverKey || '',
+        value: button?.closest('.cmp-lev-row')
+          ?.querySelector('.cmp-lev-val')?.textContent.trim() || '',
+      };
+    });
+    await page.evaluate(({ scenarioId, leverKey }) => {
+      [...document.querySelectorAll(
+        '#scn-view .compare .cmp-step-btn[data-dir="1"][data-scn-id]',
+      )].find(button => button.dataset.scnId === scenarioId
+        && button.dataset.leverKey === leverKey)?.click();
+    }, cmpStep);
+    await page.waitForFunction(({ scenarioId, leverKey, value }) => {
+      const button = [...document.querySelectorAll(
+        '#scn-view .compare .cmp-step-btn[data-dir="1"][data-scn-id]',
+      )].find(candidate => candidate.dataset.scnId === scenarioId
+        && candidate.dataset.leverKey === leverKey);
+      const current = button?.closest('.cmp-lev-row')
+        ?.querySelector('.cmp-lev-val')?.textContent.trim() || '';
+      return current !== value
+        && /Plan updated/i.test(document.querySelector('#status')?.textContent || '');
+    }, { timeout: 30000 }, cmpStep);
+    await page.evaluate(({ scenarioId, leverKey }) => {
+      [...document.querySelectorAll(
+        '#scn-view .compare .cmp-step-btn[data-dir="-1"][data-scn-id]',
+      )].find(button => button.dataset.scnId === scenarioId
+        && button.dataset.leverKey === leverKey)?.click();
+    }, cmpStep);
+    await page.waitForFunction(({ scenarioId, leverKey, value }) => {
+      const button = [...document.querySelectorAll(
+        '#scn-view .compare .cmp-step-btn[data-dir="-1"][data-scn-id]',
+      )].find(candidate => candidate.dataset.scnId === scenarioId
+        && candidate.dataset.leverKey === leverKey);
+      const current = button?.closest('.cmp-lev-row')
+        ?.querySelector('.cmp-lev-val')?.textContent.trim() || '';
+      return current === value
+        && /Plan updated/i.test(document.querySelector('#status')?.textContent || '');
+    }, { timeout: 30000 }, cmpStep);
 
     await page.screenshot({ path: join(OUT, '03-scenarios.png'), fullPage: true });
   });
