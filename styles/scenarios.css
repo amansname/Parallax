@@ -996,6 +996,19 @@
   line-height: 1;
 }
 
+.page[data-page="scenarios"] .cashflow-path-status {
+  min-width: 0.8em;
+  color: var(--body);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-body-strong);
+  line-height: 1;
+  text-align: center;
+}
+
+.page[data-page="scenarios"] .cashflow-path-status[hidden] { display: none; }
+.page[data-page="scenarios"] .cashflow-path-status.is-success { color: var(--pos); }
+.page[data-page="scenarios"] .cashflow-path-status.is-underfunded { color: var(--neg); }
+
 .page[data-page="scenarios"] .cf__path-controls .scn-path select {
   width: auto;
   height: auto;
@@ -1024,14 +1037,6 @@
   flex-wrap: nowrap;
 }
 
-.page[data-page="scenarios"] .cf-summary__id { display: flex; align-items: center; gap: var(--sp-4); }
-
-.page[data-page="scenarios"] .cf-summary__sub {
-  color: var(--body);
-  font-size: var(--fs-emphasis);
-  white-space: nowrap;
-}
-
 .page[data-page="scenarios"] .cf-summary__stats { display: flex; align-items: stretch; margin-left: auto; }
 
 .page[data-page="scenarios"] .cf-stat {
@@ -1042,7 +1047,6 @@
 
 .page[data-page="scenarios"] .cf-stat:first-child { border-left: 0; }
 .page[data-page="scenarios"] .cf-stat:last-child { padding-right: 0; }
-.page[data-page="scenarios"] .cf-summary__id .cf-stat { padding-left: 0; text-align: left; }
 
 .page[data-page="scenarios"] .cf-stat__label {
   color: var(--body);
@@ -1063,48 +1067,103 @@
   font-variant-numeric: tabular-nums;
 }
 
-.page[data-page="scenarios"] .cf-stat__value--probability { color: var(--pos); }
-
-.page[data-page="scenarios"] .cf-stat__peak {
-  display: flex;
-  align-items: baseline;
-  justify-content: flex-end;
-  gap: var(--sp-2);
-  margin: 0;
+.page[data-page="scenarios"] .cf-stat__support {
+  margin-top: var(--sp-2);
+  color: var(--body);
+  font-size: var(--fs-caption);
+  line-height: var(--lh-caption);
+  white-space: nowrap;
 }
 
-.page[data-page="scenarios"] .cf-stat__peak-age {
-  color: var(--body);
-  font-size: var(--fs-body);
-  white-space: nowrap;
+.page[data-page="scenarios"] .cf-summary--typical {
+  justify-content: flex-end;
+  padding-block: var(--sp-4);
+}
+
+.page[data-page="scenarios"] .cf-summary--typical .cf-summary__stats {
+  display: grid;
+  grid-template-columns: repeat(3, auto);
+  gap: var(--sp-8);
+  width: max-content;
+  margin-left: auto;
+  justify-items: end;
+}
+
+.page[data-page="scenarios"] .cf-summary--typical .cf-stat {
+  padding: 0;
+  border: 0;
+  text-align: left;
+}
+
+.page[data-page="scenarios"] .cf-summary--typical .cf-stat__value {
+  margin-top: var(--sp-2);
+  font-size: 15px;
+}
+
+.page[data-page="scenarios"] .cf-summary--typical .cf-stat__value--funded {
+  color: var(--pos);
 }
 
 .page[data-page="scenarios"] .cf-summary--historical {
   justify-content: flex-end;
-  padding-top: 0;
+  padding-block: var(--sp-4);
   flex-wrap: nowrap;
 }
 
-.page[data-page="scenarios"] .cf-summary--historical .cf-summary__stats {
+.page[data-page="scenarios"] .cf-comparison {
   display: grid;
-  width: min(100%, 690px); /* geometry: compact three-metric cluster */
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: max-content;
+  gap: 0;
   margin: 0 0 0 auto;
+  font-variant-numeric: tabular-nums;
 }
 
-.page[data-page="scenarios"] .cf-summary--historical .cf-stat {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  padding-inline: var(--sp-4);
+.page[data-page="scenarios"] .cf-comparison__head,
+.page[data-page="scenarios"] .cf-comparison__row {
+  display: grid;
+  grid-template-columns: auto 104px 104px 104px;
+  gap: 0 var(--sp-3);
+  align-items: baseline;
+}
+
+.page[data-page="scenarios"] .cf-comparison__head {
+  padding-bottom: var(--sp-2);
+  color: var(--body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-eyebrow);
+  letter-spacing: var(--ls-eyebrow);
   text-align: right;
+  text-transform: uppercase;
 }
 
-.page[data-page="scenarios"] .cf-summary--historical .cf-stat__label {
-  min-height: 4.05em; /* geometry: three-line label bay */
-  line-height: 1.35;
-  white-space: normal;
+.page[data-page="scenarios"] .cf-comparison__row {
+  padding: var(--sp-2) 0;
 }
+
+.page[data-page="scenarios"] .cf-comparison__label {
+  color: var(--body);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.page[data-page="scenarios"] .cf-comparison__value {
+  color: var(--body);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.page[data-page="scenarios"] .cf-comparison__value--this {
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: var(--fw-body-strong);
+}
+
+.page[data-page="scenarios"] .cf-comparison__value--positive { color: var(--pos); }
+.page[data-page="scenarios"] .cf-comparison__value--negative { color: var(--neg); }
 
 /* ── tax scope and warnings ──────────────────────────────────────────────── */
 .page[data-page="scenarios"] .cf-tax-disclosure {
@@ -1315,8 +1374,5 @@
   .page[data-page="scenarios"] .cf-summary { align-items: flex-start; flex-direction: column; }
   .page[data-page="scenarios"] .cf-summary__stats { width: 100%; margin: 0; overflow-x: auto; }
   .page[data-page="scenarios"] .cf-stat { padding: 0 var(--sp-4); }
-  .page[data-page="scenarios"] .cf-summary--historical .cf-summary__stats {
-    grid-template-columns: repeat(3, minmax(180px, 1fr));
-  }
   .page[data-page="scenarios"] .assum-grid { grid-template-columns: minmax(0, 1fr); }
 }

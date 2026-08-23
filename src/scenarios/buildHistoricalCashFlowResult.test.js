@@ -229,6 +229,17 @@ test('historical Cash Flow cache reuses period switches and invalidates with a n
   const first = cache.get(args);
 
   assert.equal(cache.get(args), first);
+  assert.equal(cache.peek(args), first);
+  assert.equal(
+    cache.peek({ ...args, scenarioId: 'different_cache_input' }),
+    null,
+    'a read-only peek must enforce the complete accepted-input identity'
+  );
+  assert.equal(
+    cache.peek({ ...args, periodId: 'historical-2008' }),
+    null,
+    'an uncalculated period has no known outcome'
+  );
   assert.notEqual(
     cache.get({ ...args, scenarioId: 'different_cache_input' }),
     first,

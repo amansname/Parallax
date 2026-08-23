@@ -1,4 +1,5 @@
 import { pathDigest } from '../../engine.js';
+import { buildCashFlowHeaderMetrics } from './buildCashFlowHeaderMetrics.js';
 import { createHistoricalCashFlowCache } from './buildHistoricalCashFlowResult.js';
 import {
   CASH_FLOW_PATH_OPTIONS,
@@ -10,13 +11,6 @@ function simulationByIndex(result, simIndex){
   return result.sims.find(simulation => simulation?.simIndex === simIndex) ?? null;
 }
 
-function federalTaxTotal(simulation){
-  const rows = simulation?.rows;
-  if(!Array.isArray(rows) || rows.length === 0) return null;
-  if(rows.some(row => !Number.isFinite(row?.taxes))) return null;
-  return rows.reduce((total, row) => total + row.taxes, 0);
-}
-
 function freezeSelectedResult(result){
   return Object.freeze({
     ...result,
@@ -24,42 +18,6 @@ function freezeSelectedResult(result){
     summary: result.summary && typeof result.summary === 'object'
       ? Object.freeze({ ...result.summary })
       : result.summary,
-  });
-}
-
-function exactRetirementRowForYear(rows, year, label){
-  if(!Number.isInteger(year)) throw new Error(`${label} comparison year is unavailable`);
-  const matches = (Array.isArray(rows) ? rows : [])
-    .filter(row => !row?.accum && row?.year === year);
-  if(matches.length !== 1 || !Number.isFinite(matches[0]?.ending)){
-    throw new Error(`${label} comparison row is unavailable`);
-  }
-  return matches[0];
-}
-
-function historicalSummaryWithTypicalComparison({ summary, historicalRows, typicalRows }){
-  const comparisonYear = summary?.outcome === 'underfunded'
-    ? summary.firstUnderfundedYear
-    : summary?.outcome === 'survives'
-      ? summary.endingYear
-      : null;
-  const historicalRow = exactRetirementRowForYear(
-    historicalRows,
-    comparisonYear,
-    'historical'
-  );
-  const typicalRow = exactRetirementRowForYear(typicalRows, comparisonYear, 'Typical');
-  if(summary.outcome === 'survives'
-      && (!Number.isFinite(summary.endingBalance)
-        || Math.abs(summary.endingBalance - historicalRow.ending) > 0.01)){
-    throw new Error('historical plan-end balance does not match its comparison row');
-  }
-  return Object.freeze({
-    ...summary,
-    comparisonYear,
-    comparisonBalance: historicalRow.ending,
-    typicalComparisonBalance: typicalRow.ending,
-    deltaVsTypical: historicalRow.ending - typicalRow.ending,
   });
 }
 
@@ -80,6 +38,7 @@ export function createCashFlowController({
   buildRows,
   currentYear = () => new Date().getFullYear(),
   onError = (...args) => console.error(...args),
+  onHeaderDiagnostic = (...args) => console.warn(...args),
 }){
   if(typeof getScenarios !== 'function') throw new TypeError('getScenarios is required');
   if(!scenarioInputsByResult || typeof scenarioInputsByResult.get !== 'function'){
@@ -97,7 +56,38 @@ export function createCashFlowController({
     if(persist && typeof saveSelection === 'function') saveSelection();
   }
 
-  function syncSelect(select){
+  function historicalArgsForScenario(scenario, periodId){
+    if(!scenario?.res) return null;
+    const runInputs = scenarioInputsByResult.get(scenario.res);
+    if(!runInputs) return null;
+    return {
+      analysis: scenario.res,
+      plan: runInputs.plan,
+      overrides: runInputs.overrides,
+      periodId,
+      scenarioId: `cash_flow_${scenario.name}`,
+    };
+  }
+
+  function knownHistoricalOutcome(scenario, periodId){
+    if(typeof historicalCache.peek !== 'function') return null;
+    const args = historicalArgsForScenario(scenario, periodId);
+    if(!args) return null;
+    const outcome = historicalCache.peek(args)?.summary?.outcome;
+    return outcome === 'survives' || outcome === 'underfunded' ? outcome : null;
+  }
+
+  function headerMetricsOrNull(argsOrFactory, scenario, pathId){
+    try{
+      const args = typeof argsOrFactory === 'function' ? argsOrFactory() : argsOrFactory;
+      return buildCashFlowHeaderMetrics(args);
+    }catch(error){
+      onHeaderDiagnostic('Cash Flow header unavailable:', scenario?.name, pathId, error);
+      return null;
+    }
+  }
+
+  function syncSelect(select, scenario = null){
     if(!select) return;
     const currentIds = [...select.options].map(option => option.value);
     const expectedIds = CASH_FLOW_PATH_OPTIONS.map(option => option.id);
@@ -105,11 +95,47 @@ export function createCashFlowController({
       select.replaceChildren(...CASH_FLOW_PATH_OPTIONS.map(option => {
         const element = select.ownerDocument.createElement('option');
         element.value = option.id;
-        element.textContent = option.label;
         return element;
       }));
     }
     select.value = selection.id;
+    [...select.options].forEach((element, index) => {
+      const option = CASH_FLOW_PATH_OPTIONS[index];
+      const outcome = option?.kind === 'historical'
+        ? knownHistoricalOutcome(scenario, option.id)
+        : null;
+      const glyph = outcome === 'survives' ? '✓' : outcome === 'underfunded' ? '!' : '';
+      element.textContent = glyph && option.id !== selection.id
+        ? `${glyph} ${option.label}`
+        : option.label;
+      if(outcome) element.dataset.outcome = outcome;
+      else delete element.dataset.outcome;
+    });
+
+    const selectedOutcome = selection.id === TYPICAL_CASH_FLOW_PATH_ID
+      ? null
+      : knownHistoricalOutcome(scenario, selection.id);
+    const status = select.ownerDocument?.getElementById('cashflow-path-status') ?? null;
+    if(status){
+      status.textContent = selectedOutcome === 'survives'
+        ? '✓'
+        : selectedOutcome === 'underfunded'
+          ? '!'
+          : '';
+      status.hidden = !selectedOutcome;
+      status.classList.toggle('is-success', selectedOutcome === 'survives');
+      status.classList.toggle('is-underfunded', selectedOutcome === 'underfunded');
+      if(selectedOutcome){
+        status.setAttribute(
+          'aria-label',
+          selectedOutcome === 'survives'
+            ? 'Historical path funded through plan end'
+            : 'Historical path becomes underfunded'
+        );
+      }else{
+        status.removeAttribute('aria-label');
+      }
+    }
   }
 
   function resultForScenario(scenario){
@@ -139,48 +165,45 @@ export function createCashFlowController({
         const simulation = simulationByIndex(scenario.res, simIndex);
         if(!simulation?.rows) throw new Error('shared Typical simulation is unavailable');
         const summary = digest(simulation);
+        const headerMetrics = headerMetricsOrNull({
+          typicalSimulation: simulation,
+          typicalDigest: summary,
+        }, scenario, pathId);
         return freezeSelectedResult({
           kind,
           pathId,
           simulation,
           rows: buildRows(simulation, { plan: scenarioPlan, currentYear: displayYear }),
-          summary: {
-            ...summary,
-            federalTotal: federalTaxTotal(simulation),
-          },
+          summary,
+          ...(headerMetrics ? { headerMetrics } : {}),
           taxScope: scenario.res?.federalFunding?.semantics?.convergence === 'per-year-to-one-cent'
             ? 'MODELED_FEDERAL_LINE_24'
             : null,
         });
       }
 
-      const historical = historicalCache.get({
-        analysis: scenario.res,
-        plan: scenarioPlan,
-        overrides: runInputs.overrides,
-        periodId: pathId,
-        scenarioId: `cash_flow_${scenario.name}`,
-      });
+      const historical = historicalCache.get(
+        historicalArgsForScenario(scenario, pathId)
+      );
       const historicalRows = buildRows(historical.simulation, {
         plan: scenarioPlan,
         currentYear: displayYear,
       });
-      const simIndex = baselineP50SimulationIndex(getScenarios());
-      if(simIndex === null) throw new Error('baseline Typical simulation identity is unavailable');
-      const typicalSimulation = simulationByIndex(scenario.res, simIndex);
-      if(!typicalSimulation?.rows) throw new Error('shared Typical simulation is unavailable');
-      const typicalRows = buildRows(typicalSimulation, {
-        plan: scenarioPlan,
-        currentYear: displayYear,
-      });
+      const headerMetrics = headerMetricsOrNull(() => {
+        const simIndex = baselineP50SimulationIndex(getScenarios());
+        if(simIndex === null) throw new Error('baseline Typical simulation identity is unavailable');
+        const typicalSimulation = simulationByIndex(scenario.res, simIndex);
+        if(!typicalSimulation?.rows) throw new Error('shared Typical simulation is unavailable');
+        return {
+          historicalResult: historical,
+          typicalSimulation,
+          typicalDigest: digest(typicalSimulation),
+        };
+      }, scenario, pathId);
       return freezeSelectedResult({
         ...historical,
         rows: historicalRows,
-        summary: historicalSummaryWithTypicalComparison({
-          summary: historical.summary,
-          historicalRows,
-          typicalRows,
-        }),
+        ...(headerMetrics ? { headerMetrics } : {}),
       });
     }catch(error){
       onError('Cash Flow unavailable:', scenario.name, pathId, error);

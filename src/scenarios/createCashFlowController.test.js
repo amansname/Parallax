@@ -7,13 +7,16 @@ function simulation(simIndex, balance){
   return {
     simIndex,
     rows: [{
+      year: 1,
       age: 65,
       phase: 'ret',
       source: 2026,
       returnRate: 0,
       balance,
       startBalance: balance,
+      wdRate: 4,
       fundingShortfall: 0,
+      failed: false,
       taxes: 0,
     }],
   };
@@ -63,7 +66,11 @@ test('Typical Cash Flow compares every scenario on the baseline p50 market index
     getScenarios: () => [baseline, alternative],
     scenarioInputsByResult: inputs,
     selection: { id: 'typical' },
-    digest: selected => ({ endingBalance: selected.rows.at(-1).balance }),
+    digest: selected => ({
+      endingBalance: selected.rows.at(-1).balance,
+      peakWdRate: 4,
+      peakWdAge: 65,
+    }),
     buildRows,
   });
 
@@ -72,13 +79,15 @@ test('Typical Cash Flow compares every scenario on the baseline p50 market index
   assert.equal(result.simulation, scenarioSharedMarket);
   assert.notEqual(result.simulation, scenarioOwnP50);
   assert.equal(result.summary.endingBalance, 650_000);
-  assert.equal(result.summary.federalTotal, 0);
   assert.equal(result.rows[0].ending, 650_000);
+  assert.equal(result.headerMetrics.endingPosition, 650_000);
+  assert.equal(result.headerMetrics.fundedThroughAge, 65);
   assert.equal(Object.isFrozen(result), true);
   assert.equal(Object.isFrozen(result.rows), true);
+  assert.equal(Object.isFrozen(result.headerMetrics), true);
 });
 
-test('Typical Cash Flow totals authoritative federal tax from the selected simulation rows', () => {
+test('Typical Cash Flow replaces probability and federal total with the same-path header contract', () => {
   const selected = simulation(4, 700_000);
   selected.rows.push({ ...selected.rows[0], age: 66, taxes: 2_800 });
   selected.rows[0].taxes = 1_200;
@@ -99,14 +108,23 @@ test('Typical Cash Flow totals authoritative federal tax from the selected simul
     getScenarios: () => [scenario],
     scenarioInputsByResult: new WeakMap([[scenario.res, { plan, overrides: {} }]]),
     selection: { id: 'typical' },
-    digest: () => ({ peakWdRate: 4.1 }),
+    digest: () => ({ peakWdRate: 4.1, peakWdAge: 66 }),
     buildRows,
   });
 
   const result = controller.resultForScenario(scenario);
 
-  assert.equal(result.summary.federalTotal, 4_000);
   assert.equal(result.summary.peakWdRate, 4.1);
+  assert.equal('federalTotal' in result.summary, false);
+  assert.deepEqual(result.headerMetrics, {
+    kind: 'typical',
+    outcome: 'survives',
+    fundedThroughAge: 66,
+    fundedThroughSupport: 'Plan end',
+    endingPosition: 700_000,
+    peakWithdrawalRate: 4.1,
+    peakWithdrawalAge: 66,
+  });
 });
 
 test('Typical Cash Flow fails closed when the baseline p50 identity is absent', () => {
@@ -187,12 +205,18 @@ test('Typical Cash Flow fails closed when a scenario lacks the exact shared simI
   assert.notEqual(result.simulation, unrelatedAtPositionSeven);
 });
 
-test('historical Cash Flow compares its outcome-year balance with the same scenario Typical row', () => {
+test('historical Cash Flow attaches the comparison contract to the same ledger result', () => {
   const typical = {
     simIndex: 7,
     rows: [
-      { age: 65, phase: 'ret', balance: 700_000, taxes: 0 },
-      { age: 66, phase: 'ret', balance: 600_000, taxes: 0 },
+      {
+        year: 1, age: 65, phase: 'ret', source: 1995, startBalance: 750_000,
+        balance: 700_000, fundingShortfall: 0, failed: false, wdRate: 4, taxes: 0,
+      },
+      {
+        year: 2, age: 66, phase: 'ret', source: 1996, startBalance: 700_000,
+        balance: 600_000, fundingShortfall: 0, failed: false, wdRate: 5, taxes: 0,
+      },
     ],
   };
   const scenario = {
@@ -208,37 +232,35 @@ test('historical Cash Flow compares its outcome-year balance with the same scena
     household: { primary: { currentAge: 65 } },
     goals: [],
   };
-  const cases = [
-    {
-      summary: {
-        outcome: 'underfunded',
-        firstUnderfundedYear: 2026,
-        peakWdRate: 8.1,
-      },
-      row: { age: 65, phase: 'ret', balance: 0, taxes: 0 },
-      expectedYear: 2026,
-      expectedTypical: 700_000,
-      expectedDelta: -700_000,
-    },
-    {
-      summary: {
-        outcome: 'survives',
-        endingYear: 2027,
-        endingBalance: 650_000,
-        peakWdRate: 4.2,
-      },
-      row: { age: 66, phase: 'ret', balance: 650_000, taxes: 0 },
-      expectedYear: 2027,
-      expectedTypical: 600_000,
-      expectedDelta: 50_000,
-    },
-  ];
+  const cases = [{
+    summary: { outcome: 'survives', endingBalance: 650_000 },
+    rows: [{
+      year: 2, age: 66, phase: 'ret', source: 1974, startBalance: 690_000,
+      balance: 650_000, fundingShortfall: 0, failed: false, wdRate: 4.2, taxes: 0,
+    }],
+    expectedOutcome: 'survives',
+    expectedMetric: 'ending-portfolio',
+    expectedDelta: 50_000,
+  }, {
+    summary: { outcome: 'underfunded' },
+    rows: [{
+      year: 1, age: 65, phase: 'ret', source: 1973, startBalance: 90_000,
+      balance: 50_000, fundingShortfall: 0, failed: false, wdRate: 6, taxes: 0,
+    }, {
+      year: 2, age: 66, phase: 'ret', source: 1974, startBalance: 50_000,
+      balance: 0, fundingShortfall: 20_000, failed: true, wdRate: 100, taxes: 0,
+      people: { client: { age: 66, alive: true }, spouse: null },
+    }],
+    expectedOutcome: 'underfunded',
+    expectedMetric: 'portfolio-at-underfunding',
+    expectedDelta: -650_000,
+  }];
 
   for(const entry of cases){
     const historical = {
       kind: 'historical',
       pathId: 'historical-1973',
-      simulation: { rows: [entry.row] },
+      simulation: { rows: entry.rows },
       summary: entry.summary,
       taxScope: 'MODELED_FEDERAL_LINE_24',
     };
@@ -253,10 +275,170 @@ test('historical Cash Flow compares its outcome-year balance with the same scena
     const result = controller.resultForScenario(scenario);
 
     assert.equal(result.error, undefined);
-    assert.equal(result.summary.comparisonYear, entry.expectedYear);
-    assert.equal(result.summary.comparisonBalance, entry.row.balance);
-    assert.equal(result.summary.typicalComparisonBalance, entry.expectedTypical);
-    assert.equal(result.summary.deltaVsTypical, entry.expectedDelta);
+    assert.equal(result.headerMetrics.outcome, entry.expectedOutcome);
+    const metric = result.headerMetrics.rows.find(row => row.id === entry.expectedMetric);
+    assert.equal(metric.delta, entry.expectedDelta);
+    assert.equal(result.rows.length, entry.rows.length);
     assert.equal(Object.isFrozen(result.summary), true);
+    assert.equal(Object.isFrozen(result.headerMetrics), true);
   }
+});
+
+test('a header-only metric failure preserves the authoritative historical ledger', () => {
+  const typical = simulation(7, 700_000);
+  const scenario = {
+    base: true,
+    name: 'Baseline',
+    res: { sims: [typical], paths: { p50: { simIndex: 7 } } },
+  };
+  const plan = {
+    meta: { planningAsOfYear: 2026 },
+    household: { primary: { currentAge: 65 } },
+    goals: [],
+  };
+  const historical = {
+    kind: 'historical',
+    pathId: 'historical-1995',
+    simulation: { rows: [{
+      year: 1, age: 65, phase: 'ret', source: 1995, startBalance: 750_000,
+      balance: 700_000, fundingShortfall: 0, failed: false, wdRate: 0, taxes: 0,
+    }] },
+    summary: { outcome: 'survives', endingBalance: 700_000 },
+  };
+  const errors = [];
+  const headerDiagnostics = [];
+  const controller = createCashFlowController({
+    getScenarios: () => [scenario],
+    scenarioInputsByResult: new WeakMap([[scenario.res, { plan, overrides: {} }]]),
+    selection: { id: 'historical-1995' },
+    historicalCache: { get: () => historical },
+    buildRows,
+    onError: (...args) => errors.push(args),
+    onHeaderDiagnostic: (...args) => headerDiagnostics.push(args),
+  });
+
+  const result = controller.resultForScenario(scenario);
+
+  assert.equal(result.error, undefined);
+  assert.equal(result.kind, 'historical');
+  assert.equal(result.summary.outcome, 'survives');
+  assert.equal(result.rows.length, 1);
+  assert.equal(result.rows[0].ending, 700_000);
+  assert.equal('headerMetrics' in result, false);
+  assert.equal(errors.length, 0);
+  assert.equal(headerDiagnostics.length, 1);
+  assert.equal(headerDiagnostics[0][0], 'Cash Flow header unavailable:');
+});
+
+test('selector shows only active-scenario known outcomes without running another period', () => {
+  const plan = {
+    meta: { planningAsOfYear: 2026 },
+    household: { primary: { currentAge: 65 } },
+    goals: [],
+  };
+  const scenario = {
+    base: true,
+    name: 'Baseline',
+    res: { sims: [simulation(7, 700_000)], paths: { p50: { simIndex: 7 } } },
+  };
+  const secondScenario = {
+    name: 'Scenario B',
+    res: { sims: [simulation(7, 600_000)], paths: { p50: { simIndex: 7 } } },
+  };
+  const outcomesByAnalysis = new WeakMap([
+    [scenario.res, new Map([
+      ['historical-1973', 'underfunded'],
+      ['historical-1995', 'survives'],
+    ])],
+    [secondScenario.res, new Map([
+      ['historical-1973', 'survives'],
+    ])],
+  ]);
+  let getCalls = 0;
+  const historicalCache = {
+    get: () => { getCalls += 1; throw new Error('sync must not calculate'); },
+    peek: args => {
+      const outcome = outcomesByAnalysis.get(args.analysis)?.get(args.periodId);
+      return outcome ? { summary: { outcome } } : null;
+    },
+  };
+  const selection = { id: 'historical-1973' };
+  const controller = createCashFlowController({
+    getScenarios: () => [scenario, secondScenario],
+    scenarioInputsByResult: new WeakMap([
+      [scenario.res, { plan, overrides: {} }],
+      [secondScenario.res, { plan, overrides: {} }],
+    ]),
+    selection,
+    historicalCache,
+    buildRows,
+  });
+  const classes = new Set();
+  const attributes = new Map();
+  const status = {
+    textContent: '',
+    hidden: true,
+    classList: {
+      toggle(name, enabled){
+        if(enabled) classes.add(name);
+        else classes.delete(name);
+      },
+    },
+    setAttribute(name, value){ attributes.set(name, value); },
+    removeAttribute(name){ attributes.delete(name); },
+  };
+  const ownerDocument = {
+    createElement: () => ({ value: '', textContent: '', dataset: {} }),
+    getElementById: id => id === 'cashflow-path-status' ? status : null,
+  };
+  const select = {
+    options: [],
+    value: '',
+    ownerDocument,
+    replaceChildren(...options){ this.options = options; },
+  };
+
+  controller.syncSelect(select, scenario);
+
+  assert.equal(getCalls, 0);
+  assert.equal(select.value, 'historical-1973');
+  assert.equal(select.options.find(option => option.value === 'historical-1973').textContent, '1973 \u00b7 Stagflation');
+  assert.match(select.options.find(option => option.value === 'historical-1995').textContent, /^✓ /);
+  assert.doesNotMatch(select.options.find(option => option.value === 'historical-2008').textContent, /^[✓!] /);
+  assert.equal(status.textContent, '!');
+  assert.equal(status.hidden, false);
+  assert.equal(classes.has('is-underfunded'), true);
+  assert.equal(classes.has('is-success'), false);
+  assert.equal(attributes.get('aria-label'), 'Historical path becomes underfunded');
+
+  selection.id = 'historical-1995';
+  controller.syncSelect(select, scenario);
+  assert.equal(select.value, 'historical-1995');
+  assert.match(select.options.find(option => option.value === 'historical-1973').textContent, /^! /);
+  assert.equal(select.options.find(option => option.value === 'historical-1995').textContent, '1995 \u00b7 90s Boom');
+  assert.equal(status.textContent, '✓');
+  assert.equal(status.hidden, false);
+  assert.equal(classes.has('is-underfunded'), false);
+  assert.equal(classes.has('is-success'), true);
+  assert.equal(attributes.get('aria-label'), 'Historical path funded through plan end');
+
+  selection.id = 'typical';
+  controller.syncSelect(select, scenario);
+  assert.equal(select.value, 'typical');
+  assert.equal(status.textContent, '');
+  assert.equal(status.hidden, true);
+  assert.equal(classes.has('is-underfunded'), false);
+  assert.equal(classes.has('is-success'), false);
+  assert.equal(attributes.has('aria-label'), false);
+
+  controller.syncSelect(select, secondScenario);
+  assert.match(select.options.find(option => option.value === 'historical-1973').textContent, /^✓ /);
+  assert.doesNotMatch(select.options.find(option => option.value === 'historical-1995').textContent, /^[✓!] /);
+  assert.equal(getCalls, 0);
+
+  selection.id = 'historical-1973';
+  controller.syncSelect(select, secondScenario);
+  assert.equal(status.textContent, '✓');
+  assert.equal(attributes.get('aria-label'), 'Historical path funded through plan end');
+  assert.equal(getCalls, 0);
 });

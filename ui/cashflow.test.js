@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { buildPathRows, renderCashflow } from './cashflow.js';
+import {
+  buildPathRows,
+  formatCashFlowHeaderMoney,
+  renderCashflow,
+} from './cashflow.js';
 
 const plan = { household: { primary: { currentAge: 65 } }, goals: [] };
 const deps = {
@@ -79,7 +83,7 @@ test('Cash Flow visibly labels the engine-owned annual shortfall for Typical', (
   assert.match(html, /class="cf-row__shortfall">Short \$5,000<\/span>/);
 });
 
-test('Typical Cash Flow uses one scenario selector and shows its authoritative federal total', () => {
+test('Typical Cash Flow uses one selector and the locked three-metric header', () => {
   const row = {
     year: 2026, age: 65, accum: false, ret: 0, income: 0, rmd: 0,
     essential: 0, goals: 0, tax: 4_000, draw: 0, wdRate: 0,
@@ -94,14 +98,24 @@ test('Typical Cash Flow uses one scenario selector and shows its authoritative f
     id: 'alternative', name: 'Scenario B', tone: '#B1845C', prob: 90,
     probStr: '90.0', median: '$3.2M', raw: { res: {} },
   };
-  const html = renderCashflow(baseline, [baseline, alternative], {
-    cashFlowResult: () => ({
+  const selected = {
+    kind: 'typical',
+    pathId: 'typical',
+    rows: [row],
+    summary: { peakWdRate: 7.4, peakWdAge: 69 },
+    headerMetrics: {
       kind: 'typical',
-      pathId: 'typical',
-      rows: [row],
-      summary: { peakWdRate: 7.4, peakWdAge: 69, federalTotal: 107_000 },
-      taxScope: 'MODELED_FEDERAL_LINE_24',
-    }),
+      outcome: 'survives',
+      fundedThroughAge: 95,
+      fundedThroughSupport: 'Plan end',
+      endingPosition: 2_410_000,
+      peakWithdrawalRate: 3.6,
+      peakWithdrawalAge: 88,
+    },
+    taxScope: 'MODELED_FEDERAL_LINE_24',
+  };
+  const renderDeps = {
+    cashFlowResult: () => selected,
     cashFromRetirement: false,
     isTypicalPath: () => true,
     typicalPathFederalTax: () => null,
@@ -111,15 +125,36 @@ test('Typical Cash Flow uses one scenario selector and shows its authoritative f
     esc: value => String(value),
     fmtMoney: value => `$${Number(value).toLocaleString('en-US')}`,
     cfCols: ['Year', 'Age', 'Income', 'RMD', 'Essential', 'Goals', 'Tax', 'Draw', 'Return', 'WD Rate', 'Ending'],
-  });
+  };
+  const html = renderCashflow(baseline, [baseline, alternative], renderDeps);
 
   assert.match(html, /<select data-cash-select aria-label="Cash Flow scenario">/);
   assert.match(html, /<option value="baseline" selected>Baseline<\/option>/);
   assert.match(html, /<option value="alternative">Scenario B<\/option>/);
   assert.doesNotMatch(html, /data-cash-pick|class="cf-pill/);
-  assert.match(html, /data-federal-total="107000"/);
-  assert.match(html, /Federal total/);
-  assert.match(html, /\$107,000/);
+  assert.match(html, /Funded through/);
+  assert.match(html, /Age 95/);
+  assert.match(html, /Plan end/);
+  assert.match(html, /Ending position/);
+  assert.match(html, /\$2\.41M/);
+  assert.match(html, /Median path/);
+  assert.match(html, /Peak withdrawal/);
+  assert.match(html, /3\.6%/);
+  assert.match(html, /Age 88/);
+  assert.doesNotMatch(html, /Probability of success|Median Ending|Federal total|data-federal-total/);
+
+  selected.headerMetrics = {
+    ...selected.headerMetrics,
+    outcome: 'underfunded',
+    fundedThroughAge: 87,
+    fundedThroughSupport: 'Plan underfunded',
+    endingPosition: 0,
+  };
+  const underfundedHtml = renderCashflow(baseline, [baseline, alternative], renderDeps);
+  assert.match(underfundedHtml, /data-outcome="underfunded"/);
+  assert.match(underfundedHtml, /Age 87/);
+  assert.match(underfundedHtml, /Plan underfunded/);
+  assert.match(underfundedHtml, /Ending position[\s\S]*\$0/);
 });
 
 test('underfunded historical Cash Flow shows three compact outcome metrics', () => {
@@ -154,6 +189,35 @@ test('underfunded historical Cash Flow shows three compact outcome metrics', () 
         typicalComparisonBalance: 450_000,
         deltaVsTypical: -450_000,
       },
+      headerMetrics: {
+        kind: 'historical',
+        outcome: 'underfunded',
+        rows: [{
+          id: 'early-withdrawal-pressure',
+          label: 'Early withdrawal pressure',
+          format: 'percent',
+          thisPath: 6.9,
+          typicalPath: 4.3,
+          delta: 2.6,
+          planYear: 2,
+        }, {
+          id: 'portfolio-at-underfunding',
+          label: 'Portfolio at age 89',
+          format: 'money',
+          thisPath: 50_000,
+          typicalPath: 2_860_000,
+          delta: -2_810_000,
+          planYear: 26,
+        }, {
+          id: 'first-underfunded-age',
+          label: 'First underfunded age',
+          format: 'age',
+          thisPath: 89,
+          typicalPath: null,
+          delta: null,
+          planYear: 26,
+        }],
+      },
       taxScope: 'MODELED_FEDERAL_LINE_24',
     }),
     cashFromRetirement: false,
@@ -172,25 +236,31 @@ test('underfunded historical Cash Flow shows three compact outcome metrics', () 
   assert.match(html, /data-cash-path-id="historical-1973"/);
   assert.match(html, /data-source-year="1973"/);
   assert.match(html, /data-outcome="underfunded"/);
-  assert.match(html, /data-first-underfunded-age="89"/);
-  assert.match(html, /data-first-underfunded-year="2051"/);
-  assert.match(html, /data-comparison-year="2051"/);
-  assert.match(html, /data-delta-vs-typical="-450000"/);
+  assert.match(html, /class="cf-comparison" role="table" aria-label="Historical path comparison"/);
+  assert.match(html, /class="cf-comparison__head" role="row"/);
+  assert.equal((html.match(/role="columnheader"/g) || []).length, 4);
+  assert.equal((html.match(/role="rowheader"/g) || []).length, 3);
+  assert.equal((html.match(/role="cell"/g) || []).length, 9);
+  assert.doesNotMatch(html, /cf-comparison__head" aria-hidden/);
   assert.equal((html.match(/data-historical-metric=/g) || []).length, 3);
-  assert.match(html, /Peak withdrawal rate through the first underfunded year/);
-  assert.match(html, /First underfunded year/);
-  assert.match(html, /Delta vs\. Typical in that same year/);
-  assert.match(html, /8\.1%/);
-  assert.match(html, /&minus;\$450,000/);
+  assert.match(html, /Early withdrawal pressure/);
+  assert.match(html, /Portfolio at age 89/);
+  assert.match(html, /First underfunded age/);
+  assert.match(html, /6\.9%/);
+  assert.match(html, /4\.3%/);
+  assert.match(html, /\+2\.6 pts/);
+  assert.match(html, /\$50K/);
+  assert.match(html, /\$2\.86M/);
+  assert.match(html, /−\$2\.81M/);
   assert.match(html, /cf-cell cf-cell--ending[^>]*><span>Underfunded<\/span>/);
   assert.doesNotMatch(html, /modeled shortfall|Short \$5,000/);
-  assert.doesNotMatch(html, /Underfunded at age|funded through age|Plan funding|Ending position/);
+  assert.doesNotMatch(html, /Peak withdrawal rate|First underfunded year|Underfunded at age|funded through age|Plan funding|Ending position/);
   assert.doesNotMatch(html, /Probability of success/);
   assert.doesNotMatch(html, /Median Ending/);
   assert.doesNotMatch(html, /Federal tax scope|data-tax-scope-disclosure/);
 });
 
-test('surviving historical Cash Flow shows three compact plan-end metrics', () => {
+test('surviving historical Cash Flow shows only the locked two-row comparison', () => {
   const row = {
     year: 2032, age: 70, sourceYear: 1977, accum: false, ret: 0.08,
     income: 0, rmd: 0, essential: 10_000, goals: 0, tax: 0,
@@ -223,6 +293,25 @@ test('surviving historical Cash Flow shows three compact plan-end metrics', () =
         typicalComparisonBalance: 400_000,
         deltaVsTypical: 50_000,
       },
+      headerMetrics: {
+        kind: 'historical',
+        outcome: 'survives',
+        rows: [{
+          id: 'median-withdrawal-rate',
+          label: 'Median withdrawal rate',
+          format: 'percent',
+          thisPath: 2.8,
+          typicalPath: 4.1,
+          delta: -1.3,
+        }, {
+          id: 'ending-portfolio',
+          label: 'Ending portfolio',
+          format: 'money',
+          thisPath: 5_860_000,
+          typicalPath: 2_410_000,
+          delta: 3_450_000,
+        }],
+      },
       taxScope: 'MODELED_FEDERAL_LINE_24',
     }),
     cashFromRetirement: false,
@@ -239,17 +328,31 @@ test('surviving historical Cash Flow shows three compact plan-end metrics', () =
   });
 
   assert.match(html, /data-outcome="survives"/);
-  assert.match(html, /data-comparison-year="2032"/);
-  assert.match(html, /data-delta-vs-typical="50000"/);
-  assert.equal((html.match(/data-historical-metric=/g) || []).length, 3);
-  assert.match(html, /Peak withdrawal rate/);
-  assert.match(html, /Ending portfolio at plan end/);
-  assert.match(html, /Delta vs\. Typical at plan end/);
-  assert.match(html, /\$450,000/);
-  assert.match(html, /\+\$50,000/);
-  assert.match(html, /4.2%/);
+  assert.equal((html.match(/data-historical-metric=/g) || []).length, 2);
+  assert.match(html, /Median withdrawal rate/);
+  assert.match(html, /Ending portfolio/);
+  assert.match(html, /2\.8%/);
+  assert.match(html, /4\.1%/);
+  assert.match(html, /−1\.3 pts/);
+  assert.match(html, /\$5\.86M/);
+  assert.match(html, /\$2\.41M/);
+  assert.match(html, /\+\$3\.45M/);
+  assert.doesNotMatch(html, /Peak withdrawal rate/);
   assert.doesNotMatch(html, /Funded through plan end|Through age 70|age 68|Plan funding|Ending position/);
   assert.doesNotMatch(html, /Probability of success|Median Ending|modeled shortfall|Federal tax scope|data-tax-scope-disclosure/);
+});
+
+test('Cash Flow comparison money formatter uses deterministic dollars, K, and M bands', () => {
+  assert.equal(formatCashFlowHeaderMoney(0), '$0');
+  assert.equal(formatCashFlowHeaderMoney(999), '$999');
+  assert.equal(formatCashFlowHeaderMoney(1_000), '$1K');
+  assert.equal(formatCashFlowHeaderMoney(999_499), '$999K');
+  assert.equal(formatCashFlowHeaderMoney(999_999), '$999K');
+  assert.equal(formatCashFlowHeaderMoney(1_000_000), '$1M');
+  assert.equal(formatCashFlowHeaderMoney(2_860_000), '$2.86M');
+  assert.equal(formatCashFlowHeaderMoney(-850_000, { signed: true }), '−$850K');
+  assert.equal(formatCashFlowHeaderMoney(50_000), '$50K');
+  assert.notEqual(formatCashFlowHeaderMoney(50_000), '$0.05M');
 });
 
 test('unavailable historical Cash Flow suppresses all financial summary claims', () => {
@@ -281,4 +384,41 @@ test('unavailable historical Cash Flow suppresses all financial summary claims',
   assert.match(html, /retirement handoff could not be verified/);
   assert.doesNotMatch(html, /cf-summary--historical/);
   assert.doesNotMatch(html, /Ending portfolio at plan end|First underfunded year|Delta vs\. Typical|Peak withdrawal rate/);
+});
+
+test('historical Cash Flow keeps a valid ledger when only its header metrics are unavailable', () => {
+  const row = {
+    year: 2032, age: 70, sourceYear: 1995, accum: false, ret: 0.08,
+    income: 0, rmd: 0, essential: 10_000, goals: 0, tax: 0,
+    draw: 10_000, wdRate: 0, ending: 450_000, fundingShortfall: 0,
+    shortfall: false, startPort: 475_000, goalTag: null,
+  };
+  const scenario = {
+    id: 'baseline', name: 'Baseline', tone: '#8fa57e', prob: 84,
+    probStr: '84.0', median: '$900K', raw: { res: {} },
+  };
+  const html = renderCashflow(scenario, [scenario], {
+    cashFlowResult: () => ({
+      kind: 'historical',
+      pathId: 'historical-1995',
+      rows: [row],
+      summary: { outcome: 'survives', endingBalance: 450_000 },
+    }),
+    cashFromRetirement: false,
+    isTypicalPath: () => false,
+    typicalPathFederalTax: () => null,
+    pathFederalTax: () => null,
+    toneGlow: () => '',
+    ring: () => '',
+    wdColor: () => '',
+    num: value => String(value),
+    esc: value => String(value),
+    fmtMoney: value => `$${Number(value).toLocaleString('en-US')}`,
+    cfCols: ['Year', 'Age', 'Income', 'RMD', 'Essential', 'Goals', 'Tax', 'Draw', 'Return', 'WD Rate', 'Ending'],
+  });
+
+  assert.match(html, /data-cash-path-id="historical-1995"/);
+  assert.match(html, /data-source-year="1995"/);
+  assert.match(html, /\$450,000/);
+  assert.doesNotMatch(html, /cf-summary--historical|retirement handoff could not be verified/);
 });

@@ -155,11 +155,27 @@ export function fmtParenMoney(n, fmtMoney) {
     return m === '—' ? m : '(' + m + ')';
   }
 
-function fmtSignedMoney(value, fmtMoney) {
+export function formatCashFlowHeaderMoney(value, { signed = false } = {}) {
     if (!Number.isFinite(value)) return '—';
-    const amount = fmtMoney(Math.abs(value));
-    if (Math.abs(value) < 0.005) return amount;
-    return value > 0 ? '+' + amount : '&minus;' + amount;
+    const absolute = Math.abs(value);
+    const prefix = value < 0 ? '\u2212' : (signed && value > 0 ? '+' : '');
+    let amount;
+    if (absolute >= 1_000_000) {
+      amount = (absolute / 1_000_000).toFixed(2).replace(/\.?0+$/, '') + 'M';
+    } else if (absolute >= 1_000) {
+      amount = Math.min(999, Math.round(absolute / 1_000)) + 'K';
+    } else {
+      amount = Math.round(absolute).toLocaleString('en-US');
+    }
+    return prefix + '$' + amount;
+  }
+
+function formatCashFlowHeaderPercent(value, { delta = false } = {}) {
+    if (!Number.isFinite(value)) return '—';
+    const absolute = Math.abs(value).toFixed(1);
+    if (!delta) return absolute + '%';
+    const prefix = value < 0 ? '\u2212' : (value > 0 ? '+' : '');
+    return prefix + absolute + ' pts';
   }
 
 export function federalWarningMessage(warning) {
@@ -204,7 +220,6 @@ export function renderCashflow(scn, allScns, {
         }
       : taxSidecarFor(scn.raw, { isTypicalPath, typicalPathFederalTax, pathFederalTax });
     const taxColumn = taxColumnMeta(sidecar);
-    const taxComparison = taxComparisonFor(sidecar);
     const federalAttachFailed = typicalPath && !!scn.raw.res && !sidecar;
     const taxDisclosureState = federalAttachFailed
       ? 'engine-fallback'
@@ -226,97 +241,95 @@ export function renderCashflow(scn, allScns, {
     const RMD_START_AGE = 73;
     const rmdStartAge = rows.find((r) => r.age >= RMD_START_AGE)?.age ?? null;
 
-    const federalTotal = Number.isFinite(summary.federalTotal)
-      ? summary.federalTotal
-      : taxComparison?.federalTotal;
-    const federalTotalHtml = Number.isFinite(federalTotal) ? (
-      '<div class="cf-stat cf-stat--federal" data-federal-total="' + federalTotal + '"' +
-        (taxComparison ? ' data-tax-compare' : '') +
-        (taxComparison && sidecar?.path ? ' data-tax-path="' + esc(sidecar.path) + '"' : '') +
-        (taxComparison ? ' data-engine-path-total="' + taxComparison.enginePathTotal + '" data-delta="' + taxComparison.delta + '"' : '') + '>' +
-        '<div class="cf-stat__label">Federal total</div>' +
-        '<div class="cf-stat__value">' + (federalTotal === 0 ? '$0' : fmtMoney(federalTotal)) + '</div>' +
+    const headerMetrics = selected?.headerMetrics ?? null;
+    const typicalSummaryStrip = headerMetrics?.kind === 'typical' ? (
+      '<div class="cf-summary cf-summary--typical" data-cash-header-kind="typical" data-outcome="' + esc(headerMetrics.outcome) + '" style="--tone:' + scn.tone + ';">' +
+        '<div class="cf-summary__stats">' +
+          '<div class="cf-stat" data-cash-header-metric="funded-through">' +
+            '<div class="cf-stat__label">Funded through</div>' +
+            '<div class="cf-stat__value cf-stat__value--funded">Age ' + esc(headerMetrics.fundedThroughAge) + '</div>' +
+            '<div class="cf-stat__support">' + esc(headerMetrics.fundedThroughSupport) + '</div>' +
+          '</div>' +
+          '<div class="cf-stat" data-cash-header-metric="ending-position">' +
+            '<div class="cf-stat__label">Ending position</div>' +
+            '<div class="cf-stat__value">' + formatCashFlowHeaderMoney(headerMetrics.endingPosition) + '</div>' +
+            '<div class="cf-stat__support">Median path</div>' +
+          '</div>' +
+          '<div class="cf-stat" data-cash-header-metric="peak-withdrawal">' +
+            '<div class="cf-stat__label">Peak withdrawal</div>' +
+            '<div class="cf-stat__value">' + formatCashFlowHeaderPercent(headerMetrics.peakWithdrawalRate) + '</div>' +
+            '<div class="cf-stat__support">' + (Number.isFinite(headerMetrics.peakWithdrawalAge) ? 'Age ' + esc(headerMetrics.peakWithdrawalAge) : '—') + '</div>' +
+          '</div>' +
+        '</div>' +
       '</div>'
     ) : '';
 
-    const typicalSummaryStrip = (
-      '<div class="cf-summary" style="--tone:' + scn.tone + ';">' +
-        '<div class="cf-summary__id">' +
-          '<div class="cf-stat"><div class="cf-stat__label">Probability of success</div>' +
-            '<div class="cf-stat__value cf-stat__value--probability">' + scn.probStr + '%</div></div>' +
-        '</div>' +
-        '<div class="cf-summary__stats">' +
-          '<div class="cf-stat"><div class="cf-stat__label">Median Ending</div><div class="cf-stat__value">' + scn.median + '</div></div>' +
-          '<div class="cf-stat"><div class="cf-stat__label">Peak Withdrawal</div>' +
-            '<div class="cf-stat__peak"><span class="cf-stat__value" style="color:' + wdColor(summary.peakWdRate, false) + ';">' + (summary.peakWdRate ? num(summary.peakWdRate, 1) + '%' : '—') + '</span><span class="cf-stat__peak-age">' + (summary.peakWdAge ? 'age ' + summary.peakWdAge : '') + '</span></div>' +
-          '</div>' +
-          federalTotalHtml +
-        '</div>' +
+    const historicalUnderfunded = headerMetrics?.outcome === 'underfunded';
+    const comparisonValue = (metric, key) => {
+      const value = metric[key];
+      if(value === null || value === undefined){
+        return key === 'delta' ? '—' : '';
+      }
+      if(metric.format === 'money'){
+        return formatCashFlowHeaderMoney(value, { signed: key === 'delta' });
+      }
+      if(metric.format === 'percent'){
+        return formatCashFlowHeaderPercent(value, { delta: key === 'delta' });
+      }
+      return esc(value);
+    };
+    const comparisonTone = (metric, key) => {
+      if(key === 'thisPath' && historicalUnderfunded
+          && ['early-withdrawal-pressure', 'first-underfunded-age'].includes(metric.id)){
+        return ' cf-comparison__value--negative';
+      }
+      if(key !== 'delta' || !Number.isFinite(metric.delta)) return '';
+      if(metric.id === 'early-withdrawal-pressure'){
+        return metric.delta > 0
+          ? ' cf-comparison__value--negative'
+          : metric.delta < 0 ? ' cf-comparison__value--positive' : '';
+      }
+      if(['ending-portfolio', 'portfolio-at-underfunding'].includes(metric.id)){
+        return metric.delta > 0
+          ? ' cf-comparison__value--positive'
+          : metric.delta < 0 ? ' cf-comparison__value--negative' : '';
+      }
+      return '';
+    };
+    const historicalMetrics = (headerMetrics?.rows ?? []).map(metric => (
+      '<div class="cf-comparison__row" role="row" data-historical-metric="' + esc(metric.id) + '"' +
+        ' data-this-path="' + esc(metric.thisPath ?? '') + '"' +
+        ' data-typical-path="' + esc(metric.typicalPath ?? '') + '"' +
+        ' data-delta="' + esc(metric.delta ?? '') + '"' +
+        (Number.isInteger(metric.planYear) ? ' data-plan-year="' + metric.planYear + '"' : '') + '>' +
+        '<div class="cf-comparison__label" role="rowheader">' + esc(metric.label) + '</div>' +
+        '<div class="cf-comparison__value cf-comparison__value--this' + comparisonTone(metric, 'thisPath') + '" role="cell">' + comparisonValue(metric, 'thisPath') + '</div>' +
+        '<div class="cf-comparison__value" role="cell">' + comparisonValue(metric, 'typicalPath') + '</div>' +
+        '<div class="cf-comparison__value' + comparisonTone(metric, 'delta') + '" role="cell">' + comparisonValue(metric, 'delta') + '</div>' +
       '</div>'
-    );
-
-    const historicalUnderfunded = summary.outcome === 'underfunded';
-    const historicalPeakLabel = historicalUnderfunded
-      ? 'Peak withdrawal rate through the first underfunded year'
-      : 'Peak withdrawal rate';
-    const historicalOutcomeLabel = historicalUnderfunded
-      ? 'First underfunded year'
-      : 'Ending portfolio at plan end';
-    const historicalOutcomeValue = historicalUnderfunded
-      ? esc(summary.firstUnderfundedYear)
-      : fmtMoney(summary.endingBalance);
-    const historicalDeltaLabel = historicalUnderfunded
-      ? 'Delta vs. Typical in that same year'
-      : 'Delta vs. Typical at plan end';
-    const historicalMetrics = (
-      '<div class="cf-stat" data-historical-metric="peak-withdrawal-rate">' +
-        '<div class="cf-stat__label">' + historicalPeakLabel + '</div>' +
-        '<div class="cf-stat__value" style="color:' + wdColor(summary.peakWdRate, false) + ';">' +
-          num(summary.peakWdRate, 1) + '%' +
-        '</div>' +
-      '</div>' +
-      '<div class="cf-stat" data-historical-metric="outcome">' +
-        '<div class="cf-stat__label">' + historicalOutcomeLabel + '</div>' +
-        '<div class="cf-stat__value">' + historicalOutcomeValue + '</div>' +
-      '</div>' +
-      '<div class="cf-stat" data-historical-metric="typical-delta">' +
-        '<div class="cf-stat__label">' + historicalDeltaLabel + '</div>' +
-        '<div class="cf-stat__value">' + fmtSignedMoney(summary.deltaVsTypical, fmtMoney) + '</div>' +
-      '</div>'
-    );
+    )).join('');
     const historicalSummaryStrip = (
-      '<div class="cf-summary cf-summary--historical"' +
-        ' data-outcome="' + esc(summary.outcome ?? '') + '"' +
-        ' data-first-underfunded-age="' + (summary.firstUnderfundedAge ?? '') + '"' +
-        ' data-first-underfunded-year="' + (summary.firstUnderfundedYear ?? '') + '"' +
-        ' data-funded-through-age="' + (summary.fundedThroughAge ?? '') + '"' +
-        ' data-funded-through-year="' + (summary.fundedThroughYear ?? '') + '"' +
-        ' data-ending-balance="' + (summary.endingBalance ?? '') + '"' +
-        ' data-ending-age="' + (summary.endingAge ?? '') + '"' +
-        ' data-ending-year="' + (summary.endingYear ?? '') + '"' +
-        ' data-peak-wd-rate="' + (summary.peakWdRate ?? '') + '"' +
-        ' data-peak-wd-age="' + (summary.peakWdAge ?? '') + '"' +
-        ' data-peak-wd-year="' + (summary.peakWdYear ?? '') + '"' +
-        ' data-comparison-year="' + (summary.comparisonYear ?? '') + '"' +
-        ' data-comparison-balance="' + (summary.comparisonBalance ?? '') + '"' +
-        ' data-typical-comparison-balance="' + (summary.typicalComparisonBalance ?? '') + '"' +
-        ' data-delta-vs-typical="' + (summary.deltaVsTypical ?? '') + '">' +
-        '<div class="cf-summary__stats">' +
+      '<div class="cf-summary cf-summary--historical" data-cash-header-kind="historical"' +
+        ' data-outcome="' + esc(headerMetrics?.outcome ?? '') + '">' +
+        '<div class="cf-comparison" role="table" aria-label="Historical path comparison">' +
+          '<div class="cf-comparison__head" role="row">' +
+            '<span role="columnheader" aria-label="Metric"></span>' +
+            '<span role="columnheader">This path</span>' +
+            '<span role="columnheader">Typical path</span>' +
+            '<span role="columnheader">Delta</span>' +
+          '</div>' +
           historicalMetrics +
         '</div>' +
       '</div>'
     );
     const hasHistoricalSummary = selected?.kind === 'historical'
       && !selected.error
-      && ['underfunded', 'survives'].includes(summary.outcome)
-      && Number.isFinite(summary.peakWdRate)
-      && Number.isFinite(summary.deltaVsTypical)
-      && (historicalUnderfunded
-        ? Number.isInteger(summary.firstUnderfundedYear)
-        : Number.isFinite(summary.endingBalance));
+      && headerMetrics?.kind === 'historical'
+      && ['underfunded', 'survives'].includes(headerMetrics.outcome)
+      && headerMetrics.rows?.length === (historicalUnderfunded ? 3 : 2);
     const summaryStrip = selected?.kind === 'historical'
       ? (hasHistoricalSummary ? historicalSummaryStrip : '')
-      : typicalSummaryStrip;
+      : (!selected?.error ? typicalSummaryStrip : '');
 
     const taxDisclosureContent = federalAttachFailed
       ? '<div class="cf-tax-fallback" data-tax-fallback role="status">Federal tax detail isn\'t available for this run. The Tax column uses engine estimates.</div>'
