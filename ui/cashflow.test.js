@@ -83,7 +83,7 @@ test('Cash Flow visibly labels the engine-owned annual shortfall for Typical', (
   assert.match(html, /class="cf-row__shortfall">Short \$5,000<\/span>/);
 });
 
-test('Typical Cash Flow uses one selector and the locked three-metric header', () => {
+test('Typical Cash Flow uses one selector and the locked two-metric header', () => {
   const row = {
     year: 2026, age: 65, accum: false, ret: 0, income: 0, rmd: 0,
     essential: 0, goals: 0, tax: 4_000, draw: 0, wdRate: 0,
@@ -109,8 +109,6 @@ test('Typical Cash Flow uses one selector and the locked three-metric header', (
       fundedThroughAge: 95,
       fundedThroughSupport: 'Plan end',
       endingPosition: 2_410_000,
-      peakWithdrawalRate: 3.6,
-      peakWithdrawalAge: 88,
     },
     taxScope: 'MODELED_FEDERAL_LINE_24',
   };
@@ -138,9 +136,7 @@ test('Typical Cash Flow uses one selector and the locked three-metric header', (
   assert.match(html, /Ending position/);
   assert.match(html, /\$2\.41M/);
   assert.match(html, /Median path/);
-  assert.match(html, /Peak withdrawal/);
-  assert.match(html, /3\.6%/);
-  assert.match(html, /Age 88/);
+  assert.doesNotMatch(html, /Peak withdrawal/);
   assert.doesNotMatch(html, /Probability of success|Median Ending|Federal total|data-federal-total/);
 
   selected.headerMetrics = {

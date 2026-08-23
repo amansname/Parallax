@@ -18,6 +18,7 @@ function simulation(simIndex, balance){
       fundingShortfall: 0,
       failed: false,
       taxes: 0,
+      people: { client: { age: 65, alive: true }, spouse: null },
     }],
   };
 }
@@ -89,7 +90,15 @@ test('Typical Cash Flow compares every scenario on the baseline p50 market index
 
 test('Typical Cash Flow replaces probability and federal total with the same-path header contract', () => {
   const selected = simulation(4, 700_000);
-  selected.rows.push({ ...selected.rows[0], age: 66, taxes: 2_800 });
+  selected.rows.push({
+    ...selected.rows[0],
+    age: 98,
+    taxes: 2_800,
+    people: {
+      client: { age: 98, alive: false },
+      spouse: { age: 95, alive: true },
+    },
+  });
   selected.rows[0].taxes = 1_200;
   const scenario = {
     base: true,
@@ -119,11 +128,9 @@ test('Typical Cash Flow replaces probability and federal total with the same-pat
   assert.deepEqual(result.headerMetrics, {
     kind: 'typical',
     outcome: 'survives',
-    fundedThroughAge: 66,
+    fundedThroughAge: 95,
     fundedThroughSupport: 'Plan end',
     endingPosition: 700_000,
-    peakWithdrawalRate: 4.1,
-    peakWithdrawalAge: 66,
   });
 });
 

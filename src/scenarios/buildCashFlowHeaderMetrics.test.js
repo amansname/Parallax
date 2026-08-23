@@ -40,13 +40,22 @@ function historicalResult(outcome, rows){
   };
 }
 
-test('Typical header reports plan end without probability or a replacement metric', () => {
+test('Typical header reports the living household plan-end age and ending position only', () => {
   const metrics = buildCashFlowHeaderMetrics({
     typicalSimulation: {
       rows: [
         row({ year: 1, phase: 'accum', age: 64, wdRate: 0 }),
         row({ year: 2, age: 65, wdRate: 3.4, balance: 940_000 }),
-        row({ year: 3, age: 66, wdRate: 4.1, balance: 910_000 }),
+        row({
+          year: 3,
+          age: 98,
+          wdRate: 4.1,
+          balance: 910_000,
+          people: {
+            client: { age: 98, alive: false },
+            spouse: { age: 95, alive: true },
+          },
+        }),
       ],
     },
     typicalDigest: { peakWdRate: 4.1, peakWdAge: 66 },
@@ -55,11 +64,9 @@ test('Typical header reports plan end without probability or a replacement metri
   assert.deepEqual(metrics, {
     kind: 'typical',
     outcome: 'survives',
-    fundedThroughAge: 66,
+    fundedThroughAge: 95,
     fundedThroughSupport: 'Plan end',
     endingPosition: 910_000,
-    peakWithdrawalRate: 4.1,
-    peakWithdrawalAge: 66,
   });
   assert.equal(Object.isFrozen(metrics), true);
 });
@@ -88,8 +95,8 @@ test('underfunded Typical reports its last funded age and same-path boundary pos
   assert.equal(metrics.fundedThroughAge, 65);
   assert.equal(metrics.fundedThroughSupport, 'Plan underfunded');
   assert.equal(metrics.endingPosition, 0);
-  assert.equal(metrics.peakWithdrawalRate, 100);
-  assert.equal(metrics.peakWithdrawalAge, 66);
+  assert.equal('peakWithdrawalRate' in metrics, false);
+  assert.equal('peakWithdrawalAge' in metrics, false);
 });
 
 test('underfunded Typical never counts accumulation as funded through retirement', () => {

@@ -2564,11 +2564,11 @@ try {
     if(!/Baseline/.test(m.activeScenario)) throw new Error(`Cash Flow scenario selector did not start on Baseline: ${JSON.stringify(m)}`);
     if(!SKIP_SEQUENCING && !m.pathControls) throw new Error('Cash Flow path controls not relocated into #scn-cf-path-controls');
     if(!SKIP_SEQUENCING && m.mode !== 'typical') throw new Error(`Cash Flow default path not Typical (${m.mode})`);
-    for(const label of ['Funded through', 'Ending position', 'Peak withdrawal']){
+    for(const label of ['Funded through', 'Ending position']){
       if(!m.stats.includes(label)) throw new Error(`cash-flow summary stat missing: ${label} (${JSON.stringify(m.stats)})`);
     }
-    if(JSON.stringify(m.summaryMetrics.map(metric => metric.id)) !== JSON.stringify(['funded-through', 'ending-position', 'peak-withdrawal'])) throw new Error(`Typical Cash Flow metric contract drifted: ${JSON.stringify(m.summaryMetrics)}`);
-    if(m.summaryMetrics[0]?.support !== 'Plan end' || m.summaryMetrics[1]?.support !== 'Median path' || !/^Age \d+$/.test(m.summaryMetrics[2]?.support || '')) throw new Error(`Typical Cash Flow metric support drifted: ${JSON.stringify(m.summaryMetrics)}`);
+    if(JSON.stringify(m.summaryMetrics.map(metric => metric.id)) !== JSON.stringify(['funded-through', 'ending-position'])) throw new Error(`Typical Cash Flow metric contract drifted: ${JSON.stringify(m.summaryMetrics)}`);
+    if(m.summaryMetrics[0]?.support !== 'Plan end' || m.summaryMetrics[1]?.support !== 'Median path') throw new Error(`Typical Cash Flow metric support drifted: ${JSON.stringify(m.summaryMetrics)}`);
     if(m.hasProbability || m.stats.some(label => ['Probability of success', 'Median Ending', 'Federal total'].includes(label)) || m.federalTotal) throw new Error(`removed Cash Flow summary content returned: ${JSON.stringify(m)}`);
     if(m.hasRemovedHelperCopy) throw new Error('removed Cash Flow helper copy returned');
     // Lifetime Draw / Funds Last were removed from the summary strip — stay gone.
@@ -3086,7 +3086,7 @@ try {
         };
       });
       if(restoredTypical.header?.label !== 'Tax' || restoredTypical.header?.source !== 'federal-converged-row') throw new Error(`Typical tax scope did not restore: ${JSON.stringify(restoredTypical)}`);
-      if(JSON.stringify(restoredTypical.stats) !== JSON.stringify(['Funded through', 'Ending position', 'Peak withdrawal'])
+      if(JSON.stringify(restoredTypical.stats) !== JSON.stringify(['Funded through', 'Ending position'])
           || restoredTypical.statusGlyph
           || restoredTypical.stats.some(label => /Probability|Federal total|Median Ending/i.test(label))) throw new Error(`Typical baseline summary did not restore: ${JSON.stringify(restoredTypical)}`);
       if(restoredTypical.persisted?.id !== 'typical' || restoredTypical.pathReplay !== pathReplayBefore) throw new Error(`Typical persistence disturbed replay state: ${JSON.stringify(restoredTypical)}`);

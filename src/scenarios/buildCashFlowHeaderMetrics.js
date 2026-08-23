@@ -76,7 +76,19 @@ function olderLivingAge(row){
   return Math.max(...livingAges);
 }
 
-function typicalHeader(typicalSimulation, typicalDigest){
+function livingPlanEndAge(row){
+  const people = row?.people;
+  if(!people?.client) throw new Error('Typical plan-end household ages are unavailable');
+  const modeled = [people.client, people.spouse].filter(person => person !== null && person !== undefined);
+  if(modeled.some(person => !Number.isFinite(person.age) || typeof person.alive !== 'boolean')){
+    throw new Error('Typical plan-end household ages are incomplete');
+  }
+  const livingAges = modeled.filter(person => person.alive).map(person => person.age);
+  if(livingAges.length === 0) throw new Error('Typical plan-end living household age is unavailable');
+  return Math.max(...livingAges);
+}
+
+function typicalHeader(typicalSimulation){
   const rows = rowsFor(typicalSimulation, 'Typical');
   const realRows = rows.filter(isAuthoritative);
   const underfundedRows = realRows.filter(row => (
@@ -112,15 +124,8 @@ function typicalHeader(typicalSimulation, typicalDigest){
     endingPosition = firstUnderfunded.balance;
   }else{
     const ending = planEndRow(rows, 'Typical');
-    fundedThroughAge = ending.age;
+    fundedThroughAge = livingPlanEndAge(ending);
     endingPosition = ending.balance;
-  }
-
-  const peakWithdrawalRate = typicalDigest?.peakWdRate;
-  const peakWithdrawalAge = typicalDigest?.peakWdAge;
-  if(!Number.isFinite(peakWithdrawalRate) || peakWithdrawalRate < 0
-      || (peakWithdrawalRate > 0 && !Number.isFinite(peakWithdrawalAge))){
-    throw new Error('Typical peak withdrawal is unavailable');
   }
 
   return deepFreeze({
@@ -129,8 +134,6 @@ function typicalHeader(typicalSimulation, typicalDigest){
     fundedThroughAge,
     fundedThroughSupport,
     endingPosition,
-    peakWithdrawalRate,
-    peakWithdrawalAge: Number.isFinite(peakWithdrawalAge) ? peakWithdrawalAge : null,
   });
 }
 
