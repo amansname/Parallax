@@ -731,7 +731,7 @@ test('tax edits route only through canonical current1040 and preserve explicit z
   assert.deepEqual(subject.income.other, []);
 });
 
-test('income completion rejects hidden taxable-portion gaps and accepts explicit zero', () => {
+test('income completion defaults hidden taxable-portion gaps to zero', () => {
   let subject = plan();
   subject = applyHouseholdWizardEdit(subject, {
     scope: 'family',
@@ -744,66 +744,23 @@ test('income completion rejects hidden taxable-portion gaps and accepts explicit
     field: 'income.iraDistributions',
     value: 20000,
   });
-  assert.throws(
-    () => applyHouseholdWizardEdit(subject, {
-      scope: 'tax',
-      action: 'confirm-tax-inputs',
-    }),
-    /taxable IRA amount/,
-  );
-
-  subject = applyHouseholdWizardEdit(subject, {
-    scope: 'tax',
-    action: 'set',
-    field: 'income.taxableIra',
-    value: 0,
-  });
   subject = applyHouseholdWizardEdit(subject, {
     scope: 'tax',
     action: 'set',
     field: 'income.pensionAmount',
     value: 15000,
   });
-  assert.throws(
-    () => applyHouseholdWizardEdit(subject, {
-      scope: 'tax',
-      action: 'confirm-tax-inputs',
-    }),
-    /taxable pension amount/,
-  );
-
-  subject = applyHouseholdWizardEdit(subject, {
-    scope: 'tax',
-    action: 'set',
-    field: 'income.taxablePensions',
-    value: 0,
-  });
-  subject = applyHouseholdWizardEdit(subject, {
-    scope: 'tax',
-    action: 'set',
-    field: 'scheduleD.netLongTermGainOrLoss',
-    value: 0,
-  });
   subject = applyHouseholdWizardEdit(subject, {
     scope: 'tax',
     action: 'confirm-tax-inputs',
   });
+  assert.equal(subject.incomeTax.current1040.income.taxableIra, 0);
+  assert.equal(subject.incomeTax.current1040.income.taxablePensions, 0);
   assert.equal(subject.incomeTax.current1040.incomeSourcesComplete, true);
 });
 
-test('failed Tax confirmation is atomic and performs no commit transition', () => {
+test('failed Tax confirmation for missing taxpayer facts is atomic', () => {
   let current = plan();
-  current = applyHouseholdWizardEdit(current, {
-    scope: 'family',
-    field: 'client.birthDate',
-    value: '1971-03-14',
-  }, { timestamp: '2026-07-29T12:00:00.000Z' });
-  current = applyHouseholdWizardEdit(current, {
-    scope: 'tax',
-    action: 'set',
-    field: 'income.iraDistributions',
-    value: 20000,
-  });
   let replacements = 0;
   let transitions = 0;
   const before = structuredClone(current);
@@ -821,7 +778,7 @@ test('failed Tax confirmation is atomic and performs no commit transition', () =
       scope: 'tax',
       action: 'confirm-tax-inputs',
     }),
-    /taxable IRA amount/,
+    /taxpayers\.client is required/,
   );
   assert.equal(replacements, 0);
   assert.equal(transitions, 0);

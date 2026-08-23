@@ -479,10 +479,10 @@ test('planning income groups aggregate rows and override or revert one source at
   assert.deepEqual(current.planningIncomeOverrides, ['wages']);
   assert.equal(current.income.wages, 65000);
   assert.equal(readWizardPlanningIncome(subject, current).groups.wages.overridden, true);
-  assert.throws(
-    () => setWizardTaxField(subject, 'income.wages', ''),
-    /Enter 0 or use planning income again/,
-  );
+  setWizardTaxField(subject, 'income.wages', '');
+  assert.equal(Object.hasOwn(current.income, 'wages'), false);
+  confirmWizardTaxInputs(subject);
+  assert.equal(current.income.wages, 0);
 
   revertWizardIncomeGroup(subject, 'wages');
   assert.equal(Object.hasOwn(current, 'planningIncomeOverrides'), false);
@@ -540,25 +540,42 @@ test('confirmWizardTaxInputs materializes Schedule D zero when blank', () => {
   assert.equal(current.income.wages, 0);
 });
 
-test('Tax confirmation never fills required IRA, pension, or Social Security companions', () => {
-  for(const [field, amount, expectedCode] of [
-    ['income.iraDistributions', 20000, 'CURRENT_1040_TAXABLE_IRA_REQUIRED'],
-    ['income.pensionAmount', 15000, 'CURRENT_1040_TAXABLE_PENSION_REQUIRED'],
-    [
-      'income.socialSecurityBenefits',
-      30000,
-      'CURRENT_1040_SOCIAL_SECURITY_RETURN_FACTS_REQUIRED',
-    ],
+test('Tax confirmation treats blank IRA, pension, and Social Security companions as zero', () => {
+  for(const [field, companion, amount] of [
+    ['income.iraDistributions', 'taxableIra', 20000],
+    ['income.pensionAmount', 'taxablePensions', 15000],
+    ['income.socialSecurityBenefits', 'taxableSS', 30000],
   ]){
     const subject = plan();
     setWizardTaxField(subject, 'scheduleD.netLongTermGainOrLoss', 0);
     setWizardTaxField(subject, field, amount);
-    assert.throws(
-      () => confirmWizardTaxInputs(subject),
-      error => error.code === expectedCode,
-      field,
-    );
+    confirmWizardTaxInputs(subject);
+    assert.equal(subject.incomeTax.current1040.income[companion], 0, field);
+    assert.equal(subject.incomeTax.current1040.incomeSourcesComplete, true, field);
   }
+});
+
+test('Tax confirmation ignores a persisted direct zero when planning income owns the group', () => {
+  const subject = plan();
+  subject.income.other = [{
+    id: 'interest-current-year',
+    typeId: 'interest',
+    owner: 'client',
+    amount: 1000,
+    taxablePct: 0.75,
+    startAge: 65,
+    endAge: 65,
+  }];
+  const current = ensureWizardCurrent1040(subject);
+  current.income.taxExemptInterest = 0;
+
+  confirmWizardTaxInputs(subject);
+
+  assert.equal(current.incomeSourcesComplete, true);
+  assert.equal(Object.hasOwn(current.income, 'taxExemptInterest'), false);
+  const built = buildCurrent1040Intake(subject);
+  assert.equal(built.intake.income.taxableInterest, 750);
+  assert.equal(built.intake.income.taxExemptInterest, 250);
 });
 
 test('Schedule SE completion owns line 23 and fills only the supplied Schedule 2 trio', () => {

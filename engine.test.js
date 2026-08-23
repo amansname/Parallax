@@ -2205,6 +2205,70 @@ test('a surviving spouse receives a single-owner Traditional IRA by rollover', (
   assert.strictEqual(survivorRmdRow.rmdAvailable, true);
 });
 
+test('young spouses with two contributing 401(k)s keep a full projection after one owner dies', () => {
+  const p = structuredClone(defaultPlan);
+  p.meta.filingStatus = 'marriedFilingJointly';
+  p.meta.planningAsOfYear = 2026;
+  p.household.primary = {
+    currentAge: 36, retirementAge: 65, planEndAge: 90, birthYear: 1990,
+  };
+  p.household.spouse = {
+    currentAge: 33, retirementAge: 62, planEndAge: 95, birthYear: 1993,
+  };
+  p.income.socialSecurity = {
+    primary: { pia: 0, claimAge: 67 },
+    spouse: { pia: 0, claimAge: 67 },
+  };
+  p.income.other = [];
+  p.savings = {
+    annual: 24_000,
+    split: { traditional: 1, roth: 0, taxable: 0 },
+  };
+  p.portfolio.accounts = {
+    taxable: { balance: 0, basisPct: 1 },
+    traditional: { balance: 0 },
+    roth: { balance: 0 },
+  };
+  p.portfolio.extraAccounts = [
+    createAccount('401k', { owner: 'client', balance: 265_000 }),
+    createAccount('401k', { owner: 'spouse', balance: 185_000 }),
+  ];
+  p.expenses = {
+    living: 0, housing: 0, debt: 0, healthcare: 0,
+    healthcareRealGrowth: 0, extra: [],
+  };
+
+  const result = runHistoricalPath(p, 1995, 'taxable-first');
+  const lastWorkingRow = result.rows.find(row => row.age === 64);
+  const retirementRow = result.rows.find(row => row.age === 65);
+  const firstSurvivorRow = result.rows.find(row => row.age === 91);
+  const laterSurvivorRmdRow = result.rows.find(row => (
+    row.people.spouse.alive && row.people.spouse.age === 89
+  ));
+
+  assert.equal(lastWorkingRow.phase, 'accum');
+  assert.equal(lastWorkingRow.savings, 24_000);
+  assert.notEqual(retirementRow.phase, 'accum');
+  assert.equal(retirementRow.savings, undefined);
+  assert.equal(firstSurvivorRow.people.client.alive, false);
+  assert.equal(firstSurvivorRow.people.spouse.alive, true);
+  assert.equal(firstSurvivorRow.rmdOwner, 'spouse');
+  assert.equal(firstSurvivorRow.rmdAvailable, true);
+  assert.equal(laterSurvivorRmdRow.rmdOwner, 'spouse');
+  assert.ok(laterSurvivorRmdRow.rmdRequired > 0);
+  assert.equal(result.rows.at(-1).age, 98);
+
+  resetSeed();
+  const resolved = resolveInputs(p, {});
+  const simulation = runSimulation(
+    p,
+    {},
+    [generateReturnPath(resolved.horizonYears, resolved.portfolio)],
+  );
+  assert.ok(Number.isFinite(simulation.successRate));
+  assert.notEqual(simulation.projectionStatus, 'unavailable');
+});
+
 test('negative longevity is rejected instead of creating an empty successful plan', () => {
   assert.throws(
     () => resolveInputs(structuredClone(defaultPlan), { longevityYears: -1 }),
