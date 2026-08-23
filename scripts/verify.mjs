@@ -2299,7 +2299,9 @@ try {
     const savingsInput = savingsInputs.at(-1);
     if(!savingsInput) throw new Error('fourth scenario savings input was not available');
     await savingsInput.click();
-    await page.keyboard.press('Control+A');
+    await page.keyboard.down('Control');
+    await page.keyboard.press('A');
+    await page.keyboard.up('Control');
     await page.keyboard.type('45000');
     await page.keyboard.press('Tab');
     await page.waitForFunction((householdId) => {
