@@ -61,43 +61,22 @@ function ensureIncomeCompletionFacts(current, planning, { materialize }){
     }
     const directFields = groupDirectFields(current, descriptor);
     if(group.rowSourced){
-      if(directFields.length > 0){
+      const conflictingFields = directFields
+        .filter(field => current.income[field] !== 0);
+      if(conflictingFields.length > 0){
         missingWizardFact(
           'Choose planning income or a current-year amount for this tax item',
           `income.${descriptor.fields[0]}`,
           'CURRENT_1040_INCOME_SOURCE_CONFLICT',
         );
       }
+      if(materialize){
+        for(const field of directFields) delete current.income[field];
+      }
       continue;
-    }
-    if(group.overridden
-        && group.rowIds.length > 0
-        && directFields.length !== descriptor.fields.length){
-      missingWizardFact(
-        'Enter every current-year amount in this source group, including zero',
-        `income.${descriptor.fields.find(field =>
-          !hasOwn(current.income, field)) || descriptor.fields[0]}`,
-        'CURRENT_1040_INCOME_SOURCE_CONFLICT',
-      );
     }
     for(const field of descriptor.fields){
       if(hasOwn(current.income, field)) continue;
-      if(field === 'taxableIra'
-          && Number(current.income.iraDistributions) > 0){
-        missingWizardFact(
-          'Enter the taxable IRA amount, including 0 when none is taxable',
-          'income.taxableIra',
-          'CURRENT_1040_TAXABLE_IRA_REQUIRED',
-        );
-      }
-      if(field === 'taxablePensions'
-          && Number(current.income.pensionAmount) > 0){
-        missingWizardFact(
-          'Enter the taxable pension amount, including 0 when none is taxable',
-          'income.taxablePensions',
-          'CURRENT_1040_TAXABLE_PENSION_REQUIRED',
-        );
-      }
       if(materialize) current.income[field] = 0;
       else{
         missingWizardFact(
@@ -110,24 +89,14 @@ function ensureIncomeCompletionFacts(current, planning, { materialize }){
   }
 }
 
-function ensureSocialSecurityCompletion(current, planning, { materialize }){
+function ensureSocialSecurityCompletion(current, { materialize }){
   const income = current.income;
   const socialSecurity = income.socialSecurity;
   const mode = socialSecurity?.mode;
   if(mode === undefined){
-    const positiveBenefits = Number(income.socialSecurityBenefits) > 0;
-    if(positiveBenefits
-        || hasOwn(income, 'taxableSS')
-        || planning.hasActivePlanningSocialSecurity){
-      missingWizardFact(
-        'Enter complete current-year Social Security tax facts',
-        'income.socialSecurityBenefits',
-        'CURRENT_1040_SOCIAL_SECURITY_RETURN_FACTS_REQUIRED',
-      );
-    }
     if(materialize){
-      income.socialSecurityBenefits = 0;
-      income.taxableSS = 0;
+      if(!hasOwn(income, 'socialSecurityBenefits')) income.socialSecurityBenefits = 0;
+      if(!hasOwn(income, 'taxableSS')) income.taxableSS = 0;
       income.socialSecurity = { mode: 'supplied-form1040-lines' };
       return;
     }
@@ -138,18 +107,24 @@ function ensureSocialSecurityCompletion(current, planning, { materialize }){
     );
   }
   if(!hasOwn(income, 'socialSecurityBenefits')){
-    missingWizardFact(
-      'Enter current-year Social Security benefits, including 0 when none',
-      'income.socialSecurityBenefits',
-      'MISSING_SOCIAL_SECURITY_GROSS_BENEFITS',
-    );
+    if(materialize) income.socialSecurityBenefits = 0;
+    else{
+      missingWizardFact(
+        'Enter current-year Social Security benefits, including 0 when none',
+        'income.socialSecurityBenefits',
+        'MISSING_SOCIAL_SECURITY_GROSS_BENEFITS',
+      );
+    }
   }
   if(mode === 'supplied-form1040-lines' && !hasOwn(income, 'taxableSS')){
-    missingWizardFact(
-      'Enter taxable Social Security, including 0 when none is taxable',
-      'income.taxableSS',
-      'MISSING_SOCIAL_SECURITY_TAXABLE_BENEFITS',
-    );
+    if(materialize) income.taxableSS = 0;
+    else{
+      missingWizardFact(
+        'Enter taxable Social Security, including 0 when none is taxable',
+        'income.taxableSS',
+        'MISSING_SOCIAL_SECURITY_TAXABLE_BENEFITS',
+      );
+    }
   }
 }
 
@@ -170,11 +145,16 @@ function ensureScheduleDCompletion(current, planning, { materialize }){
     );
   }
   if(group.rowSourced){
+    if(current.scheduleD?.mode === 'manual-net-long-term'
+        && current.scheduleD.netLongTermGainOrLoss === 0){
+      if(materialize) delete current.scheduleD.netLongTermGainOrLoss;
+      return;
+    }
     if(!current.scheduleD && materialize){
       current.scheduleD = { mode: 'manual-net-long-term' };
       return;
     }
-    if(current.scheduleD.mode === 'manual-net-long-term'
+    if(current.scheduleD?.mode === 'manual-net-long-term'
         && !hasOwn(current.scheduleD, 'netLongTermGainOrLoss')){
       return;
     }
@@ -358,7 +338,7 @@ function ensureWizardTaxCompletion(plan, { materialize }){
   validatePlanningIncomeOverrides(current);
   const planning = readWizardPlanningIncome(plan, current);
   ensureIncomeCompletionFacts(current, planning, { materialize });
-  ensureSocialSecurityCompletion(current, planning, { materialize });
+  ensureSocialSecurityCompletion(current, { materialize });
   ensureScheduleDCompletion(current, planning, { materialize });
   ensureAdditionalCompletionFacts(current, { materialize });
   return current;

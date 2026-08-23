@@ -39,6 +39,58 @@ export function formatIsoBirthDate(iso){
   return `${month.padStart(2, '0')} / ${day.padStart(2, '0')} / ${year}`;
 }
 
+function birthDateDigits(value){
+  return String(value ?? '').replace(/\D/g, '').slice(0, 8);
+}
+
+/** Keep the visible birth-date field in MM / DD / YYYY form while typing. */
+export function formatBirthDateEntry(value){
+  const digits = birthDateDigits(value);
+  if(digits.length < 2) return digits;
+  if(digits.length === 2) return `${digits} / `;
+
+  const month = digits.slice(0, 2);
+  const day = digits.slice(2, 4);
+  if(digits.length < 4) return `${month} / ${day}`;
+  if(digits.length === 4) return `${month} / ${day} / `;
+  return `${month} / ${day} / ${digits.slice(4)}`;
+}
+
+/** Place the caret after a count of typed digits, skipping inserted separators. */
+export function birthDateCaretAfterDigits(formatted, digitCount){
+  const target = Math.max(0, Number(digitCount) || 0);
+  if(target === 0) return 0;
+
+  let seen = 0;
+  for(let index = 0; index < formatted.length; index += 1){
+    if(!/\d/.test(formatted[index])) continue;
+    seen += 1;
+    if(seen !== target) continue;
+    let caret = index + 1;
+    while(caret < formatted.length && /\D/.test(formatted[caret])) caret += 1;
+    return caret;
+  }
+  return formatted.length;
+}
+
+/** Delete the adjacent digit when the browser caret is beside an inserted slash. */
+export function deleteBirthDateDigit(value, caret, direction = 'backward'){
+  const digits = birthDateDigits(value);
+  const input = String(value ?? '');
+  const position = Math.max(0, Math.min(Number(caret) || 0, input.length));
+  const digitIndex = (input.slice(0, position).match(/\d/g) || []).length;
+  const removeIndex = direction === 'forward' ? digitIndex : digitIndex - 1;
+  if(removeIndex < 0 || removeIndex >= digits.length) return null;
+
+  const nextDigits = `${digits.slice(0, removeIndex)}${digits.slice(removeIndex + 1)}`;
+  const formatted = formatBirthDateEntry(nextDigits);
+  const digitsBeforeCaret = direction === 'forward' ? digitIndex : digitIndex - 1;
+  return {
+    value: formatted,
+    caret: birthDateCaretAfterDigits(formatted, digitsBeforeCaret),
+  };
+}
+
 /** Parse the standalone field's MM / DD / YYYY presentation into ISO. */
 export function parseDisplayedBirthDate(value){
   const match = String(value ?? '').trim().match(/^(\d{1,2})\s*\/\s*(\d{1,2})\s*\/\s*(\d{4})$/);

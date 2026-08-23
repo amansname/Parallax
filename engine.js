@@ -2455,11 +2455,9 @@ function allocateTraditionalContribution(traditional, amount, explicitSplit, has
 /**
  * Is a spousal rollover of `from`'s pre-tax balance to `to` supportable?
  *
- * Both sides are inspected — eligibility depends on what is being rolled, not
- * only on who receives it. Employer-plan balances have their own rollover and
- * RMD treatment that this engine does not model, so they fail closed: the money
- * stays with the decedent and the next year's evaluation reports an
- * unresolvable owner rather than quietly moving it.
+ * Both sides are inspected for attributable balances and supported RMD rules.
+ * Employer-plan status does not prevent the death-boundary transfer: the
+ * surviving spouse owns the transferred pre-tax balance after the rollover.
  *
  * Deliberately NOT derived from `rmdContract.spousalRolloverAvailable`, which is
  * computed off the single-owner `traditionalRmdOwner` and is therefore always
@@ -2468,7 +2466,6 @@ function allocateTraditionalContribution(traditional, amount, explicitSplit, has
 function spousalRolloverSupported(p, contract, from, to){
   const fromContract = contract?.byOwner?.[from];
   if(!fromContract) return false;
-  if(fromContract.containsEmployerPlan) return false;
   if(fromContract.focusRulesAvailable !== true) return false;
   if(fromContract.rmdAccountAttributionAvailable !== true) return false;
 
@@ -2478,7 +2475,6 @@ function spousalRolloverSupported(p, contract, from, to){
   // has to be clean too.
   const toContract = contract?.byOwner?.[to];
   if(toContract){
-    if(toContract.containsEmployerPlan) return false;
     if(toContract.focusRulesAvailable !== true) return false;
     if(toContract.rmdAccountAttributionAvailable !== true) return false;
   }

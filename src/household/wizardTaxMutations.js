@@ -117,7 +117,7 @@ function setDeductionMode(plan, current, mode){
   throw new Error('Unsupported deduction method');
 }
 
-function assertIncomeGroupEditable(plan, current, groupId, field, value){
+function assertIncomeGroupEditable(plan, current, groupId, field){
   const planning = readWizardPlanningIncome(plan, current);
   const group = planning.groups[groupId];
   if(group.rowSourced){
@@ -125,18 +125,6 @@ function assertIncomeGroupEditable(plan, current, groupId, field, value){
       'Use current-year amount before editing a planning-income value',
       field,
       'CURRENT_1040_INCOME_OVERRIDE_REQUIRED',
-    );
-  }
-  if(group.overridden
-      && group.rowIds.length > 0
-      && parseWizardNumber(value, {
-        signed: field === 'scheduleD.netLongTermGainOrLoss'
-          || SIGNED_INCOME_FIELDS.has(field.replace(/^income\./, '')),
-      }) === undefined){
-    throw wizardTaxError(
-      'Enter 0 or use planning income again',
-      field,
-      'CURRENT_1040_INCOME_OVERRIDE_VALUE_REQUIRED',
     );
   }
 }
@@ -147,7 +135,7 @@ function setIncomeField(plan, current, field, value){
   }
   const groupId = INCOME_FIELD_GROUPS.get(field);
   if(groupId){
-    assertIncomeGroupEditable(plan, current, groupId, `income.${field}`, value);
+    assertIncomeGroupEditable(plan, current, groupId, `income.${field}`);
   }
   const parsed = parseWizardNumber(value, {
     signed: SIGNED_INCOME_FIELDS.has(field),
@@ -275,7 +263,6 @@ function setScheduleD(plan, current, value){
     current,
     'long-term-gain-loss',
     'scheduleD.netLongTermGainOrLoss',
-    value,
   );
   const parsed = parseWizardNumber(value, { signed: true });
   current.incomeSourcesComplete = false;

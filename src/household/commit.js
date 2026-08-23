@@ -1,4 +1,10 @@
-import { formatIsoBirthDate, readBirthDateGroup } from './birthDateInput.js';
+import {
+  birthDateCaretAfterDigits,
+  deleteBirthDateDigit,
+  formatBirthDateEntry,
+  formatIsoBirthDate,
+  readBirthDateGroup,
+} from './birthDateInput.js';
 import { newWizardRowId } from './householdRecordSchema.js';
 
 function valueFromControl(control){
@@ -17,6 +23,7 @@ function hasDigits(value){
 
 function formatCommittedTaxAmount(control){
   const raw = String(control.value ?? '').trim();
+  if(!raw) return;
   const numeric = Number(raw.replace(/[\s,]/g, ''));
   if(!Number.isFinite(numeric)) return;
   control.value = numeric.toLocaleString('en-US', { maximumFractionDigits: 2 });
@@ -183,9 +190,42 @@ export function bindHouseholdEditor({
     }
   }
 
+  root.addEventListener('beforeinput', event => {
+    const birthDateDisplay = event.target.closest?.('[data-birth-date-display]');
+    if(!birthDateDisplay || birthDateDisplay.selectionStart !== birthDateDisplay.selectionEnd){
+      return;
+    }
+    const direction = event.inputType === 'deleteContentBackward'
+      ? 'backward'
+      : event.inputType === 'deleteContentForward'
+        ? 'forward'
+        : null;
+    if(!direction) return;
+
+    const caret = birthDateDisplay.selectionStart ?? 0;
+    const adjacentIndex = direction === 'backward' ? caret - 1 : caret;
+    if(/\d/.test(birthDateDisplay.value[adjacentIndex] || '')) return;
+    const edit = deleteBirthDateDigit(birthDateDisplay.value, caret, direction);
+    if(!edit) return;
+
+    event.preventDefault();
+    birthDateDisplay.value = edit.value;
+    birthDateDisplay.setSelectionRange(edit.caret, edit.caret);
+    birthDateDisplay.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+
   root.addEventListener('input', event => {
     const birthDateDisplay = event.target.closest?.('[data-birth-date-display]');
     if(birthDateDisplay){
+      const selectionStart = birthDateDisplay.selectionStart ?? birthDateDisplay.value.length;
+      const digitsBeforeCaret = (birthDateDisplay.value
+        .slice(0, selectionStart)
+        .match(/\d/g) || []).length;
+      const formatted = formatBirthDateEntry(birthDateDisplay.value);
+      if(birthDateDisplay.value !== formatted) birthDateDisplay.value = formatted;
+      const caret = birthDateCaretAfterDigits(formatted, digitsBeforeCaret);
+      birthDateDisplay.setSelectionRange(caret, caret);
+
       const group = birthDateDisplay.closest('[data-birth-date-group]');
       clearBirthDateValidity(group);
       const hidden = group?.querySelector('[data-birth-date-value]');
