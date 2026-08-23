@@ -525,7 +525,7 @@ test('Summary omits unreliable income and tax headlines for partial facts', () =
   assert.doesNotMatch(html, /needs additional facts/i);
 });
 
-test('Summary Continue to Scenarios is available even when tax summary is not calculable', () => {
+test('Summary Continue to Goals is available even when tax summary is not calculable', () => {
   const incomplete = wizard({ taxReady: false });
   assert.doesNotMatch(incomplete.render('summary'), /data-summary-tax-status/);
   assert.doesNotMatch(
@@ -533,4 +533,5 @@ test('Summary Continue to Scenarios is available even when tax summary is not ca
     /data-tax-completion-required="true"/,
   );
   assert.doesNotMatch(incomplete.footer('summary'), /aria-disabled="true"/);
+  assert.match(incomplete.footer('summary'), /Continue to Goals/);
 });

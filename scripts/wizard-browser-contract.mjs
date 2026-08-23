@@ -1774,18 +1774,21 @@ async function verifyPlanningSourceAndTaxFlow(page){
   await requireUnique(
     page,
     summaryContinueSelector,
-    'completed Summary Continue to Scenarios action',
+    'completed Summary Continue to Goals action',
   );
   await page.click(summaryContinueSelector);
   await page.waitForFunction(
-    () => document.querySelector('.page.on')?.dataset.page === 'scenarios',
+    () => document.querySelector('.page.on')?.dataset.page === 'net-worth'
+      && document.querySelector('.htab.is-active')?.dataset.subTarget === 'goals',
     { timeout: 8000 },
   );
-  const planningPage = await page.evaluate(() =>
-    document.querySelector('.page.on')?.dataset.page || '');
+  const planningPage = await page.evaluate(() => ({
+    page: document.querySelector('.page.on')?.dataset.page || '',
+    subTarget: document.querySelector('.htab.is-active')?.dataset.subTarget || '',
+  }));
   requireCondition(
-    planningPage === 'scenarios',
-    `Completed Summary did not enter Scenarios: "${planningPage}"`,
+    planningPage.page === 'net-worth' && planningPage.subTarget === 'goals',
+    `Completed Summary did not enter Goals: ${JSON.stringify(planningPage)}`,
   );
 }
 

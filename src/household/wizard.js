@@ -181,8 +181,8 @@ export function createHouseholdWizardController({
     if(direction === 'back') return setStep(STEP_IDS[Math.max(0, index - 1)]);
     if(direction !== 'next') return false;
     if(index >= STEP_IDS.length - 1){
-      const scenarios = document.querySelector('.htab[data-page="scenarios"]');
-      if(scenarios) scenarios.click();
+      const goals = document.querySelector('.htab[data-sub-target="goals"]');
+      if(goals) goals.click();
       return true;
     }
     return setStep(STEP_IDS[index + 1]);
