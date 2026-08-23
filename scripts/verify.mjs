@@ -2298,7 +2298,8 @@ try {
     const savingsInputs = await page.$$('#scn-view .cmp-lev-in[data-key="savings"]');
     const savingsInput = savingsInputs.at(-1);
     if(!savingsInput) throw new Error('fourth scenario savings input was not available');
-    await savingsInput.click({ clickCount: 3 });
+    await savingsInput.click();
+    await page.keyboard.press('Control+A');
     await page.keyboard.type('45000');
     await page.keyboard.press('Tab');
     await page.waitForFunction((householdId) => {
