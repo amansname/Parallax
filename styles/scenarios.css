@@ -1082,7 +1082,7 @@
 
 .page[data-page="scenarios"] .cf-summary--typical .cf-summary__stats {
   display: grid;
-  grid-template-columns: repeat(3, auto);
+  grid-template-columns: repeat(2, auto);
   gap: var(--sp-8);
   width: max-content;
   margin-left: auto;

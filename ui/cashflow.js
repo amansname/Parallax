@@ -255,11 +255,6 @@ export function renderCashflow(scn, allScns, {
             '<div class="cf-stat__value">' + formatCashFlowHeaderMoney(headerMetrics.endingPosition) + '</div>' +
             '<div class="cf-stat__support">Median path</div>' +
           '</div>' +
-          '<div class="cf-stat" data-cash-header-metric="peak-withdrawal">' +
-            '<div class="cf-stat__label">Peak withdrawal</div>' +
-            '<div class="cf-stat__value">' + formatCashFlowHeaderPercent(headerMetrics.peakWithdrawalRate) + '</div>' +
-            '<div class="cf-stat__support">' + (Number.isFinite(headerMetrics.peakWithdrawalAge) ? 'Age ' + esc(headerMetrics.peakWithdrawalAge) : '—') + '</div>' +
-          '</div>' +
         '</div>' +
       '</div>'
     ) : '';
