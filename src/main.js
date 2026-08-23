@@ -2474,8 +2474,8 @@ const cashFlowController = createCashFlowController({
   saveSelection: saveCashFlowPathSelection,
   buildRows: buildSimulationRows,
 });
-const syncCashFlowPathControls = () =>
-  cashFlowController.syncSelect($('#cashflow-path-mode'));
+const syncCashFlowPathControls = (scenario = null) =>
+  cashFlowController.syncSelect($('#cashflow-path-mode'), scenario);
 
 syncCashFlowPathControls();
 $('#cashflow-path-mode').onchange=e=>{
@@ -2487,7 +2487,6 @@ $('#cashflow-path-mode').onchange=e=>{
   cashFlowController.setPathId(e.target.value, {
     persist: !isHouseholdStorageReadOnly(),
   });
-  syncCashFlowPathControls();
   if(window.ScenariosUI) window.ScenariosUI.sync();
 };
 // Cash Flow is now an explicit view inside the ScenariosUI view layer (the
@@ -2889,7 +2888,7 @@ $('#cashflow-path-mode').onchange=e=>{
     if (state.cashActive) {
       const scn = list.find((s) => s.id === state.focusedId) || baseline || list[0];
       view.innerHTML = scn ? renderCashflowView(scn, list) : '';
-      mountPathControls();
+      mountPathControls(scn.raw);
     } else if (state.view === 'focus') {
       view.innerHTML = renderFocusView(list, baseline, state.focusedId, state.showRange);
     } else {
@@ -2910,10 +2909,10 @@ $('#cashflow-path-mode').onchange=e=>{
 
   // Relocate Cash Flow's independent path selector into the active view slot.
   // We move the node — never recreate it — so its bindings/state survive.
-  function mountPathControls() {
+  function mountPathControls(scenario) {
     const slot = $id('scn-cf-path-controls');
     if (slot && window.scnCashPathControlsEl) slot.appendChild(window.scnCashPathControlsEl);
-    syncCashFlowPathControls();
+    syncCashFlowPathControls(scenario);
   }
 
   function bindViewEvents() {

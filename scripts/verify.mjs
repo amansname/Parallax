@@ -2494,6 +2494,12 @@ try {
         })),
         activeScenario: v?.querySelector('[data-cash-select]')?.selectedOptions?.[0]?.textContent.trim() || '',
         stats: [...(v?.querySelectorAll('.cf-stat__label') || [])].map(s => s.textContent.trim()),
+        summaryMetrics: [...(v?.querySelectorAll('[data-cash-header-metric]') || [])].map(metric => ({
+          id: metric.dataset.cashHeaderMetric || '',
+          label: metric.querySelector('.cf-stat__label')?.textContent.trim() || '',
+          value: metric.querySelector('.cf-stat__value')?.textContent.trim() || '',
+          support: metric.querySelector('.cf-stat__support')?.textContent.trim() || '',
+        })),
         pathControls: !!v?.querySelector('#scn-cf-path-controls #cashflow-path-mode'),
         mode: v?.querySelector('#scn-cf-path-controls #cashflow-path-mode')?.value || '',
         taxHeader: (() => {
@@ -2540,6 +2546,8 @@ try {
         hasCaption: !!v?.querySelector('.cf__caption'),
         hasCfEyebrow: !!v?.querySelector('.cf__head .eyebrow'),
         hasSummaryName: !!v?.querySelector('.cf-summary__name'),
+        hasProbability: /Probability of success/i.test(v?.querySelector('.cf-summary')?.textContent || ''),
+        hasRemovedHelperCopy: /All figures in today's dollars|One historical sequence, not a probability/i.test(v?.textContent || ''),
       };
     });
     if(!m.cf) throw new Error('cash-flow view did not render');
@@ -2556,10 +2564,13 @@ try {
     if(!/Baseline/.test(m.activeScenario)) throw new Error(`Cash Flow scenario selector did not start on Baseline: ${JSON.stringify(m)}`);
     if(!SKIP_SEQUENCING && !m.pathControls) throw new Error('Cash Flow path controls not relocated into #scn-cf-path-controls');
     if(!SKIP_SEQUENCING && m.mode !== 'typical') throw new Error(`Cash Flow default path not Typical (${m.mode})`);
-    for(const label of ['Median Ending', 'Peak Withdrawal', 'Federal total']){
+    for(const label of ['Funded through', 'Ending position', 'Peak withdrawal']){
       if(!m.stats.includes(label)) throw new Error(`cash-flow summary stat missing: ${label} (${JSON.stringify(m.stats)})`);
     }
-    if(!Number.isFinite(m.federalTotal?.amount) || !/^\$[\d,]+/.test(m.federalTotal?.value || '')) throw new Error(`Cash Flow federal total is unavailable: ${JSON.stringify(m.federalTotal)}`);
+    if(JSON.stringify(m.summaryMetrics.map(metric => metric.id)) !== JSON.stringify(['funded-through', 'ending-position', 'peak-withdrawal'])) throw new Error(`Typical Cash Flow metric contract drifted: ${JSON.stringify(m.summaryMetrics)}`);
+    if(m.summaryMetrics[0]?.support !== 'Plan end' || m.summaryMetrics[1]?.support !== 'Median path' || !/^Age \d+$/.test(m.summaryMetrics[2]?.support || '')) throw new Error(`Typical Cash Flow metric support drifted: ${JSON.stringify(m.summaryMetrics)}`);
+    if(m.hasProbability || m.stats.some(label => ['Probability of success', 'Median Ending', 'Federal total'].includes(label)) || m.federalTotal) throw new Error(`removed Cash Flow summary content returned: ${JSON.stringify(m)}`);
+    if(m.hasRemovedHelperCopy) throw new Error('removed Cash Flow helper copy returned');
     // Lifetime Draw / Funds Last were removed from the summary strip — stay gone.
     if(m.stats.some(s => /lifetime draw|funds last/i.test(s))) throw new Error(`removed summary stat still present: ${JSON.stringify(m.stats)}`);
     if(m.hasCaption) throw new Error('cash-flow caption should be removed');
@@ -2615,11 +2626,23 @@ try {
       return /Baseline/.test(active) && marker?.dataset.age === '66';
     }, { timeout: 10000 });
 
-    const typicalEndingByYear = await page.evaluate(() => Object.fromEntries(
-      [...document.querySelectorAll('#scn-view .cf-row')].map(row => [
-        Number(row.querySelector('.cf-row__year')?.textContent.trim()),
-        Number(row.dataset.endingBalance),
-      ])
+    const retirementOnly = await page.evaluate(() => (
+      document.querySelector('#scn-view [data-cash-retstart]')?.getAttribute('aria-pressed') === 'true'
+    ));
+    if(retirementOnly) throw new Error('historical metric plan-year proof requires visible accumulation rows');
+
+    const typicalRowsByPlanYear = await page.evaluate(() => (
+      [...document.querySelectorAll('#scn-view .cf-row')].map((row, index) => ({
+        planYear: index + 1,
+        age: Number(row.dataset.age),
+        year: Number(row.querySelector('.cf-row__year')?.textContent.trim()),
+        phase: row.dataset.phase || '',
+        sourceYear: row.dataset.sourceYear === '' ? null : Number(row.dataset.sourceYear),
+        startBalance: Number(row.dataset.startBalance),
+        endingBalance: Number(row.dataset.endingBalance),
+        wdRate: Number(row.dataset.wdRate),
+        shortfall: Number(row.dataset.fundingShortfall),
+      }))
     ));
 
     if(!SKIP_SEQUENCING){
@@ -2641,7 +2664,11 @@ try {
       if(selectorContract.oldSelector || selectorContract.indexInput || selectorContract.seedInput) throw new Error(`Cash Flow still exposes old replay controls: ${JSON.stringify(selectorContract)}`);
 
       let reloadExpected = null;
-      for(const [mode, startYear] of [['historical-1973', 1973], ['historical-1995', 1995]]){
+      const observedHistoricalOutcomes = new Set();
+      for(const [mode, startYear, expectedOutcome] of [
+        ['historical-1973', 1973, 'survives'],
+        ['historical-1995', 1995, 'survives'],
+      ]){
         await page.select('#cashflow-path-mode', mode);
         await page.waitForFunction(({ expectedMode, expectedStartYear }) => {
           const root = document.querySelector('#scn-view .cf');
@@ -2652,13 +2679,17 @@ try {
             && select?.value === expectedMode
             && Number(firstRetirement?.dataset.sourceYear) === expectedStartYear
             && ['underfunded', 'survives'].includes(summary?.dataset.outcome);
-        }, { timeout: 20000 }, { expectedMode: mode, expectedStartYear: startYear });
+        }, { timeout: 20000 }, {
+          expectedMode: mode,
+          expectedStartYear: startYear,
+        });
         const historicalPath = await page.evaluate(() => {
           const th = document.querySelector('#scn-view .cf-table__head .cf-th[data-tax-source]');
           const disclosure = document.querySelector('#scn-view [data-tax-disclosure]');
           const root = document.querySelector('#scn-view .cf');
           const summary = document.querySelector('#scn-view .cf-summary--historical');
-          const rows = [...document.querySelectorAll('#scn-view .cf-row')].map(row => ({
+          const rows = [...document.querySelectorAll('#scn-view .cf-row')].map((row, index) => ({
+            planYear: index + 1,
             age: Number(row.dataset.age),
             year: Number(row.querySelector('.cf-row__year')?.textContent.trim()),
             phase: row.dataset.phase || '',
@@ -2670,10 +2701,13 @@ try {
             endingText: row.querySelector('.cf-cell--ending')?.textContent.trim() || '',
           }));
           const retirementRows = rows.filter(row => row.phase === 'retirement');
-          const dataNumber = (name) => summary?.dataset[name] === ''
-            || summary?.dataset[name] === undefined
-            ? null
-            : Number(summary.dataset[name]);
+          const status = document.querySelector('#cashflow-path-status');
+          const summaryOutcome = summary?.dataset.outcome || '';
+          const probe = document.createElement('span');
+          probe.style.color = summaryOutcome === 'survives' ? 'var(--pos)' : 'var(--neg)';
+          document.body.appendChild(probe);
+          const expectedStatusColor = getComputedStyle(probe).color;
+          probe.remove();
           return {
             mode: document.querySelector('#cashflow-path-mode')?.value || '',
             rootMode: root?.dataset.cashPathId || '',
@@ -2690,42 +2724,39 @@ try {
             stats: [...document.querySelectorAll('#scn-view .cf-stat__label')].map(label => label.textContent.trim()),
             metrics: [...document.querySelectorAll('#scn-view [data-historical-metric]')].map(metric => ({
               id: metric.dataset.historicalMetric || '',
-              label: metric.querySelector('.cf-stat__label')?.textContent.trim() || '',
-              value: metric.querySelector('.cf-stat__value')?.textContent.trim() || '',
+              label: metric.querySelector('.cf-comparison__label')?.textContent.trim() || '',
+              values: [...metric.querySelectorAll('.cf-comparison__value')].map(value => value.textContent.trim()),
+              thisPath: metric.dataset.thisPath === '' ? null : Number(metric.dataset.thisPath),
+              typicalPath: metric.dataset.typicalPath === '' ? null : Number(metric.dataset.typicalPath),
+              delta: metric.dataset.delta === '' ? null : Number(metric.dataset.delta),
+              planYear: metric.dataset.planYear === '' || metric.dataset.planYear === undefined
+                ? null
+                : Number(metric.dataset.planYear),
             })),
-            probability: !!document.querySelector('#scn-view .cf-summary__sub'),
+            probability: /Probability of success/i.test(summary?.textContent || ''),
+            removedCopy: /All figures in today's dollars|One historical sequence, not a probability/i.test(root?.textContent || ''),
+            statusGlyph: document.querySelector('#cashflow-path-status')?.textContent.trim() || '',
+            statusClass: document.querySelector('#cashflow-path-status')?.className || '',
+            statusColor: status ? getComputedStyle(status).color : '',
+            expectedStatusColor,
             visibleShortfall: /Short\s+\$/i.test(root?.textContent || '')
               || !!root?.querySelector('.cf-row__shortfall'),
             rows,
             retirementRows,
-            summary: summary ? {
-              outcome: summary.dataset.outcome || '',
-              firstUnderfundedAge: dataNumber('firstUnderfundedAge'),
-              firstUnderfundedYear: dataNumber('firstUnderfundedYear'),
-              fundedThroughAge: dataNumber('fundedThroughAge'),
-              fundedThroughYear: dataNumber('fundedThroughYear'),
-              endingBalance: dataNumber('endingBalance'),
-              endingAge: dataNumber('endingAge'),
-              endingYear: dataNumber('endingYear'),
-              peakWdRate: dataNumber('peakWdRate'),
-              peakWdAge: dataNumber('peakWdAge'),
-              peakWdYear: dataNumber('peakWdYear'),
-              comparisonYear: dataNumber('comparisonYear'),
-              comparisonBalance: dataNumber('comparisonBalance'),
-              typicalComparisonBalance: dataNumber('typicalComparisonBalance'),
-              deltaVsTypical: dataNumber('deltaVsTypical'),
-            } : null,
+            summary: summary ? { outcome: summary.dataset.outcome || '' } : null,
             persisted: JSON.parse(localStorage.getItem('parallax.cashFlowPath.v1') || '{}'),
             pathReplay: localStorage.getItem('parallax.pathReplay.v1'),
           };
         });
         if(historicalPath.mode !== mode || historicalPath.rootMode !== mode || historicalPath.kind !== 'historical') throw new Error(`${mode} did not stay selected: ${JSON.stringify(historicalPath)}`);
+        if(historicalPath.summary?.outcome !== expectedOutcome) throw new Error(`${mode} did not produce the required ${expectedOutcome} matrix: ${JSON.stringify(historicalPath.summary)}`);
+        observedHistoricalOutcomes.add(historicalPath.summary.outcome);
         if(historicalPath.persisted?.id !== mode) throw new Error(`${mode} selection did not persist independently: ${JSON.stringify(historicalPath.persisted)}`);
         if(historicalPath.pathReplay !== pathReplayBefore) throw new Error(`${mode} mutated Monte Carlo pathReplay`);
         if(historicalPath.header?.label !== 'Tax' || historicalPath.header?.source !== 'federal-converged-row' || historicalPath.header?.scope !== 'MODELED_FEDERAL_LINE_24') throw new Error(`${mode} tax scope is not converged federal: ${JSON.stringify(historicalPath)}`);
         if(historicalPath.compare) throw new Error(`${mode} still shows an obsolete sidecar comparison`);
         if(historicalPath.disclosure) throw new Error(`${mode} should not show federal scope or status copy: ${JSON.stringify(historicalPath.disclosure)}`);
-        if(historicalPath.probability || historicalPath.stats.includes('Median Ending')) throw new Error(`${mode} still shows a probabilistic summary: ${JSON.stringify(historicalPath.stats)}`);
+        if(historicalPath.probability || historicalPath.removedCopy || historicalPath.stats.length) throw new Error(`${mode} still shows removed summary content: ${JSON.stringify(historicalPath)}`);
         if(!historicalPath.retirementRows.length || historicalPath.retirementRows.some(row => row.sourceYear === null)) throw new Error(`${mode} contains post-depletion filler rows: ${JSON.stringify(historicalPath.retirementRows)}`);
         if(historicalPath.visibleShortfall) throw new Error(`${mode} visibly reports a dollar shortfall`);
         for(let index = 1; index < historicalPath.rows.length; index++){
@@ -2741,73 +2772,81 @@ try {
         const lastRetirement = historicalPath.retirementRows.at(-1);
         if(historicalPath.summary?.outcome === 'underfunded'){
           const firstUnderfunded = shortfallRows[0] || null;
-          const fundedThrough = historicalPath.retirementRows.at(-2) || null;
-          const peakRow = historicalPath.retirementRows.reduce(
-            (peak, row) => row.wdRate > (peak?.wdRate ?? 0) ? row : peak,
-            null
-          );
-          const typicalBalance = typicalEndingByYear[firstUnderfunded?.year];
+          const early = historicalPath.retirementRows.slice(0, 10)
+            .filter(row => row !== firstUnderfunded && row.shortfall <= 0.01 && row.wdRate > 0);
+          const pressureRow = early.reduce((highest, row) => (
+            !highest || row.wdRate > highest.wdRate
+              || (row.wdRate === highest.wdRate && row.planYear < highest.planYear)
+              ? row
+              : highest
+          ), null);
+          const pressureMetric = historicalPath.metrics.find(metric => metric.id === 'early-withdrawal-pressure');
+          const portfolioMetric = historicalPath.metrics.find(metric => metric.id === 'portfolio-at-underfunding');
+          const ageMetric = historicalPath.metrics.find(metric => metric.id === 'first-underfunded-age');
+          const typicalPressure = typicalRowsByPlanYear.find(row => row.planYear === pressureMetric?.planYear);
+          const typicalBoundary = typicalRowsByPlanYear.find(row => row.planYear === firstUnderfunded?.planYear);
           if(shortfallRows.length !== 1
             || firstUnderfunded !== lastRetirement
-            || historicalPath.summary.firstUnderfundedAge !== firstUnderfunded.age
-            || historicalPath.summary.firstUnderfundedYear !== firstUnderfunded.year
-            || historicalPath.summary.fundedThroughAge !== (fundedThrough?.age ?? null)
-            || historicalPath.summary.fundedThroughYear !== (fundedThrough?.year ?? null)
-            || historicalPath.summary.endingBalance !== null
-            || historicalPath.summary.endingAge !== null
-            || historicalPath.summary.endingYear !== null
-            || Math.abs(historicalPath.summary.peakWdRate - (peakRow?.wdRate ?? 0)) > 0.01
-            || historicalPath.summary.peakWdAge !== (peakRow?.age ?? null)
-            || historicalPath.summary.peakWdYear !== (peakRow?.year ?? null)
-            || historicalPath.summary.comparisonYear !== firstUnderfunded.year
-            || Math.abs(historicalPath.summary.comparisonBalance - firstUnderfunded.endingBalance) > 0.01
-            || !Number.isFinite(typicalBalance)
-            || Math.abs(historicalPath.summary.typicalComparisonBalance - typicalBalance) > 0.01
-            || Math.abs(historicalPath.summary.deltaVsTypical - (firstUnderfunded.endingBalance - typicalBalance)) > 0.01){
-            throw new Error(`${mode} underfunded summary does not match its first failure row: ${JSON.stringify(historicalPath)}`);
-          }
-          const expectedLabels = [
-            'Peak withdrawal rate through the first underfunded year',
-            'First underfunded year',
-            'Delta vs. Typical in that same year',
-          ];
-          if(JSON.stringify(historicalPath.stats) !== JSON.stringify(expectedLabels)
-            || historicalPath.metrics.length !== 3
-            || historicalPath.metrics[1]?.value !== String(firstUnderfunded.year)
-            || !/^-?\$|^−\$/.test(historicalPath.metrics[2]?.value || '')
+            || !pressureRow
+            || JSON.stringify(historicalPath.metrics.map(metric => metric.id)) !== JSON.stringify([
+              'early-withdrawal-pressure', 'portfolio-at-underfunding', 'first-underfunded-age',
+            ])
+            || pressureMetric.planYear !== pressureRow.planYear
+            || Math.abs(pressureMetric.thisPath - pressureRow.wdRate) > 0.01
+            || !typicalPressure
+            || Math.abs(pressureMetric.typicalPath - typicalPressure.wdRate) > 0.01
+            || Math.abs(pressureMetric.delta - (pressureRow.wdRate - typicalPressure.wdRate)) > 0.01
+            || portfolioMetric.planYear !== firstUnderfunded.planYear
+            || Math.abs(portfolioMetric.thisPath - firstUnderfunded.startBalance) > 0.01
+            || !typicalBoundary
+            || Math.abs(portfolioMetric.typicalPath - typicalBoundary.startBalance) > 0.01
+            || Math.abs(portfolioMetric.delta - (firstUnderfunded.startBalance - typicalBoundary.startBalance)) > 0.01
+            || !Number.isFinite(ageMetric.thisPath)
+            || ageMetric.planYear !== firstUnderfunded.planYear
+            || !/\$\d+(?:\.\d+)?(?:K|M)|\$0/.test(portfolioMetric.values[0] || '')
+            || /\$0\.\d+M/.test(portfolioMetric.values[0] || '')
+            || historicalPath.statusGlyph !== '!'
+            || !/is-underfunded/.test(historicalPath.statusClass)
+            || historicalPath.statusColor !== historicalPath.expectedStatusColor
             || !/Underfunded/i.test(lastRetirement.endingText)){
             throw new Error(`${mode} underfunded UI contract is incomplete: ${JSON.stringify(historicalPath)}`);
           }
         }else if(historicalPath.summary?.outcome === 'survives'){
-          const peakRow = historicalPath.retirementRows.reduce(
-            (peak, row) => row.wdRate > (peak?.wdRate ?? 0) ? row : peak,
-            null
-          );
+          const median = values => {
+            const ordered = [...values].sort((a, b) => a - b);
+            const middle = Math.floor(ordered.length / 2);
+            return ordered.length % 2
+              ? ordered[middle]
+              : (ordered[middle - 1] + ordered[middle]) / 2;
+          };
+          const historicalRates = historicalPath.retirementRows
+            .filter(row => row.shortfall <= 0.01 && row.wdRate > 0)
+            .map(row => row.wdRate);
+          const typicalRates = typicalRowsByPlanYear
+            .filter(row => row.phase === 'retirement' && row.sourceYear !== null && row.shortfall <= 0.01 && row.wdRate > 0)
+            .map(row => row.wdRate);
+          const medianMetric = historicalPath.metrics.find(metric => metric.id === 'median-withdrawal-rate');
+          const endingMetric = historicalPath.metrics.find(metric => metric.id === 'ending-portfolio');
+          const typicalEnding = typicalRowsByPlanYear.at(-1);
           if(shortfallRows.length !== 0
-            || historicalPath.summary.firstUnderfundedAge !== null
-            || historicalPath.summary.firstUnderfundedYear !== null
-            || historicalPath.summary.fundedThroughAge !== lastRetirement.age
-            || historicalPath.summary.fundedThroughYear !== lastRetirement.year
-            || Math.abs(historicalPath.summary.endingBalance - lastRetirement.endingBalance) > 0.01
-            || historicalPath.summary.endingAge !== lastRetirement.age
-            || historicalPath.summary.endingYear !== lastRetirement.year
-            || Math.abs(historicalPath.summary.peakWdRate - (peakRow?.wdRate ?? 0)) > 0.01
-            || historicalPath.summary.peakWdAge !== (peakRow?.age ?? null)
-            || historicalPath.summary.peakWdYear !== (peakRow?.year ?? null)
-            || historicalPath.summary.comparisonYear !== lastRetirement.year
-            || Math.abs(historicalPath.summary.comparisonBalance - lastRetirement.endingBalance) > 0.01
-            || !Number.isFinite(typicalEndingByYear[lastRetirement.year])
-            || Math.abs(historicalPath.summary.typicalComparisonBalance - typicalEndingByYear[lastRetirement.year]) > 0.01
-            || Math.abs(historicalPath.summary.deltaVsTypical - (lastRetirement.endingBalance - typicalEndingByYear[lastRetirement.year])) > 0.01){
-            throw new Error(`${mode} surviving summary does not share the displayed result: ${JSON.stringify(historicalPath)}`);
-          }
-          const expectedLabels = [
-            'Peak withdrawal rate',
-            'Ending portfolio at plan end',
-            'Delta vs. Typical at plan end',
-          ];
-          if(JSON.stringify(historicalPath.stats) !== JSON.stringify(expectedLabels)
-              || historicalPath.metrics.length !== 3){
+            || !historicalRates.length
+            || !typicalRates.length
+            || JSON.stringify(historicalPath.metrics.map(metric => metric.id)) !== JSON.stringify([
+              'median-withdrawal-rate', 'ending-portfolio',
+            ])
+            || Math.abs(medianMetric.thisPath - median(historicalRates)) > 0.01
+            || Math.abs(medianMetric.typicalPath - median(typicalRates)) > 0.01
+            || Math.abs(medianMetric.delta - (median(historicalRates) - median(typicalRates))) > 0.01
+            || Math.abs(endingMetric.thisPath - lastRetirement.endingBalance) > 0.01
+            || !typicalEnding
+            || typicalEnding.sourceYear === null
+            || typicalEnding.shortfall > 0.01
+            || Math.abs(endingMetric.typicalPath - typicalEnding.endingBalance) > 0.01
+            || Math.abs(endingMetric.delta - (lastRetirement.endingBalance - typicalEnding.endingBalance)) > 0.01
+            || historicalPath.statusGlyph !== '✓'
+            || !/is-success/.test(historicalPath.statusClass)
+            || historicalPath.statusColor !== historicalPath.expectedStatusColor
+            || historicalPath.metrics.some(metric => /Peak withdrawal/i.test(metric.label))){
             throw new Error(`${mode} surviving metrics are incomplete: ${JSON.stringify(historicalPath.metrics)}`);
           }
         }else{
@@ -2824,6 +2863,156 @@ try {
           };
         }
         await page.screenshot({ path: join(OUT, `04-cashflow-${mode}.png`), fullPage: true });
+      }
+
+      // This funded browser household correctly survives both live paths above.
+      // Exercise the underfunded matrix through the same production controller,
+      // renderer and stylesheet without mutating the persisted household.
+      const underfundedMatrixProof = await page.evaluate(async () => {
+        const [{ createCashFlowController }, { renderCashflow }] = await Promise.all([
+          import('./src/scenarios/createCashFlowController.js'),
+          import('./ui/cashflow.js'),
+        ]);
+        const typicalSimulation = {
+          simIndex: 7,
+          rows: [{
+            year: 1, age: 65, phase: 'ret', source: 1995, startBalance: 700000,
+            balance: 650000, fundingShortfall: 0, failed: false, wdRate: 4, taxes: 0,
+          }, {
+            year: 2, age: 66, phase: 'ret', source: 1996, startBalance: 650000,
+            balance: 600000, fundingShortfall: 0, failed: false, wdRate: 5, taxes: 0,
+          }],
+        };
+        const historicalRows = [{
+          year: 1, age: 65, phase: 'ret', source: 1973, startBalance: 90000,
+          balance: 50000, fundingShortfall: 0, failed: false, wdRate: 6, taxes: 0,
+        }, {
+          year: 2, age: 66, phase: 'ret', source: 1974, startBalance: 50000,
+          balance: 0, fundingShortfall: 20000, failed: true, wdRate: 100, taxes: 0,
+          people: { client: { age: 66, alive: true }, spouse: null },
+        }];
+        const scenario = {
+          base: true,
+          name: 'Browser underfunded proof',
+          res: { sims: [typicalSimulation], paths: { p50: { simIndex: 7 } } },
+        };
+        const plan = {
+          meta: { planningAsOfYear: 2026 },
+          household: { primary: { currentAge: 65 } },
+          goals: [],
+        };
+        const historical = {
+          kind: 'historical',
+          pathId: 'historical-1973',
+          simulation: { rows: historicalRows },
+          summary: { outcome: 'underfunded' },
+          taxScope: 'MODELED_FEDERAL_LINE_24',
+        };
+        const buildRows = simulation => simulation.rows.map(row => ({
+          year: 2025 + row.year,
+          age: row.age,
+          sourceYear: row.source,
+          accum: row.phase === 'accum',
+          ret: 0,
+          income: 0,
+          rmd: 0,
+          essential: 20000,
+          goals: 0,
+          tax: row.taxes,
+          draw: 20000,
+          wdRate: row.wdRate,
+          ending: row.balance,
+          fundingShortfall: row.fundingShortfall,
+          shortfall: row.fundingShortfall > 0.01,
+          startPort: row.startBalance,
+          goalTag: null,
+        }));
+        const selection = { id: 'historical-1973' };
+        const controller = createCashFlowController({
+          getScenarios: () => [scenario],
+          scenarioInputsByResult: new WeakMap([[scenario.res, { plan, overrides: {} }]]),
+          selection,
+          historicalCache: {
+            get: () => historical,
+            peek: args => args.analysis === scenario.res && args.periodId === selection.id
+              ? historical
+              : null,
+          },
+          buildRows,
+          digest: () => ({}),
+        });
+
+        const liveStatus = document.querySelector('#cashflow-path-status');
+        const scenarioPage = document.querySelector('.page[data-page="scenarios"]');
+        if(!liveStatus || !scenarioPage) throw new Error('Cash Flow status host is unavailable');
+        liveStatus.id = 'cashflow-path-status-live';
+        const status = document.createElement('span');
+        status.id = 'cashflow-path-status';
+        status.className = 'cashflow-path-status';
+        status.hidden = true;
+        const select = document.createElement('select');
+        const host = document.createElement('div');
+        scenarioPage.append(status, select, host);
+        try{
+          controller.syncSelect(select, scenario);
+          const selected = controller.resultForScenario(scenario);
+          const display = {
+            raw: scenario,
+            id: 'browser-underfunded-proof',
+            name: scenario.name,
+            tone: '#c6a662',
+            prob: 0,
+            probStr: '0',
+            median: '$0',
+          };
+          host.innerHTML = renderCashflow(display, [display], {
+            cashFlowResult: () => selected,
+            pathRows: () => [],
+            cashSummary: () => ({}),
+            cashFromRetirement: false,
+            isTypicalPath: () => false,
+            typicalPathFederalTax: () => null,
+            pathFederalTax: () => null,
+            wdColor: () => 'inherit',
+            num: value => String(value),
+            esc: value => String(value),
+            fmtMoney: value => '$' + Math.round(value).toLocaleString('en-US'),
+            cfCols: ['Year', 'Age', 'Income', 'RMD', 'Essential', 'Goals', 'Tax', 'Draw', 'Return', 'WD Rate', 'Ending'],
+          });
+          const summary = host.querySelector('.cf-summary--historical');
+          const probe = document.createElement('span');
+          probe.style.color = 'var(--neg)';
+          scenarioPage.appendChild(probe);
+          const expectedColor = getComputedStyle(probe).color;
+          probe.remove();
+          return {
+            outcome: summary?.dataset.outcome || '',
+            metrics: [...host.querySelectorAll('[data-historical-metric]')]
+              .map(metric => metric.dataset.historicalMetric),
+            glyph: status.textContent.trim(),
+            statusClass: status.className,
+            statusColor: getComputedStyle(status).color,
+            expectedColor,
+          };
+        }finally{
+          host.remove();
+          select.remove();
+          status.remove();
+          liveStatus.id = 'cashflow-path-status';
+        }
+      });
+      if(underfundedMatrixProof.outcome !== 'underfunded'
+          || JSON.stringify(underfundedMatrixProof.metrics) !== JSON.stringify([
+            'early-withdrawal-pressure', 'portfolio-at-underfunding', 'first-underfunded-age',
+          ])
+          || underfundedMatrixProof.glyph !== '!'
+          || !/is-underfunded/.test(underfundedMatrixProof.statusClass)
+          || underfundedMatrixProof.statusColor !== underfundedMatrixProof.expectedColor){
+        throw new Error(`controlled underfunded Historical matrix is incomplete: ${JSON.stringify(underfundedMatrixProof)}`);
+      }
+      observedHistoricalOutcomes.add(underfundedMatrixProof.outcome);
+      if(JSON.stringify([...observedHistoricalOutcomes].sort()) !== JSON.stringify(['survives', 'underfunded'])){
+        throw new Error(`Cash Flow verifier did not observe both locked Historical outcomes: ${JSON.stringify([...observedHistoricalOutcomes])}`);
       }
       if(!reloadExpected) throw new Error('historical reload checkpoint was not captured');
 
@@ -2855,10 +3044,6 @@ try {
         const root = document.querySelector('#scn-view .cf');
         const summary = document.querySelector('#scn-view .cf-summary--historical');
         const retirementRows = [...document.querySelectorAll('#scn-view .cf-row[data-phase="retirement"]')];
-        const dataNumber = (name) => summary?.dataset[name] === ''
-          || summary?.dataset[name] === undefined
-          ? null
-          : Number(summary.dataset[name]);
         return {
           snapshot: {
             mode: document.querySelector('#cashflow-path-mode')?.value || '',
@@ -2866,26 +3051,16 @@ try {
             sourceYear: Number(retirementRows[0]?.dataset.sourceYear),
             metrics: [...document.querySelectorAll('#scn-view [data-historical-metric]')].map(metric => ({
               id: metric.dataset.historicalMetric || '',
-              label: metric.querySelector('.cf-stat__label')?.textContent.trim() || '',
-              value: metric.querySelector('.cf-stat__value')?.textContent.trim() || '',
+              label: metric.querySelector('.cf-comparison__label')?.textContent.trim() || '',
+              values: [...metric.querySelectorAll('.cf-comparison__value')].map(value => value.textContent.trim()),
+              thisPath: metric.dataset.thisPath === '' ? null : Number(metric.dataset.thisPath),
+              typicalPath: metric.dataset.typicalPath === '' ? null : Number(metric.dataset.typicalPath),
+              delta: metric.dataset.delta === '' ? null : Number(metric.dataset.delta),
+              planYear: metric.dataset.planYear === '' || metric.dataset.planYear === undefined
+                ? null
+                : Number(metric.dataset.planYear),
             })),
-            summary: summary ? {
-              outcome: summary.dataset.outcome || '',
-              firstUnderfundedAge: dataNumber('firstUnderfundedAge'),
-              firstUnderfundedYear: dataNumber('firstUnderfundedYear'),
-              fundedThroughAge: dataNumber('fundedThroughAge'),
-              fundedThroughYear: dataNumber('fundedThroughYear'),
-              endingBalance: dataNumber('endingBalance'),
-              endingAge: dataNumber('endingAge'),
-              endingYear: dataNumber('endingYear'),
-              peakWdRate: dataNumber('peakWdRate'),
-              peakWdAge: dataNumber('peakWdAge'),
-              peakWdYear: dataNumber('peakWdYear'),
-              comparisonYear: dataNumber('comparisonYear'),
-              comparisonBalance: dataNumber('comparisonBalance'),
-              typicalComparisonBalance: dataNumber('typicalComparisonBalance'),
-              deltaVsTypical: dataNumber('deltaVsTypical'),
-            } : null,
+            summary: summary ? { outcome: summary.dataset.outcome || '' } : null,
             retirementAges: retirementRows.map(row => Number(row.dataset.age)),
           },
           persisted: JSON.parse(localStorage.getItem('parallax.cashFlowPath.v1') || '{}'),
@@ -2905,12 +3080,15 @@ try {
         return {
           header: th ? { label: th.textContent.trim(), source: th.dataset.taxSource || '' } : null,
           stats: [...document.querySelectorAll('#scn-view .cf-stat__label')].map(label => label.textContent.trim()),
+          statusGlyph: document.querySelector('#cashflow-path-status')?.textContent.trim() || '',
           persisted: JSON.parse(localStorage.getItem('parallax.cashFlowPath.v1') || '{}'),
           pathReplay: localStorage.getItem('parallax.pathReplay.v1'),
         };
       });
       if(restoredTypical.header?.label !== 'Tax' || restoredTypical.header?.source !== 'federal-converged-row') throw new Error(`Typical tax scope did not restore: ${JSON.stringify(restoredTypical)}`);
-      if(!restoredTypical.stats.includes('Median Ending') || restoredTypical.stats.some(label => /Delta vs\. Typical|First underfunded year|Ending portfolio at plan end/i.test(label))) throw new Error(`Typical baseline summary did not restore: ${JSON.stringify(restoredTypical.stats)}`);
+      if(JSON.stringify(restoredTypical.stats) !== JSON.stringify(['Funded through', 'Ending position', 'Peak withdrawal'])
+          || restoredTypical.statusGlyph
+          || restoredTypical.stats.some(label => /Probability|Federal total|Median Ending/i.test(label))) throw new Error(`Typical baseline summary did not restore: ${JSON.stringify(restoredTypical)}`);
       if(restoredTypical.persisted?.id !== 'typical' || restoredTypical.pathReplay !== pathReplayBefore) throw new Error(`Typical persistence disturbed replay state: ${JSON.stringify(restoredTypical)}`);
       if(await page.evaluate(() => !!document.querySelector('#scn-view [data-tax-compare]'))) throw new Error('obsolete federal-vs-engine summary restored on Typical');
       if(await page.evaluate(() => !!document.querySelector('#scn-view [data-tax-scope-disclosure], #scn-view [data-tax-disclosure]'))) throw new Error('removed federal scope/status copy restored on Typical');
@@ -3455,7 +3633,6 @@ try {
         drawCells: drawCells.length,
         endingCells: endingCells.length,
         shortfallCells: shortfallCells.length,
-        probability: Number.parseFloat(probabilityCells[0]?.textContent || ''),
         goal: parseMoney(goalCells[0]?.textContent),
         draw: parseMoney(drawCells[0]?.textContent),
         ending: endingCells[0]?.textContent.trim() || '',
@@ -3465,12 +3642,11 @@ try {
       };
     });
     if(cashFlowTruth.rows !== 1
-        || cashFlowTruth.probabilityCells !== 1
+        || cashFlowTruth.probabilityCells !== 0
         || cashFlowTruth.goalCells !== 1
         || cashFlowTruth.drawCells !== 1
         || cashFlowTruth.endingCells !== 1
         || cashFlowTruth.shortfallCells !== 1
-        || cashFlowTruth.probability !== 0
         || cashFlowTruth.goal !== 100000
         || !(cashFlowTruth.draw > 0)
         || cashFlowTruth.ending !== '$0'
@@ -3486,7 +3662,7 @@ try {
     await setCashFlow(page, false);
   });
 
-  await step('tax-funded probability is the only probability shown after Run', async () => {
+  await step('tax-funded probability remains unchanged outside Cash Flow after Run', async () => {
     const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     const controlledPlan = await page.evaluate((householdId) => {
       const storageKey = 'parallax.households.v1';
@@ -3599,9 +3775,11 @@ try {
 
     await setCashFlow(page, true);
     await waitCashRows(page, 1);
-    const cashFlowProb = await page.evaluate(() =>
-      Number.parseFloat(document.querySelector('#scn-view .cf-summary__id .cf-stat__value--probability')?.textContent || ''));
-    if(cashFlowProb !== expected) throw new Error(`Cash Flow probability ${cashFlowProb} does not match tax-funded ${expected}`);
+    const cashFlowProbability = await page.evaluate(() => ({
+      cell: !!document.querySelector('#scn-view .cf-summary__id .cf-stat__value--probability'),
+      copy: /Probability of success/i.test(document.querySelector('#scn-view .cf-summary')?.textContent || ''),
+    }));
+    if(cashFlowProbability.cell || cashFlowProbability.copy) throw new Error(`Cash Flow still presents plan-level probability: ${JSON.stringify(cashFlowProbability)}`);
     await setCashFlow(page, false);
     await sleep(300);
 

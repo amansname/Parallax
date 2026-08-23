@@ -247,6 +247,20 @@ export function buildHistoricalCashFlowResult({
 
 export function createHistoricalCashFlowCache(){
   const byAnalysis = new WeakMap();
+  function peek(args){
+    const analysis = args?.analysis;
+    if(!analysis || typeof analysis !== 'object') return null;
+    const period = historicalPeriodById(args.periodId);
+    if(!period) return null;
+    const cached = byAnalysis.get(analysis)?.get(period.id) ?? null;
+    return cached
+      && cached.plan === args.plan
+      && cached.overrides === args.overrides
+      && cached.scenarioId === args.scenarioId
+      && cached.taxOptions === args.taxOptions
+      ? cached.result
+      : null;
+  }
   return Object.freeze({
     get(args){
       const analysis = args?.analysis;
@@ -281,6 +295,7 @@ export function createHistoricalCashFlowCache(){
       }));
       return result;
     },
+    peek,
     invalidate(analysis){
       if(analysis && typeof analysis === 'object') byAnalysis.delete(analysis);
     },
