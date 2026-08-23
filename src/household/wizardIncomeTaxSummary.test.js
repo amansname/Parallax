@@ -76,7 +76,7 @@ test('blank Tax summary estimates on clone without mutating saved plan', () => {
   assert.deepEqual(saved.incomeTax.current1040, snapshot);
 });
 
-test('missing taxable IRA facts preserve other known income without inventing tax', () => {
+test('blank taxable IRA companion defaults to zero on the summary clone', () => {
   const saved = blankWizardPlan();
   ensureWizardCurrent1040(saved);
   saved.incomeTax.current1040.income.wages = 125000;
@@ -85,10 +85,10 @@ test('missing taxable IRA facts preserve other known income without inventing ta
 
   const summary = buildWizardIncomeTaxSummary(saved);
 
-  assert.equal(summary.status, 'needs_facts');
-  assert.match(summary.message, /taxable IRA/i);
+  assert.equal(summary.status, 'ready');
   assert.equal(summary.totalIncome, 125000);
-  assert.equal(summary.federalTaxLiability, null);
+  assert.equal(typeof summary.federalTaxLiability, 'number');
+  assert.ok(summary.federalTaxLiability > 0);
   assert.deepEqual(saved.incomeTax.current1040, snapshot);
 });
 
