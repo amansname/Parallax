@@ -2189,12 +2189,49 @@ try {
     const cmpStepBtns = await page.evaluate(() => document.querySelectorAll('#scn-view .compare .cmp-step-btn[data-scn-id]').length);
     const cmpInputs   = await page.evaluate(() => document.querySelectorAll('#scn-view .compare .cmp-lev-in[data-scn-id]').length);
     if(cmpStepBtns < 2 && cmpInputs < 1) throw new Error(`Compare lever controls missing (stepBtns=${cmpStepBtns}, inputs=${cmpInputs})`);
-    await page.evaluate(() => document.querySelector('#scn-view .compare .cmp-step-btn[data-dir="1"][data-scn-id]')?.click());
-    await new Promise(r => setTimeout(r, 250));
-    const cmpStatus = await page.evaluate(() => document.querySelector('#status')?.textContent || '');
-    if(!/Run to update/i.test(cmpStatus)) throw new Error(`Compare step button did not request a manual Run: "${cmpStatus}"`);
-    await page.evaluate(() => document.querySelector('#scn-view .compare .cmp-step-btn[data-dir="-1"][data-scn-id]')?.click());
-    await new Promise(r => setTimeout(r, 250));
+    const cmpStep = await page.evaluate(() => {
+      const button = document.querySelector(
+        '#scn-view .compare .cmp-step-btn[data-dir="1"][data-scn-id]',
+      );
+      return {
+        scenarioId: button?.dataset.scnId || '',
+        leverKey: button?.dataset.leverKey || '',
+        value: button?.closest('.cmp-lev-row')
+          ?.querySelector('.cmp-lev-val')?.textContent.trim() || '',
+      };
+    });
+    await page.evaluate(({ scenarioId, leverKey }) => {
+      [...document.querySelectorAll(
+        '#scn-view .compare .cmp-step-btn[data-dir="1"][data-scn-id]',
+      )].find(button => button.dataset.scnId === scenarioId
+        && button.dataset.leverKey === leverKey)?.click();
+    }, cmpStep);
+    await page.waitForFunction(({ scenarioId, leverKey, value }) => {
+      const button = [...document.querySelectorAll(
+        '#scn-view .compare .cmp-step-btn[data-dir="1"][data-scn-id]',
+      )].find(candidate => candidate.dataset.scnId === scenarioId
+        && candidate.dataset.leverKey === leverKey);
+      const current = button?.closest('.cmp-lev-row')
+        ?.querySelector('.cmp-lev-val')?.textContent.trim() || '';
+      return current !== value
+        && /Plan updated/i.test(document.querySelector('#status')?.textContent || '');
+    }, { timeout: 30000 }, cmpStep);
+    await page.evaluate(({ scenarioId, leverKey }) => {
+      [...document.querySelectorAll(
+        '#scn-view .compare .cmp-step-btn[data-dir="-1"][data-scn-id]',
+      )].find(button => button.dataset.scnId === scenarioId
+        && button.dataset.leverKey === leverKey)?.click();
+    }, cmpStep);
+    await page.waitForFunction(({ scenarioId, leverKey, value }) => {
+      const button = [...document.querySelectorAll(
+        '#scn-view .compare .cmp-step-btn[data-dir="-1"][data-scn-id]',
+      )].find(candidate => candidate.dataset.scnId === scenarioId
+        && candidate.dataset.leverKey === leverKey);
+      const current = button?.closest('.cmp-lev-row')
+        ?.querySelector('.cmp-lev-val')?.textContent.trim() || '';
+      return current === value
+        && /Plan updated/i.test(document.querySelector('#status')?.textContent || '');
+    }, { timeout: 30000 }, cmpStep);
 
     await page.screenshot({ path: join(OUT, '03-scenarios.png'), fullPage: true });
   });
@@ -2224,16 +2261,26 @@ try {
     if(!m.railFocus) throw new Error('Focus rail did not mark the in-focus scenario');
     if(!m.segActive) throw new Error('Focus segment did not mark itself active');
 
-    // A lever stepper mutates the focused scenario and asks for a manual Run
-    // (existing production flow — no auto-run). Step up then back down so the
-    // scenario's levers are left exactly as found (no Run fires, so s.res and the
-    // baseline retirement marker the Cash Flow step checks stay consistent).
+    // A lever stepper saves and runs automatically. Step up then back down so
+    // the scenario's levers and results are left exactly as found.
+    const focusedLeverBefore = await page.$eval(
+      '#scn-view .assum__stepper',
+      element => element.textContent.replace(/\s+/g, ' ').trim(),
+    );
     await page.evaluate(() => document.querySelector('#scn-view .assum__stepper .stepper-btn[data-dir="1"]')?.click());
-    await new Promise(r => setTimeout(r, 250));
-    const status = await page.evaluate(() => document.querySelector('#status')?.textContent || '');
-    if(!/Run to update/i.test(status)) throw new Error(`lever stepper did not request a manual Run: "${status}"`);
+    await page.waitForFunction(before => {
+      const current = document.querySelector('#scn-view .assum__stepper')
+        ?.textContent.replace(/\s+/g, ' ').trim() || '';
+      return current !== before
+        && /Plan updated/i.test(document.querySelector('#status')?.textContent || '');
+    }, { timeout: 30000 }, focusedLeverBefore);
     await page.evaluate(() => document.querySelector('#scn-view .assum__stepper .stepper-btn[data-dir="-1"]')?.click());
-    await new Promise(r => setTimeout(r, 250));
+    await page.waitForFunction(before => {
+      const current = document.querySelector('#scn-view .assum__stepper')
+        ?.textContent.replace(/\s+/g, ' ').trim() || '';
+      return current === before
+        && /Plan updated/i.test(document.querySelector('#status')?.textContent || '');
+    }, { timeout: 30000 }, focusedLeverBefore);
     await page.screenshot({ path: join(OUT, '03b-scenarios-focus.png'), fullPage: true });
   });
 
@@ -2248,27 +2295,27 @@ try {
         && /Plan updated/i.test(document.querySelector('#status')?.textContent || '');
     }, { timeout: 30000 });
 
-    const edited = await page.evaluate(() => {
-      const inputs = [...document.querySelectorAll('#scn-view .cmp-lev-in[data-key="savings"]')];
-      const input = inputs.at(-1);
-      if(!input) return false;
-      input.value = '45,000';
-      input.dispatchEvent(new Event('change', { bubbles: true }));
-      return true;
-    });
-    if(!edited) throw new Error('fourth scenario savings input was not available');
-    await page.waitForFunction(
-      () => /Run to update/i.test(document.querySelector('#status')?.textContent || ''),
-      { timeout: 8000 },
-    );
-    await page.$eval('#run-btn', button => button.click());
-    await page.waitForFunction(() => {
+    const savingsInputs = await page.$$('#scn-view .cmp-lev-in[data-key="savings"]');
+    const savingsInput = savingsInputs.at(-1);
+    if(!savingsInput) throw new Error('fourth scenario savings input was not available');
+    await savingsInput.click();
+    await page.keyboard.down('Control');
+    await page.keyboard.press('A');
+    await page.keyboard.up('Control');
+    await page.keyboard.type('45000');
+    await page.keyboard.press('Tab');
+    await page.waitForFunction((householdId) => {
       const probabilities = [...document.querySelectorAll('#scn-view .scol__prob')]
         .map(element => element.textContent.trim());
+      const savings = [...document.querySelectorAll('#scn-view .cmp-lev-in[data-key="savings"]')]
+        .map(input => input.value.replace(/[^0-9.]/g, ''));
+      const saved = JSON.parse(localStorage.getItem(`parallax.scenarios.${householdId}.v1`) || '[]');
       return probabilities.length === 4
         && probabilities.every(value => /\d/.test(value))
+        && savings[3] === '45000'
+        && saved.find(scenario => scenario.name === 'Scenario D')?.lev?.savings === 45000
         && /Plan updated/i.test(document.querySelector('#status')?.textContent || '');
-    }, { timeout: 30000 });
+    }, { timeout: 30000 }, withdrawalPlannerFixtureHouseholdId);
 
     const beforeReload = await page.evaluate((householdId) => {
       const medians = [...document.querySelectorAll('#scn-view .scol__median b')]

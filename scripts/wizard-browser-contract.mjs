@@ -1710,6 +1710,41 @@ async function verifyPlanningSourceAndTaxFlow(page){
       && /deductible amount after any category-specific limits/i.test(itemizedCopy),
     `Itemized input semantics are unclear: "${itemizedCopy}"`,
   );
+
+  const beforeBlankItemizedContinue = await wizardState(page);
+  await page.click(continueSelector);
+  await waitForWizard(page, {
+    step: 'summary',
+    afterRevision: beforeBlankItemizedContinue.revision,
+  });
+  const blankItemized = await page.evaluate(() => {
+    const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+    const active = localStorage.getItem('parallax.activeHouseholdId');
+    const deductions = db?.[active]?.incomeTax?.current1040?.deductions;
+    return {
+      method: deductions?.method,
+      source: deductions?.source,
+      medical: deductions?.itemized?.medicalExpensesPaid,
+      salt: deductions?.itemized?.salt?.eligibleTaxesPaid,
+      saltMagi: deductions?.itemized?.salt?.magi?.amount,
+      mortgage: deductions?.itemized?.mortgageInterestDeductible,
+      charitable: deductions?.itemized?.charitableContributionsDeductible,
+      other: deductions?.itemized?.otherItemizedDeductions,
+    };
+  });
+  requireCondition(
+    blankItemized.method === 'itemized'
+      && blankItemized.source === 'calculated'
+      && blankItemized.medical === 0
+      && blankItemized.salt === 0
+      && blankItemized.saltMagi === 0
+      && blankItemized.mortgage === 0
+      && blankItemized.charitable === 0
+      && blankItemized.other === 0,
+    `Blank itemized amounts did not continue as zero: ${JSON.stringify(blankItemized)}`,
+  );
+
+  await goToWizardStep(page, 'tax');
   await setWizardValue(
     page,
     '[data-tax-field="deductionMode"]',

@@ -555,6 +555,62 @@ test('Tax confirmation treats blank IRA, pension, and Social Security companions
   }
 });
 
+test('Tax confirmation treats blank itemized deduction amounts as zero', () => {
+  const detailed = plan();
+  setWizardTaxField(detailed, 'deductionMode', 'itemized-details');
+  setWizardTaxField(
+    detailed,
+    'deductions.itemized.medicalExpensesPaid',
+    1250,
+  );
+
+  confirmWizardTaxInputs(detailed);
+
+  assert.deepEqual(detailed.incomeTax.current1040.deductions.itemized, {
+    medicalExpensesPaid: 1250,
+    mortgageInterestDeductible: 0,
+    charitableContributionsDeductible: 0,
+    otherItemizedDeductions: 0,
+    salt: {
+      eligibleTaxesPaid: 0,
+      magi: { mode: 'supplied-magi', amount: 0 },
+    },
+  });
+  assert.equal(isWizardTaxComplete(detailed), true);
+
+  const supplied = plan();
+  setWizardTaxField(supplied, 'deductionMode', 'itemized-total');
+  confirmWizardTaxInputs(supplied);
+  assert.equal(supplied.incomeTax.current1040.deductions.line12e, 0);
+  assert.equal(isWizardTaxComplete(supplied), true);
+});
+
+test('Tax confirmation does not invent SALT MAGI when eligible taxes are nonzero', () => {
+  const subject = plan();
+  setWizardTaxField(subject, 'deductionMode', 'itemized-details');
+  setWizardTaxField(
+    subject,
+    'deductions.itemized.salt.eligibleTaxesPaid',
+    50_000,
+  );
+
+  assert.throws(
+    () => confirmWizardTaxInputs(subject),
+    error => {
+      assert.equal(error.code, 'INVALID_OBJECT');
+      assert.equal(error.field, 'deductions.itemized.salt.magi');
+      return true;
+    },
+  );
+  assert.equal(
+    Object.hasOwn(
+      subject.incomeTax.current1040.deductions.itemized.salt,
+      'magi',
+    ),
+    false,
+  );
+});
+
 test('Tax confirmation ignores a persisted direct zero when planning income owns the group', () => {
   const subject = plan();
   subject.income.other = [{
