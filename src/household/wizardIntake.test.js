@@ -555,6 +555,36 @@ test('Tax confirmation treats blank IRA, pension, and Social Security companions
   }
 });
 
+test('Tax confirmation treats blank itemized deduction amounts as zero', () => {
+  const detailed = plan();
+  setWizardTaxField(detailed, 'deductionMode', 'itemized-details');
+  setWizardTaxField(
+    detailed,
+    'deductions.itemized.medicalExpensesPaid',
+    1250,
+  );
+
+  confirmWizardTaxInputs(detailed);
+
+  assert.deepEqual(detailed.incomeTax.current1040.deductions.itemized, {
+    medicalExpensesPaid: 1250,
+    mortgageInterestDeductible: 0,
+    charitableContributionsDeductible: 0,
+    otherItemizedDeductions: 0,
+    salt: {
+      eligibleTaxesPaid: 0,
+      magi: { mode: 'supplied-magi', amount: 0 },
+    },
+  });
+  assert.equal(isWizardTaxComplete(detailed), true);
+
+  const supplied = plan();
+  setWizardTaxField(supplied, 'deductionMode', 'itemized-total');
+  confirmWizardTaxInputs(supplied);
+  assert.equal(supplied.incomeTax.current1040.deductions.line12e, 0);
+  assert.equal(isWizardTaxComplete(supplied), true);
+});
+
 test('Tax confirmation ignores a persisted direct zero when planning income owns the group', () => {
   const subject = plan();
   subject.income.other = [{

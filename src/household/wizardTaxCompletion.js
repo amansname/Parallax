@@ -27,6 +27,12 @@ const SIMPLE_SCHEDULE_D_CONFIRMATIONS = Object.freeze([
   'line19NotApplicable',
   'form4952Line4gIsZeroOrNotApplicable',
 ]);
+const ITEMIZED_COMPLETION_FIELDS = Object.freeze([
+  'medicalExpensesPaid',
+  'mortgageInterestDeductible',
+  'charitableContributionsDeductible',
+  'otherItemizedDeductions',
+]);
 
 function normalizedWizardField(path){
   return String(path || '')
@@ -209,6 +215,78 @@ function ensureScheduleDCompletion(current, planning, { materialize }){
   );
 }
 
+function ensureZeroCompletionFact(target, field, path, { materialize }){
+  if(hasOwn(target, field)) return;
+  if(materialize){
+    target[field] = 0;
+    return;
+  }
+  missingWizardFact(
+    'Confirm the Tax page again after changing deductions',
+    path,
+    'CURRENT_1040_COMPLETION_FACT_MISSING',
+  );
+}
+
+function ensureCompletionObject(parent, field, path, { materialize }){
+  if(parent[field]) return parent[field];
+  if(!materialize){
+    missingWizardFact(
+      'Confirm the Tax page again after changing deductions',
+      path,
+      'CURRENT_1040_COMPLETION_FACT_MISSING',
+    );
+  }
+  parent[field] = {};
+  return parent[field];
+}
+
+function ensureDeductionCompletion(current, options){
+  const deductions = current.deductions;
+  if(deductions.source === 'supplied-line12e'){
+    ensureZeroCompletionFact(
+      deductions, 'line12e', 'deductions.line12e', options,
+    );
+    return;
+  }
+  if(deductions.method !== 'itemized'
+      || deductions.source !== 'calculated') return;
+
+  const itemized = ensureCompletionObject(
+    deductions,
+    'itemized',
+    'deductions.itemized.medicalExpensesPaid',
+    options,
+  );
+  for(const field of ITEMIZED_COMPLETION_FIELDS){
+    ensureZeroCompletionFact(
+      itemized, field, `deductions.itemized.${field}`, options,
+    );
+  }
+  const salt = ensureCompletionObject(
+    itemized,
+    'salt',
+    'deductions.itemized.salt.eligibleTaxesPaid',
+    options,
+  );
+  ensureZeroCompletionFact(
+    salt,
+    'eligibleTaxesPaid',
+    'deductions.itemized.salt.eligibleTaxesPaid',
+    options,
+  );
+  if(!salt.magi){
+    if(!options.materialize){
+      missingWizardFact(
+        'Confirm the Tax page again after changing deductions',
+        'deductions.itemized.salt.magi',
+        'CURRENT_1040_COMPLETION_FACT_MISSING',
+      );
+    }
+    salt.magi = { mode: 'supplied-magi', amount: 0 };
+  }
+}
+
 function ensureAdditionalCompletionFacts(current, { materialize }){
   if(!current.adjustments){
     if(materialize){
@@ -340,6 +418,7 @@ function ensureWizardTaxCompletion(plan, { materialize }){
   ensureIncomeCompletionFacts(current, planning, { materialize });
   ensureSocialSecurityCompletion(current, { materialize });
   ensureScheduleDCompletion(current, planning, { materialize });
+  ensureDeductionCompletion(current, { materialize });
   ensureAdditionalCompletionFacts(current, { materialize });
   return current;
 }

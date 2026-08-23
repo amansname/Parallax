@@ -2712,8 +2712,14 @@ $('#cashflow-path-mode').onchange=e=>{
   
   
 
+  function saveAndRunScenarioEdit() {
+    saveScenarios();
+    uiState.plansDirty = true;
+    runAll();
+  }
+
   // Lever step: reuses the EXISTING production mutation (LEVCFG/levRange/syncPension)
-  // and the existing manual Run flow ("Adjusted · Run to update"). No auto-run.
+  // and immediately refreshes the saved scenario results.
   function stepFocusLever(ci, key, dir) {
     if(!guardPlanMutation()) return;
     const cfg = LEVCFG.find((c) => c.key === key); if (!cfg) return;
@@ -2722,8 +2728,7 @@ $('#cashflow-path-mode').onchange=e=>{
     L[key] = Math.max(r.min, Math.min(r.max, (L[key] != null ? L[key] : r.min) + dir * r.step));
     if (key === 'pensionAge') L.pensionAuto = false;
     if (key === 'retireAge' && L.pensionAuto) syncPension(L);
-    saveScenarios();
-    syncHeaderStatus('Adjusted · Run to update');
+    saveAndRunScenarioEdit();
   }
   // Commit a typed value from a .cmp-lev-in input in the Compare view.
   // Mirrors the parse/clamp logic from the scenario lever edit contract.
@@ -2749,9 +2754,7 @@ $('#cashflow-path-mode').onchange=e=>{
       const a = Math.round(raw);
       if (isFinite(a)) L.eventAge = Math.max(lo, Math.min(hi, a));
     }
-    saveScenarios();
-    syncHeaderStatus('Adjusted · Run to update');
-    syncScenariosView();
+    saveAndRunScenarioEdit();
   }
   // Commit a typed per-scenario GOAL override (amount / startAge / endAge / onceAge).
   // Writes into scenarios[ci].lev.goalOv[idx] — the base plan and other scenarios are
@@ -2793,9 +2796,7 @@ $('#cashflow-path-mode').onchange=e=>{
     ['amount', 'startAge', 'endAge'].forEach((f) => { if (ov[f] != null && ov[f] === resolvedBase[f]) delete ov[f]; });
     if (ov.amount == null && ov.startAge == null && ov.endAge == null) delete sc.lev.goalOv[idx];
     if (sc.lev.goalOv && Object.keys(sc.lev.goalOv).length === 0) delete sc.lev.goalOv;
-    saveScenarios();
-    syncHeaderStatus('Adjusted · Run to update');
-    syncScenariosView();
+    saveAndRunScenarioEdit();
   }
 
   /* ---- TAX MAPPING (selection over existing production data, not a tax engine) */
@@ -2941,16 +2942,20 @@ $('#cashflow-path-mode').onchange=e=>{
     });
     // Type-in inputs for dollar levers in Compare view.
     view.querySelectorAll('.cmp-lev-in').forEach((inp) => {
-      inp.addEventListener('change', () => commitCmpInput(inp));
-      inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') inp.blur(); });
+      inp.addEventListener('blur', () => commitCmpInput(inp));
+      inp.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); inp.blur(); }
+      });
       if (!inp.classList.contains('cmp-lev-in--age')) {
         inp.addEventListener('input', () => liveCommas(inp));
       }
     });
     // Per-scenario goal override inputs (amount / start / end) in expanded Compare.
     view.querySelectorAll('.cmp-goal-in').forEach((inp) => {
-      inp.addEventListener('change', () => commitGoalInput(inp));
-      inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') inp.blur(); });
+      inp.addEventListener('blur', () => commitGoalInput(inp));
+      inp.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); inp.blur(); }
+      });
       if (!inp.classList.contains('cmp-goal-in--age')) {
         inp.addEventListener('input', () => liveCommas(inp));
       }
