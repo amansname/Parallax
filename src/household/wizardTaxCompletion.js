@@ -276,6 +276,10 @@ function ensureDeductionCompletion(current, options){
     options,
   );
   if(!salt.magi){
+    if(options.materialize && salt.eligibleTaxesPaid === 0){
+      salt.magi = { mode: 'supplied-magi', amount: 0 };
+      return;
+    }
     if(!options.materialize){
       missingWizardFact(
         'Confirm the Tax page again after changing deductions',
@@ -283,13 +287,6 @@ function ensureDeductionCompletion(current, options){
         'CURRENT_1040_COMPLETION_FACT_MISSING',
       );
     }
-    salt.magi = salt.eligibleTaxesPaid === 0
-      ? { mode: 'supplied-magi', amount: 0 }
-      : {
-        mode: 'line11b-no-exclusions',
-        noForeignOrTerritorialExclusionsConfirmed: true,
-        completeReturnIncomeConfirmed: true,
-      };
   }
 }
 

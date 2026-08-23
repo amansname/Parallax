@@ -2,10 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildCurrent1040Intake } from '../planning/tax/buildCurrent1040Intake.js';
 import { buildCurrentIncomeTaxSummary } from '../planning/tax/buildCurrentIncomeTaxSummary.js';
-import {
-  buildDefaultTaxContext,
-  calculateAnnualFederalTax,
-} from '../tax/annual1040.js';
 import * as wizardIntakeFacade from './wizardIntake.js';
 import {
   buildWizardTaxPlan,
@@ -589,9 +585,8 @@ test('Tax confirmation treats blank itemized deduction amounts as zero', () => {
   assert.equal(isWizardTaxComplete(supplied), true);
 });
 
-test('Tax confirmation derives blank SALT MAGI when eligible taxes are nonzero', () => {
+test('Tax confirmation does not invent SALT MAGI when eligible taxes are nonzero', () => {
   const subject = plan();
-  setWizardTaxField(subject, 'income.wages', 700_000);
   setWizardTaxField(subject, 'deductionMode', 'itemized-details');
   setWizardTaxField(
     subject,
@@ -599,38 +594,20 @@ test('Tax confirmation derives blank SALT MAGI when eligible taxes are nonzero',
     50_000,
   );
 
-  confirmWizardTaxInputs(subject);
-
-  assert.deepEqual(
-    subject.incomeTax.current1040.deductions.itemized.salt.magi,
-    {
-      mode: 'line11b-no-exclusions',
-      noForeignOrTerritorialExclusionsConfirmed: true,
-      completeReturnIncomeConfirmed: true,
+  assert.throws(
+    () => confirmWizardTaxInputs(subject),
+    error => {
+      assert.equal(error.code, 'INVALID_OBJECT');
+      assert.equal(error.field, 'deductions.itemized.salt.magi');
+      return true;
     },
   );
-  const summary = buildCurrentIncomeTaxSummary(subject);
-  assert.equal(summary.status, 'ready');
-  const built = buildCurrent1040Intake(subject);
-  assert.deepEqual(built.gaps, []);
-  const run = calculateAnnualFederalTax(
-    built.intake,
-    buildDefaultTaxContext({
-      taxYear: built.intake.taxYear,
-      calculatedAt: '2026-08-23T12:00:00.000Z',
-      runId: 'wizard_blank_salt_magi',
-      scenarioId: 'wizard_blank_salt_magi',
-    }),
-  );
-  const saltAudit = run.audits.find(
-    entry => entry.ruleId === 'FED_SALT_DEDUCTION_CAP',
-  );
-  assert.equal(saltAudit.inputsUsed.modifiedAdjustedGrossIncome, 700_000);
   assert.equal(
-    saltAudit.calculationSteps.find(
-      step => step.step === 'allowed_salt_deduction',
-    ).saltDeduction,
-    10_000,
+    Object.hasOwn(
+      subject.incomeTax.current1040.deductions.itemized.salt,
+      'magi',
+    ),
+    false,
   );
 });
 
