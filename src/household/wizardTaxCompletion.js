@@ -283,7 +283,13 @@ function ensureDeductionCompletion(current, options){
         'CURRENT_1040_COMPLETION_FACT_MISSING',
       );
     }
-    salt.magi = { mode: 'supplied-magi', amount: 0 };
+    salt.magi = salt.eligibleTaxesPaid === 0
+      ? { mode: 'supplied-magi', amount: 0 }
+      : {
+        mode: 'line11b-no-exclusions',
+        noForeignOrTerritorialExclusionsConfirmed: true,
+        completeReturnIncomeConfirmed: true,
+      };
   }
 }
 
