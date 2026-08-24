@@ -16,7 +16,6 @@ import { createIncomeSource } from './household/incomeTaxModel.js';
 import { bindHouseholdEditor } from './household/commit.js';
 import { createHouseholdWizardController } from './household/wizard.js';
 import { createHouseholdWizardCommitBoundary } from './household/wizardEdits.js';
-import { createDurableRuntimeCopy } from './household/runtimeHouseholdSave.js';
 import { invalidateWizardTaxCompletion } from './household/wizardIntake.js';
 import {
   ACTIVE_KEY,
@@ -95,7 +94,6 @@ let householdsDb = {};
 let activeHouseholdId = null;
 let accountMigrationState = { blocked: false, readOnly: false, message: null, issuesByHousehold: {} };
 let recoveryStatusPinned = false;
-let runtimeCopyPendingStatus = false;
 
 const householdStorage = {
   getItem(key){ return localStorage.getItem(key); },
@@ -137,35 +135,12 @@ function guardHouseholdStorageMutation(){
   return true;
 }
 
-function ensureDurableActiveHousehold(){
-  if(!isRuntimeHousehold(activeHouseholdId)) return true;
-  const sourceHouseholdId = activeHouseholdId;
-  const targetHouseholdId = newHouseholdId();
-  const copy = createDurableRuntimeCopy(plan, {
-    sourceHouseholdId,
-    targetHouseholdId,
-  });
-  householdsDb[targetHouseholdId] = copy;
-  activeHouseholdId = targetHouseholdId;
-  hydratePlan(copy);
-  updateHouseholdControls();
-  if(!saveActiveHousehold()){
-    planSaveDirty = true;
-    saveFailed = true;
-    runtimeCopyPendingStatus = false;
-    syncHeaderStatus('Save as household failed · storage blocked or full');
-    return false;
-  }
-  runtimeCopyPendingStatus = true;
-  return true;
-}
-
 function guardPlanMutation(){
   if(!activeHouseholdId){
     syncHeaderStatus('Select or create a household to begin');
     return false;
   }
-  return guardHouseholdStorageMutation() && ensureDurableActiveHousehold();
+  return guardHouseholdStorageMutation();
 }
 
 function recoveryPanelHtml(){
@@ -215,6 +190,10 @@ function persistHouseholdsDb(){
 function persistActiveId(){
   if(!guardHouseholdStorageMutation()) return false;
   try{
+    if(isRuntimeHousehold(activeHouseholdId)){
+      localStorage.removeItem(ACTIVE_KEY);
+      return true;
+    }
     localStorage.setItem(ACTIVE_KEY, activeHouseholdId);
     return true;
   }catch(e){
@@ -396,7 +375,9 @@ function loadScenarios(id){
 // Wipe the ACTIVE household's saved scenarios and return to its first-run set.
 function resetScenarios(){
   if(!guardPlanMutation()) return;
-  try{ localStorage.removeItem(scenKey()); }catch(e){}
+  if(!isRuntimeHousehold(activeHouseholdId)){
+    try{ localStorage.removeItem(scenKey()); }catch(e){}
+  }
   uiState.scenarios=defaultScenarios(); uiState.baseSnapshot=defaultLevers();
   uiState.plansDirty=true; runAll();
 }
@@ -414,6 +395,11 @@ function resetScenarios(){
 let planSaveDirty=false;
 let saveFailed=false;
 function autoSavePlan(){
+  if(isRuntimeHousehold(activeHouseholdId)){
+    planSaveDirty=false;
+    saveFailed=false;
+    return true;
+  }
   planSaveDirty=true;
   const ok=saveActiveHousehold() && saveScenarios();
   saveFailed=!ok;
@@ -422,13 +408,11 @@ function autoSavePlan(){
 }
 function syncPlanEditStatus(message){
   if(saveFailed){
-    runtimeCopyPendingStatus = false;
     syncHeaderStatus('Automatic save failed · storage blocked or full');
     return;
   }
-  if(runtimeCopyPendingStatus){
-    runtimeCopyPendingStatus = false;
-    syncHeaderStatus(`Saved as ${plan.meta?.name || 'new household'} · open Scenarios`);
+  if(isRuntimeHousehold(activeHouseholdId)){
+    syncHeaderStatus('Demo changes are temporary · use New Household to save a plan');
     return;
   }
   syncHeaderStatus(message);
