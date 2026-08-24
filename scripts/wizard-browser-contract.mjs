@@ -896,6 +896,10 @@ async function verifyRuntimeTemplateSessionIsolation(page){
     const originalName = JSON.parse(baseline.fixtureBytes[householdId]).meta.primaryName;
     const editedName = `Temporary ${householdId} edit`;
     await selectHouseholdVisible(page, householdId);
+    await page.waitForFunction(
+      () => /Plan updated|Partial run/i.test(document.querySelector('#status')?.textContent || ''),
+      { timeout: 30000 },
+    );
     await goToWizardStep(page, 'family');
     await setWizardValue(page, '[data-wizard-field="primaryName"]', editedName);
     await page.waitForFunction(({ expectedId, expectedName, expectedStatus }) => (
