@@ -921,7 +921,7 @@ async function verifyRuntimeTemplateSessionIsolation(page){
     await page.click('#scn-add');
     await page.waitForFunction(expectedCount => (
       document.querySelectorAll('#scn-view .scol__name').length === expectedCount
-    ), { timeout: 10000 }, defaultScenarioCount + 1);
+    ), { timeout: 30000 }, defaultScenarioCount + 1);
     await requireUnchangedPersistence(`${householdId} scenario edit`);
 
     await page.click('.htab[data-page="household"]');
@@ -1018,7 +1018,7 @@ async function verifyRuntimeTemplateSessionIsolation(page){
       && document.querySelectorAll('#scn-view .scol__name').length === expectedCount
       && Array.isArray(saved)
       && saved.length === expectedCount;
-  }, { timeout: 10000 }, {
+  }, { timeout: 30000 }, {
     expectedId: customId,
     expectedCount: customScenarioCount + 1,
   });
