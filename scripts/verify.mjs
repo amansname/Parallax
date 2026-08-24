@@ -4046,6 +4046,9 @@ try {
       db: JSON.parse(localStorage.getItem('parallax.households.v1') || 'null'),
       selected: document.querySelector('#hh-switch')?.value || '',
       railName: document.querySelector('#hh-rail-name')?.textContent.trim() || '',
+      runtimeScenarioKeys: ['now-household', 'future-household'].filter(id => (
+        localStorage.getItem(`parallax.scenarios.${id}.v1`) !== null
+      )),
     }));
     if(afterReload.active !== null || afterReload.selected || afterReload.railName){
       throw new Error(`reload did not return to the private blank state: ${JSON.stringify(afterReload)}`);
@@ -4058,8 +4061,7 @@ try {
     if(Object.values(afterReload.db).some(household => (
       ['now-household', 'future-household'].includes(household?.meta?.runtimeSourceHouseholdId)
     ))) throw new Error('runtime-derived household survived blank startup');
-    if(localStorage.getItem('parallax.scenarios.now-household.v1') !== null
-        || localStorage.getItem('parallax.scenarios.future-household.v1') !== null){
+    if(afterReload.runtimeScenarioKeys.length !== 0){
       throw new Error('runtime template scenarios entered persistent storage');
     }
     const visibleSwitcher = await page.$eval('#hh-switch', selector => {
