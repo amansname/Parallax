@@ -320,7 +320,7 @@ async function restoreStorage(page, snapshot){
 }
 
 async function seedStaleCopyMigrationFixture(page){
-  await page.evaluate(({ staleRecords, survivor }) => {
+  return page.evaluate(({ staleRecords, survivor }) => {
     const databaseKey = 'parallax.households.v1';
     const database = JSON.parse(localStorage.getItem(databaseKey) || 'null');
     const source = database?.['now-household'];
@@ -339,8 +339,13 @@ async function seedStaleCopyMigrationFixture(page){
     for(const staleRecord of staleRecords){
       database[staleRecord.id] = createCustomRecord(staleRecord);
     }
+    const staleRecordBytes = Object.fromEntries(staleRecords.map(({ id }) => [
+      id,
+      JSON.stringify(database[id]),
+    ]));
     localStorage.setItem(databaseKey, JSON.stringify(database));
     localStorage.setItem('parallax.activeHouseholdId', staleRecords[0].id);
+    return staleRecordBytes;
   }, {
     staleRecords: STALE_COPY_MIGRATION_RECORDS,
     survivor: MIGRATION_SURVIVOR,
@@ -610,9 +615,9 @@ export function attachBrowserDiagnostics(page){
   };
 }
 
-async function verifyBlankStartupAndNowSelection(page){
+async function verifyBlankStartupAndNowSelection(page, expectedNameOnlyBytes){
   await openWizard(page);
-  const startup = await page.evaluate(() => {
+  const startup = await page.evaluate(staleRecordIds => {
     const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
     const options = [...document.querySelectorAll('#hh-switch option')].map(option => ({
       value: option.value,
@@ -631,6 +636,10 @@ async function verifyBlankStartupAndNowSelection(page){
       dbIds: Object.keys(db || {}),
       options,
       customIds,
+      staleRecordBytes: Object.fromEntries(staleRecordIds.map(id => [
+        id,
+        JSON.stringify(db?.[id] ?? null),
+      ])),
       selected: document.querySelector('#hh-switch')?.value || '',
       railName: document.querySelector('#hh-rail-name')?.textContent.trim() || '',
       menuHidden: document.querySelector('#hh-menu-pop')?.hidden,
@@ -649,7 +658,7 @@ async function verifyBlankStartupAndNowSelection(page){
       plannerEnabledControls: document.querySelectorAll('.taw-range:not(:disabled)').length,
       plannerFederalTax: document.querySelector('[data-taw-federal-tax]')?.textContent.trim() || '',
     };
-  });
+  }, STALE_COPY_MIGRATION_RECORDS.map(({ id }) => id));
   const expectedBuiltIns = [
     { value: 'now-household', label: 'Now Household' },
     { value: 'future-household', label: 'Future Household' },
@@ -658,9 +667,13 @@ async function verifyBlankStartupAndNowSelection(page){
     .filter(option => ['now-household', 'future-household'].includes(option.value))
     .map(({ value, label }) => ({ value, label }));
   const optionIds = startup.options.slice(1).map(option => option.value);
-  const staleOptionLabels = startup.options
-    .filter(option => STALE_COPY_MIGRATION_RECORDS.some(record => record.label === option.label))
-    .map(option => option.label);
+  const nameOnlyRecordsSurvived = STALE_COPY_MIGRATION_RECORDS.every(record => (
+    startup.dbIds.includes(record.id)
+      && startup.staleRecordBytes[record.id] === expectedNameOnlyBytes[record.id]
+      && startup.options.filter(option => (
+        option.value === record.id && option.label === record.label
+      )).length === 1
+  ));
   const survivorOption = startup.options.find(option => option.value === MIGRATION_SURVIVOR.id);
   requireCondition(
     startup.active === null
@@ -673,8 +686,7 @@ async function verifyBlankStartupAndNowSelection(page){
       && startup.customIds.every(id => optionIds.includes(id))
       && survivorOption?.label === MIGRATION_SURVIVOR.label
       && startup.dbIds.includes(MIGRATION_SURVIVOR.id)
-      && STALE_COPY_MIGRATION_RECORDS.every(record => !startup.dbIds.includes(record.id))
-      && staleOptionLabels.length === 0
+      && nameOnlyRecordsSurvived
       && !optionIds.some(id => [
         'demo',
         'default-pre-retirement-solo',
@@ -2403,10 +2415,10 @@ export async function runWizardBrowserContract(
       '#hh-switch',
       selector => selector.value || null,
     );
-    await seedStaleCopyMigrationFixture(page);
+    const expectedNameOnlyBytes = await seedStaleCopyMigrationFixture(page);
     await page.reload({ waitUntil: 'networkidle2', timeout: 20000 });
     await waitForUnselectedWizard(page);
-    await verifyBlankStartupAndNowSelection(page);
+    await verifyBlankStartupAndNowSelection(page, expectedNameOnlyBytes);
     await verifyRuntimeTemplateSessionIsolation(page);
     await prepareContractFixture(page);
     await assertFourStepStructure(page);
