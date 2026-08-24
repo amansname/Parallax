@@ -12,6 +12,8 @@ import {
 import {
   ACTIVE_KEY,
   HHDB_KEY,
+  RETIRED_BUILT_IN_HOUSEHOLD_IDS,
+  RETIRED_HOUSEHOLD_DISPLAY_NAMES,
   commitPreparedHouseholdStore,
   createMemoryStorage,
   prepareHouseholdRecordForSave,
@@ -37,16 +39,16 @@ function createBlankHousehold(id){
   return p;
 }
 
-function createDemoHousehold(){
-  const p = createBlankHousehold('demo');
-  p.meta.name = 'Demo Household';
-  p.meta.isDemo = true;
+function createSelectableHousehold(id = 'now-household'){
+  const p = createBlankHousehold(id);
+  p.meta.name = id === 'now-household' ? 'Now Household' : 'Selectable Household';
+  p.meta.isSelectableDefault = true;
   return p;
 }
 
 const deps = {
-  createDemoHousehold,
   createBlankHousehold,
+  createSelectableDefaultHouseholds: () => [createSelectableHousehold()],
   pristinePlan,
   currentYear: () => 2026,
 };
@@ -59,6 +61,11 @@ function createCountingStorage(initial = {}){
     writes += 1;
     setItem(key, value);
   };
+  const removeItem = storage.removeItem.bind(storage);
+  storage.removeItem = key => {
+    writes += 1;
+    removeItem(key);
+  };
   storage.writeCount = () => writes;
   return storage;
 }
@@ -67,35 +74,47 @@ test('readHouseholdStore distinguishes missing, corrupt, and valid data', () => 
   assert.equal(readHouseholdStore(createMemoryStorage()).kind, 'missing');
   assert.equal(readHouseholdStore(createMemoryStorage({ [HHDB_KEY]: '{' })).kind, 'corrupt');
   assert.equal(readHouseholdStore(createMemoryStorage({ [HHDB_KEY]: '[]' })).kind, 'corrupt');
-  const valid = createDemoHousehold();
-  const read = readHouseholdStore(createMemoryStorage({ [HHDB_KEY]: JSON.stringify({ demo: valid }) }));
+  const valid = createSelectableHousehold();
+  const read = readHouseholdStore(createMemoryStorage({
+    [HHDB_KEY]: JSON.stringify({ 'now-household': valid }),
+  }));
   assert.equal(read.kind, 'valid');
 });
 
 test('invalid root shapes preserve stored bytes and expose runtime defaults read-only', () => {
   for(const raw of ['null', '[]', '"text"']){
-    const storage = createCountingStorage({ [HHDB_KEY]: raw, [ACTIVE_KEY]: 'demo' });
+    const retiredScenarioKey = 'parallax.scenarios.demo.v1';
+    const storage = createCountingStorage({
+      [HHDB_KEY]: raw,
+      [ACTIVE_KEY]: 'stale',
+      [retiredScenarioKey]: 'must-survive-read-only',
+    });
     const prepared = prepareHouseholdStore(readHouseholdStore(storage), deps);
     assert.equal(prepared.ok, true);
     assert.equal(prepared.mode, 'read_only');
-    assert.equal(prepared.activeHouseholdId, 'demo');
-    assert.deepEqual(Object.keys(prepared.db), ['demo']);
+    assert.equal(prepared.activeHouseholdId, null);
+    assert.equal(prepared.hydrate, false);
+    assert.deepEqual(Object.keys(prepared.db), ['now-household']);
     const commit = commitPreparedHouseholdStore(storage, prepared);
     assert.equal(commit.readOnly, true);
     assert.equal(storage.writeCount(), 0);
     assert.equal(storage.getItem(HHDB_KEY), raw);
-    assert.equal(storage.getItem(ACTIVE_KEY), 'demo');
+    assert.equal(storage.getItem(ACTIVE_KEY), 'stale');
+    assert.equal(storage.getItem(retiredScenarioKey), 'must-survive-read-only');
   }
 });
 
 test('an empty database is seeded with current runtime defaults', () => {
-  const storage = createCountingStorage({ [HHDB_KEY]: '{}', [ACTIVE_KEY]: 'demo' });
+  const storage = createCountingStorage({ [HHDB_KEY]: '{}', [ACTIVE_KEY]: 'stale' });
   const prepared = prepareHouseholdStore(readHouseholdStore(storage), deps);
   assert.equal(prepared.ok, true);
   assert.equal(prepared.mode, 'normal');
-  assert.deepEqual(Object.keys(prepared.db), ['demo']);
+  assert.deepEqual(Object.keys(prepared.db), ['now-household']);
+  assert.equal(prepared.activeHouseholdId, null);
+  assert.equal(prepared.hydrate, false);
   assert.equal(commitPreparedHouseholdStore(storage, prepared).ok, true);
-  assert.equal(JSON.parse(storage.getItem(HHDB_KEY)).demo.meta.name, 'Demo Household');
+  assert.equal(JSON.parse(storage.getItem(HHDB_KEY))['now-household'].meta.name, 'Now Household');
+  assert.equal(storage.getItem(ACTIVE_KEY), null);
 });
 
 test('storage read exception is unreadable', () => {
@@ -109,21 +128,100 @@ test('storage read exception is unreadable', () => {
   const prepared = prepareHouseholdStore(read, deps);
   assert.equal(prepared.ok, true);
   assert.equal(prepared.mode, 'read_only');
-  assert.deepEqual(Object.keys(prepared.db), ['demo']);
+  assert.deepEqual(Object.keys(prepared.db), ['now-household']);
+  assert.equal(prepared.activeHouseholdId, null);
+  assert.equal(prepared.hydrate, false);
   assert.equal(commitPreparedHouseholdStore(storage, prepared).readOnly, true);
   assert.equal(writes, 0);
 });
 
-test('missing key creates exactly one validated current-schema demo', () => {
+test('missing key creates exactly one validated shipped option without activating it', () => {
   const storage = createMemoryStorage();
   const prepared = prepareHouseholdStore(readHouseholdStore(storage), deps);
   assert.equal(prepared.ok, true);
-  assert.deepEqual(Object.keys(prepared.db), ['demo']);
-  assert.equal(prepared.db.demo.meta.accountSchemaVersion, ACCOUNT_SCHEMA_VERSION);
-  assert.ok(prepared.db.demo.taxProfiles.client.rothIra);
+  assert.deepEqual(Object.keys(prepared.db), ['now-household']);
+  assert.equal(prepared.activeHouseholdId, null);
+  assert.equal(prepared.hydrate, false);
+  assert.equal(prepared.db['now-household'].meta.accountSchemaVersion, ACCOUNT_SCHEMA_VERSION);
+  assert.ok(prepared.db['now-household'].taxProfiles.client.rothIra);
 });
 
-test('missing key seeds selectable production defaults while keeping blank Demo active', () => {
+test('validated legacy store removes retired built-ins and exact stale-copy names while preserving custom and scenario bytes', () => {
+  const retiredScenarioKeys = RETIRED_BUILT_IN_HOUSEHOLD_IDS.map(
+    id => `parallax.scenarios.${id}.v1`,
+  );
+  const retired = Object.fromEntries(RETIRED_BUILT_IN_HOUSEHOLD_IDS.map(id => [
+    id,
+    createSelectableHousehold(id),
+  ]));
+  const staleCopySpecs = [
+    ['hh_4d9cf0a2', RETIRED_HOUSEHOLD_DISPLAY_NAMES[0]],
+    ['hh_8b73e1c4', RETIRED_HOUSEHOLD_DISPLAY_NAMES[1]],
+    ['hh_f26a905d', RETIRED_HOUSEHOLD_DISPLAY_NAMES[2]],
+  ];
+  const staleCopies = Object.fromEntries(staleCopySpecs.map(([id, name]) => {
+    const household = createBlankHousehold(id);
+    household.meta.name = name;
+    return [id, household];
+  }));
+  const customOne = createBlankHousehold('custom-one');
+  customOne.meta.name = 'Custom One';
+  customOne.portfolio.accounts.taxable.balance = 123_456;
+  const customTwo = createBlankHousehold('custom-two');
+  customTwo.meta.name = 'Advisor Household';
+  customTwo.meta.familyNotes = 'Preserve this exact custom value';
+  const customOneBytes = JSON.stringify(customOne);
+  const customTwoBytes = JSON.stringify(customTwo);
+  const customScenarioOne = '[{"name":"Custom baseline","base":true,"lev":{"risk":4}}]';
+  const customScenarioTwo = '[{"name":"Second custom","base":true,"lev":{"risk":2}}]';
+  const retiredScenarioBytes = retiredScenarioKeys.map(
+    (key, index) => [key, `retired-scenario-${index}`],
+  );
+  const staleScenarioBytes = staleCopySpecs.map(
+    ([id], index) => [`parallax.scenarios.${id}.v1`, `stale-copy-scenario-${index}`],
+  );
+  const storage = createMemoryStorage({
+    [HHDB_KEY]: JSON.stringify({
+      ...retired,
+      ...staleCopies,
+      'custom-one': customOne,
+      'custom-two': customTwo,
+    }),
+    [ACTIVE_KEY]: 'custom-two',
+    ...Object.fromEntries(retiredScenarioBytes),
+    ...Object.fromEntries(staleScenarioBytes),
+    'parallax.scenarios.custom-one.v1': customScenarioOne,
+    'parallax.scenarios.custom-two.v1': customScenarioTwo,
+    'parallax.scenarios.unrelated.v1': 'unrelated-bytes',
+  });
+
+  const prepared = prepareHouseholdStore(readHouseholdStore(storage), deps);
+  assert.equal(prepared.activeHouseholdId, null);
+  assert.equal(prepared.hydrate, false);
+  assert.deepEqual(
+    Object.keys(prepared.db),
+    ['now-household', 'custom-one', 'custom-two'],
+  );
+  assert.equal(JSON.stringify(prepared.db['custom-one']), customOneBytes);
+  assert.equal(JSON.stringify(prepared.db['custom-two']), customTwoBytes);
+  assert.equal(commitPreparedHouseholdStore(storage, prepared).ok, true);
+  const committedDb = JSON.parse(storage.getItem(HHDB_KEY));
+  assert.deepEqual(Object.keys(committedDb), ['now-household', 'custom-one', 'custom-two']);
+  assert.equal(JSON.stringify(committedDb['custom-one']), customOneBytes);
+  assert.equal(JSON.stringify(committedDb['custom-two']), customTwoBytes);
+  assert.equal(storage.getItem(ACTIVE_KEY), null);
+  for(const [key, bytes] of retiredScenarioBytes){
+    assert.equal(storage.getItem(key), bytes);
+  }
+  for(const [key, bytes] of staleScenarioBytes){
+    assert.equal(storage.getItem(key), bytes);
+  }
+  assert.equal(storage.getItem('parallax.scenarios.custom-one.v1'), customScenarioOne);
+  assert.equal(storage.getItem('parallax.scenarios.custom-two.v1'), customScenarioTwo);
+  assert.equal(storage.getItem('parallax.scenarios.unrelated.v1'), 'unrelated-bytes');
+});
+
+test('missing key seeds selectable production defaults with no active household', () => {
   const storage = createMemoryStorage();
   const prepared = prepareHouseholdStore(readHouseholdStore(storage), {
     ...deps,
@@ -142,9 +240,9 @@ test('missing key seeds selectable production defaults while keeping blank Demo 
   });
 
   assert.equal(prepared.ok, true);
-  assert.deepEqual(Object.keys(prepared.db), ['demo', 'default-one', 'default-two']);
-  assert.equal(prepared.activeHouseholdId, 'demo');
-  assert.equal(prepared.db.demo.meta.name, 'Demo Household');
+  assert.deepEqual(Object.keys(prepared.db), ['default-one', 'default-two']);
+  assert.equal(prepared.activeHouseholdId, null);
+  assert.equal(prepared.hydrate, false);
 });
 
 test('existing stores boot blank with fresh defaults without overwriting user households', () => {
@@ -166,24 +264,23 @@ test('existing stores boot blank with fresh defaults without overwriting user ho
 
   assert.equal(prepared.ok, true);
   assert.equal(prepared.changed, true);
-  assert.equal(prepared.activeHouseholdId, 'demo');
+  assert.equal(prepared.activeHouseholdId, null);
+  assert.equal(prepared.hydrate, false);
   assert.equal(prepared.pointerChanged, true);
   assert.deepEqual(
     Object.keys(prepared.db),
-    ['demo', 'default-one', 'default-two', 'advisor-household'],
+    ['default-one', 'default-two', 'advisor-household'],
   );
   assert.equal(JSON.stringify(prepared.db['advisor-household']), originalUserBytes);
 });
 
 test('stored reserved records are replaced by exact current-build templates', () => {
-  const staleDemo = createDemoHousehold();
-  staleDemo.meta.primaryName = 'Stale Demo';
   const staleDefault = createBlankHousehold('default-one');
   staleDefault.meta.primaryName = 'Stale Default';
   const freshDefault = createBlankHousehold('default-one');
   freshDefault.meta.primaryName = 'Current Default';
   const storage = createMemoryStorage({
-    [HHDB_KEY]: JSON.stringify({ demo: staleDemo, 'default-one': staleDefault }),
+    [HHDB_KEY]: JSON.stringify({ 'default-one': staleDefault }),
     [ACTIVE_KEY]: 'default-one',
   });
 
@@ -192,39 +289,42 @@ test('stored reserved records are replaced by exact current-build templates', ()
     createSelectableDefaultHouseholds: () => [freshDefault],
   });
 
-  assert.equal(prepared.activeHouseholdId, 'demo');
-  assert.equal(prepared.db.demo.meta.primaryName, undefined);
+  assert.equal(prepared.activeHouseholdId, null);
+  assert.equal(prepared.hydrate, false);
   assert.deepEqual(prepared.db['default-one'], freshDefault);
 });
 
 test('unchanged current-schema database does not rewrite on commit', () => {
-  const demo = createDemoHousehold();
+  const shipped = createSelectableHousehold();
   const storage = createMemoryStorage({
-    [HHDB_KEY]: JSON.stringify({ demo }),
-    [ACTIVE_KEY]: 'demo',
+    [HHDB_KEY]: JSON.stringify({ 'now-household': shipped }),
   });
   const prepared = prepareHouseholdStore(readHouseholdStore(storage), deps);
   assert.equal(prepared.changed, false);
+  assert.equal(prepared.pointerChanged, false);
   const commit = commitPreparedHouseholdStore(storage, prepared);
   assert.equal(commit.wrote, false);
 });
 
-test('dangling active pointer resolves only after validation', () => {
-  const demo = createDemoHousehold();
+test('dangling active pointer is cleared only after validation', () => {
+  const shipped = createSelectableHousehold();
   const storage = createMemoryStorage({
-    [HHDB_KEY]: JSON.stringify({ demo }),
+    [HHDB_KEY]: JSON.stringify({ 'now-household': shipped }),
     [ACTIVE_KEY]: 'missing-id',
   });
   const prepared = prepareHouseholdStore(readHouseholdStore(storage), deps);
-  assert.equal(prepared.activeHouseholdId, 'demo');
+  assert.equal(prepared.activeHouseholdId, null);
+  assert.equal(prepared.hydrate, false);
   assert.equal(prepared.pointerChanged, true);
 });
 
 test('a valid saved pointer is ignored after all households migrate', () => {
   const one = createBlankHousehold('one');
+  one.meta.name = 'Migrated Household One';
   delete one.meta.accountSchemaVersion;
   delete one.meta.householdRecordSchemaVersion;
   const two = createBlankHousehold('two');
+  two.meta.name = 'Migrated Household Two';
   delete two.meta.accountSchemaVersion;
   delete two.meta.householdRecordSchemaVersion;
   const storage = createMemoryStorage({
@@ -233,7 +333,8 @@ test('a valid saved pointer is ignored after all households migrate', () => {
   });
   const prepared = prepareHouseholdStore(readHouseholdStore(storage), deps);
   assert.equal(prepared.ok, true);
-  assert.equal(prepared.activeHouseholdId, 'demo');
+  assert.equal(prepared.activeHouseholdId, null);
+  assert.equal(prepared.hydrate, false);
   assert.equal(prepared.pointerChanged, true);
   assert.equal(prepared.db.one.meta.accountSchemaVersion, 1);
   assert.equal(prepared.db.two.meta.accountSchemaVersion, 1);
@@ -246,7 +347,7 @@ test('a mixed valid and malformed database preserves bytes and uses runtime defa
   const prepared = prepareHouseholdStore(readHouseholdStore(storage), deps);
   assert.equal(prepared.ok, true);
   assert.equal(prepared.mode, 'read_only');
-  assert.deepEqual(Object.keys(prepared.db), ['demo']);
+  assert.deepEqual(Object.keys(prepared.db), ['now-household']);
   assert.equal(commitPreparedHouseholdStore(storage, prepared).readOnly, true);
   assert.equal(storage.writeCount(), 0);
   assert.equal(storage.getItem(HHDB_KEY), raw);
@@ -261,13 +362,14 @@ test('invalid current-schema records cannot overwrite storage and fall back read
   ];
   for(const mutate of cases){
     const plan = createBlankHousehold('strict');
+    plan.meta.name = 'Invalid Schema Household';
     mutate(plan);
     const raw = JSON.stringify({ strict: plan });
     const storage = createCountingStorage({ [HHDB_KEY]: raw, [ACTIVE_KEY]: 'strict' });
     const prepared = prepareHouseholdStore(readHouseholdStore(storage), deps);
     assert.equal(prepared.ok, true);
     assert.equal(prepared.mode, 'read_only');
-    assert.deepEqual(Object.keys(prepared.db), ['demo']);
+    assert.deepEqual(Object.keys(prepared.db), ['now-household']);
     assert.equal(commitPreparedHouseholdStore(storage, prepared).readOnly, true);
     assert.equal(storage.writeCount(), 0);
     assert.equal(storage.getItem(HHDB_KEY), raw);
@@ -312,13 +414,14 @@ test('database write failure preserves original bytes and pointer while exposing
   assert.equal(JSON.parse(originalDb).legacy.meta.accountSchemaVersion, undefined);
 });
 
-test('first-use pointer failure leaves the completed database and clearly reports partial persistence', () => {
-  const data = {};
+test('stale-pointer removal failure leaves the completed database and reports partial persistence', () => {
+  const data = { [HHDB_KEY]: '{}', [ACTIVE_KEY]: 'stale' };
   const storage = {
     getItem(key){ return data[key] ?? null; },
-    setItem(key, value){
+    setItem(key, value){ data[key] = value; },
+    removeItem(key){
       if(key === ACTIVE_KEY) throw new Error('pointer failed');
-      data[key] = value;
+      delete data[key];
     },
   };
   const prepared = prepareHouseholdStore(readHouseholdStore(storage), deps);
@@ -328,28 +431,31 @@ test('first-use pointer failure leaves the completed database and clearly report
   assert.equal(commit.partialWrite, true);
   assert.equal(commit.databasePersisted, true);
   assert.equal(commit.pointerPersisted, false);
-  assert.equal(JSON.parse(data[HHDB_KEY]).demo.meta.accountSchemaVersion, 1);
-  assert.equal(data[ACTIVE_KEY], undefined);
+  assert.equal(JSON.parse(data[HHDB_KEY])['now-household'].meta.accountSchemaVersion, 1);
+  assert.equal(data[ACTIVE_KEY], 'stale');
 });
 
 test('commit performs no new storage reads after preparation', () => {
   const written = {};
+  let removed = null;
   const storage = {
     getItem(){ throw new Error('commit must not read'); },
     setItem(key, value){ written[key] = value; },
+    removeItem(key){ removed = key; },
   };
-  const demo = createDemoHousehold();
+  const shipped = createSelectableHousehold();
   const commit = commitPreparedHouseholdStore(storage, {
     ok: true,
     mode: 'normal',
     changed: true,
     pointerChanged: true,
-    db: { demo },
-    activeHouseholdId: 'demo',
+    db: { 'now-household': shipped },
+    activeHouseholdId: null,
   });
   assert.equal(commit.ok, true);
   assert.ok(written[HHDB_KEY]);
-  assert.equal(written[ACTIVE_KEY], 'demo');
+  assert.equal(written[ACTIVE_KEY], undefined);
+  assert.equal(removed, ACTIVE_KEY);
 });
 
 test('durable save preparation validates stable row identity before cloning', () => {
@@ -380,6 +486,7 @@ test('durable save preparation validates stable row identity before cloning', ()
 
 test('Net Worth shell records and Property/Mortgage metadata survive Save and reload exactly', () => {
   const household = createBlankHousehold('net-worth-save');
+  household.meta.name = 'Net Worth Household';
   household.netWorth.shellEntries.push({
     id: 'nw-insurance',
     categoryId: 'insurance',
@@ -427,23 +534,27 @@ test('Net Worth shell records and Property/Mortgage metadata survive Save and re
 });
 
 test('exact v1 Net Worth fixture migrates once and the committed bytes reload unchanged', () => {
+  const legacyKeys = {
+    dbKey: 'parallax.households.v1',
+    activeKey: 'parallax.activeHouseholdId',
+  };
   const fixturePath = new URL(
     '../../test/fixtures/persisted/legacy-net-worth-v1.json',
     import.meta.url,
   );
   const fixtureBytes = readFileSync(fixturePath, 'utf8');
   const fixture = JSON.parse(fixtureBytes);
-  const sourceDatabaseBytes = fixture.storage[HHDB_KEY];
-  const sourcePointerBytes = fixture.storage[ACTIVE_KEY];
+  const sourceDatabaseBytes = fixture.storage[legacyKeys.dbKey];
+  const sourcePointerBytes = fixture.storage[legacyKeys.activeKey];
   const sourceRecord = JSON.parse(sourceDatabaseBytes)['anonymized-net-worth-v1'];
   const storage = createCountingStorage(fixture.storage);
 
-  const read = readHouseholdStore(storage);
-  assert.equal(storage.getItem(HHDB_KEY), sourceDatabaseBytes);
-  assert.equal(storage.getItem(ACTIVE_KEY), sourcePointerBytes);
+  const read = readHouseholdStore(storage, legacyKeys);
+  assert.equal(storage.getItem(legacyKeys.dbKey), sourceDatabaseBytes);
+  assert.equal(storage.getItem(legacyKeys.activeKey), sourcePointerBytes);
   const first = prepareHouseholdStore(read, deps);
-  assert.equal(storage.getItem(HHDB_KEY), sourceDatabaseBytes);
-  assert.equal(storage.getItem(ACTIVE_KEY), sourcePointerBytes);
+  assert.equal(storage.getItem(legacyKeys.dbKey), sourceDatabaseBytes);
+  assert.equal(storage.getItem(legacyKeys.activeKey), sourcePointerBytes);
   assert.equal(first.ok, true);
   assert.equal(first.changed, true);
   const migrated = first.db['anonymized-net-worth-v1'];
@@ -456,23 +567,24 @@ test('exact v1 Net Worth fixture migrates once and the committed bytes reload un
   assert.ok(first.repairsByHousehold['anonymized-net-worth-v1'].some(repair =>
     repair.code === 'NET_WORTH_RECORDS_INITIALIZED'));
 
-  const committed = commitPreparedHouseholdStore(storage, first);
+  const committed = commitPreparedHouseholdStore(storage, first, legacyKeys);
   assert.equal(committed.ok, true);
-  const destinationDatabaseBytes = storage.getItem(HHDB_KEY);
+  const destinationDatabaseBytes = storage.getItem(legacyKeys.dbKey);
   assert.notEqual(destinationDatabaseBytes, sourceDatabaseBytes);
   const writesAfterMigration = storage.writeCount();
 
-  const second = prepareHouseholdStore(readHouseholdStore(storage), deps);
+  const second = prepareHouseholdStore(readHouseholdStore(storage, legacyKeys), deps);
   assert.equal(second.ok, true);
   assert.equal(second.changed, false);
   assert.deepEqual(second.repairsByHousehold['anonymized-net-worth-v1'], []);
-  assert.equal(commitPreparedHouseholdStore(storage, second).wrote, false);
+  assert.equal(commitPreparedHouseholdStore(storage, second, legacyKeys).wrote, false);
   assert.equal(storage.writeCount(), writesAfterMigration);
-  assert.equal(storage.getItem(HHDB_KEY), destinationDatabaseBytes);
+  assert.equal(storage.getItem(legacyKeys.dbKey), destinationDatabaseBytes);
 });
 
 test('Tax completion zeros and planning source overrides survive Save and reload', () => {
   const household = createBlankHousehold('tax-save');
+  household.meta.name = 'Tax Household';
   household.incomeTax.current1040 = {
     schemaVersion: 1,
     taxYear: 2026,
@@ -525,6 +637,7 @@ test('Tax completion zeros and planning source overrides survive Save and reload
 
 test('legacy duplicate-wage repair persists once and reloads byte-stably', () => {
   const legacy = createBlankHousehold('legacy-wages');
+  legacy.meta.name = 'Legacy Wages Household';
   delete legacy.meta.householdRecordSchemaVersion;
   const wage = {
     typeId: 'wages',

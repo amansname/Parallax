@@ -34,7 +34,6 @@ export function createHouseholdWizardController({
   syncRecoveryControls,
   onSwitchHousehold,
   onNewHousehold,
-  onLoadDemoHousehold,
 }){
   let stepId = 'family';
   let renderRevision = 0;
@@ -102,19 +101,21 @@ export function createHouseholdWizardController({
     if(!selector) return;
     const db = getHouseholdsDb();
     const activeId = getActiveHouseholdId();
-    selector.innerHTML = Object.keys(db).map(id => {
+    const placeholder = `<option value="" disabled ${activeId ? '' : 'selected'}>Select household</option>`;
+    selector.innerHTML = placeholder + Object.keys(db).map(id => {
       const meta = db[id]?.meta || {};
       const name = meta.name || meta.primaryName || 'Household';
       return `<option value="${escHtml(id)}" ${id === activeId ? 'selected' : ''}>${escHtml(name)}</option>`;
     }).join('');
-    selector.value = activeId;
+    selector.value = activeId || '';
   }
 
   function updateSidebar(plan){
     const householdName = $('#hh-rail-name');
     if(householdName){
-      householdName.textContent = plan.meta?.name
-        || (plan.meta?.primaryName ? `${plan.meta.primaryName} household` : 'New household');
+      householdName.textContent = getActiveHouseholdId()
+        ? (plan.meta?.name || (plan.meta?.primaryName ? `${plan.meta.primaryName} household` : 'Household'))
+        : '';
     }
     const progress = $('#hh-progress-copy');
     const index = STEP_IDS.indexOf(stepId);
@@ -143,9 +144,40 @@ export function createHouseholdWizardController({
     root.dataset.wizardReady = 'false';
     root.setAttribute('aria-busy', 'true');
     const plan = getPlan();
+    const activeId = getActiveHouseholdId();
+    const hasActiveHousehold = Boolean(activeId);
+    const progress = document.querySelector('.hh-progress');
+    const stepper = document.querySelector('.hh-stepper');
+    const footer = $('#hh-wiz-footer');
+    const menuButton = $('#hh-menu-btn');
+    const menu = $('#hh-menu-pop');
+    root.classList.toggle('is-unselected', !hasActiveHousehold);
+    if(progress) progress.hidden = !hasActiveHousehold;
+    if(stepper) stepper.hidden = !hasActiveHousehold;
+    if(footer) footer.hidden = !hasActiveHousehold;
+    if(menuButton){
+      menuButton.hidden = !hasActiveHousehold;
+      menuButton.setAttribute('aria-expanded', 'false');
+    }
+    if(menu) menu.hidden = hasActiveHousehold;
+    updateHouseholdControls();
+
+    if(!hasActiveHousehold){
+      view.innerHTML = '';
+      if(footer) footer.innerHTML = '';
+      updateSidebar(plan);
+      renderRevision += 1;
+      root.dataset.wizardStep = '';
+      root.dataset.renderRevision = String(renderRevision);
+      root.dataset.householdId = '';
+      root.dataset.wizardReady = 'true';
+      root.setAttribute('aria-busy', 'false');
+      syncRecoveryControls();
+      return;
+    }
+
     const householdWizard = ensureWizard();
     view.innerHTML = householdWizard.render(stepId);
-    const footer = $('#hh-wiz-footer');
     if(footer) footer.innerHTML = householdWizard.footer(stepId);
 
     for(const step of HOUSEHOLD_WIZARD_STEPS){
@@ -162,7 +194,7 @@ export function createHouseholdWizardController({
     renderRevision += 1;
     root.dataset.wizardStep = stepId;
     root.dataset.renderRevision = String(renderRevision);
-    root.dataset.householdId = getActiveHouseholdId() || '';
+    root.dataset.householdId = activeId;
     root.dataset.wizardReady = 'true';
     root.setAttribute('aria-busy', 'false');
     syncRecoveryControls();
@@ -201,6 +233,10 @@ export function createHouseholdWizardController({
         menuButton.setAttribute('aria-expanded', open ? 'true' : 'false');
       });
       document.addEventListener('click', event => {
+        if(!getActiveHouseholdId()){
+          menu.hidden = false;
+          return;
+        }
         if(!menu.hidden && !menu.contains(event.target) && event.target !== menuButton){
           menu.hidden = true;
           menuButton.setAttribute('aria-expanded', 'false');
@@ -211,8 +247,6 @@ export function createHouseholdWizardController({
     if(switcher) switcher.addEventListener('change', event => onSwitchHousehold(event.target.value));
     const newButton = $('#hh-new');
     if(newButton) newButton.addEventListener('click', () => onNewHousehold());
-    const demoButton = $('#hh-load-demo');
-    if(demoButton) demoButton.addEventListener('click', () => onLoadDemoHousehold());
     updateHouseholdControls();
   }
 

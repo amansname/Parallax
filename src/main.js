@@ -8,7 +8,6 @@ import { CHART_LAYOUT } from '../ui/chartLayout.js';
 import {
   SHIPPED_DEFAULT_HOUSEHOLD_IDS,
   createBlankHousehold,
-  createDemoHousehold,
   createSelectableDefaultHouseholds,
 } from '../ui/householdFactories.js';
 import { resolveTypeFromLabel } from './household/accountTypes.js';
@@ -62,9 +61,9 @@ import {
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 installDesignSystemPrimitives();
 /* ── Household model: pure factories + multi-household persistence ──────────
-   The app boots with one current-build blank Demo Household slot. The advisor
-   can explicitly select a shipped template or saved household; browser state
-   never chooses the startup record.
+   The app boots without an active household. The advisor explicitly selects a
+   shipped template or saved household; browser state never chooses the startup
+   record.
 
    `plan` is the engine's default plan object (imported live). It cannot be
    reassigned (const import binding), so hydratePlan() mutates it in place —
@@ -75,7 +74,7 @@ installDesignSystemPrimitives();
 // engine fields flow through automatically).
 const PRISTINE_PLAN = JSON.parse(JSON.stringify(plan));
 const newHouseholdId = () => 'hh_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-const RUNTIME_HOUSEHOLD_IDS = new Set(['demo', ...SHIPPED_DEFAULT_HOUSEHOLD_IDS]);
+const RUNTIME_HOUSEHOLD_IDS = new Set(SHIPPED_DEFAULT_HOUSEHOLD_IDS);
 const isRuntimeHousehold = id => RUNTIME_HOUSEHOLD_IDS.has(id);
 
 /* Replace the live engine plan's contents with a household record. Mutates the
@@ -101,6 +100,7 @@ let runtimeCopyPendingStatus = false;
 const householdStorage = {
   getItem(key){ return localStorage.getItem(key); },
   setItem(key, value){ localStorage.setItem(key, value); },
+  removeItem(key){ localStorage.removeItem(key); },
 };
 
 function isHouseholdStorageReadOnly(){
@@ -112,7 +112,7 @@ function isHouseholdStorageBlocked(){
 }
 
 function canRunEngine(){
-  return !isHouseholdStorageBlocked();
+  return Boolean(activeHouseholdId) && !isHouseholdStorageBlocked();
 }
 
 function syncRecoveryStatus(message){
@@ -161,6 +161,10 @@ function ensureDurableActiveHousehold(){
 }
 
 function guardPlanMutation(){
+  if(!activeHouseholdId){
+    syncHeaderStatus('Select or create a household to begin');
+    return false;
+  }
   return guardHouseholdStorageMutation() && ensureDurableActiveHousehold();
 }
 
@@ -197,8 +201,7 @@ function syncRecoveryControls(){
     '#np-content .row-x','#np-content [data-add]','#np-content [data-act]','#scn-add','#scn-view [data-lever-key]','#scn-view .cmp-lev-in',
     '#scn-view .cmp-goal-in','#scn-view .scol__menu','#solve-panel .solve-load','#solve-panel .cc-load'
   ];
-  if(isHouseholdStorageBlocked()) selectors.push('#run-btn','#hh-menu-btn','#hh-load-demo','#hh-switch','#cashflow-path-mode','#seq-select','#seq-chips button');
-  if(isHouseholdStorageReadOnly() && !householdsDb.demo) selectors.push('#hh-load-demo');
+  if(isHouseholdStorageBlocked()) selectors.push('#run-btn','#hh-menu-btn','#hh-switch','#cashflow-path-mode','#seq-select','#seq-chips button');
   document.querySelectorAll(selectors.join(',')).forEach(el => {
     if('disabled' in el) el.disabled=true;
     el.setAttribute('aria-disabled','true');
@@ -245,9 +248,11 @@ function canChangeActiveHousehold(){
 function bootstrapHouseholds(){
   accountMigrationState = { blocked: false, readOnly: false, message: null, issuesByHousehold: {} };
   recoveryStatusPinned = false;
+  const unselected = createBlankHousehold(PRISTINE_PLAN, '', new Date().getFullYear());
+  unselected.meta.name = '';
+  hydratePlan(unselected);
   const read = readHouseholdStore(householdStorage);
   let prepared = prepareHouseholdStore(read, {
-    createDemoHousehold,
     createBlankHousehold,
     createSelectableDefaultHouseholds,
     pristinePlan: PRISTINE_PLAN,
@@ -350,13 +355,14 @@ function syncPension(L){
 }
 // ── Scenario persistence (browser localStorage) ──────────────────────────
 // Scenarios are SCOPED PER HOUSEHOLD (parallax.scenarios.<householdId>.v1) so a
-// custom household's scenarios never collide with the demo's. We save only the
+// custom household's scenarios never collide with another household. We save only the
 // durable parts (name/base/lev) — never res (recomputed on Run). Wrapped in
 // try/catch so a corrupt/blocked store never breaks the app.
 const SCEN_PREFIX='parallax.scenarios.';
-const scenKey=id=>SCEN_PREFIX + (id || activeHouseholdId || 'demo') + '.v1';
+const scenKey=id=>SCEN_PREFIX + (id || activeHouseholdId) + '.v1';
 function saveScenarios(){
   if(!guardHouseholdStorageMutation()) return false;
+  if(!activeHouseholdId) return false;
   if(isRuntimeHousehold(activeHouseholdId)) return false;
   try{
     const slim=scenarios.map(s=>({name:s.name, base:!!s.base, lev:s.lev}));
@@ -365,6 +371,7 @@ function saveScenarios(){
   }catch(e){ return false; }
 }
 function loadScenarios(id){
+  if(!(id || activeHouseholdId)) return null;
   if(isRuntimeHousehold(id || activeHouseholdId)) return null;
   try{
     const raw=localStorage.getItem(scenKey(id));
@@ -390,7 +397,7 @@ function loadScenarios(id){
 function resetScenarios(){
   if(!guardPlanMutation()) return;
   try{ localStorage.removeItem(scenKey()); }catch(e){}
-  uiState.scenarios=demoScenarios(); uiState.baseSnapshot=defaultLevers();
+  uiState.scenarios=defaultScenarios(); uiState.baseSnapshot=defaultLevers();
   uiState.plansDirty=true; runAll();
 }
 
@@ -852,7 +859,7 @@ async function runComboSolve(){
 // (drawdown) age 2 years, C goes aggressive (wealth line jumps, success does
 // NOT — volatility drag). Deltas are relative to the ACTIVE household's base
 // levers so the set is meaningful for any household, not just the demo.
-function demoScenarios(){
+function defaultScenarios(){
   const s=[
     {name:'Baseline',   base:true,  lev:defaultLevers(), res:null},
     {name:'Scenario B', base:false, lev:defaultLevers(), res:null},
@@ -874,10 +881,10 @@ function demoScenarios(){
 // households remain available, but reload never grants browser state authority
 // to choose one on localhost or the deployed origin.
 bootstrapHouseholds();
-if(isHouseholdStorageBlocked()){
+if(isHouseholdStorageBlocked() || !activeHouseholdId){
   uiState.scenarios = [];
 } else {
-  uiState.scenarios = loadScenarios() || demoScenarios();
+  uiState.scenarios = loadScenarios() || defaultScenarios();
 }
 // Solver UI state. solverFormOpen toggles the inline "Solve…" form in the band
 // gutter; solving guards against re-entry while a solve is in flight.
@@ -1163,7 +1170,7 @@ const goalsHorizon=createGoalsHorizonController({
   removeGoal:removeGoalAt,
 });
 const taxBuckets=createTaxBucketsController({
-  getPlan:()=>plan,
+  getPlan:()=>activeHouseholdId ? plan : null,
   isStorageBlocked:isHouseholdStorageBlocked,
   getBlockedMessage,
 });
@@ -1190,7 +1197,6 @@ const householdWizardController = createHouseholdWizardController({
   syncRecoveryControls,
   onSwitchHousehold: switchHousehold,
   onNewHousehold: newHousehold,
-  onLoadDemoHousehold: loadDemoHousehold,
 });
 const hhUiState = householdWizardController.uiState;
 const householdWizardCommitBoundary = createHouseholdWizardCommitBoundary({
@@ -1212,7 +1218,6 @@ const householdWizardCommitBoundary = createHouseholdWizardCommitBoundary({
    All of these hydrate the live `plan`, re-scope scenarios to the active
    household, persist, and re-render through the full reseed/dirty/run flow.
      hhLoadRecord(rec, status)  → shared tail: hydrate + scenarios + render.
-     loadDemoHousehold() → ensures and loads the persistent blank demo slot.
      newHousehold()    → creates a blank household, makes it active.
      switchHousehold() → loads another saved household by id. */
 function hhLoadRecord(status){
@@ -1230,19 +1235,6 @@ function hhLoadRecord(status){
   syncRecoveryControls();
   if(status) syncHeaderStatus(status);
 }
-// Open a fresh current-build blank slot. A prior in-session edit must not turn
-// the Demo entry into browser-owned template data.
-function loadDemoHousehold(){
-  if(isHouseholdStorageBlocked()){ guardPlanMutation(); return; }
-  if(isHouseholdStorageReadOnly() && !householdsDb.demo){ syncRecoveryControls(); return; }
-  const blank = createDemoHousehold(PRISTINE_PLAN, new Date().getFullYear());
-  householdsDb.demo = blank;
-  activeHouseholdId = 'demo';
-  hydratePlan(blank);
-  uiState.scenarios = demoScenarios();
-  uiState.baseSnapshot = defaultLevers();
-  hhLoadRecord('Loaded Demo Household');
-}
 // Create and immediately persist a brand-new blank household.
 function newHousehold(){
   if(!guardHouseholdStorageMutation()) return;
@@ -1252,7 +1244,7 @@ function newHousehold(){
   householdsDb[blank.meta.householdId] = blank;
   activeHouseholdId = blank.meta.householdId;
   hydratePlan(blank);
-  uiState.scenarios = demoScenarios();
+  uiState.scenarios = defaultScenarios();
   uiState.baseSnapshot = defaultLevers();
   hhLoadRecord('New household created');
   autoSavePlan();
@@ -1273,7 +1265,7 @@ function switchHousehold(id){
   activeHouseholdId = id;
   if(!readOnly) persistActiveId();
   hydratePlan(householdsDb[id]);
-  uiState.scenarios = loadScenarios(id) || demoScenarios();
+  uiState.scenarios = loadScenarios(id) || defaultScenarios();
   uiState.baseSnapshot = defaultLevers();
   if(!readOnly) saveScenarios();
   hhLoadRecord('Loaded ' + ((plan.meta && plan.meta.name) || 'household'));
@@ -2465,7 +2457,11 @@ $$('#np-subnav .stab').forEach(b => b.onclick = () => {
   }
   renderInputs();
 });
-$('#run-btn').onclick=() => { if(canRunEngine()) runAll(); else renderBlockedRecoverySurfaces(); };
+$('#run-btn').onclick=() => {
+  if(canRunEngine()) runAll();
+  else if(isHouseholdStorageBlocked()) renderBlockedRecoverySurfaces();
+  else syncHeaderStatus('Select or create a household to run a plan');
+};
 
 const cashFlowController = createCashFlowController({
   getScenarios: () => scenarios,
@@ -3070,12 +3066,14 @@ renderSolvePanel();
 syncPathControls();
 renderInputs();
 bindHouseholdRailOnce();   // chapter rail (Demographics / Net Worth / Cash Flow) view switch
+if(isHouseholdStorageBlocked()){
+  renderBlockedRecoverySurfaces();
+} else {
+  syncHousehold();
+}
 if(canRunEngine()){
   reseedScenarios({ markDirty: false });   // align baseline levers with hydrated plan (saved levers can be stale)
-  syncHousehold();           // render the editable landing Household page from `plan`
   runAll();   // first iteration runs immediately so the tool opens populated
-} else {
-  renderBlockedRecoverySurfaces();
 }
 document.body.classList.toggle('scn-active', document.querySelector('.page.on')?.dataset.page==='scenarios');
 syncHeaderCluster();

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { getWizardAccountTypes } from '../src/household/accountTypes.js';
+import { createHouseholdWizardController } from '../src/household/wizard.js';
 import {
   createHouseholdWizard,
   HOUSEHOLD_WIZARD_STEPS,
@@ -534,4 +535,84 @@ test('Summary Continue to Goals is available even when tax summary is not calcul
   );
   assert.doesNotMatch(incomplete.footer('summary'), /aria-disabled="true"/);
   assert.match(incomplete.footer('summary'), /Continue to Goals/);
+});
+
+test('no active household exposes selection actions without rendering live wizard controls', () => {
+  const elements = new Map();
+  const makeElement = () => ({
+    hidden: false,
+    innerHTML: 'stale',
+    textContent: 'stale',
+    value: 'stale',
+    dataset: {},
+    style: {},
+    attributes: {},
+    classList: {
+      values: new Set(),
+      toggle(name, force){
+        if(force) this.values.add(name);
+        else this.values.delete(name);
+      },
+      contains(name){ return this.values.has(name); },
+    },
+    setAttribute(name, value){ this.attributes[name] = String(value); },
+  });
+  for(const selector of [
+    '#hh-view',
+    '[data-hh-wizard-root]',
+    '.hh-progress',
+    '.hh-stepper',
+    '#hh-wiz-footer',
+    '#hh-menu-btn',
+    '#hh-menu-pop',
+    '#hh-switch',
+    '#hh-rail-name',
+    '#hh-progress-copy',
+    '#hh-progress-percent',
+    '#hh-progress-bar',
+    '#hh-nav-summary-net-worth',
+  ]) elements.set(selector, makeElement());
+  const originalDocument = globalThis.document;
+  globalThis.document = {
+    querySelector: selector => elements.get(selector) || null,
+    querySelectorAll: () => [],
+  };
+  try{
+    const controller = createHouseholdWizardController({
+      getPlan: () => ({ meta: {}, portfolio: { extraAccounts: [] } }),
+      getHouseholdsDb: () => ({
+        'now-household': { meta: { name: 'Now Household' } },
+        'future-household': { meta: { name: 'Future Household' } },
+      }),
+      getActiveHouseholdId: () => null,
+      isStorageBlocked: () => false,
+      renderBlockedRecoverySurfaces: () => {},
+      syncRecoveryControls: () => {},
+      onSwitchHousehold: () => {},
+      onNewHousehold: () => {},
+    });
+    controller.sync();
+
+    assert.equal(elements.get('#hh-view').innerHTML, '');
+    assert.equal(elements.get('#hh-wiz-footer').innerHTML, '');
+    assert.equal(elements.get('#hh-wiz-footer').hidden, true);
+    assert.equal(elements.get('.hh-progress').hidden, true);
+    assert.equal(elements.get('.hh-stepper').hidden, true);
+    assert.equal(elements.get('#hh-menu-btn').hidden, true);
+    assert.equal(elements.get('#hh-menu-pop').hidden, false);
+    assert.equal(elements.get('#hh-switch').value, '');
+    assert.match(elements.get('#hh-switch').innerHTML, /Select household/);
+    assert.match(elements.get('#hh-switch').innerHTML, /Now Household/);
+    assert.match(elements.get('#hh-switch').innerHTML, /Future Household/);
+    assert.equal(elements.get('#hh-rail-name').textContent, '');
+    assert.equal(elements.get('[data-hh-wizard-root]').dataset.householdId, '');
+    assert.equal(elements.get('[data-hh-wizard-root]').dataset.wizardStep, '');
+    assert.equal(elements.get('[data-hh-wizard-root]').dataset.wizardReady, 'true');
+    assert.equal(
+      elements.get('[data-hh-wizard-root]').classList.contains('is-unselected'),
+      true,
+    );
+  } finally {
+    globalThis.document = originalDocument;
+  }
 });

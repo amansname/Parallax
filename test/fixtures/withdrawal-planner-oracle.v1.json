@@ -1,6 +1,6 @@
 {
   "fixtureVersion": 1,
-  "source": "literal 2026 federal bracket and long-term capital-gain calculations",
+  "source": "independently hand-derived 2026 federal worksheet from IRS Rev. Proc. 2025-32 / IRB 2025-45; not captured from Parallax production tax or Withdrawal Planner output",
   "leverEffects": {
     "rothConversion": { "financial": "changes", "geometry": "changes" },
     "rothWithdrawal": { "financial": "unchanged", "geometry": "unchanged", "taxCaused": "$0" },
@@ -9,34 +9,34 @@
     "realizedGain": { "financial": "changes", "geometry": "changes" }
   },
   "households": {
-    "default-pre-retirement-solo": {
+    "now-household": {
       "baseline": {
-        "federalTax": "$3,820",
-        "ordinary": "$3,820",
+        "federalTax": "$76,876",
+        "ordinary": "$76,876",
         "longTermGainTax": "$0"
       },
       "realizedGainAtDisplayCeiling": {
-        "slider": "$500,000",
-        "federalTax": "$76,488",
-        "ordinary": "$3,820",
-        "longTermGainTax": "$72,668",
-        "effectiveRate": "14.3%",
-        "taxCaused": "$72,668"
+        "slider": "$80,000",
+        "federalTax": "$88,876",
+        "ordinary": "$76,876",
+        "longTermGainTax": "$12,000",
+        "effectiveRate": "19.2%",
+        "taxCaused": "$12,000"
       }
     },
-    "default-pre-retirement-couple": {
+    "future-household": {
       "baseline": {
-        "federalTax": "$8,840",
-        "ordinary": "$8,840",
+        "federalTax": "$0",
+        "ordinary": "$0",
         "longTermGainTax": "$0"
       },
       "realizedGainAtDisplayCeiling": {
         "slider": "$500,000",
-        "federalTax": "$80,675",
-        "ordinary": "$8,840",
-        "longTermGainTax": "$71,835",
-        "effectiveRate": "14%",
-        "taxCaused": "$71,835"
+        "federalTax": "$59,790",
+        "ordinary": "$0",
+        "longTermGainTax": "$59,790",
+        "effectiveRate": "12%",
+        "taxCaused": "$59,790"
       }
     }
   }

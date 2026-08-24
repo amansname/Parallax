@@ -11,6 +11,15 @@ export const WIZARD_STEP_IDS = Object.freeze([
 const ROOT_SELECTOR = '[data-hh-wizard-root]';
 const SCREEN_SELECTOR = '[data-hh-wizard-screen]';
 const APP_ORIGIN_PATTERN = /^https?:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?\//;
+const STALE_COPY_MIGRATION_RECORDS = Object.freeze([
+  { id: 'hh_browser_stale_new', label: 'New Household' },
+  { id: 'hh_browser_stale_demo', label: 'Demo Household copy' },
+  { id: 'hh_browser_stale_couple', label: 'Pre-Retirement Couple copy' },
+]);
+const MIGRATION_SURVIVOR = Object.freeze({
+  id: 'hh_browser_migration_survivor',
+  label: 'Advisor Migration Survivor',
+});
 
 function requireCondition(condition, message){
   if(!condition) throw new Error(message);
@@ -124,6 +133,44 @@ export async function waitForWizard(
   return wizardState(page);
 }
 
+export async function waitForUnselectedWizard(page, { timeout = 15000 } = {}){
+  try{
+    await page.waitForFunction(rootSelector => {
+      const root = document.querySelector(rootSelector);
+      const view = document.querySelector('#hh-view');
+      const footer = document.querySelector('#hh-wiz-footer');
+      const selector = document.querySelector('#hh-switch');
+      const menu = document.querySelector('#hh-menu-pop');
+      return root?.dataset.wizardReady === 'true'
+        && root.getAttribute('aria-busy') === 'false'
+        && root.dataset.householdId === ''
+        && root.dataset.wizardStep === ''
+        && selector?.value === ''
+        && menu?.hidden === false
+        && document.querySelector('.hh-progress')?.hidden === true
+        && document.querySelector('.hh-stepper')?.hidden === true
+        && footer?.hidden === true
+        && !view?.querySelector('[data-hh-wizard-screen]')
+        && !(footer?.textContent || '').trim();
+    }, { timeout }, ROOT_SELECTOR);
+  }catch(error){
+    const observed = await page.evaluate(() => ({
+      root: document.querySelector('[data-hh-wizard-root]')?.dataset || null,
+      busy: document.querySelector('[data-hh-wizard-root]')?.getAttribute('aria-busy'),
+      selected: document.querySelector('#hh-switch')?.value,
+      menuHidden: document.querySelector('#hh-menu-pop')?.hidden,
+      progressHidden: document.querySelector('.hh-progress')?.hidden,
+      stepperHidden: document.querySelector('.hh-stepper')?.hidden,
+      footerHidden: document.querySelector('#hh-wiz-footer')?.hidden,
+      screenCount: document.querySelectorAll('[data-hh-wizard-screen]').length,
+    })).catch(stateError => ({ stateReadError: stateError.message }));
+    throw new Error(
+      `Unselected wizard readiness timeout; observed ${JSON.stringify(observed)}. ${error.message}`,
+    );
+  }
+  return wizardState(page);
+}
+
 export async function openWizard(page){
   const active = await page.evaluate(() =>
     document.querySelector('.page.on')?.dataset.page || '');
@@ -131,8 +178,10 @@ export async function openWizard(page){
   if(active !== 'household'){
     await requireUnique(page, '.htab[data-page="household"]', 'Household tab');
     await page.click('.htab[data-page="household"]');
+    if(!before.householdId) return waitForUnselectedWizard(page);
     return waitForWizard(page, { afterRevision: before.revision });
   }
+  if(!before.householdId) return waitForUnselectedWizard(page);
   return waitForWizard(page, {
     step: before.step || null,
     afterRevision: -1,
@@ -270,22 +319,53 @@ async function restoreStorage(page, snapshot){
   }, snapshot);
 }
 
+async function seedStaleCopyMigrationFixture(page){
+  await page.evaluate(({ staleRecords, survivor }) => {
+    const databaseKey = 'parallax.households.v1';
+    const database = JSON.parse(localStorage.getItem(databaseKey) || 'null');
+    const source = database?.['now-household'];
+    if(!source) throw new Error('Now Household is unavailable for stale-copy migration setup');
+    const createCustomRecord = ({ id, label }) => {
+      const record = JSON.parse(JSON.stringify(source));
+      record.meta.householdId = id;
+      record.meta.name = label;
+      record.meta.primaryName = `${label} Client`;
+      record.meta.isSelectableDefault = false;
+      record.meta.isDemo = false;
+      delete record.meta.runtimeSourceHouseholdId;
+      return record;
+    };
+    database[survivor.id] = createCustomRecord(survivor);
+    for(const staleRecord of staleRecords){
+      database[staleRecord.id] = createCustomRecord(staleRecord);
+    }
+    localStorage.setItem(databaseKey, JSON.stringify(database));
+    localStorage.setItem('parallax.activeHouseholdId', staleRecords[0].id);
+  }, {
+    staleRecords: STALE_COPY_MIGRATION_RECORDS,
+    survivor: MIGRATION_SURVIVOR,
+  });
+}
+
 function stableStorageSnapshot(snapshot){
-  const runtimeIds = new Set([
+  const runtimeRecordIds = new Set([
     'demo',
     'default-pre-retirement-solo',
     'default-pre-retirement-couple',
+    'now-household',
+    'future-household',
   ]);
+  const runtimeScenarioIds = new Set(['now-household', 'future-household']);
   const ownerStorage = Object.fromEntries(Object.entries(snapshot || {}).flatMap(([key, value]) => {
     if(key === 'parallax.activeHouseholdId') return [];
     if(key.startsWith('parallax.scenarios.')){
       const householdId = key.slice('parallax.scenarios.'.length, -'.v1'.length);
-      if(runtimeIds.has(householdId)) return [];
+      if(runtimeScenarioIds.has(householdId)) return [];
     }
     if(key !== 'parallax.households.v1') return [[key, value]];
     const database = JSON.parse(value || 'null');
     const savedHouseholds = Object.fromEntries(
-      Object.entries(database || {}).filter(([householdId]) => !runtimeIds.has(householdId)),
+      Object.entries(database || {}).filter(([householdId]) => !runtimeRecordIds.has(householdId)),
     );
     return [[key, JSON.stringify(savedHouseholds)]];
   }));
@@ -303,8 +383,8 @@ async function reloadWizard(page){
     selector => selector.value,
   ).catch(() => null);
   await page.reload({ waitUntil: 'networkidle2', timeout: 20000 });
-  await waitForWizard(page, { householdId: 'demo' });
-  if(priorHouseholdId && priorHouseholdId !== 'demo'){
+  await waitForUnselectedWizard(page);
+  if(priorHouseholdId){
     const available = await page.$$eval(
       '#hh-switch option',
       (options, householdId) => options.some(option => option.value === householdId),
@@ -314,7 +394,7 @@ async function reloadWizard(page){
       return selectHouseholdVisible(page, priorHouseholdId);
     }
   }
-  return waitForWizard(page, { householdId: 'demo' });
+  return waitForUnselectedWizard(page);
 }
 
 async function selectHouseholdVisible(page, householdId){
@@ -530,6 +610,150 @@ export function attachBrowserDiagnostics(page){
   };
 }
 
+async function verifyBlankStartupAndNowSelection(page){
+  await openWizard(page);
+  const startup = await page.evaluate(() => {
+    const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+    const options = [...document.querySelectorAll('#hh-switch option')].map(option => ({
+      value: option.value,
+      label: option.textContent.trim(),
+      disabled: option.disabled,
+    }));
+    const customIds = Object.keys(db || {}).filter(id => ![
+      'now-household',
+      'future-household',
+      'demo',
+      'default-pre-retirement-solo',
+      'default-pre-retirement-couple',
+    ].includes(id));
+    return {
+      active: localStorage.getItem('parallax.activeHouseholdId'),
+      dbIds: Object.keys(db || {}),
+      options,
+      customIds,
+      selected: document.querySelector('#hh-switch')?.value || '',
+      railName: document.querySelector('#hh-rail-name')?.textContent.trim() || '',
+      menuHidden: document.querySelector('#hh-menu-pop')?.hidden,
+      menuButtonHidden: document.querySelector('#hh-menu-btn')?.hidden,
+      progressHidden: document.querySelector('.hh-progress')?.hidden,
+      stepperHidden: document.querySelector('.hh-stepper')?.hidden,
+      footerHidden: document.querySelector('#hh-wiz-footer')?.hidden,
+      screenCount: document.querySelectorAll('[data-hh-wizard-screen]').length,
+      enabledFields: document.querySelectorAll(
+        '#hh-view input:not(:disabled), #hh-view select:not(:disabled), #hh-view textarea:not(:disabled)',
+      ).length,
+      nowScenarioBytes: localStorage.getItem('parallax.scenarios.now-household.v1'),
+      futureScenarioBytes: localStorage.getItem('parallax.scenarios.future-household.v1'),
+      plannerHouseholdId: document.querySelector('[data-taw-root]')?.dataset.tawHouseholdId || '',
+      plannerResultCode: document.querySelector('[data-taw-root]')?.dataset.tawResultCode || '',
+      plannerEnabledControls: document.querySelectorAll('.taw-range:not(:disabled)').length,
+      plannerFederalTax: document.querySelector('[data-taw-federal-tax]')?.textContent.trim() || '',
+    };
+  });
+  const expectedBuiltIns = [
+    { value: 'now-household', label: 'Now Household' },
+    { value: 'future-household', label: 'Future Household' },
+  ];
+  const visibleBuiltIns = startup.options
+    .filter(option => ['now-household', 'future-household'].includes(option.value))
+    .map(({ value, label }) => ({ value, label }));
+  const optionIds = startup.options.slice(1).map(option => option.value);
+  const staleOptionLabels = startup.options
+    .filter(option => STALE_COPY_MIGRATION_RECORDS.some(record => record.label === option.label))
+    .map(option => option.label);
+  const survivorOption = startup.options.find(option => option.value === MIGRATION_SURVIVOR.id);
+  requireCondition(
+    startup.active === null
+      && startup.selected === ''
+      && startup.railName === ''
+      && startup.options[0]?.value === ''
+      && startup.options[0]?.disabled === true
+      && JSON.stringify(visibleBuiltIns) === JSON.stringify(expectedBuiltIns)
+      && JSON.stringify(optionIds) === JSON.stringify(startup.dbIds)
+      && startup.customIds.every(id => optionIds.includes(id))
+      && survivorOption?.label === MIGRATION_SURVIVOR.label
+      && startup.dbIds.includes(MIGRATION_SURVIVOR.id)
+      && STALE_COPY_MIGRATION_RECORDS.every(record => !startup.dbIds.includes(record.id))
+      && staleOptionLabels.length === 0
+      && !optionIds.some(id => [
+        'demo',
+        'default-pre-retirement-solo',
+        'default-pre-retirement-couple',
+      ].includes(id))
+      && startup.menuHidden === false
+      && startup.menuButtonHidden === true
+      && startup.progressHidden === true
+      && startup.stepperHidden === true
+      && startup.footerHidden === true
+      && startup.screenCount === 0
+      && startup.enabledFields === 0
+      && startup.nowScenarioBytes === null
+      && startup.futureScenarioBytes === null
+      && startup.plannerHouseholdId === ''
+      && startup.plannerResultCode === ''
+      && startup.plannerEnabledControls === 0
+      && startup.plannerFederalTax === '\u2014',
+    `Blank startup/selector contract failed: ${JSON.stringify(startup)}`,
+  );
+
+  await selectHouseholdVisible(page, 'now-household');
+  await goToWizardStep(page, 'family');
+  const family = await page.evaluate(() => ({
+    householdId: document.querySelector('[data-hh-wizard-root]')?.dataset.householdId || '',
+    selected: document.querySelector('#hh-switch')?.value || '',
+    railName: document.querySelector('#hh-rail-name')?.textContent.trim() || '',
+    primaryName: document.querySelector('[data-wizard-field="primaryName"]')?.value || '',
+    spouseName: document.querySelector('[data-wizard-field="spouseName"]')?.value || '',
+  }));
+  requireCondition(
+    family.householdId === 'now-household'
+      && family.selected === 'now-household'
+      && family.railName === 'Now Household'
+      && family.primaryName === 'Aboysname'
+      && family.spouseName === 'Agirlsname',
+    `Now selection did not hydrate approved Family facts: ${JSON.stringify(family)}`,
+  );
+
+  await page.click('.htab[data-page="scenarios"]');
+  await page.waitForFunction(() => {
+    const riskControl = document.querySelector(
+      '#scn-view .cmp-step-btn[data-lever-key="risk"]',
+    );
+    return document.querySelector('.page.on')?.dataset.page === 'scenarios'
+      && document.querySelector('#scn-seg-compare')?.classList.contains('is-active')
+      && document.querySelectorAll('#scn-view .scol__name').length > 0
+      && riskControl?.closest('.cmp-lev-row')?.querySelector('.cmp-lev-val')
+      && document.querySelector('#scn-view .cmp-lev-in[data-key="savings"]');
+  }, { timeout: 15000 });
+  const nowLevers = await page.evaluate(() => {
+    const riskControl = document.querySelector(
+      '#scn-view .cmp-step-btn[data-lever-key="risk"]',
+    );
+    return {
+      baseline: document.querySelector('#scn-view .scol__name')?.textContent.trim() || '',
+      allocation: riskControl?.closest('.cmp-lev-row')
+        ?.querySelector('.cmp-lev-val')?.textContent.trim() || '',
+      savings: Number.parseFloat(
+        document.querySelector('#scn-view .cmp-lev-in[data-key="savings"]')?.value.replaceAll(',', '') || '',
+      ),
+    };
+  });
+  requireCondition(
+    nowLevers.baseline === 'Baseline'
+      && nowLevers.allocation === '90 / 10'
+      && nowLevers.savings === 46000,
+    `Now Scenarios defaults are wrong: ${JSON.stringify(nowLevers)}`,
+  );
+  const scenarioKeys = await page.evaluate(() => Object.keys(localStorage)
+    .filter(key => key === 'parallax.scenarios.now-household.v1'));
+  requireCondition(
+    scenarioKeys.length === 0,
+    `Now runtime scenarios entered persistent storage: ${JSON.stringify(scenarioKeys)}`,
+  );
+  await page.click('.htab[data-page="household"]');
+  await waitForWizard(page, { householdId: 'now-household' });
+}
+
 async function prepareContractFixture(page){
   const menuHidden = await page.$eval('#hh-menu-pop', menu => menu.hidden);
   if(menuHidden){
@@ -539,7 +763,7 @@ async function prepareContractFixture(page){
   await clickWizardAction(page, '#hh-new');
   await page.waitForFunction(() => {
     const selected = document.querySelector('#hh-switch')?.value;
-    return selected && selected !== 'demo'
+    return selected
       && document.querySelector('[data-hh-wizard-root]')?.dataset.householdId === selected;
   }, { timeout: 10000 });
   await page.evaluate(() => {
@@ -549,6 +773,7 @@ async function prepareContractFixture(page){
     const active = localStorage.getItem(activeKey);
     const plan = db?.[active];
     if(!plan) throw new Error('Active household fixture is unavailable');
+    plan.meta.name = 'Verifier Household';
     plan.meta.primaryName = 'Verifier Client';
     plan.meta.spouseName = '';
     plan.meta.filingStatus = 'single';
@@ -592,20 +817,20 @@ async function prepareContractFixture(page){
 
 async function verifyRuntimeTemplateDurableCopy(page){
   await openWizard(page);
-  await selectHouseholdVisible(page, 'demo');
+  await selectHouseholdVisible(page, 'now-household');
   await goToWizardStep(page, 'family');
   await requireUnique(
     page,
     '[data-wizard-field="primaryName"]',
-    'Demo legal-name field',
+    'Now legal-name field',
   );
   const sourceBefore = await page.evaluate(() => {
     const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
-    return JSON.stringify(db?.demo || null);
+    return JSON.stringify(db?.['now-household'] || null);
   });
   requireCondition(
     sourceBefore && sourceBefore !== 'null',
-    'Demo runtime source was unavailable before the edit',
+    'Now runtime source was unavailable before the edit',
   );
 
   const editedName = 'Runtime save verifier';
@@ -628,48 +853,65 @@ async function verifyRuntimeTemplateDurableCopy(page){
       railName: document.querySelector('#hh-rail-name')?.textContent.trim() || '',
       status: document.querySelector('#status')?.textContent.trim() || '',
       visibleName: document.querySelector('[data-wizard-field="primaryName"]')?.value || '',
-      sourceUnchanged: JSON.stringify(db?.demo || null) === expectedSource,
-      sourceVisibleName: db?.demo?.meta?.primaryName || '',
+      sourceUnchanged: JSON.stringify(db?.['now-household'] || null) === expectedSource,
+      sourceVisibleName: db?.['now-household']?.meta?.primaryName || '',
       recordName: record?.meta?.name || '',
       runtimeSourceHouseholdId: record?.meta?.runtimeSourceHouseholdId || '',
       isDemo: record?.meta?.isDemo,
       isSelectableDefault: record?.meta?.isSelectableDefault,
       savedName: record?.meta?.primaryName || '',
+      sourceScenarioBytes: localStorage.getItem('parallax.scenarios.now-household.v1'),
       customCount: Object.values(db || {}).filter(item =>
-        item?.meta?.runtimeSourceHouseholdId === 'demo'
+        item?.meta?.runtimeSourceHouseholdId === 'now-household'
         && item?.meta?.primaryName === expectedName).length,
     };
   }, { expectedName: editedName, expectedSource: sourceBefore });
   requireCondition(
     copied.active
-      && copied.active !== 'demo'
+      && copied.active !== 'now-household'
       && copied.rootHouseholdId === copied.active
       && copied.selectedHouseholdId === copied.active
-      && copied.selectedHouseholdName === 'Demo Household copy'
-      && copied.railName === 'Demo Household copy'
+      && copied.selectedHouseholdName === 'Now Household copy'
+      && copied.railName === 'Now Household copy'
       && [
-        'Saved as Demo Household copy \u00b7 open Scenarios',
+        'Saved as Now Household copy \u00b7 open Scenarios',
         'Plan updated \u00b7 using available inputs',
       ].includes(copied.status)
       && copied.visibleName === editedName
       && copied.sourceUnchanged
       && copied.sourceVisibleName !== editedName
-      && copied.recordName === 'Demo Household copy'
-      && copied.runtimeSourceHouseholdId === 'demo'
+      && copied.recordName === 'Now Household copy'
+      && copied.runtimeSourceHouseholdId === 'now-household'
       && copied.isDemo === false
       && copied.isSelectableDefault === false
       && copied.savedName === editedName
+      && copied.sourceScenarioBytes === null
       && copied.customCount === 1,
     `Runtime edit was not saved as one durable copy: ${JSON.stringify(copied)}`,
   );
 
   await page.reload({ waitUntil: 'networkidle2', timeout: 20000 });
-  await waitForWizard(page, { householdId: 'demo' });
+  await waitForUnselectedWizard(page);
+  const blankReload = await page.evaluate(() => ({
+    active: localStorage.getItem('parallax.activeHouseholdId'),
+    selected: document.querySelector('#hh-switch')?.value || '',
+    railName: document.querySelector('#hh-rail-name')?.textContent.trim() || '',
+    screenCount: document.querySelectorAll('[data-hh-wizard-screen]').length,
+  }));
+  requireCondition(
+    blankReload.active === null
+      && blankReload.selected === ''
+      && blankReload.railName === ''
+      && blankReload.screenCount === 0,
+    `Reload did not return to the private unselected state: ${JSON.stringify(blankReload)}`,
+  );
+  await selectHouseholdVisible(page, copied.active);
+  await goToWizardStep(page, 'family');
   const rebooted = await page.evaluate(({ customId, expectedName, expectedSource }) => {
     const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
     return {
-      sourceUnchanged: JSON.stringify(db?.demo || null) === expectedSource,
-      demoVisibleName: document.querySelector('[data-wizard-field="primaryName"]')?.value || '',
+      sourceUnchanged: JSON.stringify(db?.['now-household'] || null) === expectedSource,
+      visibleName: document.querySelector('[data-wizard-field="primaryName"]')?.value || '',
       customOptionCount: [...document.querySelectorAll('#hh-switch option')]
         .filter(option => option.value === customId).length,
       savedName: db?.[customId]?.meta?.primaryName || '',
@@ -682,10 +924,10 @@ async function verifyRuntimeTemplateDurableCopy(page){
   });
   requireCondition(
     rebooted.sourceUnchanged
-      && rebooted.demoVisibleName !== editedName
+      && rebooted.visibleName === editedName
       && rebooted.customOptionCount === 1
       && rebooted.savedName === editedName
-      && rebooted.runtimeSourceHouseholdId === 'demo',
+      && rebooted.runtimeSourceHouseholdId === 'now-household',
     `Runtime copy did not survive a clean reload: ${JSON.stringify(rebooted)}`,
   );
 
@@ -705,9 +947,10 @@ async function verifyRuntimeTemplateDurableCopy(page){
       localStorage.getItem(`parallax.scenarios.${active}.v1`) || 'null',
     );
     return active
-      && active !== 'demo'
-      && db?.[active]?.meta?.runtimeSourceHouseholdId === 'demo'
-      && JSON.stringify(db?.demo || null) === expectedSource
+      && active !== 'now-household'
+      && db?.[active]?.meta?.runtimeSourceHouseholdId === 'now-household'
+      && JSON.stringify(db?.['now-household'] || null) === expectedSource
+      && localStorage.getItem('parallax.scenarios.now-household.v1') === null
       && Array.isArray(savedScenarios)
       && savedScenarios.length === expectedCount + 1
       && [...document.querySelectorAll('#hh-switch option')]
@@ -736,7 +979,7 @@ async function verifyRuntimeTemplateDurableCopy(page){
   );
 
   await page.reload({ waitUntil: 'networkidle2', timeout: 20000 });
-  await waitForWizard(page, { householdId: 'demo' });
+  await waitForUnselectedWizard(page);
   await selectHouseholdVisible(page, scenarioCopy.active);
   await page.click('.htab[data-page="scenarios"]');
   await page.waitForFunction(expectedCount =>
@@ -2101,11 +2344,20 @@ export async function runWizardBrowserContract(
   if(outDir) mkdirSync(outDir, { recursive: true });
   const diagnostics = attachBrowserDiagnostics(page);
   let originalStorage = null;
+  let originalHouseholdId = null;
   const originalViewport = page.viewport();
   let failure = null;
   try{
     await openWizard(page);
     originalStorage = await snapshotStorage(page);
+    originalHouseholdId = await page.$eval(
+      '#hh-switch',
+      selector => selector.value || null,
+    );
+    await seedStaleCopyMigrationFixture(page);
+    await page.reload({ waitUntil: 'networkidle2', timeout: 20000 });
+    await waitForUnselectedWizard(page);
+    await verifyBlankStartupAndNowSelection(page);
     await verifyRuntimeTemplateDurableCopy(page);
     await prepareContractFixture(page);
     await assertFourStepStructure(page);
@@ -2138,7 +2390,16 @@ export async function runWizardBrowserContract(
       if(restoreStorageAfter && originalStorage){
         await restoreStorage(page, originalStorage);
         if(originalViewport) await page.setViewport(originalViewport);
-        await reloadWizard(page);
+        await page.reload({ waitUntil: 'networkidle2', timeout: 20000 });
+        await waitForUnselectedWizard(page);
+        if(originalHouseholdId){
+          const available = await page.$$eval(
+            '#hh-switch option',
+            (options, householdId) => options.some(option => option.value === householdId),
+            originalHouseholdId,
+          );
+          if(available) await selectHouseholdVisible(page, originalHouseholdId);
+        }
         const restoredStorage = await snapshotStorage(page);
         requireCondition(
           stableStorageSnapshot(restoredStorage)

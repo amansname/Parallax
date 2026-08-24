@@ -41,11 +41,11 @@ function createBlankHousehold(id){
   return p;
 }
 
-function createDemoHousehold(){
-  const p = createBlankHousehold('demo');
-  p.meta.name = 'Demo Household';
-  p.meta.isDemo = true;
-  return p;
+function createSelectableDefaultHouseholds(){
+  const p = createBlankHousehold('now-household');
+  p.meta.name = 'Now Household';
+  p.meta.isSelectableDefault = true;
+  return [p];
 }
 
 function createLegacyHousehold(id = 'hh1', extraAccounts = []){
@@ -63,7 +63,7 @@ function createLegacyHousehold(id = 'hh1', extraAccounts = []){
 }
 
 const deps = {
-  createDemoHousehold,
+  createSelectableDefaultHouseholds,
   createBlankHousehold,
   pristinePlan,
   currentYear: () => 2026,
@@ -536,16 +536,18 @@ test('corrupt JSON preserves bytes and serves runtime defaults read-only', () =>
   const prepared = prepareHouseholdStore(read, deps);
   assert.equal(prepared.ok, true);
   assert.equal(prepared.mode, 'read_only');
-  assert.deepEqual(Object.keys(prepared.db), ['demo']);
+  assert.deepEqual(Object.keys(prepared.db), ['now-household']);
+  assert.equal(prepared.activeHouseholdId, null);
   assert.equal(commitPreparedHouseholdStore(storage, prepared).readOnly, true);
   assert.equal(storage.snapshot()[HHDB_KEY], '{not json');
 });
 
-test('missing key creates one current-schema demo and can persist', () => {
+test('missing key creates one current-schema selectable default without activating it', () => {
   const storage = createMemoryStorage();
   const prepared = prepareHouseholdStore(readHouseholdStore(storage), deps);
   assert.equal(prepared.ok, true);
   assert.equal(prepared.changed, true);
+  assert.equal(prepared.activeHouseholdId, null);
   const commit = commitPreparedHouseholdStore(storage, prepared);
   assert.equal(commit.ok, true);
   assert.ok(storage.getItem(HHDB_KEY));
@@ -556,9 +558,11 @@ test('empty stored database seeds the current runtime defaults', () => {
   const prepared = prepareHouseholdStore(readHouseholdStore(storage), deps);
   assert.equal(prepared.ok, true);
   assert.equal(prepared.mode, 'normal');
-  assert.deepEqual(Object.keys(prepared.db), ['demo']);
+  assert.deepEqual(Object.keys(prepared.db), ['now-household']);
+  assert.equal(prepared.activeHouseholdId, null);
   assert.equal(commitPreparedHouseholdStore(storage, prepared).ok, true);
-  assert.equal(JSON.parse(storage.getItem(HHDB_KEY)).demo.meta.name, 'Demo Household');
+  assert.equal(JSON.parse(storage.getItem(HHDB_KEY))['now-household'].meta.name, 'Now Household');
+  assert.equal(storage.getItem(ACTIVE_KEY), null);
 });
 
 test('write failure preserves original database and enters read-only clone', () => {
