@@ -1,22 +1,16 @@
 import { runSimulation, resolveInputs, generateReturnPath, resetSeed, LONGRUN_INFLATION, pathDigest, RISK_PROFILES, defaultPlan as plan } from '../engine.js';
 import { runFederalFundingSimulation } from './planning/tax/runMonteCarloWithFederalFunding.js';
 import { runHistoricalPathWithFederalTax } from './planning/tax/runHistoricalPathWithFederalTax.js';
-import { fmtM, fmtMoney } from '../ui/formatters.js';
-import { storyChart, seqChartSvg } from '../ui/charts.js';
+import { seqChartSvg } from '../ui/charts.js';
 import { escHtml } from '../ui/dom.js';
-import { CHART_LAYOUT } from '../ui/chartLayout.js';
 import {
   SHIPPED_DEFAULT_HOUSEHOLD_IDS,
   createBlankHousehold,
   createSelectableDefaultHouseholds,
 } from '../ui/householdFactories.js';
-import { resolveTypeFromLabel } from './household/accountTypes.js';
-import { createAccount } from './household/createAccount.js';
-import { createIncomeSource } from './household/incomeTaxModel.js';
 import { bindHouseholdEditor } from './household/commit.js';
 import { createHouseholdWizardController } from './household/wizard.js';
 import { createHouseholdWizardCommitBoundary } from './household/wizardEdits.js';
-import { invalidateWizardTaxCompletion } from './household/wizardIntake.js';
 import {
   ACTIVE_KEY,
   HHDB_KEY,
@@ -36,16 +30,15 @@ import {
   resolveGoalSpan,
 } from './goals/horizonModel.js';
 import { createTaxBucketsController } from '../ui/taxBuckets.js';
-import { pathModeLabel, drawSeqChart, renderPrints, syncPathControls, updatePathReplayMode } from '../ui/sequencing.js';
+import { drawSeqChart, renderPrints, syncPathControls } from '../ui/sequencing.js';
 import { buildSimulationRows, renderCashflow } from '../ui/cashflow.js';
-import { toneForProb, wdColor, ring, num as scenarioNum, renderCompare, renderFocus } from '../ui/scenarios.js';
+import { toneForProb, wdColor, num as scenarioNum, renderCompare, renderFocus } from '../ui/scenarios.js';
 import {
   buildRetirementEntryPlan,
   deriveRetirementEntryAccounts,
 } from './scenarios/buildRetirementEntryPlan.js';
 import { createCashFlowController } from './scenarios/createCashFlowController.js';
 import { HISTORICAL_PERIODS } from './scenarios/historicalPeriods.js';
-import { investableTotal, hhAgeFromYear } from '../ui/household.js';
 import { installDesignSystemPrimitives } from '../ui/designSystemPrimitives.js';
 import {
   scenarios, sharedPaths, plansDirty, baseSnapshot,
@@ -293,10 +286,6 @@ const RISK_LABELS={1:'30 / 70',2:'45 / 55',3:'60 / 40',4:'75 / 25',5:'90 / 10'};
 // the Scenarios lever, the Summary metric and the wizard cannot drift apart.
 function essentialsGoalAmount(p){
   const goal = (Array.isArray(p?.goals) ? p.goals : []).find(g => g?.system === 'essentials');
-  return Number(goal?.amount) || 0;
-}
-function healthcareGoalAmount(p){
-  const goal = (Array.isArray(p?.goals) ? p.goals : []).find(g => g?.system === 'healthcare');
   return Number(goal?.amount) || 0;
 }
 
@@ -606,59 +595,6 @@ function planForScenario(L){
    scenario then carries its own adjustment. Editing a base input re-seeds
    every column from the NEW base while PRESERVING each scenario's delta (its
    decision) — so "draw from base, then adjust" holds automatically. */
-const RISK_NAMES={1:'Conservative',2:'Mod-Cons',3:'Moderate',4:'Mod-Agg',5:'Aggressive'};
-
-/* ── Sub-page registry ─────────────────────────────────────────────
-   Four sub-pages live under the Net Worth tab. Balance Sheet uses the
-   STATEMENT layout (leader-dot rows under thin accent section heads).
-   Inflows / Outflows / Goals use the HYBRID layout (left-gutter identity
-   block + two facing columns split by a single vertical hairline).
-   Each hybrid page's gutter computes its own running total from the live
-   plan values — same place on every page so the eye knows where to land. */
-const SUB_PAGES = {
-  'cashflow':      { label:'Cash Flow', layout:'hybrid', totLabel:'Annual income' },
-  'goals':         { label:'Goals',     layout:'goals',  totLabel:'Annual goal spend' },
-  'snapshot':      { label:'Snapshot',  layout:'snapshot' },
-};
-
-const STRATEGY_NAMES = {
-  'taxable-first':'Taxable first',
-  'traditional-first':'Traditional first',
-  proportional:'Proportional'
-};
-
-/* ── Hybrid columns: each sub-page has a LEFT and a RIGHT column.
-   Each item carries name + path + type, and an optional meta() that draws
-   from the live plan (e.g. "claim at 67" reads the actual claim age). */
-const HYBRID = {
-  // Income and expenses live on ONE page (Cash Flow). Income = Fixed (SS, pension)
-  // + Variable. Expenses = Essential only — discretionary spending is modeled as
-  // Goals, so it isn't duplicated here.
-  'cashflow': {
-    left:  { head:'Income', groups:[
-      { head:'Fixed income', items:[
-        {path:'income.socialSecurity.primary.pia', name:'Social Security · Primary', type:'money', meta:()=>`Claim at age ${plan.income.socialSecurity.primary.claimAge}`},
-        {path:'income.socialSecurity.spouse.pia',  name:'Social Security · Co-Client',  type:'money', meta:()=>plan.income.socialSecurity.spouse?`Claim at age ${plan.income.socialSecurity.spouse.claimAge}`:''},
-      ], dynamic:'pension' },
-      { head:'Variable', section:{ arr:'income.other', kind:'income', nameKey:'label', ph:'Source', add:'+ add a variable income source' } },
-    ]},
-    // Spending is entered on the Goals page. This column used to bind
-    // expenses.living / expenses.healthcare directly, which are retired — an
-    // editor for fields the engine no longer reads is worse than no editor.
-    right: { head:'Expenses', groups:[
-      { head:'Essential', note:'Essentials and Healthcare are goals — edit them on the Goals page.', items:[] },
-    ]},
-  },
-};
-
-/* Active sub-page for the net-worth page. The Goals sub-view lives here.
-   Household is its own editable data-page="household" console (the 5-step
-   wizard: renderWizHousehold/Accounts/Income/Retirement/Blueprint via
-   syncHousehold). */
-const SUB_KEY = 'parallax.netWorth.sub';
-let activeSub = 'goals';
-const getPath=(o,p)=>p.split('.').reduce((a,k)=>a&&a[k],o);
-const setPath=(o,p,v)=>{const ks=p.split('.');const last=ks.pop();let t=o;for(const k of ks){if(t==null)return;t=t[k];}if(t!=null)t[last]=v;};
 
 // Live comma formatting for money inputs. Reformats on every keystroke and
 // preserves the caret's LOGICAL position (after the same number of digits)
@@ -711,10 +647,7 @@ function reseedScenarios({ markDirty = true } = {}){
    These read the live plan and feed the gutter on each sub-page. The gutter
    is the same shape on every page — a big number + breakdown rows — so the
    eye lands in the same place. Useful information, not descriptions. */
-// Typed investment accounts → tax sleeve. Workplace + IRA plans are pre-tax;
-// the bucket is what the engine consumes (extraAccounts fold into the totals).
-let acctSel = null;   // type currently armed in the add picker
-// Post-edit refresh (mirrors the balance-sheet field commit, minus setPath).
+// Post-edit refresh for the live Goals Horizon.
 function commitPlanEdit(){
   if(!guardPlanMutation()) return;
   reseedScenarios(); uiState.sharedPaths=null; uiState.plansDirty=true; renderInputs();
@@ -787,17 +720,7 @@ const taxBuckets=createTaxBucketsController({
 });
 taxBuckets.bind($('#tax-buckets-view'));
 
-/* ═══════════════════════════════════════════════════════════════════════════
-   HOUSEHOLD — the editable plan-input console (Demographics / Net Worth / Cash
-   Flow), rendered as the Folio/glass document. EVERY core input is editable
-   inline at all times: each value slot is a renderField() data-path control, and
-   the #hh-view delegated handler writes back to `plan` and reseeds/dirties
-   scenarios EXACTLY like the rest of the input layer (setPath → reseedScenarios →
-   retired lever renderer → plansDirty=true). Money TRUTH (balances) is typed by the advisor;
-   the OWNER of an account is a LABEL placing it in the Client / Spouse pillar or
-   the joint holdings — derived displays (net-worth total, per-owner investable,
-   ownership %, beam) recompute read-only on every sync, never faked.
-   ═══════════════════════════════════════════════════════════════════════════ */
+/* Household editing is owned by the production intake wizard. */
 // Ownership is a UI label; data keys stay 'spouse' etc. Visible label is Co-Client.
 const householdWizardController = createHouseholdWizardController({
   getPlan: () => plan,
@@ -898,567 +821,16 @@ function bindHouseholdRailOnce(){
   householdWizardController.bindRail();
 }
 
-// Column subtotals — sums every group in HYBRID[page].left / .right (a column may
-// be one or more groups). Dynamic-pension items are included automatically.
-function groupSum(g){
-  let s = 0;
-  (g.items||[]).forEach(it => { s += (getPath(plan, it.path)||0); });
-  if(g.dynamic==='pension'){
-    const m=(plan.income.pension&&plan.income.pension.benefitByAge)||{};
-    const pStart=(plan.income.pension&&plan.income.pension.startAge);   // pays ONE amount
-    s += (pStart && m[pStart]) || 0;
-  }
-  if(g.section){ (getPath(plan, g.section.arr)||[]).forEach(r => { s += (r.amount||0); }); }
-  return s;
-}
-function colSum(page, side){
-  const col = HYBRID[page] && HYBRID[page][side];
-  if(!col) return 0;
-  return (col.groups || [col]).reduce((s,g)=>s+groupSum(g), 0);
-}
-function hybridTotal(page){ return colSum(page,'left') + colSum(page,'right'); }
-
-// Page-specific gutter HTML. Same shape on every page — title row + big
-// number + a breakdown of the parts. No descriptions; the structure IS the
-// description. Net Worth shows assets / liabilities / net; the three hybrid
-// pages show the left-column total / right-column total / overall.
-function renderGutter(pageKey){
-  const sp = SUB_PAGES[pageKey];
-  if(pageKey === 'balance-sheet'){
-    const goalsAnnual = (plan.goals||[])
-      .filter(g => g.startAge !== g.endAge)
-      .reduce((s,g)=>s+(g.amount||0),0);
-    return `<div class="np-gutter">
-      <div class="lbl">Household</div>
-        <div class="big-num">${fmtMoney(investableTotal(plan))}</div>
-      <hr class="gut-rule"/>
-      <div class="row"><span>Savings / yr</span><b>${fmtMoney(plan.savings.annual||0)}</b></div>
-      <div class="row"><span>Spending / mo</span><b>${fmtMoney(Math.round(essentialsGoalAmount(plan)/12))}</b></div>
-      <div class="row"><span>Goals / yr</span><b>${fmtMoney(goalsAnnual)}</b></div>
-    </div>`;
-  }
-  const def = HYBRID[pageKey];
-  // Cash Flow: headline = annual income; breakdown = income composition + expenses.
-  if(pageKey === 'cashflow'){
-    const income   = colSum(pageKey,'left');
-    const expenses = colSum(pageKey,'right');
-    const groupRows = (def.left.groups||[]).map(g =>
-      `<div class="row"><span>${g.head}</span><b>${fmtMoney(groupSum(g))}</b></div>`).join('');
-    return `<div class="np-gutter">
-      <div class="lbl">${sp.totLabel}</div>
-      <div class="big-num">${fmtMoney(income)}</div>
-      <div class="big-sub">per year · today's dollars</div>
-      <hr class="gut-rule"/>
-      ${groupRows}
-      <div class="row"><span>Expenses</span><b>${fmtMoney(expenses)}</b></div>
-    </div>`;
-  }
-  const total = hybridTotal(pageKey);
-  return `<div class="np-gutter">
-    <div class="lbl">${sp.totLabel}</div>
-    <div class="big-num">${fmtMoney(total)}</div>
-    <div class="big-sub">per year · today's dollars</div>
-    <hr class="gut-rule"/>
-    <div class="row"><span>${def.left.head}</span><b>${fmtMoney(colSum(pageKey,'left'))}</b></div>
-    <div class="row"><span>${def.right.head}</span><b>${fmtMoney(colSum(pageKey,'right'))}</b></div>
-  </div>`;
-}
-
-/* ── Field renderer — one input element, shared by both layouts ──── */
-function renderField(f, klass){
-  const v = getPath(plan, f.path);
-  if(f.type==='risk'){
-    const opts = Object.keys(RISK_NAMES).map(k =>
-      `<option value="${k}" ${+k===+v?'selected':''}>${RISK_NAMES[k]} · ${RISK_LABELS[k]}</option>`).join('');
-    return `<select data-path="${f.path}" data-type="risk">${opts}</select>`;
-  }
-  if(f.type==='strategy'){
-    const opts = Object.entries(STRATEGY_NAMES).map(([k,label]) =>
-      `<option value="${k}" ${k===v?'selected':''}>${label}</option>`).join('');
-    return `<select data-path="${f.path}" data-type="strategy">${opts}</select>`;
-  }
-  if(f.type==='text'){
-    return `<input type="text" data-path="${f.path}" data-type="text" value="${escHtml(v||'')}" placeholder="${f.ph||''}">`;
-  }
-  if(f.type==='date'){
-    return `<input type="date" data-path="${f.path}" data-type="text" value="${escHtml(v||'')}">`;
-  }
-  if(f.type==='money'){
-    const dv = (v||0).toLocaleString('en-US');
-    return `<span class="pre">$</span><input type="text" inputmode="numeric" data-path="${f.path}" data-type="money" value="${dv}">`;
-  }
-  if(f.type==='monthlyMoney'){
-    const dv = Math.round((v||0)/12).toLocaleString('en-US');
-    return `<span class="pre">$</span><input type="text" inputmode="numeric" data-path="${f.path}" data-type="monthlyMoney" value="${dv}">`;
-  }
-  if(f.type==='pct'){
-    const dv = Math.round((v||0)*100);
-    return `<input type="number" data-path="${f.path}" data-type="pct" value="${dv}" step="1"><span class="pre">%</span>`;
-  }
-  if(f.type==='gpct'){
-    const dv = Math.round((Number(v)||0)*1000)/10;
-    return `<input type="number" data-path="${f.path}" data-type="gpct" value="${dv}" step="0.1" min="-20" max="20"><span class="pre">%</span>`;
-  }
-  if(f.type==='signedPct'){
-    const dv = Math.round((Number(v)||0)*1000)/10;
-    return `<input type="number" data-path="${f.path}" data-type="signedPct" value="${dv}" step="0.1" min="-100" max="100"><span class="pre">%</span>`;
-  }
-  /* pctPoints: user enters whole percentage points (0–100), plan stores as-is.
-     Use for fields where the engine itself divides by 100 (e.g. colaPct → engine does colaPct/100).
-     Contrast with 'pct': user enters 55, plan stores 0.55, engine reads 0.55 directly. */
-  if(f.type==='pctPoints'){
-    const dv = (v||0);
-    return `<input type="number" data-path="${f.path}" data-type="pctPoints" value="${dv}" step="0.5" min="0">`;
-  }
-  if(f.type==='num'){
-    return `<input type="number" data-path="${f.path}" data-type="num" value="${v}" min="${f.min||0}" step="${f.step||1}">`;
-  }
-  /* rate: a float percentage (e.g. mortgage 6.25%) stored as-is. The #hh-view
-     delegate writes the raw parsed float — unlike 'num' it must NOT round. */
-  if(f.type==='rate'){
-    return `<input type="number" data-path="${f.path}" data-type="rate" value="${v||0}" min="0" step="0.1">`;
-  }
-  if(f.type==='ageOrLife'){
-    const dv = Number(v) >= 999 ? '' : v;
-    return `<input type="number" data-path="${f.path}" data-type="ageOrLife" value="${dv ?? ''}" placeholder="Life" min="0" max="120" data-min="0" data-max="120" step="1">`;
-  }
-  // age
-  const min = f.min != null ? ` min="${f.min}" data-min="${f.min}"` : '';
-  const max = f.max != null ? ` max="${f.max}" data-max="${f.max}"` : '';
-  return `<input type="number" data-path="${f.path}" data-type="${f.type}" value="${v}" step="1"${min}${max}>`;
-}
-
-/* ── Add-row sections ─────────────────────────────────────────────
-   Schema-driven editable rows backed by a plan array. The SAME data-path
-   binding + change handler that drives every other input writes these, so
-   "add a row" is just pushing a default object and re-rendering, and "remove"
-   is an array splice. Each kind names its backing array + a factory for a new
-   row's defaults. (Goals share one array; recurring vs one-time is decided by
-   the window: a one-time goal is a single-year window, startAge===endAge.) */
-const ROW_KINDS = {
-  income:    { arr:'income.other',   mk:()=>({ ...createIncomeSource(plan, 'wages', 'client'), label:'' }) },
-  // 'expense' is retired — a time-bounded expense IS a recurring goal, so
-  // goalRec covers it. Keeping it would append rows to an array nothing reads.
-  liability: { arr:'liabilities',    mk:()=>({ label:'', amount:0, startAge:65, endAge:75, colaPct:0 }) },
-  goalRec:   { arr:'goals',          mk:()=>{ const span=resolveGoalSpan(plan); return { name:'', amount:0, startAge:span.retirementAge, endAge:span.planEndAge }; } },
-  goalOnce:  { arr:'goals',          mk:()=>({ name:'',  amount:0, startAge:70, endAge:70 }) },
-  property:  { arr:'properties',     mk:()=>({ name:'',  value:0, purchasePrice:0, mortgage:{ balance:0, rate:0, termYears:0 } }) },
-  account:   { arr:'portfolio.extraAccounts', mk:()=>createAccount('brokerage_taxable', { owner:'joint', balance:0 }) },
-  // Wizard Step 1 children: advisor context, engine-inert (name + birth year).
-  child:     { arr:'household.children', mk:()=>({ name:'', birthYear: new Date().getFullYear() - 10 }) },
-};
-const money = (p,base,k)=>`<span class="er-amt"><span class="pre">$</span><input type="text" inputmode="numeric" data-path="${base}.${k}" data-type="money" value="${(getPath(plan,base+'.'+k)||0).toLocaleString('en-US')}"></span>`;
-const num   = (p,base,k,step)=>`<input class="er-num" type="number" step="${step||1}" data-path="${base}.${k}" data-type="num" value="${getPath(plan,base+'.'+k)}">`;
-const name  = (p,base,k,ph)=>`<input class="er-name" type="text" data-path="${base}.${k}" data-type="text" value="${escHtml(getPath(plan,base+'.'+k)||'')}" placeholder="${ph}">`;
-const rmX   = base=>`<button class="row-x" data-rmpath="${base}" title="Remove this row">×</button>`;
-
-// A flow row (income / expense / liability): name · amount · from–to ages.
-function flowRow(arr, i, nameKey, ph){
-  const base = `${arr}.${i}`;
-  return `<div class="erow">${name(plan,base,nameKey,ph)}${money(plan,base,'amount')}
-    <span class="er-ages">age ${num(plan,base,'startAge')}<span class="er-dash">–</span>${num(plan,base,'endAge')}</span>${rmX(base)}</div>`;
-}
-// An income row = the flow row PLUS a compact second line for the two per-stream
-// controls: real growth/yr (signed — negative phases the stream down) and the
-// share taxed at the ordinary rate. gpct stores a signed fraction; pct a 0–1 one.
-function incomeRow(arr, i){
-  const base = `${arr}.${i}`;
-  const g = Math.round((getPath(plan, base+'.realGrowth')||0)*100);
-  const tRaw = getPath(plan, base+'.taxablePct');
-  const t = Math.round((tRaw==null?1:tRaw)*100);
-  const main = `<div class="erow">${name(plan,base,'label','Source')}${money(plan,base,'amount')}
-    <span class="er-ages">age ${num(plan,base,'startAge')}<span class="er-dash">–</span>${num(plan,base,'endAge')}</span>${rmX(base)}</div>`;
-  const extra = `<div class="er-extra">
-      <span class="er-xk">grows</span><input class="er-num er-gw" type="number" step="1" data-path="${base}.realGrowth" data-type="gpct" value="${g}"><span class="er-xs">%/yr real</span>
-      <span class="er-xsep">·</span>
-      <input class="er-num" type="number" step="1" data-path="${base}.taxablePct" data-type="pct" value="${t}"><span class="er-xs">% taxable</span>
-    </div>`;
-  return `<div class="erow-wrap">${main}${extra}</div>`;
-}
-// Render every row of a flow kind backed by `arr`, with the trailing "+ add".
-function flowSection(arr, nameKey, ph, kind, addLabel){
-  const list = getPath(plan, arr) || [];
-  const rowFn = (kind==='income') ? (i=>incomeRow(arr,i)) : (i=>flowRow(arr,i,nameKey,ph));
-  let h = list.map((_,i)=>rowFn(i)).join('');
-  h += `<div class="hp-add" data-add="${kind}">${addLabel}</div>`;
-  return h;
-}
-
-/* The old Balance-Sheet statement / Map editor and five-step setup wizard were
-   retired. The Household page now renders the four-step production intake. */
-
-/* ── Hybrid layout (Inflows / Outflows / Goals) ───────────────────
-   200px gutter (title + description + running total) + two facing columns
-   split by a single vertical hairline. Each item: name on the left, boxless
-   input on the right, meta line below the name in ink-mute. */
-function renderHybrid(pageKey){
-  const def = HYBRID[pageKey];
-  // A "group" = one labelled block (head + fixed items + optional pension +
-  // optional editable section/goals). A column is one or more groups stacked, so
-  // the combined Cash Flow page can show Fixed income + Variable under Income.
-  const renderGroup = g => {
-    let h = g.head ? `<h4>${g.head}</h4>` : '';
-    const items = (g.items||[]).slice();
-    if(g.dynamic==='pension'){
-      // ONE summary row — the benefit at the chosen start age. The full
-      // benefit-by-age schedule and which age to claim is decided at the
-      // Scenario level (the pension slider), not here.
-      const pen = plan.income.pension || {};
-      const pstart = pen.startAge;
-      const ages = Object.keys(pen.benefitByAge||{}).map(Number).sort((a,b)=>a-b);
-      const age = (pstart!=null && (pen.benefitByAge||{})[pstart]!=null) ? pstart
-                : (ages.length ? ages[0] : null);
-      if(age!=null){
-        items.push({ path:`income.pension.benefitByAge.${age}`, name:'Pension', type:'money', meta:()=>`Begins at age ${age}` });
-      }
-    }
-    items.forEach(it => {
-      const xBtn = it.removable ? `<button class="row-x" title="Remove this row" data-rmpath="${it.path}">×</button>` : '';
-      h += `<div class="hp-item"><div class="ti"><span class="nm">${it.name}</span><span class="field">${renderField(it)}${xBtn}</span></div>`;
-      const m = it.meta ? it.meta() : '';
-      if(m) h += `<div class="meta">${m}</div>`;
-      h += `</div>`;
-    });
-    // Array-backed editable rows: a flow section (variable income) …
-    if(g.section){
-      const s = g.section;
-      h += `<div class="erows">${flowSection(s.arr, s.nameKey, s.ph, s.kind, s.add)}</div>`;
-    }
-    // … or the goals array, split by window into recurring vs one-time columns.
-    if(g.add && !g.section) h += `<div class="hp-add">${g.add}</div>`;
-    return h;
-  };
-  const colHtml = colDef => {
-    const groups = colDef.groups || [colDef];   // ungrouped pages: the column IS one group
-    return `<div class="hp-col">${groups.map(renderGroup).join('')}</div>`;
-  };
-  return `<div class="np-page">
-    ${renderGutter(pageKey)}
-    <div class="hp-body">
-      ${colHtml(def.left)}
-      <div class="hp-rule"></div>
-      ${colHtml(def.right)}
-    </div>
-  </div>`;
-}
-
-/* ── Snapshot (the diagnosis) ──────────────────────────────────────
-   Three diagnostic gauges, each a RELATIONSHIP between numbers already
-   entered — not engine projections. These are static rules-of-thumb (like a
-   balance-sheet ratio): the income floor, the year-one withdrawal rate, and
-   the tax-location mix. The engine still owns the real probability (Scenarios);
-   this page is the at-a-glance condition of the household TODAY. Neutrality:
-   the same gauges read green when the news is good and red when it isn't —
-   the tool has no thesis, it just shows what's there. */
-function snapshotMetrics(){
-  const a = plan.portfolio.accounts;
-  const taxable = a.taxable.balance||0, trad = a.traditional.balance||0, roth = a.roth.balance||0;
-  const invest = taxable + trad + roth;
-  // Guaranteed-for-life income at retirement: both SS benefits + pension at its
-  // chosen start age (today's-dollar values straight off the inputs).
-  const ssP = plan.income.socialSecurity.primary.pia||0;
-  const ssS = (plan.income.socialSecurity.spouse && plan.income.socialSecurity.spouse.pia)||0;
-  const pen = plan.income.pension||{};
-  const penAmt = (pen.benefitByAge && pen.startAge!=null) ? (pen.benefitByAge[pen.startAge]||0) : 0;
-  const guaranteed = ssP + ssS + penAmt;
-  // Essentials and Healthcare are the two pre-loaded system goals; everything
-  // else on the Goals page is discretionary. Splitting here keeps the
-  // "% of essential spending covered by guaranteed income" metric meaningful.
-  const essentials = essentialsGoalAmount(plan) + healthcareGoalAmount(plan);
-  const goals = (Array.isArray(plan.goals) ? plan.goals : [])
-    .filter(g => !g?.system)
-    .reduce((s,g)=>s+(g.amount||0),0);
-  const totalSpend = essentials + goals;
-  const floorPct = essentials>0 ? guaranteed/essentials : 0;
-  const fromPortfolioEssential = Math.max(0, essentials - guaranteed);
-  const gap = Math.max(0, totalSpend - guaranteed);
-  const wr = invest>0 ? gap/invest : 0;
-  // Replacement ratio: GUARANTEED retirement income (SS + pension) as a share of
-  // gross working income. Portfolio withdrawals are NOT income — they're spending
-  // the portfolio funds — so they're deliberately excluded here. (A "sustainable
-  // withdrawal amount" would need a solve, and would be framed as exactly that.)
-  const workingIncome = plan.income.workingIncome || 0;
-  const replacement = workingIncome>0 ? guaranteed/workingIncome : null;
-  return { taxable, trad, roth, invest, guaranteed, essentials, goals, totalSpend,
-           floorPct, fromPortfolioEssential, gap, wr, workingIncome, replacement };
-}
-function renderSnapshot(){
-  const m = snapshotMetrics();
-  const pct = v => (v*100);
-  const pct1 = v => (v*100).toFixed(1)+'%';
-  const pct0 = v => Math.round(v*100)+'%';
-
-  // 1 · Income floor — floating stats (no bar: bar implied a grade, this is a fact).
-  const incomeFloor = `
-    <div class="metric">
-      <div>
-        <div class="m-eye">Income Floor</div>
-        <div class="m-hero">${pct0(m.floorPct)}</div>
-        <div class="m-sub">of essential spending is covered for life by guaranteed income</div>
-      </div>
-      <div class="stat-row">
-        <div class="stat-item"><div class="stat-lbl">Guaranteed for life</div><div class="stat-val">${fmtMoney(m.guaranteed)}</div></div>
-        <div class="stat-item"><div class="stat-lbl">Drawn from portfolio</div><div class="stat-val">${fmtMoney(m.fromPortfolioEssential)}</div></div>
-        <div class="stat-item"><div class="stat-lbl">Essential spending</div><div class="stat-val">${fmtMoney(m.essentials)}</div></div>
-      </div>
-    </div>`;
-
-  // 2 · Withdrawal rate — neutral metric, no grading. Shown for reference and
-  // as a starting point for advisor conversation, not a verdict.
-  const withdrawal = `
-    <div class="metric">
-      <div>
-        <div class="m-eye">Withdrawal Rate · Year One</div>
-        <div class="m-hero">${pct1(m.wr)}</div>
-        <div class="m-sub">of the portfolio drawn the first year of retirement</div>
-      </div>
-      <div class="stat-row">
-        <div class="stat-item"><div class="stat-lbl">Portfolio draws / yr</div><div class="stat-val">${fmtMoney(m.gap)}</div></div>
-        <div class="stat-item"><div class="stat-lbl">From invested</div><div class="stat-val">${fmtMoney(m.invest)}</div></div>
-        <div class="stat-item"><div class="stat-lbl">Total retirement spend</div><div class="stat-val">${fmtMoney(m.totalSpend)}</div></div>
-      </div>
-    </div>`;
-
-  // 3 · Tax location — segmented proportion bar. Hero = the tax-deferred share
-  // (the future-tax exposure). Labels hidden on slivers too thin to hold text.
-  const tP = m.invest>0 ? m.taxable/m.invest : 0;
-  const dP = m.invest>0 ? m.trad/m.invest : 0;
-  const rP = m.invest>0 ? m.roth/m.invest : 0;
-  const segLbl = (p) => pct(p)>=8 ? pct0(p) : '';
-  const taxLocation = `
-    <div class="metric">
-      <div>
-        <div class="m-eye">Tax Location</div>
-        <div class="m-hero">${pct0(dP)}</div>
-        <div class="m-sub">sits in tax-deferred accounts — taxed as income when withdrawn</div>
-      </div>
-      <div>
-        <div class="seg">
-          <div class="s-tax" style="width:${(tP*100).toFixed(1)}%">${segLbl(tP)}</div>
-          <div class="s-def" style="width:${(dP*100).toFixed(1)}%">${segLbl(dP)}</div>
-          <div class="s-roth" style="width:${(rP*100).toFixed(1)}%">${segLbl(rP)}</div>
-        </div>
-        <div class="seg-legend">
-          <span class="k"><span class="sw" style="background:var(--accent)"></span>Taxable<b>${fmtMoney(m.taxable)}</b></span>
-          <span class="k"><span class="sw" style="background:var(--accent-deep)"></span>Tax-deferred<b>${fmtMoney(m.trad)}</b></span>
-          <span class="k"><span class="sw" style="background:var(--accent-secondary)"></span>Tax-free · Roth<b>${fmtMoney(m.roth)}</b></span>
-        </div>
-      </div>
-    </div>`;
-
-  // 4 · Replacement ratio — retirement income as a share of working income.
-  // NEUTRAL by design: no safety zones, because a higher ratio isn't worse —
-  // it's the upside (live as well or better than today). Reference ticks only:
-  // a faint "typical ~75%" heuristic and a solid "100% = working income" line.
-  // Scale runs 0–120% so over-100% (spending up in retirement) still shows.
-  let replacement;
-  if(m.replacement == null){
-    replacement = `
-      <div class="metric">
-        <div>
-          <div class="m-eye">Replacement Ratio</div>
-          <div class="m-hero">—</div>
-          <div class="m-sub">add working income on the Balance Sheet to compare retirement to life today</div>
-        </div>
-        <div></div>
-      </div>`;
-  } else {
-    // Coverage bar — same language as the income floor. The full track = working
-    // income; the filled portion = the share retirement income replaces. No vertical
-    // ticks cutting through text. Caps at the track; over-100% (spending more in
-    // retirement) shows full + the true % in the hero.
-    const fillPct = Math.min(100, m.replacement*100);
-    replacement = `
-      <div class="metric">
-        <div>
-          <div class="m-eye">Replacement Ratio</div>
-          <div class="m-hero">${pct0(m.replacement)}</div>
-          <div class="m-sub">of working income, replaced by guaranteed retirement income</div>
-        </div>
-        <div>
-          <div class="cov"><div class="fill" style="width:${fillPct.toFixed(1)}%">Guaranteed&nbsp;·&nbsp;${fmtMoney(m.guaranteed)}</div></div>
-          <div class="cov-legend">
-            <span class="k"><span class="sw" style="background:var(--accent)"></span>Guaranteed income<b>${fmtMoney(m.guaranteed)}</b></span>
-            <span class="k"><span class="sw" style="background:#e3d9c5"></span>Working income<b>${fmtMoney(m.workingIncome)}</b></span>
-          </div>
-        </div>
-      </div>`;
-  }
-
-  return `<div class="snap">${incomeFloor}${withdrawal}${taxLocation}${replacement}</div>`;
-}
-
-/* ── Sub-page render + wiring ─────────────────────────────────────
-   One renderInputs() drives whichever sub-page is active. Re-renders on
-   sub-nav click, on field change, and on row delete — same wiring pattern
-   as before so live-commas / scenario re-seeding / plansDirty all still
-   work without per-layout duplication. */
 function renderInputs(){
-  // sub-nav active state
-  $$('#np-subnav .stab').forEach(b => b.classList.toggle('on', b.dataset.sub===activeSub));
   if(isHouseholdStorageBlocked()){
     renderBlockedRecoverySurfaces();
     return;
   }
-  const layout = SUB_PAGES[activeSub].layout;
   const np = $('#np-content');
-  // Snapshot is its own diagnostic page again — embedding it on the Net Worth
-  // page made that page too busy to read.
-  const html = layout==='snapshot'  ? `<div class="np-snapshot-page">${renderSnapshot()}</div>`
-             : layout==='goals'     ? goalsHorizon.render()
-             :                        renderHybrid(activeSub);
-  np.innerHTML = html;
-  if(layout==='goals') goalsHorizon.bind(np);
+  np.innerHTML = goalsHorizon.render();
+  goalsHorizon.bind(np);
   syncRecoveryControls();
 }
-// ── Net Worth input bindings — delegated on the stable #np-content ────────────
-// Input listeners are set once here so re-renders via renderInputs() (which
-// replaces #np-content children) never accumulate orphaned listeners.
-
-// ── All Net Worth interactions — delegated on the stable #np-content ─────────
-$('#np-content').addEventListener('click', e => {
-  // (The old Map / Net-Worth toggle was retired with the Household editor.)
-  // Row delete (×)
-  const rx = e.target.closest('.row-x');
-  if(rx){
-    if(!guardPlanMutation()) return;
-    const path = rx.dataset.rmpath;
-    const ks = path.split('.'); const last = ks.pop();
-    let t = plan; for(const k of ks){ if(t==null) return; t=t[k]; }
-    // Array rows splice (no holes); object keys delete.
-    if(Array.isArray(t)) t.splice(+last, 1);
-    else if(t!=null) delete t[last];
-    if(path === 'income.other' || path.startsWith('income.other.')){
-      invalidateWizardTaxCompletion(plan);
-    }
-    reseedScenarios(); 
-  uiState.sharedPaths = null; uiState.plansDirty = true;
-    renderInputs();
-    syncPlanEditStatus('Saved automatically · open Scenarios');
-    return;
-  }
-  // "+ add …" — push a default row onto the backing array, then re-render.
-  const adder = e.target.closest('[data-add]');
-  if(adder){
-    if(!guardPlanMutation()) return;
-    const kind = adder.dataset.add;
-    const k = ROW_KINDS[kind];
-    if(k){
-      const arr = getPath(plan, k.arr);
-      if(Array.isArray(arr)) arr.push(k.mk());
-      else setPath(plan, k.arr, [k.mk()]);
-      if(kind === 'income') invalidateWizardTaxCompletion(plan);
-      commitPlanEdit();
-    }
-    return;
-  }
-  // Account type chip
-  const chip = e.target.closest('.acct-chip');
-  if(chip){
-    const resolved = resolveTypeFromLabel(chip.dataset.label);
-    if(!resolved.known || !resolved.typeId) return;
-    acctSel = {
-      label: resolved.label,
-      bucket: resolved.engineBucket,
-      typeId: resolved.typeId,
-    };
-    $$('#np-content .acct-chip').forEach(c => c.classList.toggle('sel', c === chip));
-    const btn = $('#np-content .acct-add');
-    if(btn){ btn.disabled = false; btn.textContent = 'Add ' + acctSel.label; }
-    return;
-  }
-  if(e.target.closest('.acct-add')){
-    if(!guardPlanMutation()) return;
-    if(!acctSel) return;
-    const amtEl = $('#np-content .acct-amt');
-    const bal = parseFloat(String(amtEl ? amtEl.value : '').replace(/[^0-9.]/g, ''));
-    if(!isFinite(bal) || bal <= 0){
-      if(amtEl){ amtEl.focus(); amtEl.style.outline='2px solid var(--negative)'; setTimeout(()=>amtEl.style.outline='',1500); }
-      return;
-    }
-    if(!plan.portfolio.extraAccounts) plan.portfolio.extraAccounts = [];
-    plan.portfolio.extraAccounts.push(createAccount(acctSel.typeId, {
-      owner: 'joint',
-      balance: Math.round(bal),
-    }));
-    acctSel = null;
-    commitPlanEdit();
-    return;
-  }
-  const rm = e.target.closest('.acct-x');
-  if(rm){
-    if(!guardPlanMutation()) return;
-    const i = +rm.dataset.acctidx;
-    if(plan.portfolio.extraAccounts) plan.portfolio.extraAccounts.splice(i, 1);
-    commitPlanEdit();
-  }
-});
-// Live commas on money fields.
-$('#np-content').addEventListener('input', e => {
-  if(e.target.dataset.type === 'money' || e.target.dataset.type === 'monthlyMoney') liveCommas(e.target);
-});
-$('#np-content').addEventListener('change', e => {
-  // Field edits (data-path bindings)
-  const path = e.target.dataset.path, type = e.target.dataset.type;
-  if(path){
-    if(!guardPlanMutation()){ renderInputs(); return; }
-    const raw = e.target.value;
-    if(type==='text' || type==='strategy'){            // free-text row labels or select values
-      setPath(plan, path, raw);
-      if(path.startsWith('income.other.')
-          || path.startsWith('income.socialSecurity.')){
-        invalidateWizardTaxCompletion(plan);
-      }
-  reseedScenarios(); uiState.sharedPaths=null; uiState.plansDirty=true; renderInputs();
-      syncPlanEditStatus('Saved automatically · open Scenarios');
-      return;
-    }
-    let v;
-    if(type==='money' || type==='monthlyMoney') v = parseFloat(String(raw).replace(/[^0-9.]/g,''));
-    else if(type==='risk')  v = +raw;
-    else                    v = parseFloat(raw);
-    // Blanking a goal amount returns the goal to unpriced ($0 is engine-inert).
-    if(!isFinite(v)){
-      if(type==='money' && String(raw).trim()==='' && /^goals\.\d+\.amount$/.test(path)) v=0;
-      else return;
-    }
-    if(type==='pct')   v = Math.max(0, Math.min(100, v))/100;
-    if(type==='gpct')  v = Math.max(-20, Math.min(20, v))/100;   // signed growth %/yr
-    if(type==='money'){ v = Math.max(0, Math.round(v)); e.target.value = v.toLocaleString('en-US'); }
-    if(type==='monthlyMoney'){
-      const monthly = Math.max(0, Math.round(v));
-      v = monthly * 12;
-      e.target.value = monthly.toLocaleString('en-US');
-    }
-    if(type==='num') v = Math.max(1, Math.round(v));
-    setPath(plan, path, v);
-    if(path.startsWith('income.other.')
-        || path.startsWith('income.socialSecurity.')){
-      invalidateWizardTaxCompletion(plan);
-    }
-    // A one-time goal edits a single "at age": mirror it into endAge so the
-    // engine's window is exactly that year.
-    if(e.target.dataset.sync) setPath(plan, e.target.dataset.sync, v);
-    reseedScenarios();
-    
-    uiState.sharedPaths = null;
-    uiState.plansDirty = true;
-    renderInputs();
-    syncPlanEditStatus('Saved automatically · open Scenarios');
-    return;
-  }
-  // Extra-account balance edit
-  const bal = e.target.closest('.acct-bal');
-  if(!bal) return;
-  if(!guardPlanMutation()){ renderInputs(); return; }
-  const i = +bal.dataset.acctidx;
-  const v = Math.max(0, Math.round(parseFloat(String(bal.value).replace(/[^0-9.]/g, '')) || 0));
-  if(plan.portfolio.extraAccounts && plan.portfolio.extraAccounts[i]){
-    plan.portfolio.extraAccounts[i].balance = v;
-    commitPlanEdit();
-  }
-});
-
 /* Household field commits and wizard actions are bound in src/household/commit.js. */
 bindHouseholdEditor({
   root: document.querySelector('[data-hh-wizard-root]'),
@@ -1783,71 +1155,6 @@ function runAll(){
 }
 
 const GRID='var(--grid)', AXIS_INK='rgba(127,119,114,.72)';
-function simByIndex(res, idx){
-  if(!res || !Array.isArray(res.sims)) return null;
-  return res.sims.find(s => s.simIndex === idx) || res.sims[idx] || null;
-}
-function baselineResult(){
-  return (scenarios.find(s=>s.base) || scenarios[0] || {}).res || null;
-}
-
-
-
-
-/* ── Path Story ───────────────────────────────────────────────────────────
-   The baseline run's selected coherent path, told as a statement. The same
-   selected sim the cash-flow drawer replays (selectedPathIndex), digested by
-   the engine (pathDigest) — the prose here and the table below are two views
-   of one path. Pure formatting of engine fields; no UI math. */
-function renderStory(){
-  const el = $('#story-panel'); if(!el) return;
-  const res = baselineResult();
-  if(!res || !Array.isArray(res.sims) || !res.sims.length){ el.innerHTML=''; return; }
-  const sim = simByIndex(res, selectedPathIndex(res));
-  if(!sim){ el.innerHTML=''; return; }
-  const d = pathDigest(sim);
-  const pc = v => (v>=0?'+':'−') + Math.abs(v*100).toFixed(1) + '%';
-  const endAge = sim.rows.length ? sim.rows[sim.rows.length-1].age : '';
-  const endStat = d.failed
-    ? `<b>${fmtM(0)}</b><i>depleted at age ${d.depletionAge}</i>`
-    : `<b>${fmtM(d.endBalance)}</b><i>ends at age ${endAge}</i>`;
-  const picks = [['stressed','Stressed'],['typical','Median'],['favorable','Favorable']]
-    .map(([m,l]) => `<button class="${pathReplay.mode===m?'on':''}" data-story-mode="${m}">${l}</button>`).join('');
-  const verb = d.first10Supports ? 'cooperate' : 'push back';
-  const reads = [
-    [pc(d.first10Cagr), 'Market sequence',
-     `The first 10 years ${d.first10Supports?'support':'work against'} the plan. ${d.negEarlyYears} of the first ${d.earlyWindowYears} ${d.negEarlyYears===1?'year is':'years are'} negative.`],
-    [d.avgWdRate.toFixed(1)+'%', 'Spending pressure',
-     `Average withdrawal pressure is ${d.avgWdRate.toFixed(1)}% across ${d.withdrawalYears} withdrawal years${d.peakWdAge!=null?` — the peak year touches ${d.peakWdRate.toFixed(1)}% at age ${d.peakWdAge}`:''}.`],
-    [fmtM(d.avgTax)+'/yr', 'Federal tax',
-     `${fmtM(d.lifetimeTax)} of modeled federal tax is funded across this path and carried through its withdrawals and balances.`]
-  ].map(([b,h,t]) => `<div class="story-read"><b>${b}</b><div><span class="rd-h">${h}</span><span class="rd-b">${t}</span></div></div>`).join('');
-  el.innerHTML = `
-    <div class="story-sec"><span>Path Story · ${escHtml((scenarios.find(s=>s.base)||scenarios[0]||{}).name||'Base plan')}</span></div>
-    <div class="story-pick"><span class="pk-l">Path:</span>${picks}
-      <span class="pk-note">selected from ${res.sims.length.toLocaleString('en-US')} simulated paths · not a forecast</span></div>
-    <div class="story-head">${(d.realCagr*100).toFixed(1)}% real growth, year over year, along this path.</div>
-    <div class="story-sub">Return timing matters most while withdrawals are active — and these first ten years ${verb}.</div>
-    <div class="story-stats">
-      <div class="story-stat"><b>${fmtM(d.startBalance)}</b><i>starts the plan</i></div>
-      <div class="story-stat">${endStat}</div>
-      <div class="story-stat"><b>${pc(d.first10Cagr)}</b><i>first decade, real</i></div>
-      <div class="story-stat"><b>${d.avgWdRate.toFixed(1)}%</b><i>avg withdrawal · peak ${d.peakWdRate.toFixed(1)}%</i></div>
-      <div class="story-stat"><b>${fmtM(d.avgTax)}</b><i>tax per year, avg</i></div>
-    </div>
-    <hr class="story-rule">
-    <div class="story-chart-l">Balance path · ${pathModeLabel().toUpperCase()} · ages ${sim.rows.length?sim.rows[0].age:''}–${endAge}</div>
-    <div class="story-chart">${storyChart(sim.rows,{ layout: CHART_LAYOUT.storyPath, fmtM })}</div>
-    <div class="story-sec"><span>What shapes this outcome</span></div>
-    ${reads}`;
-  el.querySelectorAll('[data-story-mode]').forEach(b => b.onclick = () => {
-    updatePathReplayMode(b.dataset.storyMode);
-    syncPathControls(); if(window.ScenariosUI) window.ScenariosUI.sync(); renderStory();
-  });
-}
-
-// REMOVED the original multi-scenario renderCashflow grid (superseded below by
-// the cf-mode override, and now by the single ScenariosUI Cash Flow renderer).
 
 /* ── SEQUENCING tab — same returns, different ORDER ──────────────────────────
    The tab's single job: isolate the ORDER of returns. We take one REAL
@@ -1870,12 +1177,6 @@ const SEQ_YEARS = HISTORICAL_PERIODS.map(period => ({
   c: period.tone,
   on: period.sequencingDefault,
 }));
-
-// REMOVED the cf-mode renderCashflow override — the renderer that showed the
-// engine-vs-federal diagnostic tax columns. The single authoritative Cash Flow
-// renderer now lives in the ScenariosUI view layer (one renderCashflow), with the
-// advisor-facing Tax column mapping the federal sidecar (typical path) or the
-// engine row tax — no diagnostic comparison columns.
 
 function buildSeqSelect(){
   if(!canRunEngine()){ renderBlockedRecoverySurfaces(); return; }
@@ -1953,12 +1254,6 @@ function runSeq(){
 $$('.htab').forEach(t=>t.onclick=()=>{
   syncHeaderTabs(t);
   $$('.page').forEach(x=>x.classList.remove('on'));
-  if(t.dataset.subTarget){
-    activeSub = t.dataset.subTarget;
-    if(!isHouseholdStorageReadOnly() && !isHouseholdStorageBlocked()){
-      try { localStorage.setItem(SUB_KEY, activeSub); } catch {}
-    }
-  }
   $(`.page[data-page="${t.dataset.page}"]`).classList.add('on');
   document.body.classList.toggle('scn-active', t.dataset.page==='scenarios');
   // Returning to Scenarios after a base-plan edit re-runs the engine so the
@@ -1969,14 +1264,6 @@ $$('.htab').forEach(t=>t.onclick=()=>{
   if(t.dataset.page==='household') syncHousehold();
   if(t.dataset.page==='tax-buckets') taxBuckets.sync();
   if(isHouseholdStorageBlocked()) renderBlockedRecoverySurfaces();
-});
-// Net Worth sub-nav: switch the active sub-page, persist, re-render.
-$$('#np-subnav .stab').forEach(b => b.onclick = () => {
-  activeSub = b.dataset.sub;
-  if(!isHouseholdStorageReadOnly() && !isHouseholdStorageBlocked()){
-    try { localStorage.setItem(SUB_KEY, activeSub); } catch {}
-  }
-  renderInputs();
 });
 $('#run-btn').onclick=() => {
   if(canRunEngine()) runAll();

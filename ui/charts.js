@@ -36,19 +36,6 @@ export function niceCeil(v){
   return niceN*mag*4;
 }
 
-export function smoothPath(pts){
-  if(pts.length<2) return '';
-  if(pts.length===2) return `M ${pts[0][0]} ${pts[0][1]} L ${pts[1][0]} ${pts[1][1]}`;
-  let d=`M ${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)}`;
-  for(let i=0;i<pts.length-1;i++){
-    const p0=pts[i-1]||pts[i], p1=pts[i], p2=pts[i+1], p3=pts[i+2]||pts[i+1];
-    const c1x=p1[0]+(p2[0]-p0[0])/6, c1y=p1[1]+(p2[1]-p0[1])/6;
-    const c2x=p2[0]-(p3[0]-p1[0])/6, c2y=p2[1]-(p3[1]-p1[1])/6;
-    d+=` C ${c1x.toFixed(1)} ${c1y.toFixed(1)}, ${c2x.toFixed(1)} ${c2y.toFixed(1)}, ${p2[0].toFixed(1)} ${p2[1].toFixed(1)}`;
-  }
-  return d;
-}
-
 export function axes(W,H,ageStart,ageEnd,maxBal,{ layout, fmtM, grid, axisInk }){
   const { padLeft:padL, padRight:padR, padTop:padT, padBottom:padB } = layout;
   const x0=padL, x1=W-padR, y0=padT, y1=H-padB;
@@ -68,37 +55,6 @@ export function axes(W,H,ageStart,ageEnd,maxBal,{ layout, fmtM, grid, axisInk })
   ages.forEach((age,index)=>{const x=span>0 ? x0+(x1-x0)*(age-ageStart)/span : x0;
     g+=`<text x="${x}" y="${H-12}" fill="${axisInk}" font-size="13" style="font-family:var(--f)" text-anchor="${index===0?'start':index===ages.length-1?'end':'middle'}">Age ${age}</text>`;});
   return g;
-}
-
-export function storyChart(rows,{ layout, fmtM }){
-  const { width:W, height:H, padLeft:padL, padRight:padR, padTop:padT, padBottom:padB } = layout;
-  const real = rows.filter(r => r.source != null);
-  if(real.length < 2) return '';
-  const hi = Math.max(...real.map(r => Math.max(r.balance, r.startBalance))) * 1.05;
-  if(!(hi > 0)) return '';
-  const x = i => padL + (W-padL-padR) * i / (real.length-1);
-  const y = v => padT + (H-padT-padB) * (1 - v/hi);
-  const pts = real.map((r,i) => [x(i), y(r.balance)]);
-  let g = '';
-  for(const f of [0,.5,1]){
-    const gy = padT + (H-padT-padB)*f;
-    g += `<line x1="${padL}" y1="${gy}" x2="${W-padR}" y2="${gy}" stroke="var(--rule-f)"/>`;
-    g += `<text x="${padL-8}" y="${gy+4}" fill="var(--muted)" font-size="14" style="font-family:var(--f)" text-anchor="end">${fmtM(hi*(1-f))}</text>`;
-  }
-  const y0 = y(real[0].startBalance);
-  g += `<line x1="${padL}" y1="${y0}" x2="${W-padR}" y2="${y0}" stroke="var(--muted)" stroke-dasharray="3 6"/>`;
-  const a0 = real[0].age, a1 = real[real.length-1].age;
-  for(let a = Math.ceil(a0/5)*5; a <= a1; a += 5){
-    const ax = x(Math.round((a-a0)/(a1-a0)*(real.length-1)));
-    g += `<text x="${ax}" y="${H-8}" fill="var(--muted)" font-size="14" style="font-family:var(--f)" text-anchor="middle">${a===Math.ceil(a0/5)*5?'Age '+a:a}</text>`;
-  }
-  const d = smoothPath(pts);
-  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Balance path">
-    ${g}
-    <path d="${d} L ${pts[pts.length-1][0].toFixed(1)} ${H-padB} L ${padL} ${H-padB} Z" fill="var(--ink)" fill-opacity="0.05"/>
-    <path d="${d}" fill="none" stroke="var(--acc)" stroke-width="2.2"/>
-    <circle cx="${pts[pts.length-1][0].toFixed(1)}" cy="${pts[pts.length-1][1].toFixed(1)}" r="4.5" fill="var(--acc)"/>
-  </svg>`;
 }
 
 export function seqChartSvg(runs, retAge,{ width:W, height:H, layout, fmtM, grid, axisInk }){
