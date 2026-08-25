@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
 import {
-  RETURN_DATA, RISK_PROFILES, generateReturnPath, runSimulation,
+  RETURN_DATA, RISK_PROFILES, PROJECTION_EXECUTION_LIMITS, generateReturnPath, runSimulation,
   runHistoricalPath, runSinglePath, analyzeResults, resolveInputs, defaultPlan, LONGRUN_INFLATION,
   annualMortgagePayment, resetSeed, resolveHouseholdTimeline, householdStateAtYear,
   householdIncomeAtYear, resolveWithdrawalPlannerAccountState,
@@ -39,6 +39,92 @@ test('return data spans the full history', () => {
 test('a return path matches the requested horizon', () => {
   const p = generateReturnPath(30);
   assert.strictEqual(p.length, 30);
+});
+
+test('projection execution accepts the supported boundaries', () => {
+  assert.strictEqual(defaultPlan.simulation.iterations, PROJECTION_EXECUTION_LIMITS.maxIterations);
+  assert.strictEqual(
+    generateReturnPath(PROJECTION_EXECUTION_LIMITS.maxHorizonYears).length,
+    PROJECTION_EXECUTION_LIMITS.maxHorizonYears,
+  );
+
+  const edgePlan = structuredClone(defaultPlan);
+  edgePlan.household.primary = {
+    ...edgePlan.household.primary,
+    currentAge: 0,
+    retirementAge: 45,
+    planEndAge: 125,
+  };
+  assert.strictEqual(
+    resolveInputs(edgePlan, {}).horizonYears,
+    PROJECTION_EXECUTION_LIMITS.maxHorizonYears,
+  );
+  assert.strictEqual(
+    resolveInputs(structuredClone(defaultPlan), { longevityYears: 95 }).horizonYears,
+    PROJECTION_EXECUTION_LIMITS.maxHorizonYears,
+  );
+
+  const maximumPath = generateReturnPath(PROJECTION_EXECUTION_LIMITS.maxHorizonYears);
+  assert.strictEqual(runSimulation(defaultPlan, {}, [maximumPath]).sims.length, 1);
+});
+
+test('projection execution rejects excessive or malformed dimensions before running', () => {
+  assert.throws(
+    () => generateReturnPath(PROJECTION_EXECUTION_LIMITS.maxHorizonYears + 1),
+    error => error?.code === 'PROJECTION_HORIZON_OUT_OF_RANGE',
+  );
+  assert.throws(
+    () => generateReturnPath(0),
+    error => error?.code === 'PROJECTION_HORIZON_OUT_OF_RANGE',
+  );
+  assert.throws(
+    () => resolveInputs(structuredClone(defaultPlan), { longevityYears: 96 }),
+    error => error?.code === 'PROJECTION_HORIZON_OUT_OF_RANGE',
+  );
+
+  const excessiveIterations = structuredClone(defaultPlan);
+  excessiveIterations.simulation.iterations = PROJECTION_EXECUTION_LIMITS.maxIterations + 1;
+  assert.throws(
+    () => resolveInputs(excessiveIterations, {}),
+    error => error?.code === 'PROJECTION_ITERATIONS_OUT_OF_RANGE',
+  );
+
+  const inputs = resolveInputs(defaultPlan, {});
+  const validPath = generateReturnPath(inputs.horizonYears);
+  assert.throws(
+    () => runSimulation(defaultPlan, {}, {}),
+    error => error?.code === 'PROJECTION_RETURN_PATH_DIMENSIONS_INVALID',
+  );
+  assert.throws(
+    () => runSimulation(defaultPlan, {}, []),
+    error => error?.code === 'PROJECTION_ITERATIONS_OUT_OF_RANGE',
+  );
+  assert.throws(
+    () => runSimulation(defaultPlan, {}, [validPath.slice(0, -1)]),
+    error => error?.code === 'PROJECTION_RETURN_PATH_DIMENSIONS_INVALID',
+  );
+  assert.throws(
+    () => runSimulation(
+      defaultPlan,
+      {},
+      [Array.from(
+        { length: PROJECTION_EXECUTION_LIMITS.maxHorizonYears + 1 },
+        () => validPath[0],
+      )],
+    ),
+    error => error?.code === 'PROJECTION_RETURN_PATH_DIMENSIONS_INVALID',
+  );
+  assert.throws(
+    () => runSimulation(
+      defaultPlan,
+      {},
+      Array.from(
+        { length: PROJECTION_EXECUTION_LIMITS.maxIterations + 1 },
+        () => validPath,
+      ),
+    ),
+    error => error?.code === 'PROJECTION_ITERATIONS_OUT_OF_RANGE',
+  );
 });
 
 test('runSimulation returns a success rate in [0,100]', () => {
@@ -1313,7 +1399,10 @@ test('converged funding fails closed when a discontinuous tax policy has no fixe
   p.ltc = { amount: 0, onsetAge: 99 };
   const params = resolveInputs(p, {});
 
-  assert.throws(() => runSinglePath(params, [{ y: 2026, proxyReturn: 0 }], {
+  assert.throws(() => runSinglePath(params, [
+    { y: 2026, proxyReturn: 0 },
+    { y: 2027, proxyReturn: 0 },
+  ], {
     taxPolicy: row => row.withdrawal > 12_000 ? 0 : 5_000,
     fundTaxPolicyDelta: true,
   }), error => error?.code === 'TAX_POLICY_FUNDING_DID_NOT_CONVERGE');
