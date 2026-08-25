@@ -142,15 +142,12 @@
             <span class="switch px-switch" aria-hidden="true"><span class="switch__knob px-switch__knob"></span></span>
           </button>
           <button class="btn px-btn" id="scn-add" type="button"><span class="btn__plus" aria-hidden="true">+</span> Add</button>
-          <button class="btn px-btn" id="scn-solve" type="button">Solve</button>
         </div>
       </header>
 
       <!-- View mount ΓÇö exactly one authoritative renderer writes here per sync. -->
       <div id="scn-view" aria-live="polite"></div>
 
-      <!-- Engine-backed solver (Solve). renderSolvePanel() fills this. -->
-      <div id="solve-panel"></div>
     </div>
 
     <!-- Cash Flow owns this selector independently from Monte Carlo replay.

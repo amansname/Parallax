@@ -8,7 +8,6 @@ const PANEL_SELECTORS = [
   '.compare',
   '.cf-panel',
   '.focus__panel',
-  '.solve-panel',
   '.taw-card--inputs',
   '.taw-card',
   '.seq-chart',
@@ -24,7 +23,6 @@ const RAISED_PANEL_SELECTORS = [
 
 const FIELD_SELECTORS = [
   'label.hh-field',
-  '.sf-field',
   '.gh-field',
   '.taw-field',
 ];
@@ -69,7 +67,6 @@ const PRIMARY_BUTTON_SELECTORS = [
   '.hh-footer-next',
   '.nw-primary-button',
   '.gh-done',
-  '.sf-go',
 ];
 
 const GHOST_BUTTON_SELECTORS = [
@@ -78,7 +75,6 @@ const GHOST_BUTTON_SELECTORS = [
   '.gh-ghost',
   '.gh-add-row',
   '.hh-add-row',
-  '.solve-clear',
 ];
 
 const DESTRUCTIVE_BUTTON_SELECTORS = [

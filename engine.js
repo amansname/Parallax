@@ -488,6 +488,10 @@ function mortgageBalanceRemaining(balance, ratePct, termYears, yearsElapsed){
 // resetSeed() before generating a bundle to reproduce it; pass a fresh seed
 // (e.g. Date.now()) only if you deliberately want a new random bundle.
 const DEFAULT_SEED = 0x9e3779b9;
+const PROJECTION_EXECUTION_LIMITS = Object.freeze({
+  maxIterations: 1000,
+  maxHorizonYears: 126,
+});
 let _rngState = DEFAULT_SEED >>> 0;
 function resetSeed(seed = DEFAULT_SEED){ _rngState = seed >>> 0; }
 function rand(){
@@ -498,7 +502,58 @@ function rand(){
   return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
 }
 
+function projectionRangeError(code, message){
+  const error = new RangeError(message);
+  error.code = code;
+  return error;
+}
+
+function validateProjectionHorizon(horizonYears, label = 'projection horizon'){
+  if(!Number.isInteger(horizonYears)
+      || horizonYears < 1
+      || horizonYears > PROJECTION_EXECUTION_LIMITS.maxHorizonYears){
+    throw projectionRangeError(
+      'PROJECTION_HORIZON_OUT_OF_RANGE',
+      `${label} must be an integer between 1 and ${PROJECTION_EXECUTION_LIMITS.maxHorizonYears} years`,
+    );
+  }
+  return horizonYears;
+}
+
+function validateProjectionIterations(iterations){
+  if(!Number.isInteger(iterations)
+      || iterations < 1
+      || iterations > PROJECTION_EXECUTION_LIMITS.maxIterations){
+    throw projectionRangeError(
+      'PROJECTION_ITERATIONS_OUT_OF_RANGE',
+      `simulation iterations must be an integer between 1 and ${PROJECTION_EXECUTION_LIMITS.maxIterations}`,
+    );
+  }
+  return iterations;
+}
+
+function validateReturnPaths(returnPaths, horizonYears){
+  if(!Array.isArray(returnPaths)){
+    throw projectionRangeError(
+      'PROJECTION_RETURN_PATH_DIMENSIONS_INVALID',
+      'returnPaths must be an array when supplied',
+    );
+  }
+  validateProjectionIterations(returnPaths.length);
+  returnPaths.forEach((path, index) => {
+    if(!Array.isArray(path)
+        || path.length < horizonYears
+        || path.length > PROJECTION_EXECUTION_LIMITS.maxHorizonYears){
+      throw projectionRangeError(
+        'PROJECTION_RETURN_PATH_DIMENSIONS_INVALID',
+        `returnPaths[${index}] must contain between ${horizonYears} and ${PROJECTION_EXECUTION_LIMITS.maxHorizonYears} years`,
+      );
+    }
+  });
+}
+
 function generateReturnPath(horizonYears){
+  validateProjectionHorizon(horizonYears, 'return path horizon');
   const path = [];
   const minBlock = 3, maxBlock = 5;
   while(path.length < horizonYears){
@@ -564,11 +619,12 @@ function runSimulation(plan, overrides = {}, returnPaths = null, options = {}){
     error.code = 'HOUSEHOLD_TIMELINE_INCOMPLETE';
     throw error;
   }
+  if(returnPaths !== null) validateReturnPaths(returnPaths, inputs.horizonYears);
   const sims = [];
   // When a return-path bundle is supplied it is authoritative: iterate over
   // exactly those paths so identical inputs + identical paths are reproducible.
   // (Silently generating random fill paths for missing indices broke that.)
-  const iterations = returnPaths ? returnPaths.length : inputs.iterations;
+  const iterations = returnPaths !== null ? returnPaths.length : inputs.iterations;
   for(let s = 0; s < iterations; s++){
     const returnPath = returnPaths
       ? returnPaths[s]
@@ -1546,6 +1602,8 @@ function resolveInputs(plan, ov){
   const spouseEndAge = timeline.people.spouse?.planEndAgeOnPrimaryTimeline ?? null;
   const householdEndAge = timeline.householdEndAgeOnPrimaryTimeline;
   const horizon = (householdEndAge ?? pCurAge) - pCurAge + 1;
+  validateProjectionHorizon(horizon);
+  const iterations = validateProjectionIterations(plan?.simulation?.iterations);
   const equityShockShare = profile.eq;
 
   // Social Security — per person. Each benefit is the pia (benefit at FRA, today's
@@ -2180,7 +2238,7 @@ function resolveInputs(plan, ov){
     // One-time cash shock injected at a specific year (fragility probe).
     lumpSum:     Math.max(0, ov.lumpSum || 0),
     lumpSumYear: (ov.lumpSumYear != null ? ov.lumpSumYear : -1),
-    iterations: plan.simulation.iterations,
+    iterations,
     survival: {
       initialFilingStatus: plan.meta?.filingStatus ?? null,
       primaryEndAge,
@@ -3376,6 +3434,8 @@ function runSinglePath(p, returnPath, options = {}){
     error.code = 'HOUSEHOLD_TIMELINE_INCOMPLETE';
     throw error;
   }
+  validateProjectionHorizon(p.horizonYears);
+  validateReturnPaths([returnPath], p.horizonYears);
   const taxPolicy = options.taxPolicy ?? null;
   const fundTaxPolicyDelta = options.fundTaxPolicyDelta === true;
   if(taxPolicy !== null && typeof taxPolicy !== 'function'){
@@ -4350,7 +4410,7 @@ function assessPlan(analysis){
 /* ---- exports (so the UI and tests import instead of sharing globals) ---- */
 export {
   RETURN_DATA, ASSET_META, ASSET_KEYS, EQUITY_MIX, DEFENSIVE_MIX,
-  RISK_PROFILES, ASSET_STATS, LONGRUN_INFLATION,
+  RISK_PROFILES, ASSET_STATS, LONGRUN_INFLATION, PROJECTION_EXECUTION_LIMITS,
   buildAssetWeights, computeAssetStats, generateReturnPath, resetSeed, weightedAssetReturn,
   ssAdjust,
   runSimulation, resolveInputs, resolveHouseholdTimeline, householdStateAtYear,

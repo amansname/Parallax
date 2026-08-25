@@ -2186,7 +2186,8 @@ try {
     if(m.goalCells < m.cols) throw new Error(`goals row not mirrored across columns (cells=${m.goalCells}, cols=${m.cols})`);
     if(!/active/.test(m.goalPill)) throw new Error(`goals summary cell missing an active count: "${m.goalPill}"`);
     if(!m.reference) throw new Error('baseline Reference tag missing from Compare');
-    if(!m.solveBtn || !m.addBtn) throw new Error('Solve / Add toolbar actions missing from Scenarios');
+    if(m.solveBtn) throw new Error('removed Solve control is still present in Scenarios');
+    if(!m.addBtn) throw new Error('Add toolbar action missing from Scenarios');
     if(m.suggestBtn) throw new Error('removed Suggest button is still present in the Scenarios toolbar');
     if(!m.segActive) throw new Error('Compare segment did not mark itself active');
     if(m.names.some(n => /sell\s*home/i.test(n))) throw new Error(`stale sale scenario visible: ${JSON.stringify(m.names)}`);
@@ -3785,18 +3786,6 @@ try {
     await setCashFlow(page, false);
     await sleep(300);
 
-    await page.click('#scn-solve');
-    await page.waitForSelector('#sf-pct', { visible: true });
-    const solverScope = await page.$eval('.solve-scope', el => el.textContent.trim());
-    if(!/simplified tax estimate/i.test(solverScope) || !/recalculated with modeled federal tax/i.test(solverScope))
-      throw new Error(`Solver tax scope disclosure missing: ${solverScope}`);
-    const solverTarget = await page.$eval('#sf-pct', input => Number(input.value));
-    const expectedTarget = Math.min(95, Math.ceil((expected + 1) / 5) * 5);
-    const shortcutTarget = Math.min(95, Math.ceil((oldShortcut + 1) / 5) * 5);
-    if(solverTarget !== expectedTarget)
-      throw new Error(`Solver target ${solverTarget} does not derive from tax-funded ${expected} (expected ${expectedTarget})`);
-    if(solverTarget === shortcutTarget)
-      throw new Error(`Solver target still derives from shortcut-only probability ${oldShortcut}`);
   });
 
   // ── Multi-household persistence & bootstrapping ────────────────────────────
@@ -4535,7 +4524,7 @@ try {
     await assertBytesUnchanged('new household');
 
     // Scenarios: every mutation control is disabled; forced events cannot add,
-    // open solver/rename/delete UI, or alter a lever or scenario bytes.
+    // open rename/delete UI, or alter a lever or scenario bytes.
     await stableClick('button[data-page="scenarios"]');
     await sleep(900);
     await stableClick('#scn-seg-compare');
@@ -4543,7 +4532,7 @@ try {
     const scenarioBefore = await page.evaluate(() => ({
       names:[...document.querySelectorAll('#scn-view .scol__name')].map(el => el.textContent.trim()),
       addDisabled:document.querySelector('#scn-add')?.disabled,
-      solveDisabled:document.querySelector('#scn-solve')?.disabled,
+      solvePresent:!!document.querySelector('#scn-solve, #solve-panel'),
       menuCount:document.querySelectorAll('#scn-view .scol__menu').length,
       menuDisabled:[...document.querySelectorAll('#scn-view .scol__menu')].every(el => el.disabled),
       stepCount:document.querySelectorAll('#scn-view .cmp-step-btn').length,
@@ -4552,14 +4541,13 @@ try {
       inputsDisabled:[...document.querySelectorAll('#scn-view .cmp-lev-in, #scn-view .cmp-goal-in')].every(el => el.disabled),
       firstLever:document.querySelector('#scn-view .cmp-lev-in')?.value || '',
     }));
-    if(!scenarioBefore.names.length || !scenarioBefore.addDisabled || !scenarioBefore.solveDisabled ||
+    if(!scenarioBefore.names.length || !scenarioBefore.addDisabled || scenarioBefore.solvePresent ||
        !scenarioBefore.menuCount || !scenarioBefore.menuDisabled || !scenarioBefore.stepCount ||
        !scenarioBefore.stepsDisabled || !scenarioBefore.inputCount || !scenarioBefore.inputsDisabled){
       throw new Error(`read-only scenario mutation controls are not disabled: ${JSON.stringify(scenarioBefore)}`);
     }
     await page.evaluate(() => {
       document.querySelector('#scn-add')?.dispatchEvent(new MouseEvent('click', { bubbles:true }));
-      document.querySelector('#scn-solve')?.dispatchEvent(new MouseEvent('click', { bubbles:true }));
       document.querySelector('#scn-view .scol__menu')?.dispatchEvent(new MouseEvent('click', { bubbles:true }));
       document.querySelector('#scn-view .cmp-step-btn')?.dispatchEvent(new MouseEvent('click', { bubbles:true }));
       document.querySelectorAll('#scn-reset, [data-scn-reset], [data-action="reset-scenarios"]')
@@ -4577,13 +4565,12 @@ try {
     await sleep(300);
     const scenarioAfter = await page.evaluate(() => ({
       names:[...document.querySelectorAll('#scn-view .scol__name')].map(el => el.textContent.trim()),
-      solver:!!document.querySelector('#solver-form, #solve-panel .solve-searching'),
       menu:!!document.querySelector('#scn-view .scol__pop, #scn-view .scol__rename'),
       firstLever:document.querySelector('#scn-view .cmp-lev-in')?.value || '',
       enabledReset:[...document.querySelectorAll('#scn-reset, [data-scn-reset], [data-action="reset-scenarios"]')].some(el => !el.disabled),
     }));
-    if(JSON.stringify(scenarioAfter.names) !== JSON.stringify(scenarioBefore.names) || scenarioAfter.solver || scenarioAfter.menu || scenarioAfter.enabledReset){
-      throw new Error(`read-only scenario add/solve/delete/rename/reset changed immediate state: ${JSON.stringify({ scenarioBefore, scenarioAfter })}`);
+    if(JSON.stringify(scenarioAfter.names) !== JSON.stringify(scenarioBefore.names) || scenarioAfter.menu || scenarioAfter.enabledReset){
+      throw new Error(`read-only scenario add/delete/rename/reset changed immediate state: ${JSON.stringify({ scenarioBefore, scenarioAfter })}`);
     }
     if(scenarioAfter.firstLever !== scenarioBefore.firstLever){
       throw new Error(`read-only scenario lever changed immediate UI state (${scenarioBefore.firstLever} -> ${scenarioAfter.firstLever})`);

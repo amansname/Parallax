@@ -39,7 +39,6 @@ import { createTaxBucketsController } from '../ui/taxBuckets.js';
 import { pathModeLabel, drawSeqChart, renderPrints, syncPathControls, updatePathReplayMode } from '../ui/sequencing.js';
 import { buildSimulationRows, renderCashflow } from '../ui/cashflow.js';
 import { toneForProb, wdColor, ring, num as scenarioNum, renderCompare, renderFocus } from '../ui/scenarios.js';
-import { solvePanelHTML, goalParamsHtml, comboPillValue } from '../ui/solver.js';
 import {
   buildRetirementEntryPlan,
   deriveRetirementEntryAccounts,
@@ -50,7 +49,6 @@ import { investableTotal, hhAgeFromYear } from '../ui/household.js';
 import { installDesignSystemPrimitives } from '../ui/designSystemPrimitives.js';
 import {
   scenarios, sharedPaths, plansDirty, baseSnapshot,
-  solverResults, solverSearching, comboResults, comboOpen, comboSearching, solverFormOpen, solving,
   pathReplay, cashFlowPathSelection, saveCashFlowPathSelection,
   uiState, scenariosUiState as state,
 } from './state.js';
@@ -152,7 +150,7 @@ function renderBlockedRecoverySurfaces(){
   if(!isHouseholdStorageBlocked()) return;
   const html = recoveryPanelHtml();
   ['#hh-view','#np-content','#scn-view','#seq-prints'].forEach(sel => { const el=$(sel); if(el) el.innerHTML=html; });
-  ['#hh-wiz-footer','#solve-panel','#seq-chips'].forEach(sel => { const el=$(sel); if(el) el.innerHTML=''; });
+  ['#hh-wiz-footer','#seq-chips'].forEach(sel => { const el=$(sel); if(el) el.innerHTML=''; });
   const svg=$('#seq-svg'); if(svg) svg.innerHTML='';
   const seqSel=$('#seq-select'); if(seqSel){ seqSel.innerHTML=''; seqSel.disabled=true; }
   const seqSub=$('#seq-sub'); if(seqSub) seqSub.textContent='Household storage recovery required';
@@ -165,7 +163,7 @@ function syncRecoveryControls(){
   const locked = isHouseholdStorageBlocked() || isHouseholdStorageReadOnly();
   if(!locked) return;
   const selectors = [
-    '#hh-new','#scn-solve','#hh-view input','#hh-view select','#hh-view textarea','#hh-view .row-x','#hh-view [data-add]',
+    '#hh-new','#hh-view input','#hh-view select','#hh-view textarea','#hh-view .row-x','#hh-view [data-add]',
     '#hh-view [data-hh-action="add-account"]','#hh-view [data-hh-action="save-account"]','#hh-view [data-hh-action="remove-account"]',
     '#hh-view [data-hh-action="net-worth-toggle-more"]','#hh-view [data-hh-action="net-worth-pick-type"]','#hh-view [data-hh-action="net-worth-pick-custom"]',
     '#hh-view [data-hh-action="net-worth-clear-type"]','#hh-view [data-hh-action="net-worth-save-entry"]','#hh-view [data-hh-action="net-worth-remove-entry"]',
@@ -174,7 +172,7 @@ function syncRecoveryControls(){
     '#hh-view [data-hh-action="open-account-form"]','#hh-view [data-hh-action="open-add"]','#hh-view [data-hh-action="commit-add"]','#hh-view [data-hh-action="add-home"]','#hh-view [data-hh-action="add-mortgage"]',
     '#hh-view [data-hh-action="add-pension-age"]','#np-content input','#np-content select','#np-content textarea','#np-content button',
     '#np-content .row-x','#np-content [data-add]','#np-content [data-act]','#scn-add','#scn-view [data-lever-key]','#scn-view .cmp-lev-in',
-    '#scn-view .cmp-goal-in','#scn-view .scol__menu','#solve-panel .solve-load','#solve-panel .cc-load'
+    '#scn-view .cmp-goal-in','#scn-view .scol__menu'
   ];
   if(isHouseholdStorageBlocked()) selectors.push('#run-btn','#hh-menu-btn','#hh-switch','#cashflow-path-mode','#seq-select','#seq-chips button');
   document.querySelectorAll(selectors.join(',')).forEach(el => {
@@ -468,374 +466,6 @@ function removeScenario(ci){
   saveScenarios(); uiState.plansDirty=true; runAll();
 }
 
-// ── Solver ──────────────────────────────────────────────────────────────
-// Run the engine for one trial set of levers and return the success %.
-// Reuses sharedPaths (the cached return-path bundle) so every trial sees the
-// same markets — apples-to-apples, deterministic with our seeded RNG.
-function trySuccess(L){
-  if(!canRunEngine() || isHouseholdStorageReadOnly()) return NaN;
-  try{
-    const p = planForScenario(L);
-    const ov = leversToOverrides(L);
-    return runSimulation(p, ov, sharedPaths).successRate;
-  }catch(_){
-    return NaN;
-  }
-}
-// Probability (0–100) of ending with at least `goal` dollars — the legacy score.
-function tryLegacyProb(L, goal){
-  if(!canRunEngine() || isHouseholdStorageReadOnly()) return NaN;
-  try{
-    const p = planForScenario(L);
-    const ov = leversToOverrides(L);
-    const res = runSimulation(p, ov, sharedPaths);
-    const n = res.sims.length || 1;
-    return 100 * res.sims.filter(s => s.terminalBalance >= goal).length / n;
-  }catch(_){
-    return NaN;
-  }
-}
-// Solve ONE lever: holding all others at `baseLev`, find the value of `key`
-// closest to its baseline that achieves >= targetPct. Returns { value,
-// reachedPct, capped }. capped=true means even the lever's most-aggressive
-// extreme can't reach the target — we return that extreme + the % it hit.
-//
-// Two strategies by range size:
-//  • SMALL range (≤12 steps, e.g. Allocation's 5 risk levels, SS age's 9): scan
-//    EVERY value. Allocation is NOT monotonic — more equity lifts expected
-//    return but adds volatility drag, so success can rise then fall. Bisection
-//    (which assumes monotonicity) would silently return a wrong level. An
-//    exhaustive scan is correct for any shape and cheap at this count.
-//  • LARGE range (spending, savings): bisect. These ARE monotonic in success
-//    and have hundreds of steps, so a full scan would be needlessly slow.
-// `score(L)` returns the metric to clear (0–100); defaults to plan success %,
-// but legacy goals pass a "% chance of leaving ≥ $X" scorer. Everything else
-// (closest-to-baseline, scan vs bisection, capped handling) is unchanged.
-function solveLeverFor(baseLev, key, targetPct, score = trySuccess, band = null){
-  const cfg = LEVCFG.find(c=>c.key===key);
-  if(!cfg) return null;
-  const r = band || levRange(cfg);
-  const lo = r.min, hi = r.max, step = r.step;
-  if(lo === hi) return { value: lo, reachedPct: score({...baseLev,[key]:lo}), capped:false };
-  const pctAt = v => score({...baseLev, [key]: v});
-  const nSteps = Math.round((hi - lo) / step);
-
-  if(nSteps <= 12){
-    // Exhaustive scan. Pick the value closest to the lever's current (baseline)
-    // setting that meets target; if none meet, return the best-achievable value
-    // (capped). Direction-agnostic — works for non-monotonic levers.
-    const baseV = baseLev[key];
-    let passVal = null, passPct = -1, bestVal = lo, bestPct = -Infinity;
-    for(let i = 0; i <= nSteps; i++){
-      const v = lo + i * step;
-      const pct = pctAt(v);
-      if(!Number.isFinite(pct)) continue;
-      if(pct > bestPct){ bestPct = pct; bestVal = v; }
-      if(pct >= targetPct &&
-         (passVal === null || Math.abs(v - baseV) < Math.abs(passVal - baseV))){
-        passVal = v; passPct = pct;
-      }
-    }
-    if(!Number.isFinite(bestPct)) return null;
-    return passVal !== null
-      ? { value: passVal, reachedPct: passPct, capped: false }
-      : { value: bestVal, reachedPct: bestPct, capped: true };
-  }
-
-  // Large monotonic range → bisection (detect direction from the endpoints).
-  const pctLo = pctAt(lo), pctHi = pctAt(hi);
-  if(!Number.isFinite(pctLo) || !Number.isFinite(pctHi)) return null;
-  const increases = pctHi >= pctLo;                  // success rises with higher value?
-  const best      = Math.max(pctLo, pctHi);
-  const bestVal   = (pctHi >= pctLo) ? hi : lo;
-  if(best < targetPct){ return { value: bestVal, reachedPct: best, capped: true }; }
-  // Bisect for the value closest to baseline that meets target. We track the
-  // smallest "passing" value on the side of monotonicity.
-  let a = lo, b = hi;
-  for(let i = 0; i < 9; i++){
-    const mid = Math.max(lo, Math.min(hi, Math.round(((a+b)/2) / step) * step));
-    if(mid === a || mid === b) break;
-    const pct = pctAt(mid);
-    if(!Number.isFinite(pct)) return null;
-    const meets = pct >= targetPct;
-    // For positive direction (success rises with value): we want SMALLEST value
-    // that meets. For inverse: we want LARGEST value that meets.
-    if(increases){ if(meets) b = mid; else a = mid; }
-    else         { if(meets) a = mid; else b = mid; }
-  }
-  const value = increases ? b : a;
-  const reachedPct = pctAt(value);
-  return Number.isFinite(reachedPct)
-    ? { value, reachedPct, capped: false }
-    : null;
-}
-// ── Solver (selectable goal · solo per-lever answers) ───────────────────────
-// The advisor picks a GOAL the client actually wants (retire early, afford a big
-// purchase, gift to family, leave a legacy, or just hit a confidence bar), then
-// for every controllable lever we show what it ALONE would need to be to reach
-// that goal — holding all else at today's plan. Neutral: no weighting, no
-// bundling. The advisor reads each contribution and surmises any blend.
-// Combo solver state. The fold-down is opened on demand (the search is heavy),
-// so comboResults stays null until the advisor opens it for a given solve; it's
-// cleared whenever the underlying solo solve changes.
-
-// Levers that get a solo answer. Some goals PIN one (excluded from the list).
-// Allocation/risk is intentionally OUT — "take more risk to hit a goal" isn't a
-// clean planning recommendation (parked in the idea bank). SS stays, though it's
-// a weak % mover for high-spend households (its value is lifetime dollars).
-const SOLVE_KEYS = ['retireAge','spend','savings','ssAge','pensionAge'];
-
-// ── Combo solver tuning (all adjustable — refine with use) ──────────────────
-// "Least disruptive" blends the three active product rules:
-//   1. minimize the BIGGEST single lever stretch (each move normalized to its
-//      own realistic band), so no one lever carries the whole load;
-//   2. weight spending CUTS heavier — protect lifestyle, so combos lean to
-//      save-more / claim-SS-later before they cut spend;
-//   3. break ties by the smallest TOTAL move.
-const COMBO_SPEND_CUT_W = 1.6;                 // penalty multiplier on a spend cut
-const COMBO_A_FRACTIONS = [0.3, 0.55, 0.8];    // PARTIAL pushes of lever A (never the full solo move) so B genuinely shares the load
-const COMBO_MAX_CARDS   = 3;                    // cards shown
-const COMBO_MAX_LEVERS  = 3;                    // candidate levers searched (caps cost)
-// Short labels for the combo pills (the lever names are too long for a pill).
-const COMBO_SHORT = { retireAge:'Retire', ssAge:'SS at', spend:'Spend', savings:'Save', pensionAge:'Pension' };
-
-// Realistic search band per lever (relative to baseline) so a solo answer can't
-// suggest something absurd ($73k/yr savings off a $30k base). Not limiting: if a
-// lever can't reach the goal within its band it truthfully reports "best hits X%".
-function solveBand(key, baseLev){
-  const cfg = LEVCFG.find(c=>c.key===key);
-  const r   = levRange(cfg);
-  const cur = plan.household.primary.currentAge;
-  let min = r.min, max = r.max;
-  if(key==='spend'){        min = Math.round(baseLev.spend*0.70/100)*100; max = Math.round(baseLev.spend*1.30/100)*100; }
-  else if(key==='savings'){ min = 0; max = Math.max(baseLev.savings*2, baseLev.savings+25000); }
-  else if(key==='retireAge'){ min = Math.max(cur+1, baseLev.retireAge-5); max = baseLev.retireAge+5; }
-  // ssAge (62–70) and pensionAge (quoted range) are already tight — leave full.
-  return { min: Math.max(r.min, min), max: Math.min(r.max, max), step: r.step };
-}
-
-// Goal registry. Each goal: how it reads, the param fields it needs, which lever
-// (if any) it pins, and (legacy) a custom scorer. `bar` = label for the % box.
-const GOALS = {
-  confidence: { label:'Reach a confidence level',          bar:'confidence', params:[] },
-  retire:     { label:'Retire by an age',                  bar:'confidence', params:['age'],          pin:'retireAge' },
-  purchase:   { label:'Afford a big one-time goal',        bar:'confidence', params:['amount','age'] },
-  gift:       { label:'Gift / fund education yearly',      bar:'confidence', params:['amount','toAge'] },
-  legacy:     { label:'Leave a legacy',                    bar:'chance',     params:['amount'] },
-};
-
-// One solved lever → a clean "was → needs to be (delta)" descriptor.
-
-
-// The goal-dependent parameter fields + the % bar, rendered together so the
-// whole strip swaps when the goal dropdown changes.
-
-
-function renderSolvePanel(){
-  const el = $('#solve-panel');
-  if(!el) return;
-  if(isHouseholdStorageBlocked()){
-    el.innerHTML = '';
-    syncRecoveryControls();
-    return;
-  }
-  el.innerHTML = solvePanelHTML({
-    solverFormOpen, scenarios, defaultLevers, goals:GOALS,
-    currentAge:plan.household.primary.currentAge,
-    planEndAge:resolveGoalSpan(plan).planEndAge,
-    solverResults, solverSearching, comboOpen, comboSearching, comboResults,
-    levCfg:LEVCFG, comboShort:COMBO_SHORT, escHtml,
-  });
-  syncRecoveryControls();
-}
-
-// Solve toward a chosen GOAL. Build soloBase = today's plan + the wish applied,
-// pick the scorer (success %, or legacy "% chance of ≥ $X"), then for each
-// controllable lever find what it ALONE would need within a realistic band —
-// holding all else at soloBase. Neutral: no weighting, no bundling. The advisor
-// reads each lever's required move and surmises any blend.
-async function runSolve(goalType, params){
-  if(!guardPlanMutation()) return;
-  if(solving) return;
-  uiState.solving = true; uiState.solverFormOpen = false; uiState.solverSearching = true; uiState.solverResults = null;
-  renderSolvePanel();
-
-  let preflight = null;
-  try{ preflight = resolveInputs(plan, {}); }catch(_){ /* unavailable below */ }
-  if(!preflight
-      || preflight.simulationAvailable === false){
-    uiState.solverSearching = false;
-    uiState.solving = false;
-    renderSolvePanel();
-    return;
-  }
-
-  if(!sharedPaths){
-    resetSeed();
-    const horizon = preflight.horizonYears;
-  uiState.sharedPaths = [];
-  for(let i=0; i<plan.simulation.iterations; i++) uiState.appendSharedPath(generateReturnPath(horizon));
-  }
-
-  const baseLev  = JSON.parse(JSON.stringify(scenarios.find(s=>s.base)?.lev || defaultLevers()));
-  const soloBase = JSON.parse(JSON.stringify(baseLev));
-  let pinned = null, score = trySuccess;
-  if(goalType==='retire'){        soloBase.retireAge = params.age; pinned = 'retireAge'; }
-  else if(goalType==='purchase'){ soloBase.eventAmt = params.amount; soloBase.eventAge = params.age; }
-  else if(goalType==='gift'){     soloBase.giftAmt = params.amount; soloBase.giftEndAge = params.toAge; }
-  else if(goalType==='legacy'){   score = (L)=>tryLegacyProb(L, params.amount); }
-  syncPension(soloBase);
-
-  const keys = SOLVE_KEYS.filter(k => k !== pinned);
-  const rows = [];
-  for(const k of keys){
-    await new Promise(r => setTimeout(r, 0));      // yield so the spinner paints
-    const band = solveBand(k, soloBase);
-    const res  = solveLeverFor(soloBase, k, params.pct, score, band);
-    if(res) rows.push({ key:k, value:res.value, reachedPct:res.reachedPct, capped:res.capped });
-  }
-
-  // Gift injects a liability with no column/lever to display, so its solos
-  // can't be loaded as a scenario faithfully — read-only. Everything else loads.
-  uiState.solverResults  = { goalType, params, targetPct: params.pct, soloBase, rows, canLoad: goalType!=='gift' };
-  uiState.solverSearching = false;
-  uiState.solving = false;
-  // A fresh solo solve invalidates any combos computed for the previous one.
-  uiState.comboResults = null; uiState.comboOpen = false; uiState.comboSearching = false;
-  renderSolvePanel();
-}
-
-// ── Combo solver ────────────────────────────────────────────────────────────
-// When no SINGLE lever reaches the goal, the advisor opens the fold-down and we
-// search PAIRS of the remaining levers (the goal's pinned lever is held fixed).
-// For each pair we push lever A partway toward its helpful end, then solve B to
-// the gentlest value that still clears the target — tracing the trade-off line.
-// Every % is the real engine on the shared market paths (apples-to-apples). We
-// then rank the passing combos by the blended "least-disruptive" score and show
-// the gentlest one per distinct lever-pair. No new math in the engine — this is
-// pure search over engine outputs.
-
-// One combo pill's value text: deltas for the dollar levers (reads like "spend
-// $850/mo less"), absolute for the age levers ("SS at 70").
-
-// The anchor pill describing the (held-fixed) goal, shown first on every card.
-
-// Build a combo record from a set of [key,value] moves: pill text + the blended
-// disruption score (rule 1 = biggest weighted stretch; rule 3 = total move).
-function makeCombo(soloBase, moves, pct, basePct, meta){
-  const items = moves.map(([k,v])=>{
-    const span = (meta[k].band.max - meta[k].band.min) || 1;
-    const norm = Math.abs(v - soloBase[k]) / span;
-    const cut  = (k==='spend' && v < soloBase[k]);     // the one move that hurts lifestyle
-    return { key:k, val:v, pv:comboPillValue(k, soloBase[k], v), cut,
-             wnorm: norm*(cut?COMBO_SPEND_CUT_W:1), norm };
-  });
-  return {
-    items, pct, deltaPts: pct - basePct,
-    disruption: Math.max(...items.map(m=>m.wnorm)),    // minimize the biggest stretch
-    spread:     items.reduce((s,m)=>s+m.norm,0),       // tie-break: least total move
-    pairKey:    moves.map(m=>m[0]).sort().join('+'),
-  };
-}
-
-async function runComboSolve(){
-  if(!guardPlanMutation()) return;
-  if(!solverResults || comboSearching) return;
-  uiState.comboSearching = true; uiState.comboResults = null; renderSolvePanel();
-  await new Promise(r=>setTimeout(r,0));     // let the spinner paint
-
-  let preflight = null;
-  try{ preflight = resolveInputs(plan, {}); }catch(_){ /* unavailable below */ }
-  if(!preflight
-      || preflight.simulationAvailable === false){
-    uiState.comboSearching = false;
-    renderSolvePanel();
-    return;
-  }
-
-  // sharedPaths is already built by the solo solve, but guard anyway.
-  if(!sharedPaths){
-    resetSeed();
-    const horizon = preflight.horizonYears;
-  uiState.sharedPaths = [];
-  for(let i=0;i<plan.simulation.iterations;i++) uiState.appendSharedPath(generateReturnPath(horizon));
-  }
-
-  const R = solverResults;
-  const target   = R.targetPct;
-  const soloBase = JSON.parse(JSON.stringify(R.soloBase));
-  const score    = R.goalType==='legacy' ? (L)=>tryLegacyProb(L, R.params.amount) : trySuccess;
-  const pinned   = R.goalType==='retire' ? 'retireAge' : null;
-  const basePct  = score(soloBase);
-
-  // Candidate levers = solvable set minus the pinned one, pruned to those whose
-  // solo move actually helped, then capped to the most-promising few (cost).
-  let cand = SOLVE_KEYS.filter(k => k!==pinned);
-  const helpful = cand.filter(k=>{
-    const row = R.rows.find(r=>r.key===k);
-    return row && row.reachedPct > basePct + 0.3;
-  });
-  if(helpful.length >= 2) cand = helpful;
-  if(cand.length > COMBO_MAX_LEVERS){
-    cand = cand.slice().sort((a,b)=>
-      (R.rows.find(r=>r.key===b)?.reachedPct ?? 0) - (R.rows.find(r=>r.key===a)?.reachedPct ?? 0)
-    ).slice(0, COMBO_MAX_LEVERS);
-  }
-
-  // Per-candidate band + helpful direction (one pair of evals each).
-  const meta = {};
-  for(const k of cand){
-    await new Promise(r=>setTimeout(r,0));
-    const band  = solveBand(k, soloBase);
-    const baseV = soloBase[k];
-    const pLo = score({...soloBase,[k]:band.min});
-    const pHi = score({...soloBase,[k]:band.max});
-    meta[k] = { band, baseV, end: (pHi>=pLo) ? band.max : band.min };
-  }
-
-  // Sweep A toward its helpful end; at each step solve B to the gentlest value
-  // that clears target. Keep combos where BOTH levers actually moved.
-  // Ordered pairs: sweeping A→solve-B and B→solve-A trace different points on the
-  // same trade-off line, so we try both and keep the gentlest per unordered pair.
-  const combos = [];
-  for(let i=0;i<cand.length;i++){
-    for(let j=0;j<cand.length;j++){
-      if(i===j) continue;
-      const A=cand[i], B=cand[j], ma=meta[A], mb=meta[B], step=ma.band.step;
-      // Restrict B to its HELPFUL half (baseline → helpful end) so a solve can
-      // never push B backward to "make room" for A — both levers only ever help.
-      const bBand = mb.end >= mb.baseV
-        ? { min: mb.baseV, max: mb.band.max, step: mb.band.step }
-        : { min: mb.band.min, max: mb.baseV, step: mb.band.step };
-      for(const f of COMBO_A_FRACTIONS){
-        await new Promise(r=>setTimeout(r,0));
-        let aVal = Math.round((ma.baseV + f*(ma.end - ma.baseV))/step)*step;
-        aVal = Math.max(ma.band.min, Math.min(ma.band.max, aVal));
-        if(aVal === ma.baseV) continue;                         // A didn't move
-        if(score({...soloBase,[A]:aVal}) >= target) continue;   // A alone already clears it → not a real pairing
-        const res = solveLeverFor({...soloBase,[A]:aVal}, B, target, score, bBand);
-        if(!res || res.capped) continue;                        // pair can't reach target
-        if(res.value === mb.baseV) continue;                    // B didn't move → solo-A
-        combos.push(makeCombo(soloBase, [[A,aVal],[B,res.value]], res.reachedPct, basePct, meta));
-      }
-    }
-  }
-  // Gentlest first; keep one (the gentlest) per distinct lever-pair, top N.
-  combos.sort((x,y)=> x.disruption - y.disruption || x.spread - y.spread);
-  const seen = new Set(), top = [];
-  for(const c of combos){
-    if(seen.has(c.pairKey)) continue;
-    seen.add(c.pairKey); top.push(c);
-    if(top.length >= COMBO_MAX_CARDS) break;
-  }
-  uiState.comboResults = { goalType:R.goalType, params:R.params, target, basePct, soloBase,
-                   canLoad: R.canLoad, combos: top };
-  uiState.comboSearching = false;
-  renderSolvePanel();
-}
-
-
-
 // Scenarios are NAMED, SAVEABLE objects (the household-centric data root). They
 // start identical; the advisor moves levers to show each decision's effect, and
 // can rename / add / remove them. Both tabs read this shared set.
@@ -850,7 +480,7 @@ function defaultScenarios(){
     {name:'Aggressive', base:false, lev:defaultLevers(), res:null},
   ];
   // Scenario B contrast. Pre-retirement: "retire 2 years later" (the core lever
-  // when we're solving for a feasible retirement date). Already retired: that
+  // when testing a feasible retirement date). Already retired: that
   // lever is inert, so contrast on allocation instead (de-risk one notch).
   if(hhAlreadyRetired()){
     s[1].lev.risk = Math.max(1, ((plan.portfolio && plan.portfolio.riskProfile) || 3) - 1);
@@ -870,9 +500,6 @@ if(isHouseholdStorageBlocked() || !activeHouseholdId){
 } else {
   uiState.scenarios = loadScenarios() || defaultScenarios();
 }
-// Solver UI state. solverFormOpen toggles the inline "Solve…" form in the band
-// gutter; solving guards against re-entry while a solve is in flight.
-
 /* A household is ALREADY RETIRED when every principal is at or past their own
    retirement age — there is no future retirement transition to plan for. In that
    state retirement age is a satisfied input: it may still show in the banner, but
@@ -2016,6 +1643,12 @@ function computeHistoricalStress(s, p, ov){
 // The engine knows exactly why it could not finish; flattening that to one
 // generic sentence is what made this class of failure undiagnosable.
 const PROJECTION_ISSUE_MESSAGES = {
+  PROJECTION_HORIZON_OUT_OF_RANGE:
+    'Plan length is outside the supported projection range',
+  PROJECTION_ITERATIONS_OUT_OF_RANGE:
+    'Simulation count is outside the supported projection range',
+  PROJECTION_RETURN_PATH_DIMENSIONS_INVALID:
+    'Market path data does not cover the supported projection range',
   TRADITIONAL_ACCOUNT_OWNER_UNAVAILABLE:
     'Pre-tax money is not assigned to a person — open Net Worth and set the owner on each retirement account',
   TRADITIONAL_ACCOUNT_OWNER_LIFECYCLE_UNAVAILABLE:
@@ -2065,7 +1698,7 @@ function runAll(){
       const preflight = resolveInputs(plan, {});
       if(preflight.simulationAvailable === false){
         scenarios.forEach(s=>{ s.res=null; s.runError=null; });
-        renderSolvePanel(); buildSeqSelect();
+        buildSeqSelect();
         if(window.ScenariosUI) window.ScenariosUI.sync();
         syncHeaderStatus('Plan updated · using available inputs');
         uiState.plansDirty = false;
@@ -2133,7 +1766,7 @@ function runAll(){
           console.error('Scenario failed:', s.name, err);
         }
       });
-      renderSolvePanel(); buildSeqSelect();
+      buildSeqSelect();
       if($('.page.on')?.dataset.page === 'sequencing') runSeq();
       if(window.ScenariosUI) window.ScenariosUI.sync();   // one authoritative Scenarios renderer
       const firstFailure = scenarios.find(s => s.runError)?.runError;
@@ -2141,110 +1774,14 @@ function runAll(){
         ? `Partial run · ${failed} scenario${failed>1?'s':''} could not run${firstFailure ? `: ${firstFailure}` : ''}`
         : 'Plan updated · using available inputs');
       uiState.plansDirty = false;
-    }catch(e){ syncHeaderStatus('Error'); console.error(e); }
+    }catch(e){
+      syncHeaderStatus(`Check plan: ${scenarioRunFailureMessage(e)}`);
+      console.error(e);
+    }
     btn.disabled=false; running=false;
   },20);
 }
 
-// ScenariosUI toolbar to the existing addScenario() and solver (renderSolvePanel)
-// seams. Per-scenario rename/remove returns via the new view's menu in a later pass.
-// removeScenario() / resetScenarios() remain available for that wiring.
-// Solver goal form lives in #solve-panel (full-width). Live commas on $ boxes;
-// changing the pin dropdown re-renders its value input (age box vs $ box).
-$('#solve-panel').addEventListener('input', e=>{
-  if(e.target.classList?.contains('sf-money')) liveCommas(e.target);
-});
-$('#solve-panel').addEventListener('change', e=>{
-  if(e.target.id === 'sf-goal'){
-    const baseLev = scenarios.find(s=>s.base)?.lev || defaultLevers();
-    const baseSucc = scenarios.find(s=>s.base)?.res?.successRate ?? 85;
-    const defPct = Math.min(95, Math.ceil((baseSucc+1)/5)*5);
-    const wrap = $('#sf-params');
-    if(wrap) wrap.innerHTML = goalParamsHtml(e.target.value, baseLev, defPct, { goals:GOALS, currentAge:plan.household.primary.currentAge, planEndAge:resolveGoalSpan(plan).planEndAge });
-  }
-});
-$('#solve-panel').addEventListener('submit', e=>{
-  const f = e.target.closest('#solver-form');
-  if(!f) return;
-  e.preventDefault();
-  if(!guardPlanMutation()) return;
-  const pct = parseFloat($('#sf-pct')?.value);
-  if(!isFinite(pct) || pct<50 || pct>99) return;
-  const goalType = $('#sf-goal')?.value || 'confidence';
-  const num = id => parseInt(($(id)?.value||'').replace(/[^0-9]/g,''), 10);
-  const params = { pct };
-  const {currentAge, planEndAge} = resolveGoalSpan(plan);
-  const flashAge = id => { const el=$(id); if(el){ el.style.outline='2px solid var(--negative)'; el.focus(); setTimeout(()=>el.style.outline='',1500); } };
-  if(goalType==='retire'){
-    params.age = num('#sf-p-age');
-    if(!isFinite(params.age)) return;
-    if(params.age <= currentAge || params.age > planEndAge){ flashAge('#sf-p-age'); return; }
-  } else if(goalType==='purchase'){
-    params.amount = num('#sf-p-amount'); params.age = num('#sf-p-age');
-    if(!isFinite(params.amount)||!isFinite(params.age)) return;
-    if(params.age <= currentAge || params.age > planEndAge){ flashAge('#sf-p-age'); return; }
-  } else if(goalType==='gift'){
-    params.amount = num('#sf-p-amount'); params.toAge = num('#sf-p-toage');
-    if(!isFinite(params.amount)||!isFinite(params.toAge)) return;
-    if(params.toAge <= currentAge || params.toAge > planEndAge){ flashAge('#sf-p-toage'); return; }
-  } else if(goalType==='legacy'){
-    params.amount = num('#sf-p-amount'); if(!isFinite(params.amount)) return;
-  }
-  runSolve(goalType, params);
-});
-// Solver panel: Cancel (form), Clear (results), and per-lever "Load" actions.
-document.addEventListener('click', e=>{
-  if(e.target.closest('#sf-cancel')){
-    uiState.solverFormOpen = false; renderSolvePanel(); return;
-  }
-  if(e.target.closest('#solve-clear-btn')){
-    uiState.solverResults = null; uiState.solverSearching = false;
-    uiState.comboResults = null; uiState.comboOpen = false; uiState.comboSearching = false;
-    renderSolvePanel(); return;
-  }
-  // Fold-down: open runs the (heavy) combo search once and caches it; toggle off
-  // just collapses. The cache is reused on re-open until the solo solve changes.
-  if(e.target.closest('#combo-toggle')){
-    uiState.comboOpen = !comboOpen;
-    if(comboOpen && !comboResults && !comboSearching) runComboSolve();  // renders itself
-    else renderSolvePanel();
-    return;
-  }
-  const loadBtn = e.target.closest('.solve-load');
-  if(loadBtn && solverResults && solverResults.rows){
-    if(!guardPlanMutation()) return;
-    if(scenarios.length >= MAX_SCENARIOS) return;
-    const idx = +loadBtn.dataset.soloIdx;
-    const row = solverResults.rows[idx];
-    if(!row) return;
-    // Scenario = the pinned soloBase with this one lever set to its solo answer.
-    const lev = JSON.parse(JSON.stringify(solverResults.soloBase));
-    lev[row.key] = row.value;
-    syncPension(lev);
-    const cfg = LEVCFG.find(c=>c.key===row.key);
-    uiState.addScenario({ name: `${cfg.name} solve`, base:false, lev, res:null });
-    uiState.solverResults = null; uiState.solverSearching = false;
-    uiState.comboResults = null; uiState.comboOpen = false;
-    saveScenarios(); renderSolvePanel(); uiState.plansDirty=true; runAll();
-  }
-  // Load a COMBO: the held-fixed soloBase with both lever moves applied.
-  const cLoadBtn = e.target.closest('.cc-load');
-  if(cLoadBtn && comboResults && comboResults.combos){
-    if(!guardPlanMutation()) return;
-    if(scenarios.length >= MAX_SCENARIOS) return;
-    const c = comboResults.combos[+cLoadBtn.dataset.comboIdx];
-    if(!c) return;
-    const lev = JSON.parse(JSON.stringify(comboResults.soloBase));
-    c.items.forEach(m => lev[m.key] = m.val);
-    syncPension(lev);
-    const nm = comboResults.goalType==='retire' ? `Retire ${comboResults.params.age}`
-             : c.items.map(m=>COMBO_SHORT[m.key]).join(' + ');
-    uiState.addScenario({ name: nm.slice(0,28), base:false, lev, res:null });
-    uiState.solverResults = null; uiState.solverSearching = false;
-    uiState.comboResults = null; uiState.comboOpen = false;
-    saveScenarios(); renderSolvePanel(); uiState.plansDirty=true; runAll();
-  }
-});
 const GRID='var(--grid)', AXIS_INK='rgba(127,119,114,.72)';
 function simByIndex(res, idx){
   if(!res || !Array.isArray(res.sims)) return null;
@@ -2486,14 +2023,6 @@ $('#cashflow-path-mode').onchange=e=>{
 (function () {
   'use strict';
 
-  function openSolver(){
-    if(!guardPlanMutation()) return;
-    uiState.solverFormOpen = true;
-    renderSolvePanel();
-    const p = document.getElementById('solve-panel');
-    if(p) p.scrollIntoView({ behavior:'smooth', block:'center' });
-  }
-
   let _selectedId = null;
 
   const PROD = {
@@ -2501,8 +2030,7 @@ $('#cashflow-path-mode').onchange=e=>{
     getSelectedId:() => _selectedId,
     setSelectedId:(id) => { _selectedId = id; },
     addScenario:  () => { addScenario(); },
-    solve:        () => openSolver(),
-    afterEngineAction: () => {},      // addScenario already runs runAll()→sync; solver opens a form
+    afterEngineAction: () => {},
     isTypicalPath:() => cashFlowController.isTypical(),
     id:        (s) => String(scenarios.indexOf(s)),
     name:      (s) => s.name,
@@ -3020,9 +2548,8 @@ $('#cashflow-path-mode').onchange=e=>{
     if (segC) segC.addEventListener('click', () => { state.cashActive = false; state.view = 'compare'; syncScenariosView(); });
     if (segF) segF.addEventListener('click', () => { state.cashActive = false; state.view = 'focus'; syncScenariosView(); });
     if (chip) chip.addEventListener('click', () => { state.cashActive = !state.cashActive; syncScenariosView(); });
-    const add = $id('scn-add'), solve = $id('scn-solve');
+    const add = $id('scn-add');
     if (add)   add.addEventListener('click',   () => { PROD.addScenario(); PROD.afterEngineAction(); });
-    if (solve) solve.addEventListener('click', () => { PROD.solve();       PROD.afterEngineAction(); });
   }
 
   function init() {
@@ -3042,7 +2569,6 @@ $('#cashflow-path-mode').onchange=e=>{
   init();
 })();
 
-renderSolvePanel();
 syncPathControls();
 renderInputs();
 bindHouseholdRailOnce();   // chapter rail (Demographics / Net Worth / Cash Flow) view switch
