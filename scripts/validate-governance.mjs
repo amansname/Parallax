@@ -32,11 +32,51 @@ const agents = requireText('AGENTS.md', [
   '## Definition of done and PR evidence',
   '## Code Review Rules',
   'A test-only change improves coverage; it is not a product fix.',
+  'Parallax has two authoritative calculation engines.',
+  '`src/planning/` connects and orchestrates those engines without creating',
+  'ready facts are verified inputs to the engines;',
+  'modularization must preserve behavior and result parity at the public boundary.',
+  'Legacy composition root',
   'http://127.0.0.1:8825/',
 ]);
 if(agents.split(/\r?\n/).length > 180){
   failures.push('AGENTS.md must remain concise (180 lines or fewer)');
 }
+
+requireText('PRINCIPLES.md', [
+  '## Calculation Engine Truth Doctrine',
+  'The **Projection Engine** owns',
+  'The **Tax Engine** owns',
+  'Planning connects and orchestrates the Projection Engine and Tax Engine.',
+  'Household Facts carry provenance and readiness.',
+  'Contractually ready facts are verified inputs',
+  'unresolved required facts fail closed.',
+  'The Projection Engine is one logical and public authority.',
+  'public behavior and result contract remains at parity.',
+]);
+
+requireText('docs/ARCHITECTURE.md', [
+  '`src/main.js` is a legacy composition root that remains larger than the target architecture; do not grow it, and extract touched logic into focused modules.',
+  'Parallax has two authoritative calculation engines.',
+  'Planning modules connect and orchestrate the two without',
+  'contractually ready facts are verified engine inputs',
+  'unresolved required facts fail closed.',
+  'The Projection Engine is one logical and public authority.',
+  'behavior and result parity are preserved.',
+  'Do not add feature logic to `src/main.js`.',
+  'Projection Engine may consume and fund authoritative Tax Engine results without implementing federal tax rule math.',
+  'Withdrawal Planner',
+]);
+
+requireText('README.md', [
+  'Two authoritative',
+  'Household Facts with explicit provenance/readiness',
+  'Ready facts',
+  'Projection Engine internals may be modularized safely',
+  'do not grow it, and',
+  'Withdrawal Planner',
+  'legacy composition root',
+]);
 
 requireText('docs/CODEX_WORKFLOW.md', [
   '### 1. Goal',

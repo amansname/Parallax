@@ -55,7 +55,7 @@ import {
   uiState, scenariosUiState as state,
 } from './state.js';
 /* ╔══════════════════════════════════════════════════════════════╗
-   ║  PARALLAX V2 — UI WIRING (calls the engine above)             ║
+   ║  PARALLAX V2 — LEGACY COMPOSITION ROOT (UI + ENGINES)       ║
    ╚══════════════════════════════════════════════════════════════╝ */
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 installDesignSystemPrimitives();
@@ -2777,10 +2777,6 @@ $('#cashflow-path-mode').onchange=e=>{
     if (sc.lev.goalOv && Object.keys(sc.lev.goalOv).length === 0) delete sc.lev.goalOv;
     saveAndRunScenarioEdit();
   }
-
-  /* ---- TAX MAPPING (selection over existing production data, not a tax engine) */
-  
-  
 
   /* ---- adapter: production scenario → view-model -------------------------- */
   function vmScenario(s) {
