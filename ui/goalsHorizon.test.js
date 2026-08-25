@@ -41,7 +41,7 @@ test('Goals horizon renders retirement-linked goals from the effective retiremen
   assert.equal(goal.startsAtRetirement, true);
 });
 
-test('Goals horizon resolves the live goal after a runtime household becomes a durable copy', () => {
+test('Goals horizon resolves the live goal after the mutation guard replaces the plan', () => {
   const runtimeGoal = {
     id: 'goal_essentials',
     name: 'Essentials',

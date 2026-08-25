@@ -13,9 +13,9 @@ import {
   ACTIVE_KEY,
   HHDB_KEY,
   RETIRED_BUILT_IN_HOUSEHOLD_IDS,
-  RETIRED_HOUSEHOLD_DISPLAY_NAMES,
   commitPreparedHouseholdStore,
   createMemoryStorage,
+  isProvenAutomaticRuntimeCopy,
   prepareHouseholdRecordForSave,
   prepareHouseholdStore,
   readHouseholdStore,
@@ -146,79 +146,190 @@ test('missing key creates exactly one validated shipped option without activatin
   assert.ok(prepared.db['now-household'].taxProfiles.client.rothIra);
 });
 
-test('validated legacy store removes retired built-ins and exact stale-copy names while preserving custom and scenario bytes', () => {
-  const retiredScenarioKeys = RETIRED_BUILT_IN_HOUSEHOLD_IDS.map(
-    id => `parallax.scenarios.${id}.v1`,
-  );
+test('automatic runtime-copy classification is provenance-only and fails closed', () => {
+  const runtimeIds = ['now-household', 'future-household'];
+  const proven = createBlankHousehold('hh_proven1');
+  Object.assign(proven.meta, {
+    name: 'Any display name',
+    runtimeSourceHouseholdId: 'now-household',
+    isDemo: false,
+    isSelectableDefault: false,
+  });
+  assert.equal(isProvenAutomaticRuntimeCopy('hh_proven1', proven, runtimeIds), true);
+  proven.meta.name = 'Renamed by the user';
+  assert.equal(isProvenAutomaticRuntimeCopy('hh_proven1', proven, runtimeIds), true);
+
+  const nameOnly = createBlankHousehold('hh_nameonly');
+  nameOnly.meta.name = 'Now Household copy';
+  assert.equal(isProvenAutomaticRuntimeCopy('hh_nameonly', nameOnly, runtimeIds), false);
+  assert.equal(isProvenAutomaticRuntimeCopy('hh_proven1', proven, undefined), false);
+  assert.equal(isProvenAutomaticRuntimeCopy('hh_proven1', proven, new Set(runtimeIds)), false);
+  assert.equal(isProvenAutomaticRuntimeCopy('custom-proven', proven, runtimeIds), false);
+  assert.equal(isProvenAutomaticRuntimeCopy('hh_otherid', proven, runtimeIds), false);
+
+  for(const patch of [
+    { runtimeSourceHouseholdId: 'unknown-household' },
+    { isDemo: true },
+    { isSelectableDefault: true },
+    { isDemo: undefined },
+    { isSelectableDefault: undefined },
+  ]){
+    const candidate = structuredClone(proven);
+    Object.assign(candidate.meta, patch);
+    assert.equal(
+      isProvenAutomaticRuntimeCopy('hh_proven1', candidate, runtimeIds),
+      false,
+    );
+  }
+});
+
+test('validated legacy store removes only stable retired ids and proven runtime copies', () => {
+  const dualRuntimeDeps = {
+    ...deps,
+    createSelectableDefaultHouseholds: () => {
+      const now = createSelectableHousehold('now-household');
+      const future = createSelectableHousehold('future-household');
+      future.meta.name = 'Future Household';
+      return [now, future];
+    },
+  };
   const retired = Object.fromEntries(RETIRED_BUILT_IN_HOUSEHOLD_IDS.map(id => [
     id,
     createSelectableHousehold(id),
   ]));
-  const staleCopySpecs = [
-    ['hh_4d9cf0a2', RETIRED_HOUSEHOLD_DISPLAY_NAMES[0]],
-    ['hh_8b73e1c4', RETIRED_HOUSEHOLD_DISPLAY_NAMES[1]],
-    ['hh_f26a905d', RETIRED_HOUSEHOLD_DISPLAY_NAMES[2]],
+  const provenSpecs = [
+    ['hh_zfuture9', 'future-household', 'Renamed future experiment'],
+    ['hh_anow1', 'now-household', 'Renamed now experiment'],
   ];
-  const staleCopies = Object.fromEntries(staleCopySpecs.map(([id, name]) => {
+  const provenCopies = Object.fromEntries(provenSpecs.map(([id, sourceId, name]) => {
+    const household = createBlankHousehold(id);
+    Object.assign(household.meta, {
+      name,
+      runtimeSourceHouseholdId: sourceId,
+      isDemo: false,
+      isSelectableDefault: false,
+    });
+    return [id, household];
+  }));
+  const lookalikeNames = [
+    'Now Household copy',
+    'Future Household copy',
+    'New Household',
+    'Demo Household copy',
+    'Pre-Retirement Couple copy',
+  ];
+  const lookalikes = Object.fromEntries(lookalikeNames.map((name, index) => {
+    const id = `hh_lookalike${index}`;
     const household = createBlankHousehold(id);
     household.meta.name = name;
     return [id, household];
   }));
-  const customOne = createBlankHousehold('custom-one');
-  customOne.meta.name = 'Custom One';
-  customOne.portfolio.accounts.taxable.balance = 123_456;
-  const customTwo = createBlankHousehold('custom-two');
-  customTwo.meta.name = 'Advisor Household';
-  customTwo.meta.familyNotes = 'Preserve this exact custom value';
-  const customOneBytes = JSON.stringify(customOne);
-  const customTwoBytes = JSON.stringify(customTwo);
-  const customScenarioOne = '[{"name":"Custom baseline","base":true,"lev":{"risk":4}}]';
-  const customScenarioTwo = '[{"name":"Second custom","base":true,"lev":{"risk":2}}]';
-  const retiredScenarioBytes = retiredScenarioKeys.map(
-    (key, index) => [key, `retired-scenario-${index}`],
-  );
-  const staleScenarioBytes = staleCopySpecs.map(
-    ([id], index) => [`parallax.scenarios.${id}.v1`, `stale-copy-scenario-${index}`],
-  );
-  const storage = createMemoryStorage({
-    [HHDB_KEY]: JSON.stringify({
-      ...retired,
-      ...staleCopies,
-      'custom-one': customOne,
-      'custom-two': customTwo,
-    }),
-    [ACTIVE_KEY]: 'custom-two',
-    ...Object.fromEntries(retiredScenarioBytes),
-    ...Object.fromEntries(staleScenarioBytes),
-    'parallax.scenarios.custom-one.v1': customScenarioOne,
-    'parallax.scenarios.custom-two.v1': customScenarioTwo,
-    'parallax.scenarios.unrelated.v1': 'unrelated-bytes',
+  const unknownSource = createBlankHousehold('hh_unknownsource');
+  Object.assign(unknownSource.meta, {
+    name: 'Ambiguous unknown source',
+    runtimeSourceHouseholdId: 'not-a-shipped-household',
+    isDemo: false,
+    isSelectableDefault: false,
   });
+  const mismatchedContract = createBlankHousehold('hh_contractmismatch');
+  Object.assign(mismatchedContract.meta, {
+    name: 'Ambiguous metadata contract',
+    runtimeSourceHouseholdId: 'now-household',
+    isDemo: false,
+    isSelectableDefault: true,
+  });
+  const custom = createBlankHousehold('custom-one');
+  custom.meta.name = 'Custom One';
+  custom.portfolio.accounts.taxable.balance = 123_456;
+  const survivors = {
+    ...lookalikes,
+    'hh_unknownsource': unknownSource,
+    'hh_contractmismatch': mismatchedContract,
+    'custom-one': custom,
+  };
+  const survivorBytes = Object.fromEntries(
+    Object.entries(survivors).map(([id, household]) => [id, JSON.stringify(household)]),
+  );
+  const storedDb = {
+    ...retired,
+    ...provenCopies,
+    ...survivors,
+  };
+  const scenarioIds = [
+    ...RETIRED_BUILT_IN_HOUSEHOLD_IDS,
+    ...provenSpecs.map(([id]) => id),
+    ...Object.keys(survivors),
+  ];
+  const scenarioEntries = Object.fromEntries(scenarioIds.map((id, index) => [
+    `parallax.scenarios.${id}.v1`,
+    `scenario-bytes-${index}`,
+  ]));
+  scenarioEntries['parallax.scenarios.unrelated.v1'] = 'unrelated-bytes';
+  const storage = createMemoryStorage({
+    [HHDB_KEY]: JSON.stringify(storedDb),
+    [ACTIVE_KEY]: 'custom-one',
+    ...scenarioEntries,
+  });
+  const scenarioBytesBefore = Object.fromEntries(
+    Object.entries(storage.snapshot()).filter(([key]) => key.startsWith('parallax.scenarios.')),
+  );
 
-  const prepared = prepareHouseholdStore(readHouseholdStore(storage), deps);
+  const prepared = prepareHouseholdStore(readHouseholdStore(storage), dualRuntimeDeps);
+  assert.equal(prepared.mode, 'normal');
   assert.equal(prepared.activeHouseholdId, null);
   assert.equal(prepared.hydrate, false);
-  assert.deepEqual(
-    Object.keys(prepared.db),
-    ['now-household', 'custom-one', 'custom-two'],
-  );
-  assert.equal(JSON.stringify(prepared.db['custom-one']), customOneBytes);
-  assert.equal(JSON.stringify(prepared.db['custom-two']), customTwoBytes);
+  assert.deepEqual(prepared.removedAutomaticRuntimeCopyIds, ['hh_anow1', 'hh_zfuture9']);
+  const expectedIds = ['now-household', 'future-household', ...Object.keys(survivors)].sort();
+  assert.deepEqual(Object.keys(prepared.db).sort(), expectedIds);
+  for(const [id, bytes] of Object.entries(survivorBytes)){
+    assert.equal(JSON.stringify(prepared.db[id]), bytes);
+  }
+
   assert.equal(commitPreparedHouseholdStore(storage, prepared).ok, true);
   const committedDb = JSON.parse(storage.getItem(HHDB_KEY));
-  assert.deepEqual(Object.keys(committedDb), ['now-household', 'custom-one', 'custom-two']);
-  assert.equal(JSON.stringify(committedDb['custom-one']), customOneBytes);
-  assert.equal(JSON.stringify(committedDb['custom-two']), customTwoBytes);
+  assert.deepEqual(Object.keys(committedDb).sort(), expectedIds);
+  for(const [id, bytes] of Object.entries(survivorBytes)){
+    assert.equal(JSON.stringify(committedDb[id]), bytes);
+  }
   assert.equal(storage.getItem(ACTIVE_KEY), null);
-  for(const [key, bytes] of retiredScenarioBytes){
-    assert.equal(storage.getItem(key), bytes);
-  }
-  for(const [key, bytes] of staleScenarioBytes){
-    assert.equal(storage.getItem(key), bytes);
-  }
-  assert.equal(storage.getItem('parallax.scenarios.custom-one.v1'), customScenarioOne);
-  assert.equal(storage.getItem('parallax.scenarios.custom-two.v1'), customScenarioTwo);
-  assert.equal(storage.getItem('parallax.scenarios.unrelated.v1'), 'unrelated-bytes');
+  assert.deepEqual(
+    Object.fromEntries(
+      Object.entries(storage.snapshot()).filter(([key]) => key.startsWith('parallax.scenarios.')),
+    ),
+    scenarioBytesBefore,
+  );
+});
+
+test('apparent runtime-copy provenance cannot bypass read-only validation', () => {
+  const malformed = createBlankHousehold('hh_malformedcopy');
+  Object.assign(malformed.meta, {
+    name: 'Malformed runtime copy',
+    runtimeSourceHouseholdId: 'now-household',
+    isDemo: false,
+    isSelectableDefault: false,
+  });
+  delete malformed.portfolio.extraAccounts;
+  const raw = JSON.stringify({ hh_malformedcopy: malformed });
+  const scenarioKey = 'parallax.scenarios.hh_malformedcopy.v1';
+  const storage = createCountingStorage({
+    [HHDB_KEY]: raw,
+    [ACTIVE_KEY]: 'hh_malformedcopy',
+    [scenarioKey]: 'must-survive-read-only',
+  });
+
+  const prepared = prepareHouseholdStore(readHouseholdStore(storage), {
+    ...deps,
+    createSelectableDefaultHouseholds: () => [
+      createSelectableHousehold('now-household'),
+      createSelectableHousehold('future-household'),
+    ],
+  });
+  assert.equal(prepared.mode, 'read_only');
+  assert.equal(commitPreparedHouseholdStore(storage, prepared).readOnly, true);
+  assert.equal(storage.writeCount(), 0);
+  assert.equal(storage.getItem(HHDB_KEY), raw);
+  assert.equal(storage.getItem(ACTIVE_KEY), 'hh_malformedcopy');
+  assert.equal(storage.getItem(scenarioKey), 'must-survive-read-only');
 });
 
 test('missing key seeds selectable production defaults with no active household', () => {

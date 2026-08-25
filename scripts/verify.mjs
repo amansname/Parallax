@@ -3867,6 +3867,20 @@ try {
         afterRevision: beforeRevision,
       });
     };
+    const runtimeBaseline = await page.evaluate(() => {
+      const dbBytes = localStorage.getItem('parallax.households.v1');
+      const db = JSON.parse(dbBytes || 'null');
+      return {
+        dbBytes,
+        dbIds: Object.keys(db || {}).sort(),
+        sourceBytes: JSON.stringify(db?.['now-household'] || null),
+        scenarioBytes: JSON.stringify(
+          Object.entries(localStorage)
+            .filter(([key]) => key.startsWith('parallax.scenarios.'))
+            .sort(([left], [right]) => left.localeCompare(right)),
+        ),
+      };
+    });
     await page.select('#hh-switch', 'now-household');
     await waitForWizard(page, { householdId: 'now-household' });
     await stableClick('.htab[data-sub-target="goals"]');
@@ -3878,49 +3892,99 @@ try {
     });
     if(!sourceGoal?.id) throw new Error('runtime Now Essentials goal is unavailable');
     await stableClick(`[data-goal-chip="${sourceGoal.id}"]`);
+    const goalAmountBefore = await page.$eval('.gh-amount-input', input => input.value);
     await stableClick('.gh-rail [data-action="amount-plus"]');
-    await page.waitForFunction(({ goalId, originalAmount }) => {
+    await page.waitForFunction(previousAmount => (
+      document.querySelector('.gh-amount-input')?.value !== previousAmount
+    ), { timeout: 10000 }, goalAmountBefore);
+    const runtimeGoalEdit = await page.evaluate(({ expectedDb, expectedSource, expectedScenarios }) => {
       const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
-      const active = localStorage.getItem('parallax.activeHouseholdId');
-      const copiedGoal = (db?.[active]?.goals || []).find(goal => goal?.id === goalId);
-      const sourceGoalRecord = (db?.['now-household']?.goals || [])
-        .find(goal => goal?.id === goalId);
-      return active && active !== 'now-household'
-        && copiedGoal?.amount > originalAmount
-        && sourceGoalRecord?.amount === originalAmount;
-    }, { timeout: 10000 }, { goalId: sourceGoal.id, originalAmount: sourceGoal.amount });
-    const runtimeGoalEdit = await page.evaluate(goalId => {
-      const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
-      const active = localStorage.getItem('parallax.activeHouseholdId');
-      const goal = (db?.[active]?.goals || []).find(item => item?.id === goalId);
-      return { active, amount: goal?.amount ?? null };
-    }, sourceGoal.id);
+      return {
+        active: localStorage.getItem('parallax.activeHouseholdId'),
+        rootId: document.querySelector('[data-gh-root]')?.dataset.householdId
+          || document.querySelector('[data-hh-wizard-root]')?.dataset.householdId
+          || '',
+        visibleAmount: document.querySelector('.gh-amount-input')?.value || '',
+        dbUnchanged: localStorage.getItem('parallax.households.v1') === expectedDb,
+        sourceUnchanged: JSON.stringify(db?.['now-household'] || null) === expectedSource,
+        ids: Object.keys(db || {}).sort(),
+        derivedIds: Object.entries(db || {})
+          .filter(([, household]) => ['now-household', 'future-household'].includes(
+            household?.meta?.runtimeSourceHouseholdId,
+          ))
+          .map(([id]) => id),
+        scenarioBytesUnchanged: JSON.stringify(
+          Object.entries(localStorage)
+            .filter(([key]) => key.startsWith('parallax.scenarios.'))
+            .sort(([left], [right]) => left.localeCompare(right)),
+        ) === expectedScenarios,
+        runtimeScenarioKeys: ['now-household', 'future-household'].filter(id => (
+          localStorage.getItem(`parallax.scenarios.${id}.v1`) !== null
+        )),
+      };
+    }, {
+      expectedDb: runtimeBaseline.dbBytes,
+      expectedSource: runtimeBaseline.sourceBytes,
+      expectedScenarios: runtimeBaseline.scenarioBytes,
+    });
+    if(runtimeGoalEdit.active !== null
+        || runtimeGoalEdit.rootId !== 'now-household'
+        || runtimeGoalEdit.visibleAmount === goalAmountBefore
+        || !runtimeGoalEdit.dbUnchanged
+        || !runtimeGoalEdit.sourceUnchanged
+        || JSON.stringify(runtimeGoalEdit.ids) !== JSON.stringify(runtimeBaseline.dbIds)
+        || runtimeGoalEdit.derivedIds.length !== 0
+        || !runtimeGoalEdit.scenarioBytesUnchanged
+        || runtimeGoalEdit.runtimeScenarioKeys.length !== 0){
+      throw new Error(`runtime Now Goal edit escaped session state: ${JSON.stringify(runtimeGoalEdit)}`);
+    }
     await stableClick('.htab[data-page="household"]');
-    await waitForWizard(page, { householdId: runtimeGoalEdit.active });
+    await waitForWizard(page, { householdId: 'now-household' });
     await goToWizardStep(page, 'family');
     await setFamilyField('primaryName', 'Transient Now Edit');
-    const runtimeCopy = await page.evaluate(() => {
+    const runtimeFamilyEdit = await page.evaluate(({ expectedDb, expectedSource, expectedScenarios }) => {
       const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
-      const active = localStorage.getItem('parallax.activeHouseholdId');
       return {
-        active,
-        source: db?.['now-household'],
-        copy: db?.[active],
-        optionCount: [...document.querySelectorAll('#hh-switch option')]
-          .filter(option => option.value === active).length,
+        active: localStorage.getItem('parallax.activeHouseholdId'),
+        rootId: document.querySelector('[data-hh-wizard-root]')?.dataset.householdId || '',
+        selected: document.querySelector('#hh-switch')?.value || '',
+        visibleName: document.querySelector('[data-wizard-field="primaryName"]')?.value || '',
+        status: document.querySelector('#status')?.textContent.trim() || '',
+        dbUnchanged: localStorage.getItem('parallax.households.v1') === expectedDb,
+        sourceUnchanged: JSON.stringify(db?.['now-household'] || null) === expectedSource,
+        ids: Object.keys(db || {}).sort(),
+        derivedIds: Object.entries(db || {})
+          .filter(([, household]) => ['now-household', 'future-household'].includes(
+            household?.meta?.runtimeSourceHouseholdId,
+          ))
+          .map(([id]) => id),
+        scenarioBytesUnchanged: JSON.stringify(
+          Object.entries(localStorage)
+            .filter(([key]) => key.startsWith('parallax.scenarios.'))
+            .sort(([left], [right]) => left.localeCompare(right)),
+        ) === expectedScenarios,
+        runtimeScenarioKeys: ['now-household', 'future-household'].filter(id => (
+          localStorage.getItem(`parallax.scenarios.${id}.v1`) !== null
+        )),
       };
+    }, {
+      expectedDb: runtimeBaseline.dbBytes,
+      expectedSource: runtimeBaseline.sourceBytes,
+      expectedScenarios: runtimeBaseline.scenarioBytes,
     });
-    if(!runtimeCopy.active
-        || runtimeCopy.active === 'now-household'
-        || runtimeCopy.source?.meta?.primaryName !== 'Aboysname'
-        || runtimeCopy.copy?.meta?.primaryName !== 'Transient Now Edit'
-        || runtimeCopy.copy?.goals?.find(goal => goal?.id === sourceGoal.id)?.amount !== runtimeGoalEdit.amount
-        || runtimeCopy.copy?.meta?.runtimeSourceHouseholdId !== 'now-household'
-        || runtimeCopy.optionCount !== 1){
-      throw new Error(`runtime Now edit did not create one durable copy: ${JSON.stringify(runtimeCopy)}`);
+    if(runtimeFamilyEdit.active !== null
+        || runtimeFamilyEdit.rootId !== 'now-household'
+        || runtimeFamilyEdit.selected !== 'now-household'
+        || runtimeFamilyEdit.visibleName !== 'Transient Now Edit'
+        || runtimeFamilyEdit.status !== 'Demo changes are temporary · use New Household to save a plan'
+        || !runtimeFamilyEdit.dbUnchanged
+        || !runtimeFamilyEdit.sourceUnchanged
+        || JSON.stringify(runtimeFamilyEdit.ids) !== JSON.stringify(runtimeBaseline.dbIds)
+        || runtimeFamilyEdit.derivedIds.length !== 0
+        || !runtimeFamilyEdit.scenarioBytesUnchanged
+        || runtimeFamilyEdit.runtimeScenarioKeys.length !== 0){
+      throw new Error(`runtime Now Family edit escaped session state: ${JSON.stringify(runtimeFamilyEdit)}`);
     }
-    const runtimeCopyId = runtimeCopy.active;
-    const savedRuntimeCopyBytes = JSON.stringify(runtimeCopy.copy);
     const menuHidden = await page.$eval('#hh-menu-pop', menu => menu.hidden);
     if(menuHidden) await stableClick('#hh-menu-btn');
     await stableClick('#hh-new');
@@ -3956,7 +4020,6 @@ try {
     ), customId);
     const expectedCreatedIds = [
       ...Object.keys(WITHDRAWAL_PLANNER_ORACLE.households),
-      runtimeCopyId,
       customId,
     ].sort();
     const actualCreatedIds = Object.keys(created.db).sort();
@@ -3983,6 +4046,9 @@ try {
       db: JSON.parse(localStorage.getItem('parallax.households.v1') || 'null'),
       selected: document.querySelector('#hh-switch')?.value || '',
       railName: document.querySelector('#hh-rail-name')?.textContent.trim() || '',
+      runtimeScenarioKeys: ['now-household', 'future-household'].filter(id => (
+        localStorage.getItem(`parallax.scenarios.${id}.v1`) !== null
+      )),
     }));
     if(afterReload.active !== null || afterReload.selected || afterReload.railName){
       throw new Error(`reload did not return to the private blank state: ${JSON.stringify(afterReload)}`);
@@ -3990,8 +4056,14 @@ try {
     if(afterReload.db[customId].meta.isDemo !== false) throw new Error('custom record overwritten on reload');
     if(JSON.stringify(afterReload.db[customId]) !== savedCustomBytes)
       throw new Error('saved custom household bytes changed during blank startup');
-    if(JSON.stringify(afterReload.db[runtimeCopyId]) !== savedRuntimeCopyBytes)
-      throw new Error('durable Now copy bytes changed during blank startup');
+    if(JSON.stringify(afterReload.db['now-household']) !== runtimeBaseline.sourceBytes)
+      throw new Error('shipped Now household bytes changed during blank startup');
+    if(Object.values(afterReload.db).some(household => (
+      ['now-household', 'future-household'].includes(household?.meta?.runtimeSourceHouseholdId)
+    ))) throw new Error('runtime-derived household survived blank startup');
+    if(afterReload.runtimeScenarioKeys.length !== 0){
+      throw new Error('runtime template scenarios entered persistent storage');
+    }
     const visibleSwitcher = await page.$eval('#hh-switch', selector => {
       const menu = selector.closest('#hh-menu-pop');
       return menu?.hidden === false;

@@ -19,17 +19,17 @@ export const RETIRED_BUILT_IN_HOUSEHOLD_IDS = Object.freeze([
   'default-pre-retirement-solo',
   'default-pre-retirement-couple',
 ]);
-export const RETIRED_HOUSEHOLD_DISPLAY_NAMES = Object.freeze([
-  'New Household',
-  'Demo Household copy',
-  'Pre-Retirement Couple copy',
-]);
 
-const RETIRED_HOUSEHOLD_DISPLAY_NAME_SET = new Set(RETIRED_HOUSEHOLD_DISPLAY_NAMES);
-
-function householdDisplayName(household){
-  const meta = household?.meta || {};
-  return meta.name || meta.primaryName || 'Household';
+export function isProvenAutomaticRuntimeCopy(recordId, household, runtimeHouseholdIds){
+  if(!Array.isArray(runtimeHouseholdIds)) return false;
+  if(!/^hh_[a-z0-9]+$/i.test(recordId)) return false;
+  if(!household || typeof household !== 'object' || Array.isArray(household)) return false;
+  const meta = household.meta;
+  if(!meta || typeof meta !== 'object' || Array.isArray(meta)) return false;
+  return meta.householdId === recordId
+    && runtimeHouseholdIds.includes(meta.runtimeSourceHouseholdId)
+    && meta.isDemo === false
+    && meta.isSelectableDefault === false;
 }
 
 export function createMemoryStorage(initial = {}){
@@ -162,16 +162,23 @@ export function prepareHouseholdStore(readResult, dependencies){
 
   // Shipped records are application templates, never browser-owned truth.
   // Recreate current templates on every boot and exclude retired reserved ids
-  // and exact known-junk display names so stale built-in copies cannot hydrate.
+  // plus only generated copies with complete, unambiguous runtime provenance.
   const runtimeDefaultsById = runtimeDefaults.db;
+  const runtimeHouseholdIds = Object.keys(runtimeDefaultsById);
   const reservedIds = new Set([
-    ...Object.keys(runtimeDefaultsById),
+    ...runtimeHouseholdIds,
     ...RETIRED_BUILT_IN_HOUSEHOLD_IDS,
   ]);
+  const removedAutomaticRuntimeCopyIds = Object.entries(readResult.database)
+    .filter(([recordId, household]) => (
+      isProvenAutomaticRuntimeCopy(recordId, household, runtimeHouseholdIds)
+    ))
+    .map(([recordId]) => recordId)
+    .sort();
+  const removedAutomaticRuntimeCopyIdSet = new Set(removedAutomaticRuntimeCopyIds);
   const savedHouseholds = Object.fromEntries(
-    Object.entries(readResult.database).filter(([householdId, household]) => (
+    Object.entries(readResult.database).filter(([householdId]) => (
       !reservedIds.has(householdId)
-        && !RETIRED_HOUSEHOLD_DISPLAY_NAME_SET.has(householdDisplayName(household))
     )),
   );
   const databaseWithDefaults = {
@@ -184,11 +191,6 @@ export function prepareHouseholdStore(readResult, dependencies){
   const retiredBuiltInIdsRemoved = RETIRED_BUILT_IN_HOUSEHOLD_IDS.filter(
     householdId => Object.hasOwn(readResult.database, householdId),
   );
-  const retiredNamedHouseholdIdsRemoved = Object.entries(readResult.database)
-    .filter(([, household]) => (
-      RETIRED_HOUSEHOLD_DISPLAY_NAME_SET.has(householdDisplayName(household))
-    ))
-    .map(([householdId]) => householdId);
 
   const migration = migrateHouseholdsDb(databaseWithDefaults);
   if(!migration.ok){
@@ -202,9 +204,9 @@ export function prepareHouseholdStore(readResult, dependencies){
     return readOnlyRuntimeFallback(error instanceof Error ? error.message : String(error));
   }
 
-  let mergedDb;
+  let mergedDbWithAutomaticCopies;
   try{
-    mergedDb = Object.fromEntries(Object.entries(recordMigration.db).map(([recordId, record]) => {
+    mergedDbWithAutomaticCopies = Object.fromEntries(Object.entries(recordMigration.db).map(([recordId, record]) => {
       if(runtimeDefaultsById[recordId]){
         return [recordId, structuredClone(runtimeDefaultsById[recordId])];
       }
@@ -214,6 +216,11 @@ export function prepareHouseholdStore(readResult, dependencies){
   }catch(error){
     return readOnlyRuntimeFallback(error instanceof Error ? error.message : String(error));
   }
+  const mergedDb = Object.fromEntries(
+    Object.entries(mergedDbWithAutomaticCopies).filter(([recordId]) => (
+      !removedAutomaticRuntimeCopyIdSet.has(recordId)
+    )),
+  );
 
   // Startup is deliberately origin-independent. Saved households remain in
   // the selector, but only an explicit visible selection may activate one.
@@ -226,7 +233,8 @@ export function prepareHouseholdStore(readResult, dependencies){
     mode: 'normal',
     db: mergedDb,
     activeHouseholdId,
-    changed: retiredBuiltInIdsRemoved.length > 0 || retiredNamedHouseholdIdsRemoved.length > 0
+    removedAutomaticRuntimeCopyIds,
+    changed: retiredBuiltInIdsRemoved.length > 0 || removedAutomaticRuntimeCopyIds.length > 0
       || defaultsRefreshed || migration.changed || schemaFilled || recordMigration.changed,
     pointerChanged,
     hydrate: false,
