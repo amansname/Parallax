@@ -26,22 +26,31 @@ Every surface must serve the same product spine:
 
 If a feature, chart, tab, tile, drawer, label, or visual treatment does not do at least one of those three things, it should be removed, archived, or rejected.
 
-No feature ships because it is interesting. It ships only if it strengthens the coherent path from household facts to engine truth to planning interaction to advisor explanation.
+No feature ships because it is interesting. It ships only if it strengthens the coherent path from Household Facts to calculation-engine truth to planning interaction to advisor explanation.
 
 The advisor-facing product should remain one coherent planning instrument, not a dashboard pile, report generator, generic stress-test suite, advice narrator, CRM, tax app, estate app, or sales deck.
 
-## Engine Truth Doctrine
+## Calculation Engine Truth Doctrine
 
-The engine is the only source of financial truth.
+Parallax has two authoritative calculation engines:
+
+- The **Projection Engine** owns projection, simulation, wealth-path, withdrawal, RMD, inflation, goal-funding, and portfolio-bucket calculations.
+- The **Tax Engine** owns federal tax calculations.
+
+Planning connects and orchestrates the Projection Engine and Tax Engine. It may transform inputs and carry results between them, but it may not create substitute financial or tax math.
+
+Household Facts carry provenance and readiness. Contractually ready facts are verified inputs to the calculation engines; assumptions remain explicit, and unresolved required facts fail closed. The UI collects and presents those facts and traceable engine results; it does not become another calculation authority.
+
+The Projection Engine is one logical and public authority. Its implementation may be safely modularized into focused internal modules only when the public behavior and result contract remains at parity.
 
 The UI may:
 
 - collect inputs
-- pass controlled variables to the engine
-- display engine outputs
-- filter, sort, compare, label, or format engine outputs
+- pass controlled variables and verified Household Facts to the calculation engines
+- display calculation-engine outputs
+- filter, sort, compare, label, or format calculation-engine outputs
 - summarize entered inputs for clarity
-- visually arrange engine outputs so the advisor can explain them
+- visually arrange calculation-engine outputs so the advisor can explain them
 
 The UI may not:
 
@@ -49,28 +58,28 @@ The UI may not:
 - calculate expected wealth paths
 - create deterministic financial projections
 - invent success scores, risk scores, resilience scores, tax outcomes, withdrawal outcomes, balances, or terminal values
-- smooth, interpolate, or fabricate financial outcomes outside the engine
-- present any path as expected, likely, normal, average, representative, or forecasted unless it is explicitly selected from engine output and labeled as such
+- smooth, interpolate, or fabricate financial outcomes outside the calculation engines
+- present any path as expected, likely, normal, average, representative, or forecasted unless it is explicitly selected from Projection Engine output and labeled as such
 
-Any financial number shown in the UI must be traceable to an engine function, engine output row, or approved pure engine module.
+Any planning result shown in the UI must be traceable to the Projection Engine, the Tax Engine, or a verified Household Fact explicitly presented as an input.
 
 ## Allowed Clarifications
 
 These are allowed and should not be mistaken for doctrine violations:
 
-- Formatting, sorting, filtering, grouping, labeling, and comparing engine outputs.
+- Formatting, sorting, filtering, grouping, labeling, and comparing calculation-engine outputs.
 - Summing entered input fields for an input-page subtotal, as long as it is not presented as a planning result.
-- Running Solve-For logic by repeatedly calling the engine; the solver may search, but it may not create a separate financial formula.
+- Running Solve-For logic by repeatedly calling the Projection Engine; the solver may search, but it may not create a separate financial formula.
 - Seeded reproducibility: same inputs plus the same seed may produce the same simulation bundle. That is software determinism, not a deterministic financial projection.
-- New truth-source modules, such as a future tax engine, if explicitly approved, isolated, and tested.
-- Showing a selected historical sequence or sampled engine path, if it is labeled as selected/sampled and not described as expected, normal, likely, or forecasted.
+- Focused internal modules within either calculation engine, if the engine's public behavior and result contract remains at parity and the change is isolated and tested.
+- Showing a selected historical sequence or sampled Projection Engine path, if it is labeled as selected/sampled and not described as expected, normal, likely, or forecasted.
 
 ## Product Tests
 
 Every feature must pass at least one of these tests:
 
 1. Does it show a real planning interaction?
-2. Does it expose engine truth more clearly?
+2. Does it expose calculation-engine truth more clearly?
 3. Does it help the advisor explain a client decision?
 
 If no, delete or archive it.
@@ -80,10 +89,11 @@ If no, delete or archive it.
 - Make the requirement less dumb: question it and trace back to fundamentals.
 - Subtract before adding: deleting is the default.
 - Simplify: fewer steps, fewer abstractions, fewer rules.
-- The engine is the one source of truth.
-- Screens only show or adjust engine inputs and outputs.
+- The Projection Engine and Tax Engine are the two calculation authorities.
+- Planning orchestrates those engines without substitute math.
+- Screens only collect verified Household Facts or show and adjust calculation-engine inputs and outputs.
 - Do not invent UI-side math.
-- Do not touch engine math without explicit agreement and tests.
+- Do not touch Projection Engine or Tax Engine math without explicit agreement and tests.
 - When two builds compete, pick the one most faithful to the truth.
 - Do not let the product become a collection of disconnected tabs.
 - Do not use stale archive notes, old roadmaps, old handoffs, or generated pitch artifacts as build authority.

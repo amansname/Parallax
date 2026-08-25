@@ -14,18 +14,28 @@ Parallax is a static ES-module application with no build step or backend.
 | Path | Authority |
 |---|---|
 | `index.html` | Markup and mount points only. It loads only `src/main.js`. |
-| `src/main.js` | Thin boot, `runAll`, and event wiring. Extract feature logic if a change would add about 50 lines. |
+| `src/main.js` | Legacy composition root for boot, `runAll`, and event wiring. It remains larger than the target architecture: do not grow it, and extract touched feature logic. |
 | `src/state.js` | Mutable UI state and persistence effects; no rendering. |
 | `ui/*.js` | Display and DOM modules; no financial calculations. |
-| `engine.js` | Sole source of truth for simulation, wealth, paths, withdrawals, and bucket math. |
-| `src/tax/` | Federal tax truth; never imports `engine.js`. |
-| `src/planning/` | Adapters and orchestration between engine, tax, and views; no substitute tax math. |
-| `src/household/` | Household schemas, persistence, migrations, and wizard contracts. |
+| `engine.js` | Public entry point and logical authority for the Projection Engine: simulation, wealth paths, withdrawals, and bucket math. |
+| `src/tax/` | Tax Engine authority for federal tax calculations; never imports `engine.js`. |
+| `src/planning/` | Adapters and orchestration between the Projection Engine, Tax Engine, and views; no substitute financial math. |
+| `src/household/` | Household Facts with provenance/readiness, schemas, persistence, migrations, and wizard contracts. |
 | `src/scenarios/` | Scenario inputs and scenario-to-engine orchestration. |
 | `scripts/verify.mjs` | Required full live-browser compatibility gate at the canonical origin. |
 
-`engine.js` is the sole financial source of truth. UI code must not invent or
-duplicate tax, RMD, withdrawal, inflation, goal, or cash-flow calculations.
+Parallax has two authoritative calculation engines. The Projection Engine owns
+projection, simulation, wealth-path, withdrawal, RMD, inflation, goal-funding,
+and bucket calculations. The Tax Engine owns federal tax calculations.
+`src/planning/` connects and orchestrates those engines without creating
+substitute math. Household Facts carry provenance and readiness. Contractually
+ready facts are verified inputs to the engines; assumptions remain explicit,
+and unresolved required facts fail closed. UI code collects those facts and
+presents traceable results without inventing or duplicating calculations.
+
+The Projection Engine remains one logical and public authority even when its
+implementation is safely split into focused internal modules. Such
+modularization must preserve behavior and result parity at the public boundary.
 Do not add JavaScript to `index.html`, grow a new monolith, or add a dependency
 without explicit agreement.
 
@@ -82,7 +92,7 @@ they must never serve mutable worktree files.
 
 ## Risk and required evidence
 
-Financial engine, federal tax, RMD, withdrawal, persistence, migration, Goals,
+Projection Engine, Tax Engine, RMD, withdrawal, persistence, migration, Goals,
 Scenarios, and Cash Flow changes are high risk. They require focused tests,
 applicable cross-surface invariants, `npm test`, `npm run verify`, and an
 independent review against `main`. Persistence and migration work also requires
