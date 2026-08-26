@@ -363,11 +363,22 @@ async function historicalCashFlowSnapshot(page, {
   pathId = 'historical-1973',
   previousEndingBalance = null,
 } = {}){
+  const netWorthOverlay = await page.$('[data-net-worth-overlay]');
+  if(netWorthOverlay){
+    await clickWizardAction(
+      page,
+      '[data-net-worth-overlay] .nw-panel-close',
+    );
+  }
   await page.click('.htab[data-page="scenarios"]');
   await page.waitForFunction(() => (
     document.querySelector('.page.on')?.dataset.page === 'scenarios'
       && (document.querySelectorAll('#scn-view .scol__name').length > 0
         || Boolean(document.querySelector('#scn-view .cf')))
+      && document.querySelector('#run-btn')?.disabled === false
+      && /Plan updated|Partial run/i.test(
+        document.querySelector('#status')?.textContent || '',
+      )
   ), { timeout: 15000 });
   const cashActive = await page.$eval(
     '#scn-cash-toggle',
