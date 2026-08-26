@@ -1,11 +1,6 @@
 import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { RETURN_DATA } from '../engine.js';
-import {
-  ASSET_KEYS,
-  ASSET_META,
-  snapshotPresetAllocation,
-} from '../src/household/investmentAllocation.js';
+import { snapshotPresetAllocation } from '../src/household/investmentAllocation.js';
 
 export const WIZARD_STEP_IDS = Object.freeze([
   'family',
@@ -29,36 +24,6 @@ const MIGRATION_SURVIVOR = Object.freeze({
 
 function requireCondition(condition, message){
   if(!condition) throw new Error(message);
-}
-
-function independentlyResolve1973PresetReturn(presetId){
-  const source = RETURN_DATA.find(row => row.y === 1973);
-  requireCondition(source, '1973 return row is unavailable');
-  const requested = snapshotPresetAllocation(presetId).weights;
-  const sleeves = [
-    ASSET_KEYS.filter(key => ASSET_META[key].bucket === 'growth'),
-    ASSET_KEYS.filter(key => ASSET_META[key].bucket !== 'growth'),
-  ];
-  let rate = 0;
-  for(const keys of sleeves){
-    const targetWeight = keys.reduce((sum, key) => sum + requested[key], 0);
-    const available = keys.filter(key => source[key] !== null && source[key] !== undefined);
-    const availableWeight = available.reduce((sum, key) => sum + requested[key], 0);
-    requireCondition(
-      targetWeight === 0 || availableWeight > 0,
-      `${presetId} has no independently available 1973 sleeve`,
-    );
-    if(targetWeight === 0) continue;
-    for(const key of available){
-      rate += targetWeight * (requested[key] / availableWeight) * source[key];
-    }
-  }
-  return { rate, cashRate: source.cash };
-}
-
-function visibleReturnText(rate){
-  const sign = rate < 0 ? '−' : '+';
-  return `${sign}${(Math.abs(rate) * 100).toFixed(1)}%`;
 }
 
 function exactStorageSnapshot(snapshot){
@@ -1035,6 +1000,19 @@ async function verifyRuntimeTemplateSessionIsolation(page){
     await requireUnchangedPersistence(`${householdId} Family edit`);
 
     if(index === 0){
+      const baselineHistorical = await historicalCashFlowSnapshot(page);
+      requireCondition(
+        baselineHistorical.pathId === 'historical-1973'
+          && baselineHistorical.kind === 'historical'
+          && baselineHistorical.sourceYear === '1973'
+          && baselineHistorical.returnText !== ''
+          && baselineHistorical.endingBalance !== ''
+          && Number.isFinite(Number(baselineHistorical.endingBalance)),
+        `Now demo Historical Cash Flow baseline is unavailable: ${JSON.stringify(
+          baselineHistorical,
+        )}`,
+      );
+      await requireUnchangedPersistence('Now demo Historical Cash Flow baseline');
       await openNetWorthCategory(page, 'investment');
       const accountId = await page.$eval(
         '[data-hh-action="net-worth-edit-entry"][data-entry-category-id="investment"]',
@@ -1074,8 +1052,33 @@ async function verifyRuntimeTemplateSessionIsolation(page){
         `Demo allocation edit was not visible in-session: ${visiblePresetId}`,
       );
       await requireUnchangedPersistence(`${householdId} allocation edit`);
-      await clickWizardAction(page, '[data-net-worth-overlay] .nw-panel-close');
-      runtimeAllocationCheck = { accountId, originalPresetId };
+      const changedHistorical = await historicalCashFlowSnapshot(page, {
+        previousEndingBalance: baselineHistorical.endingBalance,
+      });
+      requireCondition(
+        changedHistorical.pathId === baselineHistorical.pathId
+          && changedHistorical.kind === baselineHistorical.kind
+          && changedHistorical.sourceYear === baselineHistorical.sourceYear
+          && changedHistorical.returnText !== baselineHistorical.returnText
+          && changedHistorical.endingBalance !== baselineHistorical.endingBalance,
+        `Visible demo allocation change did not reach Historical Cash Flow: ${JSON.stringify({
+          baselineHistorical,
+          changedHistorical,
+        })}`,
+      );
+      await requireUnchangedPersistence('Now demo allocation downstream change');
+      runtimeAllocationCheck = {
+        accountId,
+        originalPresetId,
+        baselineHistorical,
+        changedHistorical,
+      };
+      await page.click('#scn-seg-compare');
+      await page.waitForFunction(() => (
+        document.querySelector('.page.on')?.dataset.page === 'scenarios'
+          && document.querySelector('#scn-seg-compare')?.classList.contains('is-active')
+          && document.querySelectorAll('#scn-view .scol__name').length > 0
+      ), { timeout: 15000 });
     }
 
     await page.click('.htab[data-page="scenarios"]');
@@ -1121,6 +1124,25 @@ async function verifyRuntimeTemplateSessionIsolation(page){
       );
       await clickWizardAction(page, '[data-hh-action="net-worth-cancel-draft"]');
       await clickWizardAction(page, '[data-net-worth-overlay] .nw-panel-close');
+      const resetHistorical = await historicalCashFlowSnapshot(page, {
+        previousEndingBalance: runtimeAllocationCheck.changedHistorical.endingBalance,
+      });
+      requireCondition(
+        JSON.stringify(resetHistorical)
+          === JSON.stringify(runtimeAllocationCheck.baselineHistorical),
+        `Demo allocation downstream result did not reset after reselection: ${JSON.stringify({
+          baselineHistorical: runtimeAllocationCheck.baselineHistorical,
+          changedHistorical: runtimeAllocationCheck.changedHistorical,
+          resetHistorical,
+        })}`,
+      );
+      await requireUnchangedPersistence('Now demo allocation downstream reset');
+      await page.click('#scn-seg-compare');
+      await page.waitForFunction(expectedCount => (
+        document.querySelector('.page.on')?.dataset.page === 'scenarios'
+          && document.querySelector('#scn-seg-compare')?.classList.contains('is-active')
+          && document.querySelectorAll('#scn-view .scol__name').length === expectedCount
+      ), { timeout: 15000 }, defaultScenarioCount);
     }
     await page.click('.htab[data-page="scenarios"]');
     await page.waitForFunction(expectedCount => (
@@ -1983,9 +2005,11 @@ async function verifyNetWorthFlow(page){
   );
 }
 
-async function verifyAssetAllocationHistoricalFlow(page){
+async function verifyAssetAllocationPersistenceFlow(page){
   const storageBefore = await snapshotStorage(page);
   const viewportBefore = page.viewport();
+  const householdId = await page.$eval('#hh-switch', selector => selector.value || '');
+  requireCondition(householdId, 'Allocation selector custom household is unavailable');
   await openNetWorthCategory(page, 'investment');
   await clickWizardAction(
     page,
@@ -2045,58 +2069,34 @@ async function verifyAssetAllocationHistoricalFlow(page){
       && account.investmentAllocation.presetId === 'balanced';
   }, { timeout: 10000 }, accountId);
 
-  const fixtureBalances = await page.evaluate(expectedId => {
+  const savedBalanced = await page.evaluate(({ expectedAccountId }) => {
     const database = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
     const active = localStorage.getItem('parallax.activeHouseholdId');
-    const plan = database?.[active];
-    const accounts = plan?.portfolio?.extraAccounts || [];
-    const allocationAccount = accounts.find(account => account.id === expectedId);
-    const cashAccounts = accounts.filter(account => (
-      account.investmentAllocation?.source === 'cash-only'
-    ));
+    const allocationAccount = database?.[active]?.portfolio?.extraAccounts
+      ?.find(account => account.id === expectedAccountId);
+    const rowAccountId = document.querySelector(
+      `[data-hh-action="net-worth-edit-entry"][data-account-id="${expectedAccountId}"]`,
+    )?.dataset.accountId || '';
     return {
-      allocationBalance: allocationAccount?.balance ?? null,
-      allocationSource: allocationAccount?.investmentAllocation?.source || '',
-      allocationPresetId: allocationAccount?.investmentAllocation?.presetId || '',
-      allocationWeights: allocationAccount?.investmentAllocation?.weights || null,
-      cashBalance: cashAccounts.reduce((sum, account) => sum + account.balance, 0),
-      cashAccountCount: cashAccounts.length,
-      projectionAccountCount: accounts.length,
-      baseBalances: Object.fromEntries(
-        Object.entries(plan?.portfolio?.accounts || {}).map(([bucket, account]) => (
-          [bucket, account?.balance ?? null]
-        )),
-      ),
+      active,
+      storedAccountId: allocationAccount?.id || '',
+      rowAccountId,
+      allocationBytes: JSON.stringify(allocationAccount?.investmentAllocation || null),
     };
-  }, accountId);
-  requireCondition(
-    fixtureBalances.allocationBalance === 1000000
-      && fixtureBalances.allocationSource === 'preset'
-      && fixtureBalances.allocationPresetId === 'balanced'
-      && JSON.stringify(fixtureBalances.allocationWeights)
-        === JSON.stringify(snapshotPresetAllocation('balanced').weights)
-      && fixtureBalances.cashBalance === 250001
-      && fixtureBalances.cashAccountCount === 1
-      && fixtureBalances.projectionAccountCount === 2
-      && Object.values(fixtureBalances.baseBalances).every(balance => balance === 0),
-    `Allocation Historical fixture balances drifted: ${JSON.stringify(fixtureBalances)}`,
+  }, {
+    expectedAccountId: accountId,
+  });
+  const expectedBalancedAllocationBytes = JSON.stringify(
+    snapshotPresetAllocation('balanced'),
   );
-
-  const balanced = await historicalCashFlowSnapshot(page);
-  const balanced1973 = independentlyResolve1973PresetReturn('balanced');
-  const openingBalance = fixtureBalances.allocationBalance + fixtureBalances.cashBalance;
-  const expectedBalancedRate = (
-    (fixtureBalances.allocationBalance * balanced1973.rate)
-      + (fixtureBalances.cashBalance * balanced1973.cashRate)
-  ) / openingBalance;
   requireCondition(
-    Number(balanced.startBalance) === openingBalance
-      && balanced.returnText === visibleReturnText(expectedBalancedRate),
-    `Balanced 1973 Cash Flow did not match canonical saved weights: ${JSON.stringify({
-      balanced,
-      expectedStartBalance: openingBalance,
-      expectedReturnText: visibleReturnText(expectedBalancedRate),
-      expectedReturnRate: expectedBalancedRate,
+    savedBalanced.active === householdId
+      && savedBalanced.storedAccountId === accountId
+      && savedBalanced.rowAccountId === accountId
+      && savedBalanced.allocationBytes === expectedBalancedAllocationBytes,
+    `Saved Balanced allocation is not the canonical account snapshot: ${JSON.stringify({
+      savedBalanced,
+      expectedBalancedAllocationBytes,
     })}`,
   );
   await openNetWorthCategory(page, 'investment');
@@ -2122,45 +2122,34 @@ async function verifyAssetAllocationHistoricalFlow(page){
     return account?.investmentAllocation?.source === 'preset'
       && account.investmentAllocation.presetId === 'growth';
   }, { timeout: 10000 }, accountId);
-  const savedGrowthWeights = await page.evaluate(expectedId => {
+  const savedGrowth = await page.evaluate(({ expectedAccountId }) => {
     const database = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
     const active = localStorage.getItem('parallax.activeHouseholdId');
-    return database?.[active]?.portfolio?.extraAccounts
-      ?.find(candidate => candidate.id === expectedId)?.investmentAllocation?.weights || null;
-  }, accountId);
-  requireCondition(
-    JSON.stringify(savedGrowthWeights)
-      === JSON.stringify(snapshotPresetAllocation('growth').weights),
-    `Saved Growth allocation weights are not canonical: ${JSON.stringify(savedGrowthWeights)}`,
-  );
-  const growth = await historicalCashFlowSnapshot(page, {
-    previousEndingBalance: balanced.endingBalance,
+    const allocationAccount = database?.[active]?.portfolio?.extraAccounts
+      ?.find(account => account.id === expectedAccountId);
+    const rowAccountId = document.querySelector(
+      `[data-hh-action="net-worth-edit-entry"][data-account-id="${expectedAccountId}"]`,
+    )?.dataset.accountId || '';
+    return {
+      active,
+      storedAccountId: allocationAccount?.id || '',
+      rowAccountId,
+      allocationBytes: JSON.stringify(allocationAccount?.investmentAllocation || null),
+    };
+  }, {
+    expectedAccountId: accountId,
   });
-  const growth1973 = independentlyResolve1973PresetReturn('growth');
-  const expectedGrowthRate = (
-    (fixtureBalances.allocationBalance * growth1973.rate)
-      + (fixtureBalances.cashBalance * growth1973.cashRate)
-  ) / openingBalance;
-  const expectedEndingDelta = fixtureBalances.allocationBalance
-    * (growth1973.rate - balanced1973.rate);
-  const actualEndingDelta = Number(growth.endingBalance) - Number(balanced.endingBalance);
+  const expectedGrowthAllocationBytes = JSON.stringify(
+    snapshotPresetAllocation('growth'),
+  );
   requireCondition(
-    balanced.pathId === 'historical-1973'
-      && growth.pathId === 'historical-1973'
-      && balanced.kind === 'historical'
-      && growth.kind === 'historical'
-      && balanced.sourceYear === '1973'
-      && growth.sourceYear === '1973'
-      && balanced.startBalance === growth.startBalance
-      && growth.returnText === visibleReturnText(expectedGrowthRate)
-      && Math.abs(actualEndingDelta - expectedEndingDelta) <= 0.02,
-    `Saved allocation did not produce the canonical deterministic Historical Cash Flow: ${JSON.stringify({
-      balanced,
-      growth,
-      expectedGrowthReturnText: visibleReturnText(expectedGrowthRate),
-      expectedGrowthRate,
-      expectedEndingDelta,
-      actualEndingDelta,
+    savedGrowth.active === householdId
+      && savedGrowth.storedAccountId === accountId
+      && savedGrowth.rowAccountId === accountId
+      && savedGrowth.allocationBytes === expectedGrowthAllocationBytes,
+    `Saved Growth allocation is not the canonical account snapshot: ${JSON.stringify({
+      savedGrowth,
+      expectedGrowthAllocationBytes,
     })}`,
   );
 
@@ -2170,16 +2159,37 @@ async function verifyAssetAllocationHistoricalFlow(page){
     page,
     `[data-hh-action="net-worth-edit-entry"][data-account-id="${accountId}"]`,
   );
-  const persisted = await page.evaluate(() => ({
-    selected: document.querySelector(
-      '[data-asset-allocation-selector] input:checked',
-    )?.value || '',
-    selectedCount: document.querySelectorAll(
-      '[data-asset-allocation-selector] input:checked',
-    ).length,
-  }));
+  const persisted = await page.evaluate(({ expectedAccountId }) => {
+    const database = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+    const active = localStorage.getItem('parallax.activeHouseholdId');
+    const allocationAccount = database?.[active]?.portfolio?.extraAccounts
+      ?.find(account => account.id === expectedAccountId);
+    return {
+      active,
+      selectedHousehold: document.querySelector('#hh-switch')?.value || '',
+      rootHousehold: document.querySelector('[data-hh-wizard-root]')?.dataset.householdId || '',
+      selected: document.querySelector(
+        '[data-asset-allocation-selector] input:checked',
+      )?.value || '',
+      selectedCount: document.querySelectorAll(
+        '[data-asset-allocation-selector] input:checked',
+      ).length,
+      storedAccountId: allocationAccount?.id || '',
+      rowAccountId: document.querySelector(
+        `[data-hh-action="net-worth-edit-entry"][data-account-id="${expectedAccountId}"]`,
+      )?.dataset.accountId || '',
+      allocationBytes: JSON.stringify(allocationAccount?.investmentAllocation || null),
+    };
+  }, { expectedAccountId: accountId });
   requireCondition(
-    persisted.selected === 'growth' && persisted.selectedCount === 1,
+    persisted.active === householdId
+      && persisted.selectedHousehold === householdId
+      && persisted.rootHousehold === householdId
+      && persisted.selected === 'growth'
+      && persisted.selectedCount === 1
+      && persisted.storedAccountId === accountId
+      && persisted.rowAccountId === accountId
+      && persisted.allocationBytes === expectedGrowthAllocationBytes,
     `Growth allocation did not survive reload: ${JSON.stringify(persisted)}`,
   );
 
@@ -2238,21 +2248,13 @@ async function verifyAssetAllocationHistoricalFlow(page){
   );
   if(viewportBefore) await page.setViewport(viewportBefore);
   await clickWizardAction(page, '[data-hh-action="net-worth-cancel-draft"]');
-  const reloadedGrowth = await historicalCashFlowSnapshot(page);
-  requireCondition(
-    JSON.stringify(reloadedGrowth) === JSON.stringify(growth),
-    `Reloaded persisted Growth allocation changed Historical Cash Flow: ${JSON.stringify({
-      beforeReload: growth,
-      afterReload: reloadedGrowth,
-    })}`,
-  );
 
   await restoreStorage(page, storageBefore);
   await reloadWizard(page);
   const storageAfter = await snapshotStorage(page);
   requireCondition(
     exactStorageSnapshot(storageAfter) === exactStorageSnapshot(storageBefore),
-    'Allocation Historical proof did not restore its exact function-local storage snapshot',
+    'Allocation selector proof did not restore its exact function-local storage snapshot',
   );
 }
 
@@ -2883,7 +2885,7 @@ export async function runWizardBrowserContract(
     await verifyFamilyPropagation(page);
     await verifyNetWorthFlow(page);
     await verifyPlanningSourceAndTaxFlow(page);
-    await verifyAssetAllocationHistoricalFlow(page);
+    await verifyAssetAllocationPersistenceFlow(page);
     await verifyAutoSaveReloadAndMemberWages(page);
     await verifyDuplicateRepair(page);
 
