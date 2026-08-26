@@ -402,7 +402,7 @@ async function reloadWizard(page){
   return waitForUnselectedWizard(page);
 }
 
-async function selectHouseholdVisible(page, householdId){
+export async function selectHouseholdVisible(page, householdId){
   const before = await wizardState(page);
   if(before.householdId === householdId) return before;
   const menuHidden = await page.$eval('#hh-menu-pop', menu => menu.hidden);

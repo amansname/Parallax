@@ -18,6 +18,7 @@ import {
   goToWizardStep,
   openNetWorthCategory,
   runWizardBrowserContract,
+  selectHouseholdVisible,
   waitForUnselectedWizard,
   waitForWizard,
 } from './wizard-browser-contract.mjs';
@@ -2412,8 +2413,7 @@ try {
     await stableReload({ waitUntil: 'networkidle2', timeout: 20000 });
     await waitForUnselectedWizard(page);
     await stableClick('.htab[data-page="household"]');
-    await page.select('#hh-switch', withdrawalPlannerFixtureHouseholdId);
-    await waitForWizard(page, { householdId: withdrawalPlannerFixtureHouseholdId });
+    await selectHouseholdVisible(page, withdrawalPlannerFixtureHouseholdId);
     await page.click('.htab[data-sub-target="goals"]');
     await page.waitForSelector('.gh-page', { visible: true, timeout: 8000 });
     const horizon = await page.evaluate(() => ({
