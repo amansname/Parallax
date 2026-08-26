@@ -38,34 +38,27 @@ test('engine rows expose taxableGainFraction matching taxBySource implied gain',
   }
 });
 
-test('RMD-funded taxable uses zero gain fraction on the following withdrawal year', () => {
+test('RMDs do not silently fund taxable withdrawals', () => {
   const plan = JSON.parse(JSON.stringify(defaultPlan));
   plan.household.primary = { currentAge: 58, retirementAge: 65, planEndAge: 95 };
   plan.portfolio.accounts.taxable = { balance: 0, basisPct: 1 };
   plan.portfolio.accounts.traditional.balance = 10000000;
   plan.portfolio.accounts.roth.balance = 0;
 
-  const params = resolveInputs(plan, {});
   const path = runHistoricalPath(plan, 1995, 'taxable-first');
-  const capGains = params.taxRates.capitalGains;
 
   const rmdRows = path.rows.filter((row) => row.age >= 73 && (row.rmd ?? 0) > 0);
   assert.ok(rmdRows.length > 0, 'expected RMD rows');
-
-  const firstRmd = rmdRows[0];
-  assert.strictEqual(firstRmd.taxableGainFraction, undefined,
-    'RMD year should not pair a taxable withdrawal with pre-RMD zero balance');
-
-  const afterRmd = path.rows.find(
-    (row) => row.year > firstRmd.year
-      && (row.accountBreakdown?.taxable ?? 0) > 0
-      && row.taxableGainFraction !== undefined
-  );
-  assert.ok(afterRmd, 'expected a later taxable withdrawal after RMD funding');
-  assert.strictEqual(afterRmd.taxableGainFraction, 0);
-
-  const implied = impliedGainFraction(afterRmd, capGains);
-  assert.strictEqual(implied, 0);
+  assert.ok(path.rows.every((row) => row.accountBalances.taxable <= 0.01),
+    'a zero-balance taxable sleeve stays empty when RMDs are forced');
+  assert.ok(path.rows.every((row) => row.taxableStartingBasis === 0),
+    'forced RMDs do not invent taxable starting basis');
+  assert.ok(path.rows.every((row) => row.taxableEndingBasis === 0),
+    'forced RMDs do not invent taxable ending basis');
+  assert.ok(path.rows.every((row) => row.taxableCapitalGain === 0),
+    'forced RMDs do not invent taxable capital gain');
+  assert.ok(path.rows.every((row) => (row.accountBreakdown?.taxable ?? 0) <= 0.01),
+    'no subsequent taxable withdrawal is invented from RMD proceeds');
 });
 
 test('buildPlanMetaFromEngineParams keeps explicit taxableGainFraction override only', () => {
@@ -107,7 +100,7 @@ test('exact taxable capital gain takes precedence over the legacy fraction', () 
   });
 });
 
-test('attachTypicalPathFederalTax completes when taxable starts empty and RMD funds it', () => {
+test('attachTypicalPathFederalTax completes when taxable stays empty through RMDs', () => {
   const plan = JSON.parse(JSON.stringify(defaultPlan));
   plan.household.primary = { currentAge: 58, retirementAge: 65, planEndAge: 95 };
   plan.portfolio.accounts.taxable = { balance: 0, basisPct: 1 };
@@ -127,7 +120,7 @@ test('attachTypicalPathFederalTax completes when taxable starts empty and RMD fu
   });
 
   assert.ok(summary.years.length > 0);
-  assert.ok(path.rows.some((row) => row.age >= 73 && row.accountBalances.taxable > 1));
+  assert.ok(path.rows.every((row) => row.accountBalances.taxable <= 0.01));
 });
 
 test('mapSimulationRowToYearFacts accepts zero gain fraction without throwing', () => {
