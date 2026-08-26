@@ -1559,11 +1559,10 @@ try {
       };
       plan.income.other = [];
       plan.savings.annual = 0;
-      plan.portfolio.accounts = {
-        taxable: { balance: 0, basisPct: 1 },
-        traditional: { balance: 0 },
-        roth: { balance: 0 },
-      };
+      plan.portfolio.accounts.taxable.balance = 0;
+      plan.portfolio.accounts.taxable.basisPct = 1;
+      plan.portfolio.accounts.traditional.balance = 0;
+      plan.portfolio.accounts.roth.balance = 0;
       plan.portfolio.extraAccounts = [
         accountModule.createAccount('traditional_ira', {
           owner: 'client',
