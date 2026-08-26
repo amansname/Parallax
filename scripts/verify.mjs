@@ -1347,7 +1347,7 @@ try {
     if(Object.values(productionDefaultProof).some(proofs => proofs.length !== 5)){
       throw new Error(`not every funded lever was exercised for every production default: ${JSON.stringify(productionDefaultProof)}`);
     }
-    await selectHouseholdVisible(page, withdrawalPlannerFixtureHouseholdId);
+    await page.select('#hh-switch', withdrawalPlannerFixtureHouseholdId);
     await page.waitForFunction(expectedHouseholdId => (
       document.querySelector('[data-hh-wizard-root]')?.dataset.householdId === expectedHouseholdId
       && document.querySelector('[data-taw-root]')?.dataset.tawHouseholdId === expectedHouseholdId
