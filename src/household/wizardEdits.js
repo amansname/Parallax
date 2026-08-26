@@ -4,6 +4,7 @@ import { createBlankTaxProfiles, createFact } from './factEnvelope.js';
 import { syncHealthcareGoalToHousehold } from './migrateSpendingToGoals.js';
 import { validateCurrentSchemaHousehold } from './migrateAccounts.js';
 import { validateHouseholdRecordSchema } from './householdRecordSchema.js';
+import { snapshotPresetAllocation } from './investmentAllocation.js';
 import {
   NET_WORTH_ONLY_TREATMENT,
   NET_WORTH_SHELL_CATEGORIES,
@@ -292,11 +293,17 @@ function defaultOwnerForType(entry, requestedOwner){
 function replaceAccountType(account, typeId){
   const entry = getAccountTypeById(typeId);
   if(!entry || entry.wizardEnabled !== true) throw new Error('Unsupported account type');
+  const currentEntry = getAccountTypeById(account.typeId);
+  const preserveAllocation = currentEntry?.investmentAllocationEligible === true
+    && entry.investmentAllocationEligible === true;
   const replacement = createAccount(typeId, {
     displayName: account.displayName,
     owner: defaultOwnerForType(entry, account.owner),
     balance: account.balance,
     valuationDate: account.valuationDate,
+    ...(preserveAllocation
+      ? { investmentAllocation: account.investmentAllocation }
+      : {}),
   });
   replacement.id = account.id;
   return replacement;
@@ -371,6 +378,9 @@ function applyAccountEdit(plan, command, timestamp){
       displayName: normalizedText(command.displayName),
       owner,
       balance: money(command.balance),
+      ...(command.allocationPresetId
+        ? { investmentAllocation: snapshotPresetAllocation(command.allocationPresetId) }
+        : {}),
     }));
     return;
   }
@@ -384,7 +394,7 @@ function applyAccountEdit(plan, command, timestamp){
   const fields = command.fields && typeof command.fields === 'object'
     ? command.fields
     : { [command.field]: command.value };
-  const order = ['typeId', 'displayName', 'owner', 'balance', 'basis'];
+  const order = ['typeId', 'displayName', 'owner', 'balance', 'basis', 'allocationPresetId'];
   const unsupported = Object.keys(fields).find(field => !order.includes(field));
   if(unsupported) throw new Error(`Unsupported account field: ${unsupported}`);
 
@@ -392,32 +402,42 @@ function applyAccountEdit(plan, command, timestamp){
     if(!Object.hasOwn(fields, field)) continue;
     const value = fields[field];
     if(field === 'typeId'){
-      account = replaceAccountType(account, value);
-      plan.portfolio.extraAccounts[index] = account;
+      if(value !== account.typeId){
+        account = replaceAccountType(account, value);
+        plan.portfolio.extraAccounts[index] = account;
+      }
     }else if(field === 'displayName'){
       account.displayName = normalizedText(value);
     }else if(field === 'owner'){
-      if(account.typeId === 'joint_brokerage' && value !== 'joint'){
-        account = replaceAccountType(account, 'brokerage_taxable');
-        plan.portfolio.extraAccounts[index] = account;
+      if(value !== account.owner){
+        if(account.typeId === 'joint_brokerage' && value !== 'joint'){
+          account = replaceAccountType(account, 'brokerage_taxable');
+          plan.portfolio.extraAccounts[index] = account;
+        }
+        const entry = getAccountTypeById(account.typeId);
+        if(!entry?.wizardOwners?.includes(value)) throw new Error('Owner is not valid for this account type');
+        if(value === 'spouse' && !plan.household?.spouse){
+          throw new Error('Spouse ownership requires an active spouse');
+        }
+        account.owner = value;
+        account.taxReporting.reportingTaxpayer =
+          value === 'client' || value === 'spouse' ? value : null;
+        account.taxReporting.inclusion = value === 'joint'
+          ? 'unknown'
+          : 'household-return';
+        account.taxReporting.householdReturnShare =
+          account.taxReporting.inclusion === 'household-return' ? 1 : null;
       }
-      const entry = getAccountTypeById(account.typeId);
-      if(!entry?.wizardOwners?.includes(value)) throw new Error('Owner is not valid for this account type');
-      if(value === 'spouse' && !plan.household?.spouse){
-        throw new Error('Spouse ownership requires an active spouse');
-      }
-      account.owner = value;
-      account.taxReporting.reportingTaxpayer =
-        value === 'client' || value === 'spouse' ? value : null;
-      account.taxReporting.inclusion = value === 'joint'
-        ? 'unknown'
-        : 'household-return';
-      account.taxReporting.householdReturnShare =
-        account.taxReporting.inclusion === 'household-return' ? 1 : null;
     }else if(field === 'balance'){
       account.balance = money(value);
     }else if(field === 'basis'){
       setAccountBasis(plan, account, value, timestamp);
+    }else if(field === 'allocationPresetId'){
+      const entry = getAccountTypeById(account.typeId);
+      if(entry?.investmentAllocationEligible !== true){
+        throw new Error('Asset allocation is unavailable for this account type');
+      }
+      account.investmentAllocation = snapshotPresetAllocation(value);
     }
   }
 }
