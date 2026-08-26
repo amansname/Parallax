@@ -504,6 +504,26 @@ function generateReturnPath(horizonYears){
 }
 
 
+function attachSelectedAccountDiagnostics(analysis, inputs, options){
+  const detailedByIndex = new Map();
+  for(const [pathKey, compact] of Object.entries(analysis.paths)){
+    const index = compact.simIndex;
+    let detailed = detailedByIndex.get(index);
+    if(!detailed){
+      detailed = runSinglePath(inputs, compact.returnPath, {
+        ...options,
+        includeAccountDiagnostics: true,
+      });
+      detailed.simIndex = index;
+      detailed.returnPath = compact.returnPath;
+      detailedByIndex.set(index, detailed);
+      analysis.sims[index] = detailed;
+    }
+    analysis.paths[pathKey] = detailed;
+  }
+  return analysis;
+}
+
 function runSimulation(plan, overrides = {}, returnPaths = null, options = {}){
   const inputs = resolveInputs(plan, overrides);
   if(inputs.simulationAvailable === false){
@@ -513,6 +533,10 @@ function runSimulation(plan, overrides = {}, returnPaths = null, options = {}){
   }
   if(returnPaths !== null) validateReturnPaths(returnPaths, inputs.horizonYears);
   const sims = [];
+  // Monte Carlo selection needs compact numeric rows for every trial, but the
+  // account-allocation detail is consumed only by the representative paths.
+  // Never materialize internal per-account detail, then re-run the at-most-five
+  // selected paths with it.
   // When a return-path bundle is supplied it is authoritative: iterate over
   // exactly those paths so identical inputs + identical paths are reproducible.
   // (Silently generating random fill paths for missing indices broke that.)
@@ -523,7 +547,10 @@ function runSimulation(plan, overrides = {}, returnPaths = null, options = {}){
       : generateReturnPath(inputs.horizonYears);
     let sim;
     try{
-      sim = runSinglePath(inputs, returnPath, options);
+      sim = runSinglePath(inputs, returnPath, {
+        ...options,
+        includeAccountDiagnostics: false,
+      });
     }catch(error){
       // A genuinely unresolvable RMD fails CLOSED — it must not escape as an
       // uncontrolled exception (which discards every scenario and leaves the UI
@@ -545,7 +572,11 @@ function runSimulation(plan, overrides = {}, returnPaths = null, options = {}){
     sim.returnPath = returnPath;  // preserve coherent path for summary resilience / elasticity diagnostics
     sims.push(sim);
   }
-  return analyzeResults(sims, inputs);
+  return attachSelectedAccountDiagnostics(
+    analyzeResults(sims, inputs),
+    inputs,
+    options,
+  );
 }
 
 
@@ -2986,6 +3017,7 @@ function buildFederalFundingCandidate({
   taxOnPen,
   preFederalFunding,
   openingRmd,
+  includeAccountDiagnostics,
 }, taxFundingAdjustment){
   const accounts = cloneEngineAccounts(openingAccounts);
   const startBalance = accountTotal(accounts);
@@ -3082,8 +3114,10 @@ function buildFederalFundingCandidate({
     source: rp.y,
     returnRate: r,
     returnDollars: returnFrame.returnDollars,
-    accountReturns: returnFrame.accountReturns,
-    householdEffectiveAllocation: returnFrame.householdAllocation,
+    ...(includeAccountDiagnostics ? {
+      accountReturns: returnFrame.accountReturns,
+      householdEffectiveAllocation: returnFrame.householdAllocation,
+    } : {}),
     nominalReturn: (rp && rp.proxyNominalReturn != null) ? rp.proxyNominalReturn : null,
     inflationRate: (rp && rp.proxyInflationRate != null) ? rp.proxyInflationRate : null,
     realReturnUsed: r,
@@ -3127,11 +3161,13 @@ function buildFederalFundingCandidate({
       traditional: accounts.traditional.balance,
       roth: accounts.roth.balance,
     },
-    accountBalancesById: accountBalancesById(accounts.projectionAccounts),
-    accountWithdrawalsById: combineAccountAmounts(
-      funding.grossById,
-      rmdWithdrawalsById,
-    ),
+    ...(includeAccountDiagnostics ? {
+      accountBalancesById: accountBalancesById(accounts.projectionAccounts),
+      accountWithdrawalsById: combineAccountAmounts(
+        funding.grossById,
+        rmdWithdrawalsById,
+      ),
+    } : {}),
     taxableEndingBasis: accounts.taxable.basis,
     ...(taxableGainFraction !== undefined ? { taxableGainFraction } : {}),
     taxBySource: {
@@ -3205,7 +3241,9 @@ function solveFederalFundingYear(args, taxPolicy){
           traditional: accounts.traditional.balance,
           roth: accounts.roth.balance,
         },
-        accountBalancesById: accountBalancesById(accounts.projectionAccounts),
+        ...(args.includeAccountDiagnostics ? {
+          accountBalancesById: accountBalancesById(accounts.projectionAccounts),
+        } : {}),
         taxableEndingBasis: accounts.taxable.basis,
         taxFundingConvergence: {
           status: 'converged',
@@ -3261,6 +3299,7 @@ function runSinglePath(p, returnPath, options = {}){
   validateReturnPaths([returnPath], p.horizonYears);
   const taxPolicy = options.taxPolicy ?? null;
   const fundTaxPolicyDelta = options.fundTaxPolicyDelta === true;
+  const includeAccountDiagnostics = options.includeAccountDiagnostics !== false;
   if(taxPolicy !== null && typeof taxPolicy !== 'function'){
     throw new TypeError('options.taxPolicy must be a function');
   }
@@ -3446,8 +3485,10 @@ function runSinglePath(p, returnPath, options = {}){
         year: y+1, age, source: rp.y, returnRate: r, phase: 'accum',
         ...householdTaxStatusAtAge(p, age),
         returnDollars: returnFrame.returnDollars,
-        accountReturns: returnFrame.accountReturns,
-        householdEffectiveAllocation: returnFrame.householdAllocation,
+        ...(includeAccountDiagnostics ? {
+          accountReturns: returnFrame.accountReturns,
+          householdEffectiveAllocation: returnFrame.householdAllocation,
+        } : {}),
         socialSecurity: ssInc, otherIncome: oiInc, pension: penInc,
         incomeTaxFacts: { ...taxIncome }, withdrawal: accumulationFunding.totalWithdrawn,
         rmd: rmdForcedA,
@@ -3467,12 +3508,14 @@ function runSinglePath(p, returnPath, options = {}){
         taxableCapitalGain: taxableCapitalGainA,
         ...(taxableGainFractionA !== undefined ? { taxableGainFraction: taxableGainFractionA } : {}),
         accountBalances: { taxable: accounts.taxable.balance, traditional: accounts.traditional.balance, roth: accounts.roth.balance },
-        accountBalancesById: accountBalancesById(projectionAccounts),
-        accountContributionsById: contributionsById,
-        accountWithdrawalsById: combineAccountAmounts(
-          outlayWithdrawalsByIdA,
-          rmdWithdrawalsByIdA,
-        ),
+        ...(includeAccountDiagnostics ? {
+          accountBalancesById: accountBalancesById(projectionAccounts),
+          accountContributionsById: contributionsById,
+          accountWithdrawalsById: combineAccountAmounts(
+            outlayWithdrawalsByIdA,
+            rmdWithdrawalsByIdA,
+          ),
+        } : {}),
         traditionalEndingBalancesByOwner: cloneTraditionalOwnerBuckets(accounts.traditional.byOwner),
         taxableEndingBasis: accounts.taxable.basis,
         taxBySource: { ss: taxOnSS, oi: taxOnOI, traditional: rmdTaxA, taxable: 0 }
@@ -3592,6 +3635,7 @@ function runSinglePath(p, returnPath, options = {}){
         taxOnOI,
         taxOnPen,
         openingRmd,
+        includeAccountDiagnostics,
       }, taxPolicy);
       projectionAccounts.splice(
         0,
@@ -3750,8 +3794,10 @@ function runSinglePath(p, returnPath, options = {}){
       year: y+1, age, source: rp.y, returnRate: r,
       ...householdTaxStatusAtAge(p, age),
       returnDollars: returnFrame.returnDollars,
-      accountReturns: returnFrame.accountReturns,
-      householdEffectiveAllocation: returnFrame.householdAllocation,
+      ...(includeAccountDiagnostics ? {
+        accountReturns: returnFrame.accountReturns,
+        householdEffectiveAllocation: returnFrame.householdAllocation,
+      } : {}),
       nominalReturn: (rp && rp.proxyNominalReturn != null) ? rp.proxyNominalReturn : null,
       inflationRate: (rp && rp.proxyInflationRate != null) ? rp.proxyInflationRate : null,
       realReturnUsed: r,
@@ -3782,11 +3828,13 @@ function runSinglePath(p, returnPath, options = {}){
         traditional: accounts.traditional.balance,
         roth: accounts.roth.balance
       },
-      accountBalancesById: accountBalancesById(projectionAccounts),
-      accountWithdrawalsById: combineAccountAmounts(
-        funding.grossById,
-        rmdWithdrawalsById,
-      ),
+      ...(includeAccountDiagnostics ? {
+        accountBalancesById: accountBalancesById(projectionAccounts),
+        accountWithdrawalsById: combineAccountAmounts(
+          funding.grossById,
+          rmdWithdrawalsById,
+        ),
+      } : {}),
       taxableEndingBasis: accounts.taxable.basis,
       ...(taxableGainFraction !== undefined ? { taxableGainFraction } : {}),
       taxBySource: {

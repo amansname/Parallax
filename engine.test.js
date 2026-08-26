@@ -1032,8 +1032,22 @@ test('default Monte Carlo is identical to the explicit shortcut tax policy', () 
   });
   const explicitShortcutResult = analyzeResults(explicitSims, inputs);
 
-  assert.deepStrictEqual(defaultResult, explicitShortcutResult,
-    'unused tax-policy seam must preserve the complete default MC result');
+  const accountDiagnosticKeys = new Set([
+    'accountReturns',
+    'householdEffectiveAllocation',
+    'accountBalancesById',
+    'accountContributionsById',
+    'accountWithdrawalsById',
+  ]);
+  const withoutAccountDiagnostics = result => JSON.parse(JSON.stringify(
+    result,
+    (key, value) => accountDiagnosticKeys.has(key) ? undefined : value,
+  ));
+  assert.deepStrictEqual(
+    withoutAccountDiagnostics(defaultResult),
+    withoutAccountDiagnostics(explicitShortcutResult),
+    'unused tax-policy seam must preserve every non-diagnostic Monte Carlo result field',
+  );
   assert.deepStrictEqual(defaultResult, explicitNullResult,
     'null tax policy must remain byte-identical even when funding mode is requested');
 });
@@ -3838,4 +3852,53 @@ test('a typed bank account earns cash while return adjustment remains separate',
   assert.strictEqual(accountReturn.returnAdj, 0.01);
   assert.ok(Math.abs(accountReturn.appliedReturn - (source.cash + 0.01)) < 1e-12);
   assert.strictEqual(result.rows[0].returnRate, accountReturn.appliedReturn);
+});
+
+test('Monte Carlo keeps internal trials compact and selected paths fully traceable', () => {
+  const p = currentAllocationPlan();
+  p.simulation.iterations = 20;
+  const inputs = resolveInputs(p, {});
+  resetSeed(20260826);
+  const bundle = Array.from(
+    { length: p.simulation.iterations },
+    () => generateReturnPath(inputs.horizonYears),
+  );
+  const analysis = runSimulation(p, {}, bundle);
+  const selectedIndexes = new Set(
+    Object.values(analysis.paths).map(path => path.simIndex),
+  );
+
+  assert.ok(selectedIndexes.size <= 5);
+  for(const sim of analysis.sims){
+    const first = sim.rows[0];
+    if(selectedIndexes.has(sim.simIndex)){
+      assert.ok(first.accountReturns);
+      assert.ok(first.householdEffectiveAllocation);
+      assert.ok(first.accountBalancesById);
+    }else{
+      assert.strictEqual(first.accountReturns, undefined);
+      assert.strictEqual(first.householdEffectiveAllocation, undefined);
+      assert.strictEqual(first.accountBalancesById, undefined);
+      assert.strictEqual(first.accountContributionsById, undefined);
+      assert.strictEqual(first.accountWithdrawalsById, undefined);
+    }
+  }
+  for(const selected of Object.values(analysis.paths)){
+    assert.strictEqual(selected, analysis.sims[selected.simIndex]);
+    assert.ok(selected.rows[0].accountReturns);
+  }
+
+  const selected = analysis.paths.p50;
+  const direct = runSinglePath(inputs, selected.returnPath);
+  const numericCore = sim => sim.rows.map(row => ({
+    source: row.source,
+    returnRate: row.returnRate,
+    returnDollars: row.returnDollars,
+    startBalance: row.startBalance,
+    withdrawal: row.withdrawal,
+    taxableCapitalGain: row.taxableCapitalGain,
+    balance: row.balance,
+    failed: row.failed,
+  }));
+  assert.deepStrictEqual(numericCore(selected), numericCore(direct));
 });
