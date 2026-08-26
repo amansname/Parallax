@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { defaultPlan, resolveInputs, runSimulation } from '../../../engine.js';
+import { flatAssetReturnRow } from '../../../test/fixtures/assetReturnRows.js';
 import { createAccount } from '../../household/createAccount.js';
 import { createBlankTaxProfiles } from '../../household/factEnvelope.js';
 import { buildCurrentTaxBucketSnapshot } from '../taxBuckets/buildCurrentTaxBucketSnapshot.js';
@@ -58,10 +59,13 @@ function fixturePlan(){
 function returnPaths(plan){
   const horizonYears = resolveInputs(plan, {}).horizonYears;
   return Array.from({ length: 20 }, (_, simIndex) =>
-    Array.from({ length: horizonYears }, (_, yearIndex) => ({
-      y: 2025 + yearIndex,
-      proxyReturn: simIndex === 0 ? -0.01 : 0,
-    }))
+    Array.from(
+      { length: horizonYears },
+      (_, yearIndex) => flatAssetReturnRow(
+        2025 + yearIndex,
+        simIndex === 0 ? -0.01 : 0,
+      ),
+    )
   );
 }
 

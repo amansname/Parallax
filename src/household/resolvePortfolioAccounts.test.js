@@ -2,11 +2,19 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  ACCOUNT_SCHEMA_VERSION,
   UNSUPPORTED_TYPE_ID,
   getAccountTypeById,
   getWizardAccountTypes,
 } from './accountTypes.js';
 import { createAccount } from './createAccount.js';
+import {
+  ASSET_KEYS,
+  resolveCashOnlyAllocation,
+  snapshotLegacyRiskProfileAllocation,
+  snapshotPresetAllocation,
+} from './investmentAllocation.js';
+import { LEGACY_BASE_ACCOUNT_IDS } from './migrateAccounts.js';
 import { resolvePortfolioAccounts } from './resolvePortfolioAccounts.js';
 import { investableTotal } from '../../ui/household.js';
 
@@ -22,6 +30,17 @@ function planWithBase(taxable = 0, traditional = 0, roth = 0){
       extraAccounts: [],
     },
   };
+}
+
+function currentPlanWithBase(taxable = 0, traditional = 0, roth = 0){
+  const plan = planWithBase(taxable, traditional, roth);
+  plan.meta.accountSchemaVersion = ACCOUNT_SCHEMA_VERSION;
+  const allocation = snapshotLegacyRiskProfileAllocation(3);
+  for(const bucket of ['taxable', 'traditional', 'roth']){
+    plan.portfolio.accounts[bucket].id = LEGACY_BASE_ACCOUNT_IDS[bucket];
+    plan.portfolio.accounts[bucket].investmentAllocation = structuredClone(allocation);
+  }
+  return plan;
 }
 
 function account(typeId, id, balance, options = {}){
@@ -151,4 +170,77 @@ test('malformed balances fail closed while bare basisPct is not basis evidence',
   const taxable = resolved.accounts.find(account => account.id === 'base-taxable');
   assert.equal(taxable.basis.amount, 50);
   assert.equal(taxable.basis.method, 'assumed-50-50');
+});
+
+test('fold exposes allocation-bearing accounts and a balance-weighted household roll-up', () => {
+  const plan = planWithBase();
+  const balanced = createAccount('brokerage_taxable', {
+    balance: 300,
+    investmentAllocation: snapshotPresetAllocation('balanced'),
+  });
+  balanced.id = 'balanced';
+  const cash = createAccount('savings', { balance: 100 });
+  cash.id = 'cash';
+  plan.portfolio.extraAccounts = [balanced, cash];
+
+  const fold = resolvePortfolioAccounts(plan);
+  assert.deepEqual(fold.allocationAccounts.map(account => account.id), ['balanced', 'cash']);
+  assert.equal(fold.accounts.find(account => account.id === 'balanced').investmentAllocationEligible, true);
+  assert.equal(fold.accounts.find(account => account.id === 'cash').investmentAllocationEligible, false);
+  assert.equal(fold.householdAllocation.totalBalance, 400);
+  assert.deepEqual(fold.householdAllocation.accountIds, ['balanced', 'cash']);
+  const balancedWeights = snapshotPresetAllocation('balanced').weights;
+  const cashWeights = resolveCashOnlyAllocation().weights;
+  for(const key of ASSET_KEYS){
+    assert.ok(Math.abs(
+      fold.householdAllocation.weights[key]
+      - ((balancedWeights[key] * 300 + cashWeights[key] * 100) / 400)
+    ) < 1e-12, key);
+  }
+});
+
+test('current-schema resolver fails before including positive balances with missing or invalid allocation', () => {
+  const missingBase = currentPlanWithBase(100);
+  delete missingBase.portfolio.accounts.taxable.investmentAllocation;
+  assert.throws(
+    () => resolvePortfolioAccounts(missingBase),
+    /portfolio\.accounts\.taxable\.investmentAllocation is required/i,
+  );
+
+  const missingEligible = currentPlanWithBase();
+  const eligible = createAccount('brokerage_taxable', { balance: 100 });
+  delete eligible.investmentAllocation;
+  missingEligible.portfolio.extraAccounts = [eligible];
+  assert.throws(
+    () => resolvePortfolioAccounts(missingEligible),
+    /portfolio\.extraAccounts\.0\.investmentAllocation is required/i,
+  );
+
+  const mismatchedPreset = currentPlanWithBase();
+  const malformed = createAccount('roth_ira', { balance: 100 });
+  malformed.investmentAllocation = structuredClone(malformed.investmentAllocation);
+  malformed.investmentAllocation.weights.usLarge += 0.01;
+  malformed.investmentAllocation.weights.cash -= 0.01;
+  mismatchedPreset.portfolio.extraAccounts = [malformed];
+  assert.throws(
+    () => resolvePortfolioAccounts(mismatchedPreset),
+    /do not match their provenance/i,
+  );
+
+  const missingUnsupported = currentPlanWithBase();
+  missingUnsupported.portfolio.extraAccounts = [{
+    id: 'unsupported',
+    typeId: UNSUPPORTED_TYPE_ID,
+    type: 'Mystery account',
+    owner: 'client',
+    bucket: 'taxable',
+    balance: 100,
+    valuationDate: null,
+    basis: null,
+    investmentAllocation: null,
+  }];
+  assert.throws(
+    () => resolvePortfolioAccounts(missingUnsupported),
+    /portfolio\.extraAccounts\.0\.investmentAllocation is required/i,
+  );
 });

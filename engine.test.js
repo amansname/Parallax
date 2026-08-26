@@ -4,8 +4,9 @@
    fail, STOP and reconcile before continuing. */
 import { test } from 'node:test';
 import assert from 'node:assert';
+import crypto from 'node:crypto';
 import {
-  RETURN_DATA, RISK_PROFILES, PROJECTION_EXECUTION_LIMITS, generateReturnPath, runSimulation,
+  RETURN_DATA, ASSET_KEYS, RISK_PROFILES, PROJECTION_EXECUTION_LIMITS, generateReturnPath, runSimulation,
   runHistoricalPath, runSinglePath, analyzeResults, resolveInputs, defaultPlan, LONGRUN_INFLATION,
   annualMortgagePayment, resetSeed, resolveHouseholdTimeline, householdStateAtYear,
   householdIncomeAtYear, resolveWithdrawalPlannerAccountState,
@@ -13,8 +14,54 @@ import {
 } from './engine.js';
 import { createFederalTaxResolver } from './src/planning/tax/createFederalTaxResolver.js';
 import { createAccount } from './src/household/createAccount.js';
+import { ACCOUNT_SCHEMA_VERSION } from './src/household/accountTypes.js';
+import {
+  ASSET_KEYS as CANONICAL_ASSET_KEYS,
+  snapshotLegacyRiskProfileAllocation,
+  snapshotPresetAllocation,
+  withCustomAssetWeights,
+} from './src/household/investmentAllocation.js';
 import { resolvePortfolioAccounts } from './src/household/resolvePortfolioAccounts.js';
 import { migrateSpendingToGoals } from './src/household/migrateSpendingToGoals.js';
+
+function flatAssetReturnRow(year, returnRate = 0){
+  return {
+    y: year,
+    ...Object.fromEntries(ASSET_KEYS.map(key => [key, returnRate])),
+  };
+}
+
+function hashJson(value){
+  return crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
+}
+
+function oneAssetAllocation(assetKey){
+  const weights = Object.fromEntries(
+    CANONICAL_ASSET_KEYS.map(key => [key, key === assetKey ? 1 : 0]),
+  );
+  return withCustomAssetWeights(snapshotPresetAllocation('balanced'), weights);
+}
+
+function currentAllocationPlan(){
+  const p = structuredClone(defaultPlan);
+  p.meta.accountSchemaVersion = ACCOUNT_SCHEMA_VERSION;
+  const legacyAllocation = snapshotLegacyRiskProfileAllocation(p.portfolio.riskProfile);
+  for(const bucket of ['taxable', 'traditional', 'roth']){
+    p.portfolio.accounts[bucket].id = `base-${bucket}`;
+    p.portfolio.accounts[bucket].investmentAllocation = legacyAllocation;
+  }
+  return p;
+}
+
+function typedInvestmentAccount(typeId, id, balance, allocation){
+  const account = createAccount(typeId, {
+    owner: 'client',
+    balance,
+    investmentAllocation: allocation,
+  });
+  account.id = id;
+  return account;
+}
 
 function explicitlyBasedBrokerage(balance, basisAmount){
   const account = createAccount('brokerage_taxable', {
@@ -383,10 +430,10 @@ test('reporting-only federal policy sets accumulation row taxes to Form 1040 lin
   p.goals = [];
 
   const inputs = resolveInputs(p, {});
-  const returnPath = Array.from({ length: inputs.horizonYears }, (_, index) => ({
-    y: 2026 + index,
-    proxyReturn: 0,
-  }));
+  const returnPath = Array.from(
+    { length: inputs.horizonYears },
+    (_, index) => flatAssetReturnRow(2026 + index),
+  );
   const shortcutPath = runSinglePath(inputs, returnPath);
   const federalResolver = createFederalTaxResolver(inputs, {
     filingStatus: 'marriedFilingJointly',
@@ -520,10 +567,10 @@ test('an underfunded pre-retirement portfolio goal fails when the required cash 
   p.taxes = { ordinary: 0, capitalGains: 0 };
 
   const inputs = resolveInputs(p, {});
-  const path = Array.from({ length: inputs.horizonYears }, (_, index) => ({
-    y: 2026 + index,
-    proxyReturn: 0,
-  }));
+  const path = Array.from(
+    { length: inputs.horizonYears },
+    (_, index) => flatAssetReturnRow(2026 + index),
+  );
   const sim = runSinglePath(inputs, path);
   const result = analyzeResults([sim], inputs);
   const goalYear = sim.rows[0];
@@ -564,7 +611,7 @@ test('terminal funding distinguishes exact zero from a negative-return shortfall
   p.taxes = { ordinary: 0, capitalGains: 0 };
 
   const inputs = resolveInputs(p, {});
-  const path = [{ y: 2026, proxyReturn: 0 }];
+  const path = [flatAssetReturnRow(2026)];
   const ordinary = runSinglePath(inputs, path);
   const federal = runSinglePath(inputs, path, {
     taxPolicy: () => 0,
@@ -580,7 +627,7 @@ test('terminal funding distinguishes exact zero from a negative-return shortfall
     assert.equal(analyzeResults([sim], inputs).successRate, 100);
   }
 
-  const negativePath = [{ y: 2026, proxyReturn: -0.5 }];
+  const negativePath = [flatAssetReturnRow(2026, -0.5)];
   const negativeOrdinary = runSinglePath(inputs, negativePath);
   const negativeFederal = runSinglePath(inputs, negativePath, {
     taxPolicy: () => 0,
@@ -624,7 +671,7 @@ test('a zero-asset terminal year succeeds when no modeled cash flow is required'
   p.taxes = { ordinary: 0, capitalGains: 0 };
 
   const inputs = resolveInputs(p, {});
-  const sim = runSinglePath(inputs, [{ y: 2026, proxyReturn: 0 }]);
+  const sim = runSinglePath(inputs, [flatAssetReturnRow(2026)]);
 
   assert.equal(sim.rows[0].fundingShortfall, 0);
   assert.equal(sim.rows[0].balance, 0);
@@ -742,9 +789,9 @@ test('engine rows separate total required RMD from the forced top-up', () => {
   p.ltc = { amount: 0, onsetAge: 99 };
   const params = resolveInputs(p, {});
   const sim = runSinglePath(params, [
-    { y: 2025, proxyReturn: 0 },
-    { y: 2026, proxyReturn: 0 },
-    { y: 2027, proxyReturn: 0 },
+    flatAssetReturnRow(2025),
+    flatAssetReturnRow(2026),
+    flatAssetReturnRow(2027),
   ]);
   const pre73 = sim.rows.find(row => row.age === 72);
   const at73 = sim.rows.find(row => row.age === 73);
@@ -1007,10 +1054,10 @@ test('opt-in single path reports federal line 24 as row tax', () => {
   p.goals = [];
 
   const inputs = resolveInputs(p, {});
-  const returnPath = Array.from({ length: inputs.horizonYears }, (_, index) => ({
-    y: 2026 + index,
-    proxyReturn: 0,
-  }));
+  const returnPath = Array.from(
+    { length: inputs.horizonYears },
+    (_, index) => flatAssetReturnRow(2026 + index),
+  );
   const shortcutPath = runSinglePath(inputs, returnPath);
   const federalResolver = createFederalTaxResolver(inputs, {
     filingStatus: 'single',
@@ -1060,7 +1107,7 @@ test('tax-policy funding mode grosses up a positive delta before depletion', () 
     p.ltc = { amount: 0, onsetAge: 85 };
     return resolveInputs(p, {});
   };
-  const returnPath = [{ y: 2026, proxyReturn: 0 }];
+  const returnPath = [flatAssetReturnRow(2026)];
 
   const ampleInputs = build(100000, 10000);
   const shortcut = runSinglePath(ampleInputs, returnPath);
@@ -1137,7 +1184,7 @@ test('livingAnnual models positive scenario spending over a zero-dollar base', (
   p.ltc = { amount: 0, onsetAge: 99 };
 
   const params = resolveInputs(p, { livingAnnual: 24_000 });
-  const result = runSinglePath(params, [{ y: 2026, proxyReturn: 0 }], {
+  const result = runSinglePath(params, [flatAssetReturnRow(2026)], {
     taxPolicy: () => 0,
     fundTaxPolicyDelta: true,
   });
@@ -1173,15 +1220,64 @@ test('savingsAnnual models positive scenario savings over a zero-dollar base', (
     savingsSplit: { taxable: 1 },
   });
   const result = runSinglePath(params, [
-    { y: 2026, proxyReturn: 0 },
-    { y: 2027, proxyReturn: 0 },
-    { y: 2028, proxyReturn: 0 },
+    flatAssetReturnRow(2026),
+    flatAssetReturnRow(2027),
+    flatAssetReturnRow(2028),
   ]);
 
   assert.equal(params.savingsAnnual, 24_000);
   assert.deepEqual(params.savingsSplit, { traditional: 0, roth: 0, taxable: 1 });
   assert.equal(result.rows[1].accountBalances.taxable, 48_000);
   assert.equal(result.rows[1].taxableEndingBasis, 48_000);
+});
+
+test('Scenario traditional savings flow only to existing 401(k)s', () => {
+  const p = currentAllocationPlan();
+  p.household.primary = { currentAge: 50, retirementAge: 51, planEndAge: 51 };
+  p.household.spouse = null;
+  p.portfolio.accounts.taxable.balance = 0;
+  p.portfolio.accounts.traditional.balance = 0;
+  p.portfolio.accounts.roth.balance = 0;
+  p.portfolio.extraAccounts = [
+    typedInvestmentAccount('401k', 'client-401k', 100_000, snapshotPresetAllocation('balanced')),
+    typedInvestmentAccount('401k', 'second-401k', 300_000, snapshotPresetAllocation('balanced')),
+    typedInvestmentAccount('traditional_ira', 'client-ira', 600_000, snapshotPresetAllocation('balanced')),
+  ];
+  p.savings.annual = 0;
+  p.expenses = {
+    living: 0, housing: 0, debt: 0, healthcare: 0,
+    healthcareRealGrowth: 0, extra: [],
+  };
+  p.goals = [];
+  p.liabilities = [];
+  p.properties = [];
+  p.ltc = { amount: 0, onsetAge: 99 };
+
+  const params = resolveInputs(p, {
+    savingsAnnual: 40_000,
+    savingsSplit: { traditional: 1 },
+  });
+  const result = runSinglePath(params, [
+    flatAssetReturnRow(2026),
+    flatAssetReturnRow(2027),
+  ]);
+
+  const first = result.rows[0];
+  assert.deepEqual(first.accountContributionsById, {
+    'base-taxable': 0,
+    'base-traditional': 0,
+    'base-roth': 0,
+    'client-401k': 10_000,
+    'second-401k': 30_000,
+    'client-ira': 0,
+  });
+  assert.equal(first.accountBalancesById['client-401k'], 110_000);
+  assert.equal(first.accountBalancesById['second-401k'], 330_000);
+  assert.equal(first.accountBalancesById['client-ira'], 600_000);
+  assert.equal(first.accountBalances.traditional, 1_040_000);
+  assert.equal(first.accountBalancesById['base-taxable'], 0);
+  assert.equal(first.accountBalancesById['base-traditional'], 0);
+  assert.equal(first.accountBalancesById['base-roth'], 0);
 });
 
 test('federal funding rejects non-finite spending inputs before convergence', () => {
@@ -1254,7 +1350,7 @@ test('converged age-68 cash-flow row funds the visible federal-tax identity', ()
   p.ltc = { amount: 0, onsetAge: 99 };
 
   const params = resolveInputs(p, {});
-  const result = runSinglePath(params, [{ y: 2026, proxyReturn: 0 }], {
+  const result = runSinglePath(params, [flatAssetReturnRow(2026)], {
     taxPolicy: () => 30_000,
     fundTaxPolicyDelta: true,
   });
@@ -1311,7 +1407,7 @@ test('converged taxable funding rebuilds exact final gain facts from the opening
   p.ltc = { amount: 0, onsetAge: 99 };
 
   const params = resolveInputs(p, {});
-  const result = runSinglePath(params, [{ y: 2025, proxyReturn: 0 }], {
+  const result = runSinglePath(params, [flatAssetReturnRow(2025)], {
     taxPolicy: (_row, { shortcutTax }) => shortcutTax + 200_000,
     fundTaxPolicyDelta: true,
   });
@@ -1364,8 +1460,8 @@ test('lower federal tax beyond a zero draw retains only the incremental saving a
   p.properties = [];
   p.ltc = { amount: 0, onsetAge: 99 };
   const params = resolveInputs(p, {});
-  const shortcut = runSinglePath(params, [{ y: 2026, proxyReturn: 0 }]);
-  const funded = runSinglePath(params, [{ y: 2026, proxyReturn: 0 }], {
+  const shortcut = runSinglePath(params, [flatAssetReturnRow(2026)]);
+  const funded = runSinglePath(params, [flatAssetReturnRow(2026)], {
     taxPolicy: () => 0,
     fundTaxPolicyDelta: true,
   });
@@ -1400,8 +1496,8 @@ test('converged funding fails closed when a discontinuous tax policy has no fixe
   const params = resolveInputs(p, {});
 
   assert.throws(() => runSinglePath(params, [
-    { y: 2026, proxyReturn: 0 },
-    { y: 2027, proxyReturn: 0 },
+    flatAssetReturnRow(2026),
+    flatAssetReturnRow(2027),
   ], {
     taxPolicy: row => row.withdrawal > 12_000 ? 0 : 5_000,
     fundTaxPolicyDelta: true,
@@ -1922,10 +2018,10 @@ test('a missing Social Security claim age leaves that benefit blank without bloc
     householdIncomeAtYear(resolved, 0).socialSecurityBenefits,
     null,
   );
-  const path = Array.from({ length: resolved.horizonYears }, (_, index) => ({
-    y: 2026 + index,
-    proxyReturn: 0,
-  }));
+  const path = Array.from(
+    { length: resolved.horizonYears },
+    (_, index) => flatAssetReturnRow(2026 + index),
+  );
   assert.ok(Number.isFinite(runSimulation(p, {}, [path]).successRate));
   assert.ok(runSinglePath(resolved, path).rows.length > 0);
   assert.ok(
@@ -2168,7 +2264,7 @@ test('RMD applicable age follows the owner birth cohort', () => {
 
   const rows = runSinglePath(
     resolveInputs(p, {}),
-    Array.from({ length: 11 }, () => ({ proxyReturn: 0 }))
+    Array.from({ length: 11 }, (_, index) => flatAssetReturnRow(2026 + index))
   ).rows;
   assert.strictEqual(rows.find(row => row.age === 73).rmdRequired, 0);
   assert.strictEqual(rows.find(row => row.age === 74).rmdRequired, 0);
@@ -3256,7 +3352,7 @@ test('simulation paths do not share owner buckets', () => {
   );
 });
 
-test('traditional contributions follow the owner-allocation policy', () => {
+test('traditional contributions ignore legacy owner hints and remain balance-proportional', () => {
   const accumulating = () => {
     const p = mfjTwoOwnerPlan();
     p.household.primary = { currentAge: 50, retirementAge: 60, planEndAge: 70, birthYear: 1976 };
@@ -3265,26 +3361,19 @@ test('traditional contributions follow the owner-allocation policy', () => {
     return p;
   };
 
-  const explicit = accumulating();
-  explicit.savings.split.byOwner = { client: 1, spouse: 0 };
-  assert.ok(runSinglePath(resolveInputs(explicit, {}), generateReturnPath(25)).rows.length > 0);
+  const baseline = accumulating();
+  const legacyHint = accumulating();
+  legacyHint.savings.split.byOwner = { client: 1, spouse: 0 };
+  const horizon = resolveInputs(baseline, {}).horizonYears;
+  const path = Array.from({ length: horizon }, (_, index) => flatAssetReturnRow(2026 + index));
+  const withoutHint = runSinglePath(resolveInputs(baseline, {}), path).rows[0];
+  const withHint = runSinglePath(resolveInputs(legacyHint, {}), path).rows[0];
 
-  // No explicit split, but existing attributable balances give a proportion.
-  assert.ok(runSinglePath(resolveInputs(accumulating(), {}), generateReturnPath(25)).rows.length > 0);
-
-  // Nothing to prorate from and a co-client present: the contribution is
-  // unattributed rather than invented as 50/50 or defaulted to the client, and
-  // it fails closed once an RMD would depend on it.
-  const orphan = accumulating();
-  orphan.portfolio.extraAccounts = [];
-  // Still working, so contributions actually accumulate, and old enough that an
-  // RMD comes due on that unattributed money before the plan ends.
-  orphan.household.primary = { currentAge: 70, retirementAge: 80, planEndAge: 82, birthYear: 1956 };
-  orphan.household.spouse  = { currentAge: 70, retirementAge: 80, planEndAge: 82, birthYear: 1956 };
-  const r = resolveInputs(orphan, {});
-  const res = runSimulation(orphan, {}, [generateReturnPath(r.horizonYears, r.portfolio)]);
-  assert.strictEqual(res.projectionStatus, 'unavailable');
-  assert.strictEqual(res.successRate, null, 'never a percentage on unresolved ownership');
+  assert.deepStrictEqual(
+    withHint.traditionalEndingBalancesByOwner,
+    withoutHint.traditionalEndingBalancesByOwner,
+    'legacy owner hints do not override account-balance contribution shares',
+  );
 });
 
 test('accumulation rows report exact Traditional ending balances by owner', () => {
@@ -3305,13 +3394,13 @@ test('accumulation rows report exact Traditional ending balances by owner', () =
 
   const inputs = resolveInputs(p, {});
   const row = runSinglePath(inputs, [
-    { y: 2026, proxyReturn: 0 },
-    { y: 2027, proxyReturn: 0 },
+    flatAssetReturnRow(2026),
+    flatAssetReturnRow(2027),
   ]).rows[0];
 
   assert.deepStrictEqual(row.traditionalEndingBalancesByOwner, {
-    client: 3_012_000,
-    spouse: 2_000_000,
+    client: 3_007_200,
+    spouse: 2_004_800,
     unattributed: 0,
   });
   assert.equal(
@@ -3388,10 +3477,7 @@ test('a heavy-withdrawal projection cannot corrupt a later untouched one', () =>
   );
 });
 
-test('projection assumptions are surfaced, not held privately', () => {
-  // A prorated contribution owner is an assumption the projection had to make.
-  // It has to reach the caller — a number that quietly depends on a guess is
-  // the failure mode this whole change exists to remove.
+test('balance-proportional contributions do not surface a guessed-owner assumption', () => {
   const p = mfjTwoOwnerPlan();
   p.household.primary = { currentAge: 50, retirementAge: 60, planEndAge: 70, birthYear: 1976 };
   p.household.spouse  = { currentAge: 50, retirementAge: 60, planEndAge: 70, birthYear: 1976 };
@@ -3401,21 +3487,24 @@ test('projection assumptions are surfaced, not held privately', () => {
   resetSeed();
   const sim = runSinglePath(r, generateReturnPath(r.horizonYears, r.portfolio));
   assert.ok(Array.isArray(sim.assumptions), 'each path reports its assumptions');
-  assert.ok(sim.assumptions.includes('TRADITIONAL_CONTRIBUTION_OWNER_PRORATED'),
-    'the prorated contribution owner is recorded');
+  assert.ok(!sim.assumptions.includes('TRADITIONAL_CONTRIBUTION_OWNER_PRORATED'),
+    'account-balance allocation is a deterministic mechanic, not a guessed owner');
 
   resetSeed();
   const analysis = runSimulation(p, {}, [generateReturnPath(r.horizonYears, r.portfolio)]);
-  assert.ok(analysis.assumptions.includes('TRADITIONAL_CONTRIBUTION_OWNER_PRORATED'),
-    'and reaches the analysis the UI consumes');
+  assert.ok(!analysis.assumptions.includes('TRADITIONAL_CONTRIBUTION_OWNER_PRORATED'),
+    'analysis does not revive the retired owner-allocation assumption');
 
   // An explicit per-owner split is determinate, so it carries no assumption.
   const explicit = structuredClone(p);
   explicit.savings.split.byOwner = { client: 1, spouse: 0 };
   resetSeed();
   const clean = runSinglePath(resolveInputs(explicit, {}), generateReturnPath(25));
-  assert.ok(!clean.assumptions.includes('TRADITIONAL_CONTRIBUTION_OWNER_PRORATED'),
-    'an explicit allocation is a fact, not an assumption');
+  assert.deepStrictEqual(
+    clean.rows[0].traditionalEndingBalancesByOwner,
+    sim.rows[0].traditionalEndingBalancesByOwner,
+    'legacy owner hints do not alter the account ledger',
+  );
 });
 
 /* Spending lives on the Goals page.
@@ -3556,4 +3645,197 @@ test('the essentials override works from a zero base', () => {
     .goals.find(g => g.system === 'essentials');
   assert.ok(essentials, 'an essentials goal exists for the override to land on');
   assert.strictEqual(essentials.amount, 72000);
+});
+
+test('return observations, selected path years, and the ordinary simulation core remain frozen', () => {
+  assert.strictEqual(
+    hashJson(RETURN_DATA),
+    '4a4fa018fe4d1542ea0fcc5d3d1502103db7d84552334c0a8ff376e6c9e4ccc3',
+  );
+  const paths = {};
+  for(const seed of [1, 20260615]){
+    for(const horizon of [1, 30, 100]){
+      resetSeed(seed);
+      paths[`${seed}:${horizon}`] = generateReturnPath(horizon).map(row => row.y);
+    }
+  }
+  assert.strictEqual(
+    hashJson(paths),
+    '00b62892a094acf2a5314b80287bcbf26847ca794b3fdbb095b6ef0cc4047e55',
+  );
+
+  const p = structuredClone(defaultPlan);
+  p.simulation.iterations = 1;
+  const inputs = resolveInputs(p, {});
+  resetSeed(20260615);
+  const sim = runSinglePath(inputs, generateReturnPath(inputs.horizonYears));
+  const core = sim.rows.map(row => ({
+    year: row.year,
+    age: row.age,
+    source: row.source,
+    returnRate: row.returnRate,
+    startBalance: row.startBalance,
+    balance: row.balance,
+    failed: row.failed,
+  }));
+  assert.strictEqual(
+    hashJson(core),
+    'a49159533003af4ef4be7c6c2b6696f3f78a6b9d724060d860235074b5cfb6d5',
+  );
+});
+
+test('explicit custom weights equal to the legacy profile preserve Monte Carlo numeric results', () => {
+  const legacyPlan = structuredClone(defaultPlan);
+  const legacyAllocation = snapshotLegacyRiskProfileAllocation(legacyPlan.portfolio.riskProfile);
+  const customAllocation = withCustomAssetWeights(
+    legacyAllocation,
+    { ...legacyAllocation.weights },
+  );
+  const currentPlan = currentAllocationPlan();
+  currentPlan.portfolio.accounts.taxable.balance = 0;
+  currentPlan.portfolio.accounts.traditional.balance = 0;
+  currentPlan.portfolio.accounts.roth.balance = 0;
+  const taxable = typedInvestmentAccount(
+    'brokerage_taxable',
+    'custom-taxable',
+    2000000,
+    customAllocation,
+  );
+  taxable.basis = {
+    amount: 1000000,
+    method: 'reported-cost-basis',
+    status: 'confirmed',
+    source: 'household-entry',
+    confirmedAt: '2026-08-25T12:00:00.000Z',
+    version: 1,
+  };
+  currentPlan.portfolio.extraAccounts = [
+    taxable,
+    typedInvestmentAccount('traditional_ira', 'custom-traditional', 2000000, customAllocation),
+    typedInvestmentAccount('roth_ira', 'custom-roth', 1000000, customAllocation),
+  ];
+  const legacyInputs = resolveInputs(legacyPlan, {});
+  const currentInputs = resolveInputs(currentPlan, {});
+  resetSeed(90317);
+  const path = generateReturnPath(legacyInputs.horizonYears);
+  const legacy = runSinglePath(legacyInputs, path);
+  const current = runSinglePath(currentInputs, path);
+  const numericCore = sim => sim.rows.map(row => ({
+    source: row.source,
+    returnRate: row.returnRate,
+    returnDollars: row.returnDollars,
+    startBalance: row.startBalance,
+    withdrawal: row.withdrawal,
+    taxableCapitalGain: row.taxableCapitalGain,
+    balance: row.balance,
+    failed: row.failed,
+  }));
+
+  assert.deepStrictEqual(numericCore(current), numericCore(legacy));
+  assert.strictEqual(current.terminalBalance, legacy.terminalBalance);
+});
+
+test('historical playback uses one eight-class row with each account saved allocation', () => {
+  const p = currentAllocationPlan();
+  p.portfolio.accounts.taxable.balance = 0;
+  p.portfolio.accounts.traditional.balance = 0;
+  p.portfolio.accounts.roth.balance = 0;
+  p.portfolio.extraAccounts = [
+    typedInvestmentAccount('brokerage_taxable', 'custom-taxable', 2000000, oneAssetAllocation('usLarge')),
+    typedInvestmentAccount('traditional_ira', 'custom-traditional', 2000000, oneAssetAllocation('usBonds')),
+    typedInvestmentAccount('roth_ira', 'custom-roth', 1000000, oneAssetAllocation('cash')),
+  ];
+  const result = runHistoricalPath(p, 2024, 'taxable-first');
+  const first = result.rows[0];
+  const source = RETURN_DATA.find(row => row.y === 2024);
+
+  assert.strictEqual(first.source, 2024);
+  assert.strictEqual(first.accountReturns['custom-taxable'].sourceYear, 2024);
+  assert.strictEqual(first.accountReturns['custom-traditional'].sourceYear, 2024);
+  assert.strictEqual(first.accountReturns['custom-roth'].sourceYear, 2024);
+  assert.strictEqual(first.accountReturns['custom-taxable'].baseRealReturn, source.usLarge);
+  assert.strictEqual(first.accountReturns['custom-traditional'].baseRealReturn, source.usBonds);
+  assert.strictEqual(first.accountReturns['custom-roth'].baseRealReturn, source.cash);
+  assert.ok(Math.abs(first.returnDollars - Object.values(first.accountReturns)
+    .reduce((sum, accountReturn) => sum + accountReturn.returnDollars, 0)) < 1e-9);
+});
+
+test('1973 historical playback redistributes the Growth preset only within its unavailable sleeve', () => {
+  const p = currentAllocationPlan();
+  p.portfolio.accounts.taxable.balance = 0;
+  p.portfolio.accounts.traditional.balance = 0;
+  p.portfolio.accounts.roth.balance = 0;
+  p.portfolio.extraAccounts = [
+    typedInvestmentAccount(
+      'brokerage_taxable',
+      'growth-account',
+      1000000,
+      snapshotPresetAllocation('growth'),
+    ),
+  ];
+
+  const result = runHistoricalPath(p, 1973, 'taxable-first');
+  const first = result.rows[0];
+  const source = RETURN_DATA.find(row => row.y === 1973);
+  const accountReturn = first.accountReturns['growth-account'];
+  const expectedEffectiveWeights = {
+    usLarge: 0.60,
+    usSmall: 0.15,
+    intlDev: 0,
+    emerging: 0,
+    usBonds: 0.20,
+    cash: 0.02,
+    reit: 0,
+    gold: 0.03,
+  };
+  const expectedReturn = Object.entries(expectedEffectiveWeights)
+    .reduce((sum, [key, weight]) => sum + weight * (source[key] ?? 0), 0);
+
+  assert.strictEqual(first.source, 1973);
+  assert.deepStrictEqual(accountReturn.requestedWeights, {
+    usLarge: 0.36,
+    usSmall: 0.09,
+    intlDev: 0.21,
+    emerging: 0.05,
+    usBonds: 0.20,
+    cash: 0.02,
+    reit: 0.04,
+    gold: 0.03,
+  });
+  assert.deepStrictEqual(accountReturn.unavailableAssetKeys, [
+    'intlDev',
+    'emerging',
+    'reit',
+  ]);
+  assert.strictEqual(accountReturn.redistributionKind, 'within-sleeve');
+  for(const [key, expected] of Object.entries(expectedEffectiveWeights)){
+    assert.ok(Math.abs(accountReturn.effectiveWeights[key] - expected) < 1e-12);
+    assert.ok(
+      Math.abs(first.householdEffectiveAllocation.effectiveWeights[key] - expected) < 1e-12,
+    );
+  }
+  assert.ok(Math.abs(accountReturn.baseRealReturn - expectedReturn) < 1e-12);
+  assert.ok(Math.abs(accountReturn.returnDollars - 1000000 * expectedReturn) < 1e-9);
+  assert.ok(Math.abs(first.returnDollars - accountReturn.returnDollars) < 1e-9);
+  assert.ok(Math.abs(first.returnRate - expectedReturn) < 1e-12);
+});
+
+test('a typed bank account earns cash while return adjustment remains separate', () => {
+  const p = currentAllocationPlan();
+  p.portfolio.accounts.taxable.balance = 0;
+  p.portfolio.accounts.traditional.balance = 0;
+  p.portfolio.accounts.roth.balance = 0;
+  const bank = createAccount('savings', { owner: 'client', balance: 100000 });
+  bank.id = 'bank-cash';
+  p.portfolio.extraAccounts = [bank];
+  p.household.primary.planEndAge = p.household.primary.currentAge;
+  const inputs = resolveInputs(p, { returnAdj: 1 });
+  const source = RETURN_DATA.find(row => row.y === 2024);
+  const result = runSinglePath(inputs, [source]);
+  const accountReturn = result.rows[0].accountReturns['bank-cash'];
+
+  assert.strictEqual(accountReturn.baseRealReturn, source.cash);
+  assert.strictEqual(accountReturn.returnAdj, 0.01);
+  assert.ok(Math.abs(accountReturn.appliedReturn - (source.cash + 0.01)) < 1e-12);
+  assert.strictEqual(result.rows[0].returnRate, accountReturn.appliedReturn);
 });

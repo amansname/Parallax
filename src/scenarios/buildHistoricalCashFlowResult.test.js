@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { defaultPlan, resolveInputs, runSimulation } from '../../engine.js';
+import { flatAssetReturnRow } from '../../test/fixtures/assetReturnRows.js';
 import { createAccount } from '../household/createAccount.js';
 import {
   buildHistoricalCashFlowResult,
@@ -38,10 +39,10 @@ function fixture({ taxableBalance = 50_000, annualNeed = 100_000 } = {}){
   plan.ltc = { amount: 0, onsetAge: 99 };
 
   const params = resolveInputs(plan, {});
-  const returnPath = Array.from({ length: params.horizonYears }, (_, index) => ({
-    y: 1995 + index,
-    proxyReturn: 0,
-  }));
+  const returnPath = Array.from(
+    { length: params.horizonYears },
+    (_, index) => flatAssetReturnRow(1995 + index),
+  );
   const analysis = runSimulation(plan, {}, [returnPath]);
   return { plan, analysis };
 }
@@ -88,10 +89,10 @@ function spouseRolloverFixture(){
   plan.ltc = { amount: 0, onsetAge: 99 };
 
   const params = resolveInputs(plan, {});
-  const returnPath = Array.from({ length: params.horizonYears }, (_, index) => ({
-    y: 1995 + index,
-    proxyReturn: 0,
-  }));
+  const returnPath = Array.from(
+    { length: params.horizonYears },
+    (_, index) => flatAssetReturnRow(1995 + index),
+  );
   const analysis = runSimulation(plan, {}, [returnPath]);
   return { plan, analysis };
 }

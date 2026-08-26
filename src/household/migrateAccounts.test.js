@@ -16,6 +16,7 @@ import {
 } from './factEnvelope.js';
 import {
   ACCOUNT_SCHEMA_VERSION_UNSUPPORTED,
+  LEGACY_BASE_ACCOUNT_IDS,
   deriveHouseholdIssues,
   deterministicLegacyAccountId,
   mergeNonAccountDefaults,
@@ -23,6 +24,14 @@ import {
   migrateHouseholdsDb,
   validateCurrentSchemaHousehold,
 } from './migrateAccounts.js';
+import {
+  INVALID_ASSET_WEIGHTS,
+  ASSET_ALLOCATION_PRESET_CATALOG_ID,
+  resolveCashOnlyAllocation,
+  snapshotPresetAllocation,
+  snapshotLegacyRiskProfileAllocation,
+  withCustomAssetWeights,
+} from './investmentAllocation.js';
 import {
   createMemoryStorage,
   prepareHouseholdStore,
@@ -32,7 +41,17 @@ import {
   ACTIVE_KEY,
 } from './persistence.js';
 
-const pristinePlan = { meta: {}, household: { primary: { currentAge: 60, retirementAge: 65, planEndAge: 90 } }, portfolio: { accounts: { taxable: { balance: 0, basisPct: 1 }, traditional: { balance: 0 }, roth: { balance: 0 } }, extraAccounts: [] }, income: {}, expenses: {}, savings: {}, simulation: {} };
+const LEGACY_RISK_PROFILE = 3;
+
+function baseSleeve(bucket, values){
+  return {
+    id: LEGACY_BASE_ACCOUNT_IDS[bucket],
+    ...values,
+    investmentAllocation: snapshotLegacyRiskProfileAllocation(LEGACY_RISK_PROFILE),
+  };
+}
+
+const pristinePlan = { meta: {}, household: { primary: { currentAge: 60, retirementAge: 65, planEndAge: 90 } }, portfolio: { riskProfile: LEGACY_RISK_PROFILE, accounts: { taxable: baseSleeve('taxable', { balance: 0, basisPct: 1 }), traditional: baseSleeve('traditional', { balance: 0 }), roth: baseSleeve('roth', { balance: 0 }) }, extraAccounts: [] }, income: {}, expenses: {}, savings: {}, simulation: {} };
 
 function createBlankHousehold(id){
   const p = JSON.parse(JSON.stringify(pristinePlan));
@@ -52,6 +71,7 @@ function createLegacyHousehold(id = 'hh1', extraAccounts = []){
   return {
     meta: { householdId: id },
     portfolio: {
+      riskProfile: LEGACY_RISK_PROFILE,
       accounts: {
         taxable: { balance: 0, basisPct: 1 },
         traditional: { balance: 0 },
@@ -108,6 +128,23 @@ test('getWizardAccountTypes exposes the approved grouped account choices in orde
   ]);
 });
 
+test('registry marks only the locked canonical account IDs as allocation eligible', () => {
+  const eligibleIds = getAccountTypeRegistry()
+    .filter(type => type.investmentAllocationEligible)
+    .map(type => type.id);
+  assert.deepEqual(eligibleIds, [
+    'brokerage_taxable', 'joint_brokerage', 'trust_brokerage', 'tod_brokerage',
+    'traditional_ira', 'rollover_ira', 'sep_ira', 'simple_ira',
+    'inherited_traditional_ira', '401k', '403b', '457', '401a', 'tsp',
+    'solo_401k', 'qualified_plan', 'roth_ira', 'inherited_roth_ira',
+    'roth_401k', 'roth_403b', 'roth_457', 'roth_tsp', 'hsa', 'legacy_529',
+  ]);
+  assert.deepEqual(
+    getAccountTypeRegistry().filter(type => !type.investmentAllocationEligible).map(type => type.id),
+    ['checking', 'savings', 'money_market', 'certificate_of_deposit'],
+  );
+});
+
 test('createFact preserves explicit status and confirmed empty arrays count', () => {
   const fact = createFact([], 'confirmed', 'household-entry', '2026-01-01T00:00:00.000Z');
   assert.equal(fact.status, 'confirmed');
@@ -161,6 +198,35 @@ test('createAccount rejects explicit nonnumeric values, nulls, invalid owners, a
   assert.equal(createAccount('brokerage_taxable', { valuationDate: '2024-02-29' }).valuationDate, '2024-02-29');
 });
 
+test('new accounts persist explicit Balanced or cash-only allocation without a runtime fallback', () => {
+  const eligible = createAccount('roth_ira');
+  assert.deepEqual(eligible.investmentAllocation, snapshotPresetAllocation('balanced'));
+  assert.equal(eligible.investmentAllocation.presetVersion, ASSET_ALLOCATION_PRESET_CATALOG_ID);
+
+  const bank = createAccount('savings');
+  assert.deepEqual(bank.investmentAllocation, resolveCashOnlyAllocation());
+  assert.throws(
+    () => createAccount('savings', { investmentAllocation: snapshotPresetAllocation('balanced') }),
+    /cash-only/i,
+  );
+  assert.throws(
+    () => createAccount('roth_ira', { investmentAllocation: { weights: {} } }),
+    error => error?.code === INVALID_ASSET_WEIGHTS,
+  );
+
+  const allCashWeights = Object.fromEntries(
+    Object.keys(snapshotPresetAllocation('balanced').weights).map(key => [key, key === 'cash' ? 1 : 0]),
+  );
+  const explicitCustom = withCustomAssetWeights(snapshotPresetAllocation('balanced'), allCashWeights);
+  const customAccount = createAccount('roth_ira', { investmentAllocation: explicitCustom });
+  assert.deepEqual(customAccount.investmentAllocation, explicitCustom);
+  assert.equal(customAccount.investmentAllocation.source, 'custom');
+  assert.throws(
+    () => createAccount('roth_ira', { investmentAllocation: resolveCashOnlyAllocation() }),
+    /reserved|require/i,
+  );
+});
+
 test('every registered account constructor emits its complete canonical shape', () => {
   for(const entry of getAccountTypeRegistry()){
     const account = createAccount(entry.id);
@@ -188,6 +254,7 @@ test('invalid legacy balance fails migration instead of becoming zero', () => {
   const legacy = {
     meta: { householdId: 'hh1' },
     portfolio: {
+      riskProfile: LEGACY_RISK_PROFILE,
       accounts: { taxable: { balance: 0, basisPct: 1 }, traditional: { balance: 0 }, roth: { balance: 0 } },
       extraAccounts: [{ type: 'Brokerage (taxable)', bucket: 'taxable', owner: 'client', balance: -5 }],
     },
@@ -199,6 +266,7 @@ test('legacy missing balance fails migration instead of becoming zero', () => {
   const legacy = {
     meta: { householdId: 'hh1' },
     portfolio: {
+      riskProfile: LEGACY_RISK_PROFILE,
       accounts: { taxable: { balance: 0, basisPct: 1 }, traditional: { balance: 0 }, roth: { balance: 0 } },
       extraAccounts: [{ type: 'HSA', bucket: 'roth', owner: 'client' }],
     },
@@ -374,6 +442,7 @@ test('v1 account validation requires every persisted account field', () => {
   const requiredFields = [
     'id', 'typeId', 'type', 'owner', 'bucket', 'balance', 'valuationDate',
     'basis', 'taxReporting', 'employerPlanFacts', 'designatedRothFacts',
+    'investmentAllocation',
   ];
   for(const field of requiredFields){
     const plan = createBlankHousehold(`field-${field}`);
@@ -461,7 +530,7 @@ test('invalid present schema versions block and do not mutate input', () => {
 
 test('future schema version blocks without mutation', () => {
   const future = createBlankHousehold('hh1');
-  future.meta.accountSchemaVersion = 2;
+  future.meta.accountSchemaVersion = ACCOUNT_SCHEMA_VERSION + 1;
   const before = structuredClone(future);
   const result = migrateHouseholdsDb({ hh1: future });
   assert.equal(result.ok, false);
@@ -473,6 +542,7 @@ test('mixed valid and malformed database is rejected as a whole', () => {
   const good = {
     meta: { householdId: 'good' },
     portfolio: {
+      riskProfile: LEGACY_RISK_PROFILE,
       accounts: { taxable: { balance: 0, basisPct: 1 }, traditional: { balance: 0 }, roth: { balance: 0 } },
       extraAccounts: [{ type: 'HSA', bucket: 'roth', owner: 'client', balance: 1000 }],
     },
@@ -504,10 +574,115 @@ test('multiple valid legacy households migrate atomically together', () => {
   const result = migrateHouseholdsDb(db);
   assert.equal(result.ok, true);
   assert.equal(result.changed, true);
-  assert.equal(result.db.one.meta.accountSchemaVersion, 1);
-  assert.equal(result.db.two.meta.accountSchemaVersion, 1);
+  assert.equal(result.db.one.meta.accountSchemaVersion, ACCOUNT_SCHEMA_VERSION);
+  assert.equal(result.db.two.meta.accountSchemaVersion, ACCOUNT_SCHEMA_VERSION);
   assert.equal(result.db.one.portfolio.extraAccounts[0].balance, 100);
   assert.equal(result.db.two.portfolio.extraAccounts[0].balance, 200);
+});
+
+test('v1 migration snapshots exact legacy risk weights onto base and typed accounts', () => {
+  const plan = createBlankHousehold('v1-allocation');
+  plan.meta.accountSchemaVersion = 1;
+  plan.portfolio.riskProfile = 5;
+  for(const sleeve of Object.values(plan.portfolio.accounts)){
+    delete sleeve.id;
+    delete sleeve.investmentAllocation;
+  }
+  const typed = createAccount('401k', { balance: 250000 });
+  delete typed.investmentAllocation;
+  const bank = createAccount('savings', { balance: 10000 });
+  delete bank.investmentAllocation;
+  plan.portfolio.extraAccounts = [typed, bank];
+
+  const migrated = migrateHouseholdRecord(plan, 'v1-allocation');
+  const expected = snapshotLegacyRiskProfileAllocation(5);
+  assert.equal(migrated.changed, true);
+  assert.equal(migrated.plan.meta.accountSchemaVersion, ACCOUNT_SCHEMA_VERSION);
+  assert.deepEqual(migrated.plan.portfolio.accounts.taxable.investmentAllocation, expected);
+  assert.deepEqual(migrated.plan.portfolio.accounts.traditional.investmentAllocation, expected);
+  assert.deepEqual(migrated.plan.portfolio.accounts.roth.investmentAllocation, expected);
+  assert.deepEqual(migrated.plan.portfolio.extraAccounts[0].investmentAllocation, expected);
+  assert.deepEqual(migrated.plan.portfolio.extraAccounts[1].investmentAllocation, resolveCashOnlyAllocation());
+  assert.deepEqual(
+    Object.fromEntries(Object.entries(migrated.plan.portfolio.accounts).map(([key, value]) => [key, value.id])),
+    LEGACY_BASE_ACCOUNT_IDS,
+  );
+});
+
+test('legacy allocation migration fails closed without a valid risk profile', () => {
+  for(const riskProfile of [undefined, null, 0, 7, 3.5, '3']){
+    const legacy = createLegacyHousehold('invalid-risk', [
+      { type: 'Roth IRA', bucket: 'roth', owner: 'client', balance: 100 },
+    ]);
+    if(riskProfile === undefined) delete legacy.portfolio.riskProfile;
+    else legacy.portfolio.riskProfile = riskProfile;
+    const before = structuredClone(legacy);
+    const result = migrateHouseholdsDb({ 'invalid-risk': legacy });
+    assert.equal(result.ok, false);
+    assert.deepEqual(legacy, before);
+  }
+});
+
+test('unsupported positive engine accounts migrate with explicit review-required legacy allocation', () => {
+  const migrated = migrateHouseholdRecord(createLegacyHousehold('unsupported-allocation', [
+    { type: 'Mystery account', bucket: 'traditional', owner: 'client', balance: 500 },
+    { type: 'Unknown empty', owner: 'client', balance: 0 },
+  ]), 'unsupported-allocation').plan;
+  assert.deepEqual(
+    migrated.portfolio.extraAccounts[0].investmentAllocation,
+    snapshotLegacyRiskProfileAllocation(LEGACY_RISK_PROFILE),
+  );
+  assert.equal(migrated.portfolio.extraAccounts[0].investmentAllocation.reviewRequired, true);
+  assert.equal(migrated.portfolio.extraAccounts[1].investmentAllocation, null);
+});
+
+test('current schema fails closed when an explicit account allocation is missing or invalid', () => {
+  const missing = createBlankHousehold('missing-allocation');
+  const account = createAccount('brokerage_taxable', { balance: 100 });
+  delete account.investmentAllocation;
+  missing.portfolio.extraAccounts = [account];
+  assert.throws(
+    () => validateCurrentSchemaHousehold(missing, 'missing-allocation'),
+    /investmentAllocation.*required/i,
+  );
+
+  const invalid = createBlankHousehold('invalid-allocation');
+  invalid.portfolio.extraAccounts = [createAccount('brokerage_taxable', { balance: 100 })];
+  invalid.portfolio.extraAccounts[0].investmentAllocation = structuredClone(
+    invalid.portfolio.extraAccounts[0].investmentAllocation,
+  );
+  invalid.portfolio.extraAccounts[0].investmentAllocation.weights.usLarge = -1;
+  assert.throws(
+    () => validateCurrentSchemaHousehold(invalid, 'invalid-allocation'),
+    error => error?.code === INVALID_ASSET_WEIGHTS,
+  );
+
+  const cashOnlyEligible = createBlankHousehold('cash-only-eligible');
+  const eligible = createAccount('brokerage_taxable', { balance: 100 });
+  eligible.investmentAllocation = structuredClone(resolveCashOnlyAllocation());
+  cashOnlyEligible.portfolio.extraAccounts = [eligible];
+  assert.throws(
+    () => validateCurrentSchemaHousehold(cashOnlyEligible, 'cash-only-eligible'),
+    /cash-only provenance is reserved/i,
+  );
+
+  const nonCashBank = createBlankHousehold('non-cash-bank');
+  const bank = createAccount('savings', { balance: 100 });
+  bank.investmentAllocation = structuredClone(snapshotPresetAllocation('balanced'));
+  nonCashBank.portfolio.extraAccounts = [bank];
+  assert.throws(
+    () => validateCurrentSchemaHousehold(nonCashBank, 'non-cash-bank'),
+    /must be cash-only/i,
+  );
+
+  const unsupported = migrateHouseholdRecord(createLegacyHousehold('unsupported-current', [
+    { type: 'Mystery account', bucket: 'taxable', owner: 'client', balance: 100 },
+  ]), 'unsupported-current').plan;
+  unsupported.portfolio.extraAccounts[0].investmentAllocation = null;
+  assert.throws(
+    () => validateCurrentSchemaHousehold(unsupported, 'unsupported-current'),
+    error => error?.code === INVALID_ASSET_WEIGHTS,
+  );
 });
 
 test('duplicate account IDs fail validation', () => {
@@ -515,6 +690,44 @@ test('duplicate account IDs fail validation', () => {
   const plan = createBlankHousehold('hh1');
   plan.portfolio.extraAccounts = [{ ...acct }, { ...acct, balance: 2000 }];
   assert.throws(() => validateCurrentSchemaHousehold(plan, 'hh1'), /duplicate account id/i);
+});
+
+test('synthetic base account IDs are reserved across current and v1 migration paths', () => {
+  for(const reservedId of Object.values(LEGACY_BASE_ACCOUNT_IDS)){
+    const current = createBlankHousehold(`current-${reservedId}`);
+    const typed = createAccount('hsa', { owner: 'client', balance: 1000 });
+    typed.id = reservedId;
+    current.portfolio.extraAccounts = [typed];
+    assert.throws(
+      () => validateCurrentSchemaHousehold(current, `current-${reservedId}`),
+      new RegExp(`duplicate account id ${reservedId}`),
+    );
+
+    const unsupportedSource = createLegacyHousehold(`unsupported-${reservedId}`, [
+      { type: 'Mystery account', bucket: 'taxable', owner: 'client', balance: 100 },
+    ]);
+    const unsupported = migrateHouseholdRecord(unsupportedSource, `unsupported-${reservedId}`).plan;
+    unsupported.portfolio.extraAccounts[0].id = reservedId;
+    assert.throws(
+      () => validateCurrentSchemaHousehold(unsupported, `unsupported-${reservedId}`),
+      new RegExp(`duplicate account id ${reservedId}`),
+    );
+
+    const v1 = createBlankHousehold(`v1-${reservedId}`);
+    v1.meta.accountSchemaVersion = 1;
+    for(const sleeve of Object.values(v1.portfolio.accounts)){
+      delete sleeve.id;
+      delete sleeve.investmentAllocation;
+    }
+    const v1Typed = createAccount('roth_ira', { balance: 100 });
+    v1Typed.id = reservedId;
+    delete v1Typed.investmentAllocation;
+    v1.portfolio.extraAccounts = [v1Typed];
+    assert.throws(
+      () => migrateHouseholdRecord(v1, `v1-${reservedId}`),
+      new RegExp(`duplicate account id ${reservedId}`),
+    );
+  }
 });
 
 test('deriveHouseholdIssues reports overlap and bucket conflict without changing balances', () => {
@@ -569,6 +782,7 @@ test('write failure preserves original database and enters read-only clone', () 
   const legacy = {
     meta: { householdId: 'hh1' },
     portfolio: {
+      riskProfile: LEGACY_RISK_PROFILE,
       accounts: { taxable: { balance: 0, basisPct: 1 }, traditional: { balance: 0 }, roth: { balance: 0 } },
       extraAccounts: [{ type: 'HSA', bucket: 'roth', owner: 'client', balance: 5000 }],
     },
@@ -585,6 +799,7 @@ test('migration is idempotent after save/reload', () => {
   const legacy = {
     meta: { householdId: 'hh1' },
     portfolio: {
+      riskProfile: LEGACY_RISK_PROFILE,
       accounts: { taxable: { balance: 0, basisPct: 1 }, traditional: { balance: 0 }, roth: { balance: 0 } },
       extraAccounts: [{ type: 'Brokerage (taxable)', bucket: 'taxable', owner: 'client', balance: 100000 }],
     },

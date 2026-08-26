@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { ACCOUNT_SCHEMA_VERSION } from './accountTypes.js';
 import { bindHouseholdEditor } from './commit.js';
 import { createAccount } from './createAccount.js';
+import { snapshotLegacyRiskProfileAllocation } from './investmentAllocation.js';
+import { LEGACY_BASE_ACCOUNT_IDS } from './migrateAccounts.js';
 import { createBlankTaxProfiles } from './factEnvelope.js';
 import { HOUSEHOLD_RECORD_SCHEMA_VERSION } from './householdRecordSchema.js';
 import { createEmptyNetWorthRecords } from './netWorthRecords.js';
@@ -12,6 +14,7 @@ import {
 } from './wizardEdits.js';
 
 function plan(){
+  const legacyAllocation = snapshotLegacyRiskProfileAllocation(3);
   return {
     meta: {
       householdId: 'hh_edits',
@@ -34,10 +37,11 @@ function plan(){
       children: [],
     },
     portfolio: {
+      riskProfile: 3,
       accounts: {
-        taxable: { balance: 0, basisPct: 1 },
-        traditional: { balance: 0 },
-        roth: { balance: 0 },
+        taxable: { id: LEGACY_BASE_ACCOUNT_IDS.taxable, balance: 0, basisPct: 1, investmentAllocation: structuredClone(legacyAllocation) },
+        traditional: { id: LEGACY_BASE_ACCOUNT_IDS.traditional, balance: 0, investmentAllocation: structuredClone(legacyAllocation) },
+        roth: { id: LEGACY_BASE_ACCOUNT_IDS.roth, balance: 0, investmentAllocation: structuredClone(legacyAllocation) },
       },
       extraAccounts: [],
     },

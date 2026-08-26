@@ -6,6 +6,30 @@ import {
 import { getAccountTypeById } from './src/household/accountTypes.js';
 import { normalizedIncomeSource } from './src/household/incomeTaxModel.js';
 import { goalsFromLegacyExpenses } from './src/household/migrateSpendingToGoals.js';
+import {
+  ASSET_KEYS,
+  ASSET_META,
+} from './src/household/investmentAllocation.js';
+import {
+  RETURN_SERIES_PROVENANCE,
+  weightedAssetReturn,
+} from './src/projection/portfolioReturns.js';
+import {
+  accountBalancesById,
+  addProjectionCash,
+  aggregateProjectionAccounts,
+  applyDirectBucketWithdrawal,
+  applyProjectionContributions,
+  applyProjectionOwnerRmd,
+  applyProjectionYearReturnsAndWithdrawals,
+  buildProjectionAccountLedger,
+  cloneProjectionAccountLedger,
+  fundProjectionGap,
+  resolveProjectionReturnFrame,
+  rolloverProjectionAccounts,
+  syncProjectionAggregates,
+  zeroProjectionAccounts,
+} from './src/projection/accountLedger.js';
 
 /* ============================================================================
    PARALLAX ENGINE  —  the heart of the model. Treat as SACRED.
@@ -102,27 +126,6 @@ function fundGap(accounts, gap, taxRates, strategy = 'taxable-first'){
     taxBySource,
     shortfall: Math.max(0, remainingNeed)
   };
-}
-
-function historicalProxyComponents(row, riskProfile){
-  const alloc = HISTORICAL_PROXY_ALLOC[riskProfile] || HISTORICAL_PROXY_ALLOC[3];
-  const n = HISTORICAL_NOMINAL_RETURNS[row.y];
-  if(!n){
-    const fallbackReal = weightedAssetReturn(row, RISK_PROFILES[riskProfile || 3].weights);
-    return { nominal:null, inflation:null, real:fallbackReal, source:'fallback' };
-  }
-
-  const nominal = alloc.stock * n.stock + alloc.bond * n.bond;
-  // Derive inflation/deflation from the same nominal S&P series and the file's
-  // real U.S. large-cap series. This keeps the bridge internally reconcilable:
-  // real = (1 + nominal) / (1 + inflation) - 1.
-  const inflation = (row.usLarge != null && (1 + row.usLarge) !== 0)
-    ? ((1 + n.stock) / (1 + row.usLarge)) - 1
-    : null;
-  const real = inflation != null
-    ? ((1 + nominal) / (1 + inflation)) - 1
-    : ((row.usLarge != null && row.usBonds != null) ? (alloc.stock * row.usLarge + alloc.bond * row.usBonds) : weightedAssetReturn(row, RISK_PROFILES[riskProfile || 3].weights));
-  return { nominal, inflation, real, stockNominal:n.stock, bondNominal:n.bond, source:'Damodaran nominal + derived CPI bridge' };
 }
 
 /* hoisted module constants the engine depends on */
@@ -246,18 +249,6 @@ const RETURN_DATA = [
 ];
 
 // ─── SECTION 2 — ASSET CLASS DEFINITIONS ─────────────────────────────────
-const ASSET_META = {
-  usLarge:  { label:'US Large Cap',     ticker:'VFIAX', bucket:'growth',     era:'full' },
-  usSmall:  { label:'US Small Cap',     ticker:'VSMAX', bucket:'growth',     era:'full' },
-  intlDev:  { label:"Int'l Developed",  ticker:'VTMGX', bucket:'growth',     era:'post1985' },
-  emerging: { label:'Emerging Markets', ticker:'VEMAX', bucket:'growth',     era:'post1985' },
-  usBonds:  { label:'US Bonds',         ticker:'VBTLX', bucket:'defensive',  era:'full' },
-  cash:     { label:'Cash · T-Bill',    ticker:'VUSXX', bucket:'cash',       era:'full' },
-  reit:     { label:'REIT',             ticker:'VGSLX', bucket:'growth',     era:'post1985' },
-  gold:     { label:'Gold',             ticker:'IAU',   bucket:'diversifier',era:'full' }
-};
-const ASSET_KEYS = Object.keys(ASSET_META);
-
 // Equity (growth) and defensive sleeve mixes — renormalized for 8-asset universe.
 const EQUITY_MIX = {
   usLarge: .50, usSmall: .10, intlDev: .22, emerging: .08, reit: .10
@@ -280,61 +271,6 @@ const RISK_PROFILES = {
   4: { label:'Growth',         alloc:'75.00% Growth · 25.00% Defensive', eq:.75000, fi:.25000, weights:buildAssetWeights(.75000) },
   5: { label:'Aggressive',     alloc:'90.00% Growth · 10.00% Defensive', eq:.90000, fi:.10000, weights:buildAssetWeights(.90000) },
   6: { label:'All Equity',     alloc:'100.00% Growth · 0.00% Defensive', eq:1.00000, fi:.00000, weights:buildAssetWeights(1.00000) }
-};
-
-// Historical Playback uses a clean U.S. stock / U.S. bond proxy rather than the
-// full modern asset-class blend. This is intentionally simpler and more
-// defensible for early historical periods: R3 = 60/40 stock/bond, with R1 at
-// 30/70 and R6 at 100% equity.
-const HISTORICAL_PROXY_ALLOC = {
-  1: { stock:.30, bond:.70 },
-  2: { stock:.45, bond:.55 },
-  3: { stock:.60, bond:.40 },
-  4: { stock:.75, bond:.25 },
-  5: { stock:.90, bond:.10 },
-  6: { stock:1.00, bond:.00 }
-};
-
-
-// Nominal stock/bond returns for historical playback bridge.
-// Source: Aswath Damodaran, Historical Returns on Stocks, Bonds and Bills, 1928-2025.
-// Columns used: S&P 500 (includes dividends), US T. Bond (10-year).
-// Inflation is derived by reconciling the nominal S&P return with the existing real-return
-// US large-cap series: inflation = (1 + nominal S&P) / (1 + real US large-cap) - 1.
-const HISTORICAL_NOMINAL_RETURNS = {
-  1928:{stock:.4381,bond:.0084}, 1929:{stock:-.0830,bond:.0420}, 1930:{stock:-.2512,bond:.0454},
-  1931:{stock:-.4384,bond:-.0256}, 1932:{stock:-.0864,bond:.0879}, 1933:{stock:.4998,bond:.0186},
-  1934:{stock:-.0119,bond:.0796}, 1935:{stock:.4674,bond:.0447}, 1936:{stock:.3194,bond:.0502},
-  1937:{stock:-.3534,bond:.0138}, 1938:{stock:.2928,bond:.0421}, 1939:{stock:-.0110,bond:.0441},
-  1940:{stock:-.1067,bond:.0540}, 1941:{stock:-.1277,bond:-.0202}, 1942:{stock:.1917,bond:.0229},
-  1943:{stock:.2506,bond:.0249}, 1944:{stock:.1903,bond:.0258}, 1945:{stock:.3582,bond:.0380},
-  1946:{stock:-.0843,bond:.0313}, 1947:{stock:.0520,bond:.0092}, 1948:{stock:.0570,bond:.0195},
-  1949:{stock:.1830,bond:.0466}, 1950:{stock:.3081,bond:.0043}, 1951:{stock:.2368,bond:-.0030},
-  1952:{stock:.1815,bond:.0227}, 1953:{stock:-.0121,bond:.0414}, 1954:{stock:.5256,bond:.0329},
-  1955:{stock:.3260,bond:-.0134}, 1956:{stock:.0744,bond:-.0226}, 1957:{stock:-.1046,bond:.0680},
-  1958:{stock:.4372,bond:-.0210}, 1959:{stock:.1206,bond:-.0265}, 1960:{stock:.0034,bond:.1164},
-  1961:{stock:.2664,bond:.0206}, 1962:{stock:-.0881,bond:.0569}, 1963:{stock:.2261,bond:.0168},
-  1964:{stock:.1642,bond:.0373}, 1965:{stock:.1240,bond:.0072}, 1966:{stock:-.0997,bond:.0291},
-  1967:{stock:.2380,bond:-.0158}, 1968:{stock:.1081,bond:.0327}, 1969:{stock:-.0824,bond:-.0501},
-  1970:{stock:.0356,bond:.1675}, 1971:{stock:.1422,bond:.0979}, 1972:{stock:.1876,bond:.0282},
-  1973:{stock:-.1431,bond:.0366}, 1974:{stock:-.2590,bond:.0199}, 1975:{stock:.3700,bond:.0361},
-  1976:{stock:.2383,bond:.1598}, 1977:{stock:-.0698,bond:.0129}, 1978:{stock:.0651,bond:-.0078},
-  1979:{stock:.1852,bond:.0067}, 1980:{stock:.3174,bond:-.0299}, 1981:{stock:-.0470,bond:.0820},
-  1982:{stock:.2042,bond:.3281}, 1983:{stock:.2234,bond:.0320}, 1984:{stock:.0615,bond:.1373},
-  1985:{stock:.3124,bond:.2571}, 1986:{stock:.1849,bond:.2428}, 1987:{stock:.0581,bond:-.0496},
-  1988:{stock:.1654,bond:.0822}, 1989:{stock:.3148,bond:.1769}, 1990:{stock:-.0306,bond:.0624},
-  1991:{stock:.3023,bond:.1500}, 1992:{stock:.0749,bond:.0936}, 1993:{stock:.0997,bond:.1421},
-  1994:{stock:.0133,bond:-.0804}, 1995:{stock:.3720,bond:.2348}, 1996:{stock:.2268,bond:.0143},
-  1997:{stock:.3310,bond:.0994}, 1998:{stock:.2834,bond:.1492}, 1999:{stock:.2089,bond:-.0825},
-  2000:{stock:-.0903,bond:.1666}, 2001:{stock:-.1185,bond:.0557}, 2002:{stock:-.2197,bond:.1512},
-  2003:{stock:.2836,bond:.0038}, 2004:{stock:.1074,bond:.0449}, 2005:{stock:.0483,bond:.0287},
-  2006:{stock:.1561,bond:.0196}, 2007:{stock:.0548,bond:.1021}, 2008:{stock:-.3655,bond:.2010},
-  2009:{stock:.2594,bond:-.1112}, 2010:{stock:.1482,bond:.0846}, 2011:{stock:.0210,bond:.1604},
-  2012:{stock:.1589,bond:.0297}, 2013:{stock:.3215,bond:-.0910}, 2014:{stock:.1352,bond:.1075},
-  2015:{stock:.0138,bond:.0128}, 2016:{stock:.1177,bond:.0069}, 2017:{stock:.2161,bond:.0280},
-  2018:{stock:-.0423,bond:-.0002}, 2019:{stock:.3121,bond:.0964}, 2020:{stock:.1802,bond:.1133},
-  2021:{stock:.2847,bond:-.0442}, 2022:{stock:-.1804,bond:-.1783}, 2023:{stock:.2606,bond:.0388},
-  2024:{stock:.2488,bond:-.0164}, 2025:{stock:.1778,bond:.0780}
 };
 
 // ─── Per-asset stats (computed across each asset's available years) ─────
@@ -565,50 +501,6 @@ function generateReturnPath(horizonYears){
     }
   }
   return path;
-}
-
-
-function weightedAssetReturn(row, weights){
-  const sleeves = [
-    ASSET_KEYS.filter(k => ASSET_META[k].bucket === 'growth'),
-    ASSET_KEYS.filter(k => ASSET_META[k].bucket !== 'growth')
-  ];
-
-  let weightedReturn = 0;
-  let unresolvedWeight = 0;
-
-  sleeves.forEach(keys => {
-    const sleeveTargetWeight = keys.reduce((sum, k) => sum + (weights[k] || 0), 0);
-    if(sleeveTargetWeight <= 1e-9) return;
-
-    const availableKeys = keys.filter(k => row[k] !== null && row[k] !== undefined);
-    const availableSleeveWeight = availableKeys.reduce((sum, k) => sum + (weights[k] || 0), 0);
-
-    if(availableSleeveWeight <= 1e-9){
-      unresolvedWeight += sleeveTargetWeight;
-      return;
-    }
-
-    availableKeys.forEach(k => {
-      const sleeveWeight = (weights[k] || 0) / availableSleeveWeight;
-      weightedReturn += sleeveTargetWeight * sleeveWeight * row[k];
-    });
-  });
-
-  // Fallback for any future dataset row where an entire sleeve is unavailable.
-  // This should not trigger with the current 1928–2025 dataset, but prevents a
-  // silent zero-return sleeve if future data coverage changes.
-  if(unresolvedWeight > 1e-9){
-    const availableKeys = ASSET_KEYS.filter(k => row[k] !== null && row[k] !== undefined);
-    const availableWeight = availableKeys.reduce((sum, k) => sum + (weights[k] || 0), 0);
-    if(availableWeight > 1e-9){
-      availableKeys.forEach(k => {
-        weightedReturn += unresolvedWeight * ((weights[k] || 0) / availableWeight) * row[k];
-      });
-    }
-  }
-
-  return weightedReturn;
 }
 
 
@@ -1604,7 +1496,6 @@ function resolveInputs(plan, ov){
   const horizon = (householdEndAge ?? pCurAge) - pCurAge + 1;
   validateProjectionHorizon(horizon);
   const iterations = validateProjectionIterations(plan?.simulation?.iterations);
-  const equityShockShare = profile.eq;
 
   // Social Security — per person. Each benefit is the pia (benefit at FRA, today's
   // dollars) actuarially adjusted for the actual claim age, haircut by any ssCut
@@ -1653,14 +1544,8 @@ function resolveInputs(plan, ov){
   }
   const spendMult = (1 - Math.max(0, Math.min(0.5, ov.spendCut || 0))) * (1 + Math.max(0, ov.spendBump || 0));
 
-  // Initial shock: applied to the equity portion of each account proportionally.
-  // Since all accounts share the same risk profile, all receive the same hit.
-  // For taxable accounts, the basis remains unchanged on a market drop —
-  // basis is the cost paid, not the current value, so a -20% market move
-  // doesn't change what the client originally paid in.
-  const shockMult = 1 - (ov.initialShock || 0) * equityShockShare;
-  // Typed accounts (401k, SEP, etc.) fold into their tax sleeve before shock/basis
-  // so the engine sees correct bucket totals. Default (no extras) is byte-identical.
+  // Typed accounts (401k, SEP, etc.) retain identity and their saved allocation.
+  // Aggregate sleeves remain derived adapters for existing consumers.
   const accountFold = resolvePortfolioAccounts(plan);
   const unavailableOwnerAccount = accountFold.accounts.find(account => (
     account.sourceKind === 'typed-account'
@@ -1675,21 +1560,23 @@ function resolveInputs(plan, ov){
     throw error;
   }
   const taxableBasis = resolveTaxableStartingBasis(plan, accountFold);
-  const taxableRaw = accountFold.engineBuckets.taxable.balance;
-  const tradRaw    = accountFold.engineBuckets.traditional.balance;
-  const rothRaw    = accountFold.engineBuckets.roth.balance;
+  const projectionAccounts = buildProjectionAccountLedger({
+    plan,
+    accountFold,
+    taxableBasis,
+    initialShock: ov.initialShock || 0,
+  });
+  const projectionAggregate = aggregateProjectionAccounts(projectionAccounts);
   const accounts = {
     taxable: {
-      balance: taxableRaw * shockMult,
-      // Basis as absolute dollars (was stored as percent of original balance).
-      // We convert here to make the engine math simpler downstream.
-      basis: taxableBasis.appliedBasis
+      balance: projectionAggregate.balances.taxable,
+      basis: projectionAggregate.taxableBasis,
     },
     traditional: {
-      balance: tradRaw * shockMult
+      balance: projectionAggregate.balances.traditional,
     },
     roth: {
-      balance: rothRaw * shockMult
+      balance: projectionAggregate.balances.roth,
     }
   };
   const traditionalOwners = new Set();
@@ -1803,21 +1690,7 @@ function resolveInputs(plan, ov){
   // buckets are the source of truth; `accounts.traditional.balance` is a derived
   // cache the read sites still use.
   //
-  // Seed from ownership PROPORTIONS applied to the already-shocked sleeve, not
-  // from the raw per-owner dollars: `accounts.traditional.balance` is
-  // `tradRaw * shockMult`, so seeding raw would break the
-  // sum(byOwner) === balance invariant on any scenario with an initial shock.
-  const traditionalOwnerShares = {};
-  for(const owner of TRADITIONAL_OWNER_KEYS){
-    traditionalOwnerShares[owner] = tradRaw > 0
-      ? rawTraditionalByOwner[owner] / tradRaw
-      : 0;
-  }
-  accounts.traditional.byOwner = {};
-  for(const owner of TRADITIONAL_OWNER_KEYS){
-    accounts.traditional.byOwner[owner] =
-      accounts.traditional.balance * traditionalOwnerShares[owner];
-  }
+  accounts.traditional.byOwner = { ...projectionAggregate.traditionalByOwner };
   reconcileTraditionalTotal(accounts.traditional);
 
   // ── Accumulation, pension, and LTC resolution (all no-op at plan defaults) ──
@@ -1843,14 +1716,7 @@ function resolveInputs(plan, ov){
     savingsSplit = _ssum > 0
       ? { traditional: _st/_ssum, roth: _sr/_ssum, taxable: _sx/_ssum }
       : { traditional: 1, roth: 0, taxable: 0 };
-    // Optional per-person allocation of the traditional contribution. Absent
-    // in every plan today (no UI writes it), so the projection falls back to a
-    // stated assumption — see allocateTraditionalContribution.
-    if(rawSplit.byOwner) savingsSplit.byOwner = rawSplit.byOwner;
   }
-  const traditionalContributionOwnerKnown = !(timeline.people.spouse
-    && savingsAnnual > 0
-    && savingsSplit.traditional > 0);
   const traditionalRmdStartAge = traditionalRmdOwner
     ? timeline.people[traditionalRmdOwner]?.rmdStartAge ?? null
     : null;
@@ -2044,6 +1910,7 @@ function resolveInputs(plan, ov){
     savingsSplit,
     horizonYears: horizon,
     accounts,  // structured account container
+    projectionAccounts: Object.freeze(projectionAccounts.map(account => Object.freeze({ ...account }))),
     portfolio: {
       eq: profile.eq, fi: profile.fi,
       label: profile.label, alloc: profile.alloc,
@@ -2060,7 +1927,6 @@ function resolveInputs(plan, ov){
       available: traditionalOwnerKnown
         && traditionalAccountRulesKnown
         && traditionalRmdAccountAttributionKnown
-        && traditionalContributionOwnerKnown
         && Boolean(traditionalRmdOwner)
         && traditionalRmdStartAge !== null,
       owner: traditionalRmdOwner,
@@ -2105,9 +1971,7 @@ function resolveInputs(plan, ov){
           ? 'TRADITIONAL_ACCOUNT_RMD_RULE_UNAVAILABLE'
           : !traditionalRmdAccountAttributionKnown
             ? 'EMPLOYER_PLAN_RMD_ACCOUNT_ATTRIBUTION_UNAVAILABLE'
-            : !traditionalContributionOwnerKnown
-              ? 'TRADITIONAL_CONTRIBUTION_OWNER_UNAVAILABLE'
-              : traditionalRmdStartAge === null
+            : traditionalRmdStartAge === null
                 ? 'RMD_BIRTH_COHORT_UNAVAILABLE'
                 : null,
     }),
@@ -2463,51 +2327,6 @@ function rolloverTraditional(traditional, from, to){
   }
   reconcileTraditionalTotal(traditional);
   return moved;
-}
-
-/**
- * Allocate a traditional contribution across owners.
- *
- * `savingsSplit` says traditional/Roth/taxable — it never says which spouse. So:
- *   1. explicit per-owner allocation when the plan carries one;
- *   2. otherwise proportional to existing attributable balances, flagged as an
- *      assumption on the row;
- *   3. otherwise `unattributed` — never a made-up 50/50, never defaulted to the
- *      client. Unattributed pre-tax money fails closed if an RMD depends on it.
- */
-function allocateTraditionalContribution(traditional, amount, explicitSplit, hasSpouse){
-  const byOwner = emptyTraditionalOwnerBuckets();
-  if(!(amount > 0)) return { byOwner, assumption: null };
-
-  if(explicitSplit){
-    let weight = 0;
-    for(const owner of TRADITIONAL_PERSON_OWNERS) weight += Math.max(0, explicitSplit[owner] ?? 0);
-    if(weight > 0){
-      for(const owner of TRADITIONAL_PERSON_OWNERS){
-        byOwner[owner] = amount * (Math.max(0, explicitSplit[owner] ?? 0) / weight);
-      }
-      return { byOwner, assumption: null };
-    }
-  }
-
-  // No co-client: pre-tax contributions can only be the client's. Determinate,
-  // not an assumption — the same rule account ownership already uses.
-  if(!hasSpouse){
-    byOwner.client = amount;
-    return { byOwner, assumption: null };
-  }
-
-  let attributable = 0;
-  for(const owner of TRADITIONAL_PERSON_OWNERS) attributable += Math.max(0, traditional.byOwner[owner] ?? 0);
-  if(attributable > 0){
-    for(const owner of TRADITIONAL_PERSON_OWNERS){
-      byOwner[owner] = amount * (Math.max(0, traditional.byOwner[owner] ?? 0) / attributable);
-    }
-    return { byOwner, assumption: 'TRADITIONAL_CONTRIBUTION_OWNER_PRORATED' };
-  }
-
-  byOwner.unattributed = amount;
-  return { byOwner, assumption: 'TRADITIONAL_CONTRIBUTION_OWNER_UNATTRIBUTED' };
 }
 
 /**
@@ -3042,20 +2861,21 @@ function assertFiniteFederalFundingInputs(age, values){
 }
 
 function cloneEngineAccounts(accounts){
-  return {
+  const projectionAccounts = cloneProjectionAccountLedger(accounts.projectionAccounts);
+  const cloned = {
     taxable: {
-      balance: accounts.taxable.balance,
-      basis: accounts.taxable.basis,
+      balance: 0,
+      basis: 0,
     },
-    // byOwner MUST be deep-copied: candidate reconstruction replays the same
-    // year repeatedly from opening state, and a shared bucket object would let
-    // one candidate's withdrawals leak into the next iteration.
     traditional: {
-      balance: accounts.traditional.balance,
-      byOwner: cloneTraditionalOwnerBuckets(accounts.traditional.byOwner),
+      balance: 0,
+      byOwner: emptyTraditionalOwnerBuckets(),
     },
-    roth: { balance: accounts.roth.balance },
+    roth: { balance: 0 },
+    projectionAccounts,
   };
+  syncProjectionAggregates(projectionAccounts, cloned);
+  return cloned;
 }
 
 function midyearWithdrawalFactor(returnRate){
@@ -3109,6 +2929,16 @@ function accountTotal(accounts){
     + accounts.roth.balance;
 }
 
+function combineAccountAmounts(...maps){
+  const combined = {};
+  for(const map of maps){
+    for(const [accountId, amount] of Object.entries(map ?? {})){
+      combined[accountId] = (combined[accountId] ?? 0) + amount;
+    }
+  }
+  return combined;
+}
+
 function appendFailedTailRows(rows, p, failedYearIndex){
   for(let z = failedYearIndex + 1; z < p.horizonYears; z++){
     rows.push({
@@ -3139,6 +2969,7 @@ function buildFederalFundingCandidate({
   y,
   age,
   r,
+  returnFrame,
   saleProceeds,
   ssInc,
   oiInc,
@@ -3170,74 +3001,53 @@ function buildFederalFundingCandidate({
   const rmdRequiredByOwner = openingRmd.requiredByOwner;
   const rmdRequired = openingRmd.required;
 
-  const factor = midyearWithdrawalFactor(r);
-  const fundingAccounts = buildMidyearFundingProxy(accounts, r, factor);
   const adjustedGap = gap + taxFundingAdjustment;
   const funding = adjustedGap > 0
-    ? fundGap(fundingAccounts, adjustedGap, p.taxRates, p.withdrawalStrategy)
+    ? fundProjectionGap(
+        accounts.projectionAccounts,
+        returnFrame,
+        adjustedGap,
+        p.taxRates,
+        p.withdrawalStrategy,
+        rmdRequiredByOwner,
+      )
     : emptyFunding();
   const withdrawal = funding.totalWithdrawn;
+  const appliedFunding = applyProjectionYearReturnsAndWithdrawals(
+    accounts.projectionAccounts,
+    returnFrame,
+    funding.grossById,
+  );
+  syncProjectionAggregates(accounts.projectionAccounts, accounts);
+  const traditionalGrossByOwner = funding.traditionalGrossByOwner
+    ?? emptyTraditionalOwnerBuckets();
 
-  accounts.taxable.balance = accounts.taxable.balance * (1 + r)
-    - (funding.breakdown.taxable / 12) * factor;
-  // Split the ordinary traditional draw across owners RMD-first (so a spending
-  // withdrawal counts against the owner who actually owes it), then apply the
-  // engine's existing mid-year timing to each bucket.
-  const traditionalGrossByOwner = allocateTraditionalDistribution({
-    traditional: fundingAccounts.traditional,
-    grossAmount: funding.breakdown.traditional,
-    requiredByOwner: rmdRequiredByOwner,
-  });
-  applyTraditionalMidyearWithdrawal({
-    traditional: accounts.traditional,
-    returnRate: r,
-    factor,
-    grossByOwner: traditionalGrossByOwner,
-  });
-  accounts.roth.balance = accounts.roth.balance * (1 + r)
-    - (funding.breakdown.roth / 12) * factor;
-
-  const startingTaxableGainFraction = taxableStartingBasis < accountStartingBalances.taxable
-    && accountStartingBalances.taxable > 0.01
-    ? Math.max(0, Math.min(
-      1,
-      (accountStartingBalances.taxable - taxableStartingBasis)
-        / accountStartingBalances.taxable
-    ))
-    : 0;
-  const taxableCapitalGain = funding.breakdown.taxable * startingTaxableGainFraction;
-  if(funding.breakdown.taxable > 0 && accountStartingBalances.taxable > 0.01){
-    const basisFraction = taxableStartingBasis / accountStartingBalances.taxable;
-    accounts.taxable.basis = Math.max(
-      0,
-      taxableStartingBasis - funding.breakdown.taxable * basisFraction
-    );
-  }
+  const taxableCapitalGain = appliedFunding.taxableCapitalGain;
 
   let rmdForced = 0;
   let rmdTax = 0;
+  let rmdWithdrawalsById = {};
   if(rmdRequired > 0){
     // Net each owner's requirement against what THEY actually withdrew. One
     // spouse's spending draw can never satisfy the other's RMD.
-    const forcedByOwner = {};
-    for(const owner of TRADITIONAL_PERSON_OWNERS){
-      const outstanding = Math.max(
+    const outstandingByOwner = Object.fromEntries(
+      TRADITIONAL_PERSON_OWNERS.map(owner => [owner, Math.max(
         0,
-        (rmdRequiredByOwner[owner] ?? 0) - (traditionalGrossByOwner[owner] ?? 0)
-      );
-      const take = Math.min(outstanding, Math.max(0, accounts.traditional.byOwner[owner] ?? 0));
-      forcedByOwner[owner] = take > 0 ? take : 0;
-      rmdForced += forcedByOwner[owner];
-    }
+        (rmdRequiredByOwner[owner] ?? 0) - (traditionalGrossByOwner[owner] ?? 0),
+      )]),
+    );
+    const forced = applyProjectionOwnerRmd(
+      accounts.projectionAccounts,
+      outstandingByOwner,
+    );
+    rmdForced = forced.total;
+    rmdWithdrawalsById = forced.byId;
     if(rmdForced > 0.01){
-      for(const owner of TRADITIONAL_PERSON_OWNERS){
-        withdrawTraditionalForced(accounts.traditional, owner, forcedByOwner[owner]);
-      }
       rmdTax = rmdForced * p.taxRates.ordinary;
       const reinvest = rmdForced - rmdTax;
-      accounts.taxable.balance += reinvest;
-      accounts.taxable.basis += reinvest;
+      addProjectionCash(accounts.projectionAccounts, 'taxable', reinvest, reinvest);
     }
+    syncProjectionAggregates(accounts.projectionAccounts, accounts);
   }
 
   // If a lower federal liability more than eliminates the ordinary spending
@@ -3249,8 +3059,13 @@ function buildFederalFundingCandidate({
     -(Math.max(0, gap) + taxFundingAdjustment)
   );
   if(taxSavingsReinvested > 0){
-    accounts.taxable.balance += taxSavingsReinvested;
-    accounts.taxable.basis += taxSavingsReinvested;
+    addProjectionCash(
+      accounts.projectionAccounts,
+      'taxable',
+      taxSavingsReinvested,
+      taxSavingsReinvested,
+    );
+    syncProjectionAggregates(accounts.projectionAccounts, accounts);
   }
 
   const shortcutTax = taxOnSS + taxOnOI + taxOnPen + funding.totalTax + rmdTax;
@@ -3266,7 +3081,9 @@ function buildFederalFundingCandidate({
     ...householdTaxStatusAtAge(p, age),
     source: rp.y,
     returnRate: r,
-    returnDollars: startBalance * r,
+    returnDollars: returnFrame.returnDollars,
+    accountReturns: returnFrame.accountReturns,
+    householdEffectiveAllocation: returnFrame.householdAllocation,
     nominalReturn: (rp && rp.proxyNominalReturn != null) ? rp.proxyNominalReturn : null,
     inflationRate: (rp && rp.proxyInflationRate != null) ? rp.proxyInflationRate : null,
     realReturnUsed: r,
@@ -3310,6 +3127,11 @@ function buildFederalFundingCandidate({
       traditional: accounts.traditional.balance,
       roth: accounts.roth.balance,
     },
+    accountBalancesById: accountBalancesById(accounts.projectionAccounts),
+    accountWithdrawalsById: combineAccountAmounts(
+      funding.grossById,
+      rmdWithdrawalsById,
+    ),
     taxableEndingBasis: accounts.taxable.basis,
     ...(taxableGainFraction !== undefined ? { taxableGainFraction } : {}),
     taxBySource: {
@@ -3330,14 +3152,15 @@ function buildFederalFundingCandidate({
 }
 
 function solveFederalFundingYear(args, taxPolicy){
-  const factor = midyearWithdrawalFactor(args.r);
-  const fundingAccounts = buildMidyearFundingProxy(
-    args.openingAccounts,
-    args.r,
-    factor
-  );
   const preFederalFunding = args.gap > 0
-    ? fundGap(fundingAccounts, args.gap, args.p.taxRates, args.p.withdrawalStrategy)
+    ? fundProjectionGap(
+        args.openingAccounts.projectionAccounts,
+        args.returnFrame,
+        args.gap,
+        args.p.taxRates,
+        args.p.withdrawalStrategy,
+        args.openingRmd.requiredByOwner,
+      )
     : emptyFunding();
   let adjustment = 0;
   let lowerBracket = null;
@@ -3360,15 +3183,14 @@ function solveFederalFundingYear(args, taxPolicy){
     const residual = targetAdjustment - adjustment;
     if(Math.abs(residual) <= FEDERAL_FUNDING_CONVERGENCE_TOLERANCE){
       const accounts = candidate.accounts;
-      if(accounts.taxable.balance < 0) accounts.taxable.balance = 0;
-      clampTraditionalNonNegative(accounts.traditional);
-      if(accounts.roth.balance < 0) accounts.roth.balance = 0;
+      for(const account of accounts.projectionAccounts){
+        if(account.balance < 0) account.balance = 0;
+      }
+      syncProjectionAggregates(accounts.projectionAccounts, accounts);
       const failed = candidate.funding.shortfall > 0.01;
       if(failed){
-        accounts.taxable.balance = 0;
-        accounts.taxable.basis = 0;
-        zeroTraditionalOwners(accounts.traditional);
-        accounts.roth.balance = 0;
+        zeroProjectionAccounts(accounts.projectionAccounts);
+        syncProjectionAggregates(accounts.projectionAccounts, accounts);
       }
       const row = {
         ...candidate.policyRow,
@@ -3383,6 +3205,7 @@ function solveFederalFundingYear(args, taxPolicy){
           traditional: accounts.traditional.balance,
           roth: accounts.roth.balance,
         },
+        accountBalancesById: accountBalancesById(accounts.projectionAccounts),
         taxableEndingBasis: accounts.taxable.basis,
         taxFundingConvergence: {
           status: 'converged',
@@ -3441,18 +3264,16 @@ function runSinglePath(p, returnPath, options = {}){
   if(taxPolicy !== null && typeof taxPolicy !== 'function'){
     throw new TypeError('options.taxPolicy must be a function');
   }
-  // Each path gets its own evolving account state — clone from inputs.
-  // byOwner MUST be deep-copied. Every other field here is a scalar, so a
-  // shallow copy was previously safe; a shared bucket object would alias one
-  // mutable record across all 1000 Monte Carlo paths and corrupt them silently.
+  // Each path gets its own evolving account ledger. Aggregate tax sleeves are
+  // derived adapters retained for existing row and planning contracts.
+  const projectionAccounts = cloneProjectionAccountLedger(p.projectionAccounts);
   const accounts = {
-    taxable:     { balance: p.accounts.taxable.balance, basis: p.accounts.taxable.basis },
-    traditional: {
-      balance: p.accounts.traditional.balance,
-      byOwner: cloneTraditionalOwnerBuckets(p.accounts.traditional.byOwner),
-    },
-    roth:        { balance: p.accounts.roth.balance }
+    taxable: { balance: 0, basis: 0 },
+    traditional: { balance: 0, byOwner: emptyTraditionalOwnerBuckets() },
+    roth: { balance: 0 },
+    projectionAccounts,
   };
+  syncProjectionAggregates(projectionAccounts, accounts);
 
   let returnProduct = 1;
   let failed        = false;
@@ -3470,17 +3291,12 @@ function runSinglePath(p, returnPath, options = {}){
   let first10Product  = 1;
   let balanceAt10     = 0;
   let balanceAtRet10  = 0;
-  // Modeling assumptions this path had to make (e.g. prorated contribution
-  // ownership). Surfaced on the result so they are inspectable rather than
-  // silently baked in.
-  const projectionAssumptions = new Set();
   // Owners already rolled over, so a death boundary transfers exactly once.
   const rolledOverOwners = new Set();
 
   for(let y = 0; y < p.horizonYears; y++){
     const age = p.currentAge + y;
     const rp  = returnPath[y];
-    const r   = ((rp && rp.proxyReturn != null) ? rp.proxyReturn : weightedAssetReturn(rp, p.portfolio.weights)) + p.returnAdj;
 
     // ── Earmarked-asset sale ──────────────────────────────────────────────
     // Net proceeds land in the TAXABLE sleeve as after-tax cash (basis = full
@@ -3489,8 +3305,8 @@ function runSinglePath(p, returnPath, options = {}){
     // plan is never mutated, so the Baseline column never sees it.
     const saleProceeds = (p.assetSale && age === p.assetSale.age) ? p.assetSale.netProceeds : 0;
     if(saleProceeds > 0){
-      accounts.taxable.balance += saleProceeds;
-      accounts.taxable.basis   += saleProceeds;
+      addProjectionCash(projectionAccounts, 'taxable', saleProceeds, saleProceeds);
+      syncProjectionAggregates(projectionAccounts, accounts);
     }
 
     // ── Death boundary: spousal rollover ──────────────────────────────────
@@ -3500,7 +3316,21 @@ function runSinglePath(p, returnPath, options = {}){
     // `continue`. The decedent's year-of-death RMD was therefore already
     // computed and satisfied last iteration, off their own balance and age.
     // From here the survivor owns the combined balance under their own age.
-    if(y > 0) applyDeathBoundaryRollover(p, age, accounts.traditional, rolledOverOwners);
+    if(y > 0){
+      const rollover = applyDeathBoundaryRollover(
+        p,
+        age,
+        accounts.traditional,
+        rolledOverOwners,
+      );
+      if(rollover){
+        rolloverProjectionAccounts(projectionAccounts, rollover.from, rollover.to);
+        syncProjectionAggregates(projectionAccounts, accounts);
+      }
+    }
+
+    const returnFrame = resolveProjectionReturnFrame(projectionAccounts, rp, p.returnAdj);
+    const r = returnFrame.returnRate;
 
     // ── Per-owner RMD for the year ────────────────────────────────────────
     // Basis convention: year 0 uses each owner's raw pre-shock opening balance
@@ -3527,52 +3357,33 @@ function runSinglePath(p, returnPath, options = {}){
       const { ssInc, oiInc, oiTaxable, penInc, taxIncome } = externalIncomeAtAge(p, age);
       returnProduct *= (1 + r);
       if(y < 10) first10Product *= (1 + r);
-      const accFactor = Math.abs(r) < 1e-7 ? 12 : r / (Math.pow(1 + r, 1/12) - 1);
       const startBalanceA = totalBalance();
-      // Contribution for the year (principal + partial-year growth), routed to
-      // the three sleeves per savingsSplit. Default split = 100% traditional, so
-      // this is byte-identical to the old single-line behavior.
-      const contrib = (p.savingsAnnual / 12) * accFactor;
-      accounts.taxable.balance     = accounts.taxable.balance     * (1 + r) + contrib * p.savingsSplit.taxable;
-      accounts.roth.balance        = accounts.roth.balance        * (1 + r) + contrib * p.savingsSplit.roth;
-      const contribAlloc = allocateTraditionalContribution(
-        accounts.traditional,
-        contrib * p.savingsSplit.traditional,
-        p.savingsSplit.byOwner,
-        Boolean(p.people?.spouse)
+      const contributionsById = applyProjectionContributions(
+        projectionAccounts,
+        returnFrame,
+        {
+          taxable: p.savingsAnnual * p.savingsSplit.taxable,
+          traditional: p.savingsAnnual * p.savingsSplit.traditional,
+          roth: p.savingsAnnual * p.savingsSplit.roth,
+        },
       );
-      if(contribAlloc.assumption) projectionAssumptions.add(contribAlloc.assumption);
-      applyTraditionalContribution({
-        traditional: accounts.traditional,
-        returnRate: r,
-        contributionByOwner: contribAlloc.byOwner,
-      });
-      // Taxable contributions are after-tax dollars → their principal adds to basis.
-      if(p.savingsSplit.taxable > 0) accounts.taxable.basis += p.savingsAnnual * p.savingsSplit.taxable;
+      syncProjectionAggregates(projectionAccounts, accounts);
       let rmdForcedA = 0;
       let rmdTaxA = 0;
+      let rmdWithdrawalsByIdA = {};
       if(openingRmd.required > 0){
-        // No ordinary withdrawal happens while accumulating, so the whole
-        // requirement is forced — but each owner's share comes from their own
-        // bucket, capped by their own balance.
-        const forcedA = {};
-        for(const owner of TRADITIONAL_PERSON_OWNERS){
-          const take = Math.min(
-            openingRmd.requiredByOwner[owner],
-            Math.max(0, accounts.traditional.byOwner[owner] ?? 0)
-          );
-          forcedA[owner] = take > 0 ? take : 0;
-          rmdForcedA += forcedA[owner];
-        }
+        const forcedA = applyProjectionOwnerRmd(
+          projectionAccounts,
+          openingRmd.requiredByOwner,
+        );
+        rmdForcedA = forcedA.total;
+        rmdWithdrawalsByIdA = forcedA.byId;
         if(rmdForcedA > 0.01){
-          for(const owner of TRADITIONAL_PERSON_OWNERS){
-            withdrawTraditionalForced(accounts.traditional, owner, forcedA[owner]);
-          }
           rmdTaxA = rmdForcedA * p.taxRates.ordinary;
           const reinvest = rmdForcedA - rmdTaxA;
-          accounts.taxable.balance += reinvest;
-          accounts.taxable.basis += reinvest;
+          addProjectionCash(projectionAccounts, 'taxable', reinvest, reinvest);
         }
+        syncProjectionAggregates(projectionAccounts, accounts);
       }
       // One-time capital outlay (e.g. a home purchase) during working years. The
       // engine assumes salary covers recurring costs while working, but a large
@@ -3596,39 +3407,31 @@ function runSinglePath(p, returnPath, options = {}){
       const accumulationFunding = outlayA > 0
         ? fundGap(accounts, outlayA, { ordinary: 0, capitalGains: 0 }, 'taxable-first')
         : emptyFunding();
-      const taxableFundingStartBalanceA = accounts.taxable.balance;
       const taxableStartingBasisA = accounts.taxable.basis;
-      const taxableGainFractionA = accumulationFunding.breakdown.taxable > 0.01
-        && taxableFundingStartBalanceA > 0.01
-        ? Math.max(0, Math.min(
-            1,
-            (taxableFundingStartBalanceA - taxableStartingBasisA)
-              / taxableFundingStartBalanceA
-          ))
-        : undefined;
-      const taxableCapitalGainA = accumulationFunding.breakdown.taxable
-        * (taxableGainFractionA ?? 0);
+      let taxableCapitalGainA = 0;
+      let outlayWithdrawalsByIdA = {};
       if(outlayA > 0){
-        if(accumulationFunding.breakdown.taxable > 0 && accounts.taxable.balance > 0){
-          const take = accumulationFunding.breakdown.taxable;
-          accounts.taxable.basis *= (accounts.taxable.balance - take) / accounts.taxable.balance;
-          accounts.taxable.balance -= take;
+        for(const bucket of ['taxable', 'traditional', 'roth']){
+          const direct = applyDirectBucketWithdrawal(
+            projectionAccounts,
+            bucket,
+            accumulationFunding.breakdown[bucket],
+          );
+          taxableCapitalGainA += direct.taxableCapitalGain;
+          outlayWithdrawalsByIdA = combineAccountAmounts(
+            outlayWithdrawalsByIdA,
+            direct.withdrawalsById,
+          );
         }
-        // Liquidation for a capital outlay — no RMD is in play here (it was
-        // already satisfied above), so this draws pro rata across owners.
-        if(accumulationFunding.breakdown.traditional > 0){
-          withdrawTraditionalProRata(accounts.traditional, accumulationFunding.breakdown.traditional);
-        }
-        if(accumulationFunding.breakdown.roth > 0){
-          accounts.roth.balance -= accumulationFunding.breakdown.roth;
-        }
+        syncProjectionAggregates(projectionAccounts, accounts);
       }
+      const taxableGainFractionA = accumulationFunding.breakdown.taxable > 0.01
+        ? taxableCapitalGainA / accumulationFunding.breakdown.taxable
+        : undefined;
       const accumulationFailed = accumulationFunding.shortfall > 0.01;
       if(accumulationFailed){
-        accounts.taxable.balance = 0;
-        accounts.taxable.basis = 0;
-        zeroTraditionalOwners(accounts.traditional);
-        accounts.roth.balance = 0;
+        zeroProjectionAccounts(projectionAccounts);
+        syncProjectionAggregates(projectionAccounts, accounts);
         failed = true;
         if(depletionAge === null) depletionAge = age;
       }
@@ -3642,7 +3445,9 @@ function runSinglePath(p, returnPath, options = {}){
       const row = {
         year: y+1, age, source: rp.y, returnRate: r, phase: 'accum',
         ...householdTaxStatusAtAge(p, age),
-        returnDollars: startBalanceA * r,
+        returnDollars: returnFrame.returnDollars,
+        accountReturns: returnFrame.accountReturns,
+        householdEffectiveAllocation: returnFrame.householdAllocation,
         socialSecurity: ssInc, otherIncome: oiInc, pension: penInc,
         incomeTaxFacts: { ...taxIncome }, withdrawal: accumulationFunding.totalWithdrawn,
         rmd: rmdForcedA,
@@ -3662,6 +3467,12 @@ function runSinglePath(p, returnPath, options = {}){
         taxableCapitalGain: taxableCapitalGainA,
         ...(taxableGainFractionA !== undefined ? { taxableGainFraction: taxableGainFractionA } : {}),
         accountBalances: { taxable: accounts.taxable.balance, traditional: accounts.traditional.balance, roth: accounts.roth.balance },
+        accountBalancesById: accountBalancesById(projectionAccounts),
+        accountContributionsById: contributionsById,
+        accountWithdrawalsById: combineAccountAmounts(
+          outlayWithdrawalsByIdA,
+          rmdWithdrawalsByIdA,
+        ),
         traditionalEndingBalancesByOwner: cloneTraditionalOwnerBuckets(accounts.traditional.byOwner),
         taxableEndingBasis: accounts.taxable.basis,
         taxBySource: { ss: taxOnSS, oi: taxOnOI, traditional: rmdTaxA, taxable: 0 }
@@ -3765,6 +3576,7 @@ function runSinglePath(p, returnPath, options = {}){
         y,
         age,
         r,
+        returnFrame,
         saleProceeds,
         ssInc,
         oiInc,
@@ -3781,15 +3593,13 @@ function runSinglePath(p, returnPath, options = {}){
         taxOnPen,
         openingRmd,
       }, taxPolicy);
-      accounts.taxable.balance = solved.accounts.taxable.balance;
-      accounts.taxable.basis = solved.accounts.taxable.basis;
-      // Copy the owner buckets, not just the total — the solved candidate is a
-      // separate object graph and its per-owner split is the authoritative one.
-      accounts.traditional.byOwner = cloneTraditionalOwnerBuckets(
-        solved.accounts.traditional.byOwner
+      projectionAccounts.splice(
+        0,
+        projectionAccounts.length,
+        ...cloneProjectionAccountLedger(solved.accounts.projectionAccounts),
       );
-      reconcileTraditionalTotal(accounts.traditional);
-      accounts.roth.balance = solved.accounts.roth.balance;
+      accounts.projectionAccounts = projectionAccounts;
+      syncProjectionAggregates(projectionAccounts, accounts);
       failed = solved.failed;
       if(failed && depletionAge === null) depletionAge = age;
       lifetimeTax += solved.row.taxes;
@@ -3819,10 +3629,15 @@ function runSinglePath(p, returnPath, options = {}){
     // Compute the withdrawal breakdown without mutating accounts. Capacity is
     // adjusted for the same mid-year timing used below so a negative return
     // cannot turn an undeliverable draw into a funded result.
-    const factor = midyearWithdrawalFactor(r);
-    const fundingAccounts = buildMidyearFundingProxy(accounts, r, factor);
     const funding = gap > 0
-      ? fundGap(fundingAccounts, gap, p.taxRates, p.withdrawalStrategy)
+      ? fundProjectionGap(
+          projectionAccounts,
+          returnFrame,
+          gap,
+          p.taxRates,
+          p.withdrawalStrategy,
+          openingRmd.requiredByOwner,
+        )
       : { totalWithdrawn: 0, totalTax: 0, breakdown: { taxable: 0, traditional: 0, roth: 0 }, taxBySource: { taxable: 0, traditional: 0 }, shortfall: 0 };
     // Preserve the spending/goal draw before a later federal-tax delta can add
     // a second funding tranche to the same mutable breakdown.
@@ -3843,46 +3658,26 @@ function runSinglePath(p, returnPath, options = {}){
     // Capture the START-of-year values for basis math. We need these before
     // we modify the balance, because basis consumption is based on the
     // withdrawal's share of the starting balance — not the ending balance.
-    const taxStartBal   = accountStartingBalances.taxable;
-    const taxStartBasis = taxableStartingBasis;
-
-    // Update each account's balance with mid-year math:
-    //   end = start * (1+r) - (withdrawal / 12) * factor
-    accounts.taxable.balance     = accounts.taxable.balance     * (1 + r) - (funding.breakdown.taxable     / 12) * factor;
-    // RMD-first split of the ordinary traditional draw, then the same mid-year
-    // math per owner bucket.
-    const traditionalGrossByOwner = allocateTraditionalDistribution({
-      traditional: fundingAccounts.traditional,
-      grossAmount: funding.breakdown.traditional,
-      requiredByOwner: openingRmd.requiredByOwner,
-    });
-    applyTraditionalMidyearWithdrawal({
-      traditional: accounts.traditional,
-      returnRate: r,
-      factor,
-      grossByOwner: traditionalGrossByOwner,
-    });
-    accounts.roth.balance        = accounts.roth.balance        * (1 + r) - (funding.breakdown.roth        / 12) * factor;
+    const appliedFunding = applyProjectionYearReturnsAndWithdrawals(
+      projectionAccounts,
+      returnFrame,
+      funding.grossById,
+    );
+    syncProjectionAggregates(projectionAccounts, accounts);
+    const traditionalGrossByOwner = funding.traditionalGrossByOwner
+      ?? emptyTraditionalOwnerBuckets();
 
     // Consume basis proportionally to the gross taxable withdrawal. If you
     // pull X dollars from a taxable account with starting balance B and
     // basis P, the dollars carry P/B basis with them: basis_consumed = X * P/B.
     // Basis doesn't earn returns — only the appreciation does — so timing
     // doesn't change this proportion.
-    const startingTaxableGainFraction = taxStartBal > 0.01
-      ? Math.max(0, Math.min(1, (taxStartBal - taxStartBasis) / taxStartBal))
-      : 0;
-    let taxableCapitalGain = funding.breakdown.taxable * startingTaxableGainFraction;
-    if(funding.breakdown.taxable > 0 && taxStartBal > 0.01){
-      const basisFraction = taxStartBasis / taxStartBal;
-      const basisConsumed = funding.breakdown.taxable * basisFraction;
-      accounts.taxable.basis = Math.max(0, taxStartBasis - basisConsumed);
-    }
+    let taxableCapitalGain = appliedFunding.taxableCapitalGain;
 
     // Start-of-year gain share for adapter/tax attach — read-only fact, not tax math.
     const taxableWithdrawal = funding.breakdown.taxable;
     let taxableGainFraction = taxableWithdrawal > 0.01
-      ? startingTaxableGainFraction
+      ? taxableCapitalGain / taxableWithdrawal
       : undefined;
 
     // ── RMD: force out any required distribution beyond what spending pulled ──
@@ -3891,45 +3686,42 @@ function runSinglePath(p, returnPath, options = {}){
     // income; the after-tax remainder moves to the taxable sleeve (reinvested,
     // already-taxed → pure basis). Net portfolio effect = just the tax.
     let rmdForced = 0, rmdTax = 0;
+    let rmdWithdrawalsById = {};
     if(rmdRequired > 0){
       // Net per owner: the spending draw only counts against the RMD of the
       // owner it actually came from.
-      const forcedByOwner = {};
-      for(const owner of TRADITIONAL_PERSON_OWNERS){
-        const outstanding = Math.max(
+      const outstandingByOwner = Object.fromEntries(
+        TRADITIONAL_PERSON_OWNERS.map(owner => [owner, Math.max(
           0,
-          (openingRmd.requiredByOwner[owner] ?? 0) - (traditionalGrossByOwner[owner] ?? 0)
-        );
-        const take = Math.min(outstanding, Math.max(0, accounts.traditional.byOwner[owner] ?? 0));
-        forcedByOwner[owner] = take > 0 ? take : 0;
-        rmdForced += forcedByOwner[owner];
-      }
+          (openingRmd.requiredByOwner[owner] ?? 0) - (traditionalGrossByOwner[owner] ?? 0),
+        )]),
+      );
+      const forced = applyProjectionOwnerRmd(projectionAccounts, outstandingByOwner);
+      rmdForced = forced.total;
+      rmdWithdrawalsById = forced.byId;
       if(rmdForced > 0.01){
-        for(const owner of TRADITIONAL_PERSON_OWNERS){
-          withdrawTraditionalForced(accounts.traditional, owner, forcedByOwner[owner]);
-        }
         rmdTax = rmdForced * p.taxRates.ordinary;
         const reinvest = rmdForced - rmdTax;
-        accounts.taxable.balance += reinvest;
-        accounts.taxable.basis   += reinvest;        // after-tax dollars carry full basis
+        addProjectionCash(projectionAccounts, 'taxable', reinvest, reinvest);
         lifetimeTax += rmdTax;
       }
+      syncProjectionAggregates(projectionAccounts, accounts);
     }
 
     const shortcutTax = totalTax + rmdTax;
     let resolvedTax = shortcutTax;
 
     // Floor any depleted accounts at zero.
-    if(accounts.taxable.balance < 0)     accounts.taxable.balance = 0;
-    clampTraditionalNonNegative(accounts.traditional);
-    if(accounts.roth.balance < 0)        accounts.roth.balance = 0;
+    for(const account of projectionAccounts){
+      if(account.balance < 0) account.balance = 0;
+    }
+    syncProjectionAggregates(projectionAccounts, accounts);
 
     // A path fails only when a required cash flow is not funded. Reaching
     // exactly zero after the terminal obligation is a valid funded outcome.
     if(funding.shortfall > 0.01){
-      accounts.taxable.balance = 0; accounts.taxable.basis = 0;
-      zeroTraditionalOwners(accounts.traditional);
-      accounts.roth.balance = 0;
+      zeroProjectionAccounts(projectionAccounts);
+      syncProjectionAggregates(projectionAccounts, accounts);
       failed = true;
       if(depletionAge === null) depletionAge = age;
     }
@@ -3957,7 +3749,9 @@ function runSinglePath(p, returnPath, options = {}){
     const row = {
       year: y+1, age, source: rp.y, returnRate: r,
       ...householdTaxStatusAtAge(p, age),
-      returnDollars: startBalance * r,
+      returnDollars: returnFrame.returnDollars,
+      accountReturns: returnFrame.accountReturns,
+      householdEffectiveAllocation: returnFrame.householdAllocation,
       nominalReturn: (rp && rp.proxyNominalReturn != null) ? rp.proxyNominalReturn : null,
       inflationRate: (rp && rp.proxyInflationRate != null) ? rp.proxyInflationRate : null,
       realReturnUsed: r,
@@ -3988,6 +3782,11 @@ function runSinglePath(p, returnPath, options = {}){
         traditional: accounts.traditional.balance,
         roth: accounts.roth.balance
       },
+      accountBalancesById: accountBalancesById(projectionAccounts),
+      accountWithdrawalsById: combineAccountAmounts(
+        funding.grossById,
+        rmdWithdrawalsById,
+      ),
       taxableEndingBasis: accounts.taxable.basis,
       ...(taxableGainFraction !== undefined ? { taxableGainFraction } : {}),
       taxBySource: {
@@ -4028,10 +3827,8 @@ function runSinglePath(p, returnPath, options = {}){
   return { rows, failed, cagr, terminalBalance: totalBalance(),
            minBalance, maxDrawdown, depletionAge, first10Cagr, balanceAt10,
            balanceAtRet10, lifetimeTax,
-           // Modeling assumptions this path had to make. Surfaced rather than
-           // held privately — a projection that quietly assumes something is
-           // exactly the failure mode this change exists to remove.
-           assumptions: [...projectionAssumptions] };
+           returnSeriesProvenance: RETURN_SERIES_PROVENANCE,
+           assumptions: [] };
 }
 
 
@@ -4188,6 +3985,7 @@ function analyzeResults(sims, p){
   return {
     paths, terminal, envelope,
     sims,
+    returnSeriesProvenance: RETURN_SERIES_PROVENANCE,
     successRate: (survived / ns) * 100,
     // Union of the modeling assumptions any path had to make, so a caller can
     // show what a number depends on instead of presenting it as unqualified.
@@ -4240,15 +4038,7 @@ function runHistoricalPath(plan, startYear, strategy, transform, overrides, opti
   const path = [];
   for(let i = 0; i < rawInputs.horizonYears; i++){
     const row = RETURN_DATA[(startIdx + i) % RETURN_DATA.length];
-    const proxy = historicalProxyComponents(row, plan.portfolio.riskProfile);
-    path.push({
-      ...row,
-      proxyReturn: proxy.real,
-      proxyNominalReturn: proxy.nominal,
-      proxyInflationRate: proxy.inflation,
-      proxyStockNominal: proxy.stockNominal,
-      proxyBondNominal: proxy.bondNominal
-    });
+    path.push(row);
   }
   if(path.length === 0) return null;
 
@@ -4410,6 +4200,7 @@ function assessPlan(analysis){
 /* ---- exports (so the UI and tests import instead of sharing globals) ---- */
 export {
   RETURN_DATA, ASSET_META, ASSET_KEYS, EQUITY_MIX, DEFENSIVE_MIX,
+  RETURN_SERIES_PROVENANCE,
   RISK_PROFILES, ASSET_STATS, LONGRUN_INFLATION, PROJECTION_EXECUTION_LIMITS,
   buildAssetWeights, computeAssetStats, generateReturnPath, resetSeed, weightedAssetReturn,
   ssAdjust,

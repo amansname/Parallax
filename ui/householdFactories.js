@@ -1,5 +1,7 @@
 import { ACCOUNT_SCHEMA_VERSION } from '../src/household/accountTypes.js';
 import { createAccount } from '../src/household/createAccount.js';
+import { snapshotLegacyRiskProfileAllocation } from '../src/household/investmentAllocation.js';
+import { LEGACY_BASE_ACCOUNT_IDS } from '../src/household/migrateAccounts.js';
 import { createBlankTaxProfiles, createFact } from '../src/household/factEnvelope.js';
 import { createIncomeTaxInputs } from '../src/household/incomeTaxModel.js';
 import { HOUSEHOLD_RECORD_SCHEMA_VERSION } from '../src/household/householdRecordSchema.js';
@@ -27,6 +29,17 @@ function addDefaultAccount(plan, {
   account.id = id;
   plan.portfolio.extraAccounts.push(account);
   return account;
+}
+
+function applyLegacyFixtureAllocation(plan, riskProfile){
+  plan.portfolio.riskProfile = riskProfile;
+  const allocation = snapshotLegacyRiskProfileAllocation(riskProfile);
+  for(const sleeve of ['taxable', 'traditional', 'roth']){
+    plan.portfolio.accounts[sleeve].investmentAllocation = structuredClone(allocation);
+  }
+  for(const account of plan.portfolio.extraAccounts){
+    account.investmentAllocation = structuredClone(allocation);
+  }
 }
 
 function setConfirmedBirthDate(plan, owner, iso){
@@ -204,7 +217,7 @@ function createNowHousehold(pristinePlan, currentYear){
     },
   ];
   plan.savings.annual = 46_000;
-  plan.portfolio.riskProfile = 5;
+  applyLegacyFixtureAllocation(plan, 5);
   return plan;
 }
 
@@ -359,6 +372,7 @@ function createFutureHousehold(pristinePlan, currentYear){
       flexesWithSpending: true,
     },
   ];
+  applyLegacyFixtureAllocation(plan, 3);
   return plan;
 }
 
@@ -383,9 +397,23 @@ export function createBlankHousehold(pristinePlan, householdId, currentYear){
   p.household.primary = { currentAge: 60, retirementAge: 65, planEndAge: 90, birthYear: currentYear - 60 };
   p.household.spouse  = null;
   p.household.children = [];
-  p.portfolio.accounts.taxable     = { balance: 0, basisPct: 1.0 };
-  p.portfolio.accounts.traditional = { balance: 0 };
-  p.portfolio.accounts.roth        = { balance: 0 };
+  const baseAllocation = snapshotLegacyRiskProfileAllocation(p.portfolio.riskProfile);
+  p.portfolio.accounts.taxable = {
+    id: LEGACY_BASE_ACCOUNT_IDS.taxable,
+    balance: 0,
+    basisPct: 1.0,
+    investmentAllocation: structuredClone(baseAllocation),
+  };
+  p.portfolio.accounts.traditional = {
+    id: LEGACY_BASE_ACCOUNT_IDS.traditional,
+    balance: 0,
+    investmentAllocation: structuredClone(baseAllocation),
+  };
+  p.portfolio.accounts.roth = {
+    id: LEGACY_BASE_ACCOUNT_IDS.roth,
+    balance: 0,
+    investmentAllocation: structuredClone(baseAllocation),
+  };
   p.portfolio.extraAccounts = [];
   p.netWorth = createEmptyNetWorthRecords();
   p.meta.accountSchemaVersion = ACCOUNT_SCHEMA_VERSION;
