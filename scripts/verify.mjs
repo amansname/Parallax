@@ -2401,9 +2401,19 @@ try {
         birthYear: 1966,
       };
       household.portfolio.accounts = {
-        taxable: { balance: 50000000, basisPct: 1 },
-        traditional: { balance: 0 },
-        roth: { balance: 0 },
+        taxable: {
+          ...household.portfolio.accounts.taxable,
+          balance: 50000000,
+          basisPct: 1,
+        },
+        traditional: {
+          ...household.portfolio.accounts.traditional,
+          balance: 0,
+        },
+        roth: {
+          ...household.portfolio.accounts.roth,
+          balance: 0,
+        },
       };
       household.portfolio.extraAccounts = [];
       localStorage.setItem(key, JSON.stringify(db));
