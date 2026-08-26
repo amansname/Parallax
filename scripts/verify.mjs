@@ -3390,9 +3390,19 @@ try {
         riskProfile: 3,
         withdrawalStrategy: 'taxable-first',
         accounts: {
-          taxable: { balance: 50000, basisPct: 1 },
-          traditional: { balance: 0 },
-          roth: { balance: 0 },
+          taxable: {
+            ...plan.portfolio.accounts.taxable,
+            balance: 50000,
+            basisPct: 1,
+          },
+          traditional: {
+            ...plan.portfolio.accounts.traditional,
+            balance: 0,
+          },
+          roth: {
+            ...plan.portfolio.accounts.roth,
+            balance: 0,
+          },
         },
         extraAccounts: [],
       };
@@ -3688,9 +3698,19 @@ try {
         riskProfile: 3,
         withdrawalStrategy: 'taxable-first',
         accounts: {
-          taxable: { balance: 0, basisPct: 1 },
-          traditional: { balance: 400000 },
-          roth: { balance: 0 },
+          taxable: {
+            ...plan.portfolio.accounts.taxable,
+            balance: 0,
+            basisPct: 1,
+          },
+          traditional: {
+            ...plan.portfolio.accounts.traditional,
+            balance: 400000,
+          },
+          roth: {
+            ...plan.portfolio.accounts.roth,
+            balance: 0,
+          },
         },
         extraAccounts: [],
       };
