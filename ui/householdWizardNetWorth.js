@@ -1,4 +1,8 @@
 import { getAccountTypeById } from '../src/household/accountTypes.js';
+import {
+  ASSET_ALLOCATION_PRESETS,
+  identifyInvestmentAllocation,
+} from '../src/household/investmentAllocation.js';
 import { NET_WORTH_ONLY_TREATMENT } from '../src/household/netWorthRecords.js';
 
 const ALL_OWNERS = Object.freeze(['client', 'spouse', 'joint']);
@@ -8,6 +12,9 @@ const BANK_TYPE_IDS = new Set([
   'money_market',
   'certificate_of_deposit',
 ]);
+const ASSET_ALLOCATION_PRESET_IDS = new Set(
+  ASSET_ALLOCATION_PRESETS.map(preset => preset.id),
+);
 
 const CATEGORIES = Object.freeze([
   Object.freeze({
@@ -175,6 +182,12 @@ function displayTypeForAccount(account){
     || '';
 }
 
+function allocationPresetIdForAccount(account, accountType){
+  if(accountType?.investmentAllocationEligible !== true) return '';
+  const identity = identifyInvestmentAllocation(account.investmentAllocation);
+  return ASSET_ALLOCATION_PRESET_IDS.has(identity.id) ? identity.id : '';
+}
+
 function renderSavedRow(entry, esc){
   const scope = entry.projectionTreatment === NET_WORTH_ONLY_TREATMENT
     ? 'Net worth only · not projected'
@@ -199,6 +212,7 @@ function renderSavedRow(entry, esc){
       data-entry-value="${esc(entry.balance)}"
       data-account-type-id="${esc(entry.accountTypeId || '')}"
       data-canonical-tax="${esc(entry.canonicalTax || '')}"
+      data-entry-allocation-preset-id="${esc(entry.allocationPresetId || '')}"
       data-owners="${esc((entry.owners || []).join(','))}"
       aria-label="Edit ${esc(entry.name || entry.type || 'account')}">${editIcon()}</button>
   ` : '';
@@ -232,6 +246,7 @@ function renderTypeButton(type, category, plan, esc){
     <button type="button" class="nw-type-chip" data-hh-action="net-worth-pick-type"
       data-category-id="${category.id}" data-type-label="${esc(type.label)}"
       data-account-type-id="${esc(type.accountTypeId || '')}"
+      data-allocation-eligible="${getAccountTypeById(type.accountTypeId)?.investmentAllocationEligible === true ? 'true' : 'false'}"
       data-canonical-tax="${esc(type.canonicalTax || '')}"
       data-shell-only="${type.shellOnly || category.shellOnly ? 'true' : 'false'}"
       data-owners="${owners.join(',')}">
@@ -280,6 +295,26 @@ function renderPanel({ category, entries, draft, moreOpen, plan, mortgageMeta, e
       ${property.available ? '' : 'disabled'}
       ${property.index === resolvedLink ? 'selected' : ''}>${esc(property.name)}</option>
   `).join('');
+  const allocationEligible = selected
+    && draft.shellOnly !== true
+    && getAccountTypeById(draft.accountTypeId)?.investmentAllocationEligible === true;
+  const allocationSelector = allocationEligible ? `
+    <fieldset class="nw-allocation" data-asset-allocation-selector>
+      <legend>Asset Allocation</legend>
+      <div class="nw-allocation-options">
+        ${ASSET_ALLOCATION_PRESETS.map(preset => `
+          <label class="nw-allocation-option" data-allocation-option-id="${esc(preset.id)}">
+            <input type="radio" name="net-worth-allocation"
+              value="${esc(preset.id)}"
+              data-net-worth-draft="allocationPresetId"
+              data-allocation-preset-id="${esc(preset.id)}"
+              ${draft.allocationPresetId === preset.id ? 'checked' : ''}>
+            <span>${esc(preset.label)}</span>
+          </label>
+        `).join('')}
+      </div>
+    </fieldset>
+  ` : '';
 
   const picker = !selected ? `
     <div class="nw-type-picker">
@@ -300,6 +335,7 @@ function renderPanel({ category, entries, draft, moreOpen, plan, mortgageMeta, e
             <button type="button" data-hh-action="net-worth-pick-type"
               data-category-id="${category.id}" data-type-label="${esc(type.label)}"
               data-account-type-id="${esc(type.accountTypeId || '')}"
+              data-allocation-eligible="${getAccountTypeById(type.accountTypeId)?.investmentAllocationEligible === true ? 'true' : 'false'}"
               data-canonical-tax="${esc(type.canonicalTax || '')}"
               data-shell-only="${type.shellOnly || category.shellOnly ? 'true' : 'false'}"
               data-owners="${ownersForPlan(type.owners, plan).join(',')}">${esc(type.label)}</button>
@@ -358,6 +394,7 @@ function renderPanel({ category, entries, draft, moreOpen, plan, mortgageMeta, e
             data-net-worth-draft="value">
         </label>
       </div>
+      ${allocationSelector}
     </div>
   ` : '';
 
@@ -441,6 +478,7 @@ export function renderHouseholdWizardNetWorth(ctx){
       value: money(account.balance),
       balance: account.balance,
       accountTypeId: account.typeId,
+      allocationPresetId: allocationPresetIdForAccount(account, accountType),
       owners: accountOwners,
       editable: accountType?.wizardEnabled === true && accountOwners.length > 0,
     });

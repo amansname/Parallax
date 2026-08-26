@@ -56,6 +56,9 @@ function blankNetWorthDraft(categoryId){
     linkAvailable: false,
     value: '$',
     accountTypeId: '',
+    allocationPresetId: '',
+    initialAllocationPresetId: '',
+    allocationSelectionChanged: false,
     canonicalTax: '',
     shellOnly: false,
     owners: ['client', 'spouse', 'joint'],
@@ -74,6 +77,9 @@ function updateNetWorthDraft(transientState, control){
     ...transientState.netWorthDraft,
     [field]: value,
   };
+  if(field === 'allocationPresetId'){
+    next.allocationSelectionChanged = value !== (next.initialAllocationPresetId || '');
+  }
   if(field === 'link'){
     const selected = control.selectedOptions?.[0];
     next.linkLabel = selected?.textContent?.trim() || '';
@@ -368,6 +374,9 @@ export function bindHouseholdEditor({
         linkAvailable: false,
         value: formatNetWorthCurrency(action.dataset.entryValue),
         accountTypeId: action.dataset.accountTypeId || '',
+        allocationPresetId: action.dataset.entryAllocationPresetId || '',
+        initialAllocationPresetId: action.dataset.entryAllocationPresetId || '',
+        allocationSelectionChanged: false,
         canonicalTax: action.dataset.canonicalTax || '',
         shellOnly: false,
         owners,
@@ -404,6 +413,10 @@ export function bindHouseholdEditor({
         custom: false,
         owner: owners.includes(current.owner) ? current.owner : '',
         accountTypeId: action.dataset.accountTypeId || '',
+        allocationPresetId: action.dataset.allocationEligible === 'true'
+            && current.editSource !== 'account'
+          ? (current.allocationPresetId || 'balanced')
+          : (current.allocationPresetId || ''),
         canonicalTax: action.dataset.canonicalTax || '',
         shellOnly: action.dataset.shellOnly === 'true',
         owners,
@@ -423,6 +436,9 @@ export function bindHouseholdEditor({
         type: '',
         custom: true,
         accountTypeId: '',
+        allocationPresetId: '',
+        initialAllocationPresetId: '',
+        allocationSelectionChanged: false,
         canonicalTax: '',
         shellOnly: true,
         owners: ['client', 'spouse', 'joint'],
@@ -494,6 +510,9 @@ export function bindHouseholdEditor({
                   displayName: draft.name,
                   owner: draft.owner,
                   balance: draft.value,
+                  ...(draft.allocationSelectionChanged && draft.allocationPresetId
+                    ? { allocationPresetId: draft.allocationPresetId }
+                    : {}),
                 },
               }
             : {
@@ -501,6 +520,9 @@ export function bindHouseholdEditor({
                 typeId: draft.accountTypeId,
                 owner: draft.owner,
                 balance: draft.value,
+                ...(draft.allocationPresetId
+                  ? { allocationPresetId: draft.allocationPresetId }
+                  : {}),
               }),
         }, action, true);
         if(!result){

@@ -3,9 +3,12 @@ import assert from 'node:assert/strict';
 import { ACCOUNT_SCHEMA_VERSION } from './accountTypes.js';
 import { bindHouseholdEditor } from './commit.js';
 import { createAccount } from './createAccount.js';
-import { snapshotLegacyRiskProfileAllocation } from './investmentAllocation.js';
+import {
+  snapshotLegacyRiskProfileAllocation,
+  snapshotPresetAllocation,
+} from './investmentAllocation.js';
 import { LEGACY_BASE_ACCOUNT_IDS } from './migrateAccounts.js';
-import { createBlankTaxProfiles } from './factEnvelope.js';
+import { createBlankTaxProfiles, createFact } from './factEnvelope.js';
 import { HOUSEHOLD_RECORD_SCHEMA_VERSION } from './householdRecordSchema.js';
 import { createEmptyNetWorthRecords } from './netWorthRecords.js';
 import {
@@ -174,6 +177,84 @@ test('wizard teardown blur does not dispatch a nested Tax edit', () => {
   root.dataset.wizardReady = 'true';
   listeners.focusout({ target: control });
   assert.equal(dispatched, 1);
+});
+
+test('Net Worth account save submits a preset only after an explicit selector change', () => {
+  const listeners = {};
+  const commands = [];
+  const root = {
+    dataset: { wizardReady: 'true', wizardStep: 'net-worth' },
+    addEventListener(type, listener){ listeners[type] = listener; },
+  };
+  const transientState = {};
+  const saveAction = {
+    dataset: {
+      hhAction: 'net-worth-save-entry',
+      netWorthResolvedLinkAvailable: 'false',
+      netWorthOwnerRequired: 'true',
+      netWorthLinkRequired: 'false',
+    },
+    disabled: false,
+    closest(selector){ return selector === '[data-hh-action]' ? this : null; },
+    getAttribute(){ return null; },
+    matches(){ return false; },
+    removeAttribute(){},
+  };
+  const panel = { querySelector(){ return saveAction; } };
+  const draft = () => ({
+    categoryId: 'investment',
+    name: 'Client rollover',
+    type: 'Rollover IRA',
+    custom: false,
+    owner: 'client',
+    link: '',
+    linkLabel: '',
+    linkAvailable: false,
+    value: '$400,000',
+    accountTypeId: 'rollover_ira',
+    allocationPresetId: 'balanced',
+    initialAllocationPresetId: 'balanced',
+    allocationSelectionChanged: false,
+    canonicalTax: 'Tax-Deferred',
+    shellOnly: false,
+    owners: ['client', 'spouse'],
+    editSource: 'account',
+    editId: 'acct-rollover',
+  });
+
+  bindHouseholdEditor({
+    root,
+    wizardRoot: root,
+    transientState,
+    guardPlanMutation: () => true,
+    commitWizardEdit(command){
+      commands.push(command);
+      return {};
+    },
+    syncHousehold(){},
+    navigateWizard(){},
+    syncHeaderStatus(){},
+    liveCommas(){},
+  });
+
+  transientState.netWorthDraft = draft();
+  listeners.click({ target: saveAction });
+  assert.equal(Object.hasOwn(commands[0].fields, 'allocationPresetId'), false);
+
+  transientState.netWorthDraft = draft();
+  const growthRadio = {
+    dataset: { netWorthDraft: 'allocationPresetId' },
+    value: 'growth',
+    closest(selector){
+      if(selector === '[data-net-worth-draft]') return this;
+      if(selector === '.nw-panel') return panel;
+      return null;
+    },
+  };
+  listeners.change({ target: growthRadio });
+  assert.equal(transientState.netWorthDraft.allocationSelectionChanged, true);
+  listeners.click({ target: saveAction });
+  assert.equal(commands[1].fields.allocationPresetId, 'growth');
 });
 
 test('family DOB is one atomic edit across profile, plan age, and canonical taxpayers', () => {
@@ -524,6 +605,219 @@ test('account edit applies type, name, owner, and value atomically while preserv
   assert.equal(edited.portfolio.extraAccounts[0].owner, 'client');
   assert.equal(edited.portfolio.extraAccounts[0].balance, 125000);
   assert.equal(subject.portfolio.extraAccounts[0].displayName, 'Original brokerage');
+});
+
+test('account edits preserve saved allocations unless a preset is explicitly selected', () => {
+  const subject = plan();
+  const account = createAccount('rollover_ira', {
+    displayName: 'Client rollover',
+    owner: 'client',
+    balance: 400000,
+    investmentAllocation: snapshotPresetAllocation('growth'),
+  });
+  subject.portfolio.extraAccounts = [account];
+
+  const preserved = applyHouseholdWizardEdit(subject, {
+    scope: 'account',
+    action: 'update',
+    accountId: account.id,
+    fields: {
+      typeId: 'rollover_ira',
+      displayName: 'Updated rollover',
+      owner: 'client',
+      balance: '$425,000',
+    },
+  }, { timestamp: '2026-08-26T12:00:00.000Z' });
+  assert.deepEqual(
+    preserved.portfolio.extraAccounts[0].investmentAllocation,
+    snapshotPresetAllocation('growth'),
+  );
+
+  const selected = applyHouseholdWizardEdit(preserved, {
+    scope: 'account',
+    action: 'update',
+    accountId: account.id,
+    fields: { allocationPresetId: 'aggressive' },
+  }, { timestamp: '2026-08-26T12:00:00.000Z' });
+  assert.deepEqual(
+    selected.portfolio.extraAccounts[0].investmentAllocation,
+    snapshotPresetAllocation('aggressive'),
+  );
+});
+
+test('same-type account saves preserve authoritative account envelopes byte-exactly', () => {
+  const subject = plan();
+  const nearBalanced = structuredClone(snapshotPresetAllocation('balanced'));
+  nearBalanced.weights.usLarge += 5e-10;
+  nearBalanced.weights.cash -= 5e-10;
+
+  const brokerage = createAccount('brokerage_taxable', {
+    displayName: 'Client brokerage',
+    owner: 'client',
+    balance: 100000,
+    investmentAllocation: nearBalanced,
+  });
+  brokerage.basis = {
+    amount: 64000,
+    method: 'reported-cost-basis',
+    status: 'confirmed',
+    source: 'household-entry',
+    confirmedAt: '2026-08-25T12:00:00.000Z',
+    version: 1,
+  };
+  brokerage.taxReporting = {
+    inclusion: 'unknown',
+    reportingTaxpayer: 'return-level',
+    householdReturnShare: 0.6,
+  };
+  const employer = createAccount('401k', {
+    displayName: 'Client 401(k)',
+    owner: 'client',
+    balance: 200000,
+    investmentAllocation: snapshotPresetAllocation('growth'),
+  });
+  employer.employerPlanFacts = {
+    afterTaxContributionBasis: createFact(
+      12000,
+      'confirmed',
+      'household-entry',
+      '2026-08-25T12:00:00.000Z',
+    ),
+    planSubtypeConfirmed: createFact(
+      true,
+      'confirmed',
+      'household-entry',
+      '2026-08-25T12:00:00.000Z',
+    ),
+  };
+  const designated = createAccount('roth_401k', {
+    displayName: 'Client Roth 401(k)',
+    owner: 'client',
+    balance: 150000,
+    investmentAllocation: snapshotPresetAllocation('aggressive'),
+  });
+  designated.designatedRothFacts = {
+    firstContributionYear: createFact(
+      2014,
+      'confirmed',
+      'household-entry',
+      '2026-08-25T12:00:00.000Z',
+    ),
+    contributionBasis: createFact(
+      75000,
+      'confirmed',
+      'household-entry',
+      '2026-08-25T12:00:00.000Z',
+    ),
+    inPlanRolloverCohorts: createFact(
+      [],
+      'confirmed',
+      'household-entry',
+      '2026-08-25T12:00:00.000Z',
+    ),
+  };
+  subject.portfolio.extraAccounts = [brokerage, employer, designated];
+  const preservedBytes = Object.fromEntries(subject.portfolio.extraAccounts.map(account => [
+    account.id,
+    JSON.stringify({
+      basis: account.basis,
+      taxReporting: account.taxReporting,
+      employerPlanFacts: account.employerPlanFacts,
+      designatedRothFacts: account.designatedRothFacts,
+      investmentAllocation: account.investmentAllocation,
+    }),
+  ]));
+
+  let edited = subject;
+  for(const account of subject.portfolio.extraAccounts){
+    edited = applyHouseholdWizardEdit(edited, {
+      scope: 'account',
+      action: 'update',
+      accountId: account.id,
+      fields: {
+        typeId: account.typeId,
+        displayName: `${account.displayName} updated`,
+        owner: account.owner,
+        balance: account.balance + 1000,
+      },
+    }, { timestamp: '2026-08-26T12:00:00.000Z' });
+  }
+
+  for(const account of edited.portfolio.extraAccounts){
+    assert.equal(account.id in preservedBytes, true);
+    assert.equal(account.displayName.endsWith(' updated'), true);
+    assert.equal(JSON.stringify({
+      basis: account.basis,
+      taxReporting: account.taxReporting,
+      employerPlanFacts: account.employerPlanFacts,
+      designatedRothFacts: account.designatedRothFacts,
+      investmentAllocation: account.investmentAllocation,
+    }), preservedBytes[account.id]);
+  }
+});
+
+test('legacy allocations remain byte-stable until an advisor selects a preset', () => {
+  const subject = plan();
+  const legacyAllocation = snapshotLegacyRiskProfileAllocation(4);
+  const account = createAccount('traditional_ira', {
+    displayName: 'Legacy IRA',
+    owner: 'client',
+    balance: 300000,
+    investmentAllocation: legacyAllocation,
+  });
+  subject.portfolio.extraAccounts = [account];
+  const beforeBytes = JSON.stringify(account.investmentAllocation);
+
+  const edited = applyHouseholdWizardEdit(subject, {
+    scope: 'account',
+    action: 'update',
+    accountId: account.id,
+    fields: {
+      typeId: 'rollover_ira',
+      displayName: 'Legacy rollover',
+      owner: 'client',
+      balance: 325000,
+    },
+  }, { timestamp: '2026-08-26T12:00:00.000Z' });
+  assert.equal(
+    JSON.stringify(edited.portfolio.extraAccounts[0].investmentAllocation),
+    beforeBytes,
+  );
+});
+
+test('new investment accounts accept one canonical allocation preset id', () => {
+  const edited = applyHouseholdWizardEdit(plan(), {
+    scope: 'account',
+    action: 'add',
+    typeId: 'roth_ira',
+    displayName: 'Client Roth IRA',
+    owner: 'client',
+    balance: 125000,
+    allocationPresetId: 'conservative',
+  }, { timestamp: '2026-08-26T12:00:00.000Z' });
+  assert.deepEqual(
+    edited.portfolio.extraAccounts[0].investmentAllocation,
+    snapshotPresetAllocation('conservative'),
+  );
+});
+
+test('asset allocation presets are rejected for registry-ineligible accounts', () => {
+  const subject = plan();
+  const checking = createAccount('checking', {
+    displayName: 'Client checking',
+    owner: 'client',
+    balance: 5000,
+  });
+  subject.portfolio.extraAccounts = [checking];
+  assert.throws(
+    () => applyHouseholdWizardEdit(subject, {
+      scope: 'account',
+      action: 'update',
+      accountId: checking.id,
+      fields: { allocationPresetId: 'growth' },
+    }, { timestamp: '2026-08-26T12:00:00.000Z' }),
+    /Asset allocation is unavailable/,
+  );
 });
 
 test('taxable brokerage accepts joint ownership while legacy joint brokerage remains editable', () => {

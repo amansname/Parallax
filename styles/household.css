@@ -847,6 +847,78 @@
   font-variant-numeric: tabular-nums;
 }
 
+.page[data-page="household"] .nw-allocation {
+  min-width: 0;
+  margin: var(--sp-4) 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.page[data-page="household"] .nw-allocation legend {
+  margin-bottom: var(--sp-2);
+  padding: 0;
+  color: var(--body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-eyebrow);
+  line-height: var(--lh-eyebrow);
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+}
+
+.page[data-page="household"] .nw-allocation-options {
+  display: grid;
+  min-width: 0;
+  grid-auto-columns: minmax(max-content, 1fr);
+  grid-auto-flow: column;
+  overflow-x: auto;
+  border: var(--bw) solid var(--line);
+  border-radius: var(--r-ctl);
+}
+
+.page[data-page="household"] .nw-allocation-option {
+  position: relative;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.page[data-page="household"] .nw-allocation-option + .nw-allocation-option {
+  border-left: var(--bw) solid var(--line);
+}
+
+.page[data-page="household"] .nw-allocation-option input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.page[data-page="household"] .nw-allocation-option span {
+  display: flex;
+  min-width: max-content;
+  height: var(--h-compact);
+  align-items: center;
+  justify-content: center;
+  padding: 0 var(--sp-3);
+  color: var(--body);
+  font-size: var(--fs-caption);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.page[data-page="household"] .nw-allocation-option:hover span { color: var(--ink); }
+
+.page[data-page="household"] .nw-allocation-option input:checked + span {
+  background: var(--acc-tint);
+  box-shadow: inset 0 0 0 var(--bw) var(--acc-hair);
+  color: var(--acc);
+}
+
+.page[data-page="household"] .nw-allocation-option input:focus-visible + span {
+  outline: 2px solid var(--acc);
+  outline-offset: -2px;
+}
+
 .page[data-page="household"] .nw-type-picker {
   position: relative;
   display: flex;

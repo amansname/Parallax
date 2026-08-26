@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { getWizardAccountTypes } from '../src/household/accountTypes.js';
+import { snapshotPresetAllocation } from '../src/household/investmentAllocation.js';
 import { createHouseholdWizardController } from '../src/household/wizard.js';
 import {
   createHouseholdWizard,
@@ -81,6 +82,7 @@ function plan(){
         owner: 'joint',
         balance: 1450000,
         basis: { amount: 980000 },
+        investmentAllocation: snapshotPresetAllocation('balanced'),
       }],
     },
     taxProfiles: {
@@ -309,13 +311,59 @@ test('Net Worth exposes saved canonical accounts for in-place editing', () => {
       canonicalTax: 'Taxable',
       shellOnly: false,
       owners: ['client', 'spouse', 'joint'],
+      allocationPresetId: 'balanced',
       editSource: 'account',
       editId: 'acct-1',
     },
   }).render('net-worth');
   assert.match(form, /value="Joint brokerage"[\s\S]*data-net-worth-draft="name"/);
   assert.match(form, /value="\$1,450,000"[\s\S]*data-net-worth-draft="value"/);
+  assert.equal(form.includes('data-asset-allocation-selector'), true);
   assert.match(form, />Save changes<\/button>/);
+});
+
+test('Net Worth shows allocation presets only for canonical investment accounts', () => {
+  const investment = wizard({
+    netWorthPanelCategory: 'investment',
+    netWorthDraft: {
+      categoryId: 'investment',
+      name: '',
+      type: 'Roth IRA',
+      custom: false,
+      owner: 'client',
+      link: '',
+      linkLabel: '',
+      linkAvailable: false,
+      value: '$',
+      accountTypeId: 'roth_ira',
+      canonicalTax: 'Tax-Free',
+      shellOnly: false,
+      owners: ['client', 'spouse'],
+      allocationPresetId: 'growth',
+    },
+  }).render('net-worth');
+  assert.equal(investment.includes('data-asset-allocation-selector'), true);
+
+  const bank = wizard({
+    netWorthPanelCategory: 'bank',
+    netWorthDraft: {
+      categoryId: 'bank',
+      name: '',
+      type: 'Checking',
+      custom: false,
+      owner: 'client',
+      link: '',
+      linkLabel: '',
+      linkAvailable: false,
+      value: '$',
+      accountTypeId: 'checking',
+      canonicalTax: 'Taxable',
+      shellOnly: false,
+      owners: ['client', 'spouse', 'joint'],
+      allocationPresetId: '',
+    },
+  }).render('net-worth');
+  assert.equal(bank.includes('data-asset-allocation-selector'), false);
 });
 
 test('Net Worth requires a valid owner and hides spouse ownership when no spouse exists', () => {

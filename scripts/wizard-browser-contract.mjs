@@ -1,5 +1,11 @@
 import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { RETURN_DATA } from '../engine.js';
+import {
+  ASSET_KEYS,
+  ASSET_META,
+  snapshotPresetAllocation,
+} from '../src/household/investmentAllocation.js';
 
 export const WIZARD_STEP_IDS = Object.freeze([
   'family',
@@ -23,6 +29,42 @@ const MIGRATION_SURVIVOR = Object.freeze({
 
 function requireCondition(condition, message){
   if(!condition) throw new Error(message);
+}
+
+function independentlyResolve1973PresetReturn(presetId){
+  const source = RETURN_DATA.find(row => row.y === 1973);
+  requireCondition(source, '1973 return row is unavailable');
+  const requested = snapshotPresetAllocation(presetId).weights;
+  const sleeves = [
+    ASSET_KEYS.filter(key => ASSET_META[key].bucket === 'growth'),
+    ASSET_KEYS.filter(key => ASSET_META[key].bucket !== 'growth'),
+  ];
+  let rate = 0;
+  for(const keys of sleeves){
+    const targetWeight = keys.reduce((sum, key) => sum + requested[key], 0);
+    const available = keys.filter(key => source[key] !== null && source[key] !== undefined);
+    const availableWeight = available.reduce((sum, key) => sum + requested[key], 0);
+    requireCondition(
+      targetWeight === 0 || availableWeight > 0,
+      `${presetId} has no independently available 1973 sleeve`,
+    );
+    if(targetWeight === 0) continue;
+    for(const key of available){
+      rate += targetWeight * (requested[key] / availableWeight) * source[key];
+    }
+  }
+  return { rate, cashRate: source.cash };
+}
+
+function visibleReturnText(rate){
+  const sign = rate < 0 ? '−' : '+';
+  return `${sign}${(Math.abs(rate) * 100).toFixed(1)}%`;
+}
+
+function exactStorageSnapshot(snapshot){
+  return JSON.stringify(Object.fromEntries(
+    Object.entries(snapshot || {}).sort(([left], [right]) => left.localeCompare(right)),
+  ));
 }
 
 async function countMatches(page, selector){
@@ -297,6 +339,71 @@ export async function openNetWorthCategory(page, categoryId){
     `Net Worth ${categoryId} panel`,
   );
   return wizardState(page);
+}
+
+async function selectNetWorthAllocation(page, presetId){
+  const selector = `[data-allocation-option-id="${presetId}"]`;
+  await requireUnique(page, selector, `asset allocation ${presetId}`);
+  const before = await wizardState(page);
+  await page.click(selector);
+  const selected = await page.$eval(
+    `${selector} input[data-net-worth-draft="allocationPresetId"]`,
+    input => input.checked,
+  );
+  const after = await wizardState(page);
+  requireCondition(
+    selected
+      && after.revision === before.revision
+      && after.step === before.step,
+    `Asset allocation ${presetId} did not remain an in-form selection`,
+  );
+}
+
+async function historicalCashFlowSnapshot(page, {
+  pathId = 'historical-1973',
+  previousEndingBalance = null,
+} = {}){
+  await page.click('.htab[data-page="scenarios"]');
+  await page.waitForFunction(() => (
+    document.querySelector('.page.on')?.dataset.page === 'scenarios'
+      && (document.querySelectorAll('#scn-view .scol__name').length > 0
+        || Boolean(document.querySelector('#scn-view .cf')))
+  ), { timeout: 15000 });
+  const cashActive = await page.$eval(
+    '#scn-cash-toggle',
+    button => button.getAttribute('aria-checked') === 'true',
+  );
+  if(!cashActive) await page.click('#scn-cash-toggle');
+  await page.waitForFunction(() => Boolean(
+    document.querySelector('#scn-view .cf')
+      && document.querySelector('#cashflow-path-mode'),
+  ), { timeout: 15000 });
+  await page.select('#cashflow-path-mode', pathId);
+  await page.waitForFunction(({ expectedPathId, priorEnding }) => {
+    const cashFlow = document.querySelector(
+      `#scn-view .cf[data-cash-path-id="${expectedPathId}"]`,
+    );
+    const row = cashFlow?.querySelector('.cf-row[data-source-year="1973"]');
+    if(!row) return false;
+    return priorEnding == null || row.dataset.endingBalance !== priorEnding;
+  }, { timeout: 15000 }, {
+    expectedPathId: pathId,
+    priorEnding: previousEndingBalance,
+  });
+  return page.evaluate(expectedPathId => {
+    const cashFlow = document.querySelector(
+      `#scn-view .cf[data-cash-path-id="${expectedPathId}"]`,
+    );
+    const row = cashFlow?.querySelector('.cf-row[data-source-year="1973"]');
+    return {
+      pathId: cashFlow?.dataset.cashPathId || '',
+      kind: cashFlow?.dataset.cashPathKind || '',
+      sourceYear: row?.dataset.sourceYear || '',
+      startBalance: row?.dataset.startBalance || '',
+      endingBalance: row?.dataset.endingBalance || '',
+      returnText: row?.querySelector('.cf-cell--ret')?.textContent.trim() || '',
+    };
+  }, pathId);
 }
 
 async function snapshotStorage(page){
@@ -895,6 +1002,7 @@ async function verifyRuntimeTemplateSessionIsolation(page){
     const otherHouseholdId = runtimeIds[(index + 1) % runtimeIds.length];
     const originalName = JSON.parse(baseline.fixtureBytes[householdId]).meta.primaryName;
     const editedName = `Temporary ${householdId} edit`;
+    let runtimeAllocationCheck = null;
     await selectHouseholdVisible(page, householdId);
     await page.waitForFunction(
       () => /Plan updated|Partial run/i.test(document.querySelector('#status')?.textContent || ''),
@@ -914,6 +1022,50 @@ async function verifyRuntimeTemplateSessionIsolation(page){
       expectedStatus: 'Demo changes are temporary \u00b7 use New Household to save a plan',
     });
     await requireUnchangedPersistence(`${householdId} Family edit`);
+
+    if(index === 0){
+      await openNetWorthCategory(page, 'investment');
+      const accountId = await page.$eval(
+        '[data-hh-action="net-worth-edit-entry"][data-entry-category-id="investment"]',
+        button => button.dataset.accountId,
+      );
+      await clickWizardAction(
+        page,
+        `[data-hh-action="net-worth-edit-entry"][data-account-id="${accountId}"]`,
+      );
+      const originalPresetId = await page.evaluate(() =>
+        document.querySelector('[data-asset-allocation-selector] input:checked')?.value || '');
+      const fixtureAccount = JSON.parse(baseline.fixtureBytes[householdId])
+        .portfolio.extraAccounts.find(account => account.id === accountId);
+      const expectedOriginalPresetId = fixtureAccount?.investmentAllocation?.source === 'preset'
+        ? fixtureAccount.investmentAllocation.presetId
+        : '';
+      requireCondition(
+        originalPresetId === expectedOriginalPresetId,
+        `Demo allocation selector misstated saved allocation provenance: ${JSON.stringify({
+          accountId,
+          source: fixtureAccount?.investmentAllocation?.source || '',
+          expected: expectedOriginalPresetId,
+          actual: originalPresetId,
+        })}`,
+      );
+      const temporaryPresetId = originalPresetId === 'all-equity'
+        ? 'defensive'
+        : 'all-equity';
+      await selectNetWorthAllocation(page, temporaryPresetId);
+      await clickWizardAction(page, '[data-hh-action="net-worth-save-entry"]');
+      const visiblePresetId = await page.$eval(
+        `[data-hh-action="net-worth-edit-entry"][data-account-id="${accountId}"]`,
+        button => button.dataset.entryAllocationPresetId || '',
+      );
+      requireCondition(
+        visiblePresetId === temporaryPresetId,
+        `Demo allocation edit was not visible in-session: ${visiblePresetId}`,
+      );
+      await requireUnchangedPersistence(`${householdId} allocation edit`);
+      await clickWizardAction(page, '[data-net-worth-overlay] .nw-panel-close');
+      runtimeAllocationCheck = { accountId, originalPresetId };
+    }
 
     await page.click('.htab[data-page="scenarios"]');
     await page.waitForFunction(() => (
@@ -941,6 +1093,24 @@ async function verifyRuntimeTemplateSessionIsolation(page){
       restoredName === originalName,
       `${householdId} did not restore its shipped Family state after reselection`,
     );
+    if(runtimeAllocationCheck){
+      await openNetWorthCategory(page, 'investment');
+      await clickWizardAction(
+        page,
+        `[data-hh-action="net-worth-edit-entry"][data-account-id="${runtimeAllocationCheck.accountId}"]`,
+      );
+      const restoredPresetId = await page.evaluate(() =>
+        document.querySelector('[data-asset-allocation-selector] input:checked')?.value || '');
+      requireCondition(
+        restoredPresetId === runtimeAllocationCheck.originalPresetId,
+        `Demo allocation did not reset after household switch: ${JSON.stringify({
+          expected: runtimeAllocationCheck.originalPresetId,
+          actual: restoredPresetId,
+        })}`,
+      );
+      await clickWizardAction(page, '[data-hh-action="net-worth-cancel-draft"]');
+      await clickWizardAction(page, '[data-net-worth-overlay] .nw-panel-close');
+    }
     await page.click('.htab[data-page="scenarios"]');
     await page.waitForFunction(expectedCount => (
       document.querySelector('.page.on')?.dataset.page === 'scenarios'
@@ -1802,6 +1972,279 @@ async function verifyNetWorthFlow(page){
   );
 }
 
+async function verifyAssetAllocationHistoricalFlow(page){
+  const storageBefore = await snapshotStorage(page);
+  const viewportBefore = page.viewport();
+  await openNetWorthCategory(page, 'investment');
+  await clickWizardAction(
+    page,
+    '[data-hh-action="net-worth-pick-type"][data-account-type-id="rollover_ira"]',
+  );
+  const defaultSelector = await page.evaluate(() => ({
+    labels: [...document.querySelectorAll('[data-asset-allocation-selector] .nw-allocation-option span')]
+      .map(element => element.textContent.trim()),
+    selected: document.querySelector(
+      '[data-asset-allocation-selector] input:checked',
+    )?.value || '',
+  }));
+  requireCondition(
+    JSON.stringify(defaultSelector.labels) === JSON.stringify([
+      'Defensive',
+      'Conservative',
+      'Balanced',
+      'Growth',
+      'Aggressive',
+      'All Equity',
+    ]) && defaultSelector.selected === 'balanced',
+    `New investment account did not visibly default to Balanced: ${JSON.stringify(defaultSelector)}`,
+  );
+  await setWizardValue(
+    page,
+    '[data-net-worth-draft="name"]',
+    'Verifier allocation account',
+    { expectRevision: false, eventType: 'input' },
+  );
+  await setWizardValue(
+    page,
+    '[data-net-worth-draft="owner"]',
+    'client',
+    { expectRevision: false },
+  );
+  await setWizardValue(
+    page,
+    '[data-net-worth-draft="value"]',
+    '1000000',
+    { expectRevision: false, eventType: 'input' },
+  );
+  await clickWizardAction(page, '[data-hh-action="net-worth-save-entry"]');
+  const accountId = await page.evaluate(() => {
+    const row = [...document.querySelectorAll('.nw-saved-row')].find(candidate =>
+      candidate.querySelector('.nw-saved-name')?.textContent.trim()
+        === 'Verifier allocation account');
+    return row?.querySelector('[data-hh-action="net-worth-edit-entry"]')
+      ?.dataset.accountId || '';
+  });
+  requireCondition(accountId, 'Saved allocation account is unavailable for verification');
+  await page.waitForFunction(expectedId => {
+    const database = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+    const active = localStorage.getItem('parallax.activeHouseholdId');
+    const account = database?.[active]?.portfolio?.extraAccounts
+      ?.find(candidate => candidate.id === expectedId);
+    return account?.investmentAllocation?.source === 'preset'
+      && account.investmentAllocation.presetId === 'balanced';
+  }, { timeout: 10000 }, accountId);
+
+  const fixtureBalances = await page.evaluate(expectedId => {
+    const database = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+    const active = localStorage.getItem('parallax.activeHouseholdId');
+    const plan = database?.[active];
+    const accounts = plan?.portfolio?.extraAccounts || [];
+    const allocationAccount = accounts.find(account => account.id === expectedId);
+    const cashAccounts = accounts.filter(account => (
+      account.investmentAllocation?.source === 'cash-only'
+    ));
+    return {
+      allocationBalance: allocationAccount?.balance ?? null,
+      allocationSource: allocationAccount?.investmentAllocation?.source || '',
+      allocationPresetId: allocationAccount?.investmentAllocation?.presetId || '',
+      allocationWeights: allocationAccount?.investmentAllocation?.weights || null,
+      cashBalance: cashAccounts.reduce((sum, account) => sum + account.balance, 0),
+      cashAccountCount: cashAccounts.length,
+      projectionAccountCount: accounts.length,
+      baseBalances: Object.fromEntries(
+        Object.entries(plan?.portfolio?.accounts || {}).map(([bucket, account]) => (
+          [bucket, account?.balance ?? null]
+        )),
+      ),
+    };
+  }, accountId);
+  requireCondition(
+    fixtureBalances.allocationBalance === 1000000
+      && fixtureBalances.allocationSource === 'preset'
+      && fixtureBalances.allocationPresetId === 'balanced'
+      && JSON.stringify(fixtureBalances.allocationWeights)
+        === JSON.stringify(snapshotPresetAllocation('balanced').weights)
+      && fixtureBalances.cashBalance === 250001
+      && fixtureBalances.cashAccountCount === 1
+      && fixtureBalances.projectionAccountCount === 2
+      && Object.values(fixtureBalances.baseBalances).every(balance => balance === 0),
+    `Allocation Historical fixture balances drifted: ${JSON.stringify(fixtureBalances)}`,
+  );
+
+  const balanced = await historicalCashFlowSnapshot(page);
+  const balanced1973 = independentlyResolve1973PresetReturn('balanced');
+  const openingBalance = fixtureBalances.allocationBalance + fixtureBalances.cashBalance;
+  const expectedBalancedRate = (
+    (fixtureBalances.allocationBalance * balanced1973.rate)
+      + (fixtureBalances.cashBalance * balanced1973.cashRate)
+  ) / openingBalance;
+  requireCondition(
+    Number(balanced.startBalance) === openingBalance
+      && balanced.returnText === visibleReturnText(expectedBalancedRate),
+    `Balanced 1973 Cash Flow did not match canonical saved weights: ${JSON.stringify({
+      balanced,
+      expectedStartBalance: openingBalance,
+      expectedReturnText: visibleReturnText(expectedBalancedRate),
+      expectedReturnRate: expectedBalancedRate,
+    })}`,
+  );
+  await openNetWorthCategory(page, 'investment');
+  await clickWizardAction(
+    page,
+    `[data-hh-action="net-worth-edit-entry"][data-account-id="${accountId}"]`,
+  );
+  const reopenedBalanced = await page.$eval(
+    '[data-asset-allocation-selector] input:checked',
+    input => input.value,
+  );
+  requireCondition(
+    reopenedBalanced === 'balanced',
+    `Saved Balanced allocation did not reopen as selected: ${reopenedBalanced}`,
+  );
+  await selectNetWorthAllocation(page, 'growth');
+  await clickWizardAction(page, '[data-hh-action="net-worth-save-entry"]');
+  await page.waitForFunction(expectedId => {
+    const database = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+    const active = localStorage.getItem('parallax.activeHouseholdId');
+    const account = database?.[active]?.portfolio?.extraAccounts
+      ?.find(candidate => candidate.id === expectedId);
+    return account?.investmentAllocation?.source === 'preset'
+      && account.investmentAllocation.presetId === 'growth';
+  }, { timeout: 10000 }, accountId);
+  const savedGrowthWeights = await page.evaluate(expectedId => {
+    const database = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+    const active = localStorage.getItem('parallax.activeHouseholdId');
+    return database?.[active]?.portfolio?.extraAccounts
+      ?.find(candidate => candidate.id === expectedId)?.investmentAllocation?.weights || null;
+  }, accountId);
+  requireCondition(
+    JSON.stringify(savedGrowthWeights)
+      === JSON.stringify(snapshotPresetAllocation('growth').weights),
+    `Saved Growth allocation weights are not canonical: ${JSON.stringify(savedGrowthWeights)}`,
+  );
+  const growth = await historicalCashFlowSnapshot(page, {
+    previousEndingBalance: balanced.endingBalance,
+  });
+  const growth1973 = independentlyResolve1973PresetReturn('growth');
+  const expectedGrowthRate = (
+    (fixtureBalances.allocationBalance * growth1973.rate)
+      + (fixtureBalances.cashBalance * growth1973.cashRate)
+  ) / openingBalance;
+  const expectedEndingDelta = fixtureBalances.allocationBalance
+    * (growth1973.rate - balanced1973.rate);
+  const actualEndingDelta = Number(growth.endingBalance) - Number(balanced.endingBalance);
+  requireCondition(
+    balanced.pathId === 'historical-1973'
+      && growth.pathId === 'historical-1973'
+      && balanced.kind === 'historical'
+      && growth.kind === 'historical'
+      && balanced.sourceYear === '1973'
+      && growth.sourceYear === '1973'
+      && balanced.startBalance === growth.startBalance
+      && growth.returnText === visibleReturnText(expectedGrowthRate)
+      && Math.abs(actualEndingDelta - expectedEndingDelta) <= 0.02,
+    `Saved allocation did not produce the canonical deterministic Historical Cash Flow: ${JSON.stringify({
+      balanced,
+      growth,
+      expectedGrowthReturnText: visibleReturnText(expectedGrowthRate),
+      expectedGrowthRate,
+      expectedEndingDelta,
+      actualEndingDelta,
+    })}`,
+  );
+
+  await reloadWizard(page);
+  await openNetWorthCategory(page, 'investment');
+  await clickWizardAction(
+    page,
+    `[data-hh-action="net-worth-edit-entry"][data-account-id="${accountId}"]`,
+  );
+  const persisted = await page.evaluate(() => ({
+    selected: document.querySelector(
+      '[data-asset-allocation-selector] input:checked',
+    )?.value || '',
+    selectedCount: document.querySelectorAll(
+      '[data-asset-allocation-selector] input:checked',
+    ).length,
+  }));
+  requireCondition(
+    persisted.selected === 'growth' && persisted.selectedCount === 1,
+    `Growth allocation did not survive reload: ${JSON.stringify(persisted)}`,
+  );
+
+  await page.setViewport({
+    width: 390,
+    height: 844,
+    deviceScaleFactor: 1,
+  });
+  const mobileSelector = await page.evaluate(() => {
+    const options = document.querySelector('.nw-allocation-options');
+    const labels = [...(options?.querySelectorAll('.nw-allocation-option') || [])];
+    const first = labels[0];
+    const last = labels.at(-1);
+    const firstInput = first?.querySelector('input');
+    const lastInput = last?.querySelector('input');
+    const intersectsHorizontally = (element, container) => {
+      const elementRect = element?.getBoundingClientRect();
+      const containerRect = container?.getBoundingClientRect();
+      return Boolean(elementRect && containerRect
+        && elementRect.right > containerRect.left
+        && elementRect.left < containerRect.right);
+    };
+    if(options) options.scrollLeft = 0;
+    const firstReachable = intersectsHorizontally(first, options);
+    firstInput?.focus();
+    const firstFocusable = document.activeElement === firstInput;
+    if(options) options.scrollLeft = options.scrollWidth;
+    const lastReachable = intersectsHorizontally(last, options);
+    lastInput?.focus();
+    const lastFocusable = document.activeElement === lastInput;
+    return {
+      documentScrollWidth: document.documentElement.scrollWidth,
+      documentClientWidth: document.documentElement.clientWidth,
+      selectorScrollWidth: options?.scrollWidth || 0,
+      selectorClientWidth: options?.clientWidth || 0,
+      selectorOverflowX: options ? getComputedStyle(options).overflowX : '',
+      firstReachable,
+      lastReachable,
+      firstFocusable,
+      lastFocusable,
+      firstDisabled: firstInput?.disabled === true,
+      lastDisabled: lastInput?.disabled === true,
+    };
+  });
+  requireCondition(
+    mobileSelector.documentScrollWidth <= mobileSelector.documentClientWidth + 1
+      && mobileSelector.selectorScrollWidth > mobileSelector.selectorClientWidth
+      && ['auto', 'scroll'].includes(mobileSelector.selectorOverflowX)
+      && mobileSelector.firstReachable
+      && mobileSelector.lastReachable
+      && mobileSelector.firstFocusable
+      && mobileSelector.lastFocusable
+      && !mobileSelector.firstDisabled
+      && !mobileSelector.lastDisabled,
+    `Mobile allocation selector containment failed: ${JSON.stringify(mobileSelector)}`,
+  );
+  if(viewportBefore) await page.setViewport(viewportBefore);
+  await clickWizardAction(page, '[data-hh-action="net-worth-cancel-draft"]');
+  const reloadedGrowth = await historicalCashFlowSnapshot(page);
+  requireCondition(
+    JSON.stringify(reloadedGrowth) === JSON.stringify(growth),
+    `Reloaded persisted Growth allocation changed Historical Cash Flow: ${JSON.stringify({
+      beforeReload: growth,
+      afterReload: reloadedGrowth,
+    })}`,
+  );
+
+  await restoreStorage(page, storageBefore);
+  await reloadWizard(page);
+  const storageAfter = await snapshotStorage(page);
+  requireCondition(
+    exactStorageSnapshot(storageAfter) === exactStorageSnapshot(storageBefore),
+    'Allocation Historical proof did not restore its exact function-local storage snapshot',
+  );
+}
+
 async function verifyPlanningSourceAndTaxFlow(page){
   await goToWizardStep(page, 'tax');
   const initialWages = await page.evaluate(() => {
@@ -2429,6 +2872,7 @@ export async function runWizardBrowserContract(
     await verifyFamilyPropagation(page);
     await verifyNetWorthFlow(page);
     await verifyPlanningSourceAndTaxFlow(page);
+    await verifyAssetAllocationHistoricalFlow(page);
     await verifyAutoSaveReloadAndMemberWages(page);
     await verifyDuplicateRepair(page);
 
