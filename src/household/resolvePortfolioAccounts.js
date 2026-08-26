@@ -1,4 +1,5 @@
 import {
+  ACCOUNT_SCHEMA_VERSION,
   UNSUPPORTED_TYPE_ID,
   getAccountTypeById,
   isValidEngineBucket,
@@ -6,6 +7,10 @@ import {
 import {
   readTransientCalculatedTaxableBasis,
 } from './transientCalculatedTaxableBasis.js';
+import {
+  calculateBalanceWeightedAllocation,
+  cloneInvestmentAllocation,
+} from './investmentAllocation.js';
 
 const BUCKET_KEYS = Object.freeze(['taxable', 'traditional', 'roth']);
 
@@ -19,6 +24,31 @@ function assertFiniteNonNegative(value, path){
 function cloneBasis(value){
   if(!value || typeof value !== 'object' || Array.isArray(value)) return null;
   return Object.freeze({ ...value });
+}
+
+function cloneAllocation(value){
+  return value == null ? null : cloneInvestmentAllocation(value);
+}
+
+function requireCurrentAllocation({ allocation, balance, canonical, engineBucket, path }){
+  if(balance === 0) return;
+  if(!canonical && !isValidEngineBucket(engineBucket)) return;
+  if(allocation === null){
+    throw new Error(`${path}.investmentAllocation is required`);
+  }
+  if(canonical){
+    if(canonical.investmentAllocationEligible && allocation.source === 'cash-only'){
+      throw new Error(`${path}.investmentAllocation cash-only provenance is reserved for bank accounts`);
+    }
+    if(!canonical.investmentAllocationEligible && allocation.source !== 'cash-only'){
+      throw new Error(`${path}.investmentAllocation must be cash-only`);
+    }
+    return;
+  }
+  if(isValidEngineBucket(engineBucket)
+      && (allocation.source !== 'legacy-risk-profile' || allocation.reviewRequired !== true)){
+    throw new Error(`${path}.investmentAllocation must preserve reviewed legacy provenance`);
+  }
 }
 
 function freezeBucket(bucket){
@@ -77,6 +107,7 @@ export function resolvePortfolioAccounts(plan){
   const taxBuckets = emptyBuckets();
   const transientCalculatedTaxableBasis =
     readTransientCalculatedTaxableBasis(plan);
+  const currentAllocationSchema = plan?.meta?.accountSchemaVersion === ACCOUNT_SCHEMA_VERSION;
 
   let baseTotal = 0;
   for(const bucket of BUCKET_KEYS){
@@ -87,8 +118,18 @@ export function resolvePortfolioAccounts(plan){
     const balance = assertFiniteNonNegative(sleeve.balance, `portfolio.accounts.${bucket}.balance`);
     baseTotal += balance;
     if(balance === 0) continue;
+    const investmentAllocation = cloneAllocation(sleeve.investmentAllocation);
+    if(currentAllocationSchema){
+      requireCurrentAllocation({
+        allocation: investmentAllocation,
+        balance,
+        canonical: null,
+        engineBucket: bucket,
+        path: `portfolio.accounts.${bucket}`,
+      });
+    }
     const account = freezeAccount({
-      id: `base-${bucket}`,
+      id: sleeve.id || `base-${bucket}`,
       sourceKind: 'legacy-base',
       sourceIndex: null,
       typeId: null,
@@ -115,6 +156,8 @@ export function resolvePortfolioAccounts(plan){
       classificationStatus: 'included',
       exclusionReason: null,
       strategyRulesPending: false,
+      investmentAllocationEligible: true,
+      investmentAllocation,
     });
     accounts.push(account);
     addToBucket(engineBuckets, bucket, account);
@@ -133,6 +176,16 @@ export function resolvePortfolioAccounts(plan){
       ? getAccountTypeById(raw.typeId)
       : null;
     const engineBucket = isValidEngineBucket(raw.bucket) ? raw.bucket : null;
+    const investmentAllocation = cloneAllocation(raw.investmentAllocation);
+    if(currentAllocationSchema){
+      requireCurrentAllocation({
+        allocation: investmentAllocation,
+        balance,
+        canonical,
+        engineBucket,
+        path: `portfolio.extraAccounts.${index}`,
+      });
+    }
 
     let classificationStatus = 'included';
     let exclusionReason = null;
@@ -171,6 +224,8 @@ export function resolvePortfolioAccounts(plan){
       classificationStatus,
       exclusionReason,
       strategyRulesPending: Boolean(canonical?.strategyRulesPending),
+      investmentAllocationEligible: Boolean(canonical?.investmentAllocationEligible),
+      investmentAllocation,
     });
     accounts.push(account);
     if(!account.strategyRulesPending){
@@ -192,6 +247,8 @@ export function resolvePortfolioAccounts(plan){
   const excludedAccounts = accounts.filter(account => account.sourceKind === 'typed-account' && !account.taxBucketGroup);
   const pendingStrategyAccounts = accounts.filter(account => account.strategyRulesPending);
   const pendingStrategyBalance = pendingStrategyAccounts.reduce((sum, account) => sum + account.balance, 0);
+  const allocationAccounts = accounts.filter(account => account.investmentAllocation !== null);
+  const householdAllocation = calculateBalanceWeightedAllocation(allocationAccounts);
 
   return Object.freeze({
     totalBalance,
@@ -211,6 +268,8 @@ export function resolvePortfolioAccounts(plan){
       roth: freezeBucket(taxBuckets.roth),
     }),
     accounts: Object.freeze(accounts),
+    allocationAccounts: Object.freeze(allocationAccounts),
+    householdAllocation,
     excludedAccounts: Object.freeze(excludedAccounts),
     pendingStrategyAccounts: Object.freeze(pendingStrategyAccounts),
     issues: Object.freeze([...new Set(issues)]),

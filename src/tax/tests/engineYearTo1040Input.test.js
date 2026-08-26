@@ -7,6 +7,7 @@ import {
 import {
   buildDefaultTaxContext,
   calculateAnnualFederalTax,
+  calculateAnnualFederalTaxLiability,
   runClient1040Intake,
   runEngineYearTax,
 } from '../annual1040.js';
@@ -518,8 +519,13 @@ test('year-explicit annual federal contract is source-agnostic and deterministic
 
   const first = calculateAnnualFederalTax(input, context);
   const second = calculateAnnualFederalTax(structuredClone(input), context);
+  const liability = calculateAnnualFederalTaxLiability(
+    structuredClone(input),
+    context
+  );
 
   assert.deepStrictEqual(first.annual1040Result, second.annual1040Result);
+  assert.strictEqual(liability, first.annual1040Result.lines.line24.value);
   assert.deepStrictEqual(input, before);
   assert.throws(
     () => calculateAnnualFederalTax({ ...input, taxYear: undefined }, context),

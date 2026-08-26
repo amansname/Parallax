@@ -7,6 +7,7 @@ import {
   assessAnnual1040EngineReadiness,
   buildAnnual1040Result,
   buildDefaultTaxContext,
+  calculateAnnualFederalTaxLiability,
   runClient1040Intake,
   runWithdrawalPlannerTaxAnalysis,
   validateClient1040Intake,
@@ -60,8 +61,10 @@ for(const fixture of loadAnnualFixtures()){
   test(`annual fixture pack: ${fixture.id}`, () => {
     const context = buildDefaultTaxContext({ scenarioId: fixture.id, taxYear: fixture.taxYear ?? 2026 });
     const { annual1040Result, result, report } = runClient1040Intake(fixture, context);
+    const compactLiability = calculateAnnualFederalTaxLiability(fixture, context);
 
     assertStableResultShape(annual1040Result);
+    assert.strictEqual(compactLiability, annual1040Result.lines.line24.value);
 
     if(fixture.expected?.line11a !== undefined){
       assert.strictEqual(annual1040Result.lines.line11.value, fixture.expected.line11a);

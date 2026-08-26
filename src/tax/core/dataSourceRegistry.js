@@ -311,8 +311,12 @@ export const DATA_SOURCES = {
   },
 };
 
+const DATA_SOURCE_BY_ID = new Map(
+  Object.values(DATA_SOURCES).map(source => [source.id, source])
+);
+
 export function getDataSource(id){
-  const entry = Object.values(DATA_SOURCES).find(s => s.id === id);
+  const entry = DATA_SOURCE_BY_ID.get(id);
   if(!entry){
     throw new TaxDataError(`Unknown tax data source: ${id}`, { id });
   }

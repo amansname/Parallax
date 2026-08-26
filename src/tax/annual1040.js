@@ -2,7 +2,11 @@
 
 import { client1040IntakeToComposerInput } from './adapters/client1040Intake.js';
 import { validateClient1040Intake } from './adapters/client1040IntakeValidate.js';
-import { buildIntakeReport, runClient1040Intake as runClient1040IntakePipeline } from './adapters/intakeReport.js';
+import {
+  buildIntakeReport,
+  calculateClient1040Liability,
+  runClient1040Intake as runClient1040IntakePipeline,
+} from './adapters/intakeReport.js';
 import { resolvePreferentialComponents } from './federal/composers/form1040Spine.js';
 import { buildTaxContext, resolveLawVersionForTaxYear, supportedTaxYears } from './core/lawRegistry.js';
 import {
@@ -178,7 +182,7 @@ export function runClient1040Intake(intake, context, options = {}){
  * Source-agnostic authority for one normalized federal tax year.
  * Adapters own source translation; this contract owns the federal calculation.
  */
-export function calculateAnnualFederalTax(input, context, options = {}){
+function assertAnnualFederalTaxRequest(input, context){
   if(input === null || typeof input !== 'object' || Array.isArray(input)){
     throw new TaxInputError('annual federal tax input must be a plain object');
   }
@@ -196,7 +200,17 @@ export function calculateAnnualFederalTax(input, context, options = {}){
       contextTaxYear: context.taxYear ?? null,
     });
   }
+}
+
+export function calculateAnnualFederalTax(input, context, options = {}){
+  assertAnnualFederalTaxRequest(input, context);
   return runClient1040Intake(input, context, options);
+}
+
+/** Exact Form 1040 line 24 calculation without constructing discarded reports. */
+export function calculateAnnualFederalTaxLiability(input, context, options = {}){
+  assertAnnualFederalTaxRequest(input, context);
+  return calculateClient1040Liability(input, context, options);
 }
 
 /**
@@ -496,6 +510,7 @@ export function assessAnnual1040EngineReadiness(){
       'validateClient1040Intake',
       'runClient1040Intake',
       'calculateAnnualFederalTax',
+      'calculateAnnualFederalTaxLiability',
       'runEngineYearTax',
       'runWithdrawalPlannerTaxAnalysis',
       'engineYearTo1040Input',

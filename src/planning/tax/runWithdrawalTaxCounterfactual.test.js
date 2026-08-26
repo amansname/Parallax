@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { defaultPlan, resolveInputs, runSimulation } from '../../../engine.js';
+import { flatAssetReturnRow } from '../../../test/fixtures/assetReturnRows.js';
 import { createAccount } from '../../household/createAccount.js';
 import { createBlankTaxProfiles, createFact } from '../../household/factEnvelope.js';
 import {
@@ -239,10 +240,10 @@ test('a converged engine row reconciles the full coalition to funded federal tax
     contextOverrides: { calculatedAt: '2026-01-01T00:00:00.000Z' },
   };
   const taxPolicy = createFederalTaxResolver(params, taxOptions);
-  const returnPath = Array.from({ length: params.horizonYears }, (_, index) => ({
-    y: 2026 + index,
-    proxyReturn: 0,
-  }));
+  const returnPath = Array.from(
+    { length: params.horizonYears },
+    (_, index) => flatAssetReturnRow(2026 + index),
+  );
   const analysis = runSimulation(plan, {}, [returnPath], {
     taxPolicy,
     fundTaxPolicyDelta: true,

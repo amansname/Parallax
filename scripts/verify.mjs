@@ -18,6 +18,7 @@ import {
   goToWizardStep,
   openNetWorthCategory,
   runWizardBrowserContract,
+  selectHouseholdVisible,
   waitForUnselectedWizard,
   waitForWizard,
 } from './wizard-browser-contract.mjs';
@@ -1556,11 +1557,10 @@ try {
       };
       plan.income.other = [];
       plan.savings.annual = 0;
-      plan.portfolio.accounts = {
-        taxable: { balance: 0, basisPct: 1 },
-        traditional: { balance: 0 },
-        roth: { balance: 0 },
-      };
+      plan.portfolio.accounts.taxable.balance = 0;
+      plan.portfolio.accounts.taxable.basisPct = 1;
+      plan.portfolio.accounts.traditional.balance = 0;
+      plan.portfolio.accounts.roth.balance = 0;
       plan.portfolio.extraAccounts = [
         accountModule.createAccount('traditional_ira', {
           owner: 'client',
@@ -2139,10 +2139,7 @@ try {
 
     await goToWizardStep(page, 'family');
     await stableClick('#hh-menu-btn');
-    await page.select('#hh-switch', withdrawalPlannerFixtureHouseholdId);
-    await waitForWizard(page, {
-      householdId: withdrawalPlannerFixtureHouseholdId,
-    });
+    await selectHouseholdVisible(page, withdrawalPlannerFixtureHouseholdId);
     await page.click('.htab[data-sub-target="goals"]');
     await page.waitForFunction(
       () => [...document.querySelectorAll('.gh-chip__name')]
@@ -2353,8 +2350,7 @@ try {
     await stableReload({ waitUntil: 'networkidle2', timeout: 20000 });
     await waitForUnselectedWizard(page);
     await stableClick('.htab[data-page="household"]');
-    await page.select('#hh-switch', withdrawalPlannerFixtureHouseholdId);
-    await waitForWizard(page, { householdId: withdrawalPlannerFixtureHouseholdId });
+    await selectHouseholdVisible(page, withdrawalPlannerFixtureHouseholdId);
     await stableClick('button[data-page="scenarios"]');
     await page.waitForFunction(() => {
       const probabilities = [...document.querySelectorAll('#scn-view .scol__prob')]
@@ -2401,9 +2397,19 @@ try {
         birthYear: 1966,
       };
       household.portfolio.accounts = {
-        taxable: { balance: 50000000, basisPct: 1 },
-        traditional: { balance: 0 },
-        roth: { balance: 0 },
+        taxable: {
+          ...household.portfolio.accounts.taxable,
+          balance: 50000000,
+          basisPct: 1,
+        },
+        traditional: {
+          ...household.portfolio.accounts.traditional,
+          balance: 0,
+        },
+        roth: {
+          ...household.portfolio.accounts.roth,
+          balance: 0,
+        },
       };
       household.portfolio.extraAccounts = [];
       localStorage.setItem(key, JSON.stringify(db));
@@ -2413,8 +2419,7 @@ try {
     await stableReload({ waitUntil: 'networkidle2', timeout: 20000 });
     await waitForUnselectedWizard(page);
     await stableClick('.htab[data-page="household"]');
-    await page.select('#hh-switch', withdrawalPlannerFixtureHouseholdId);
-    await waitForWizard(page, { householdId: withdrawalPlannerFixtureHouseholdId });
+    await selectHouseholdVisible(page, withdrawalPlannerFixtureHouseholdId);
     await page.click('.htab[data-sub-target="goals"]');
     await page.waitForSelector('.gh-page', { visible: true, timeout: 8000 });
     const horizon = await page.evaluate(() => ({
@@ -2475,8 +2480,7 @@ try {
     await stableReload({ waitUntil: 'networkidle2', timeout: 20000 });
     await waitForUnselectedWizard(page);
     await stableClick('.htab[data-page="household"]');
-    await page.select('#hh-switch', withdrawalPlannerFixtureHouseholdId);
-    await waitForWizard(page, { householdId: withdrawalPlannerFixtureHouseholdId });
+    await selectHouseholdVisible(page, withdrawalPlannerFixtureHouseholdId);
     await page.$eval('#run-btn', button => button.click());
     for(let i = 0; i < 60; i++){
       await new Promise(r => setTimeout(r, 500));
@@ -3025,8 +3029,7 @@ try {
       await stableReload({ waitUntil: 'networkidle2', timeout: 20000 });
       await waitForUnselectedWizard(page);
       await stableClick('.htab[data-page="household"]');
-      await page.select('#hh-switch', withdrawalPlannerFixtureHouseholdId);
-      await waitForWizard(page, { householdId: withdrawalPlannerFixtureHouseholdId });
+      await selectHouseholdVisible(page, withdrawalPlannerFixtureHouseholdId);
       await page.waitForFunction(
         () => /Plan updated|Partial run/i.test(document.querySelector('#status')?.textContent || ''),
         { timeout: 30000 }
@@ -3387,9 +3390,19 @@ try {
         riskProfile: 3,
         withdrawalStrategy: 'taxable-first',
         accounts: {
-          taxable: { balance: 50000, basisPct: 1 },
-          traditional: { balance: 0 },
-          roth: { balance: 0 },
+          taxable: {
+            ...plan.portfolio.accounts.taxable,
+            balance: 50000,
+            basisPct: 1,
+          },
+          traditional: {
+            ...plan.portfolio.accounts.traditional,
+            balance: 0,
+          },
+          roth: {
+            ...plan.portfolio.accounts.roth,
+            balance: 0,
+          },
         },
         extraAccounts: [],
       };
@@ -3435,8 +3448,7 @@ try {
     await stableReload({ waitUntil: 'networkidle0' });
     await waitForUnselectedWizard(page);
     await stableClick('.htab[data-page="household"]');
-    await page.select('#hh-switch', withdrawalPlannerFixtureHouseholdId);
-    await waitForWizard(page, { householdId: withdrawalPlannerFixtureHouseholdId });
+    await selectHouseholdVisible(page, withdrawalPlannerFixtureHouseholdId);
 
     const openFundingGoal = async ({ keyboard = false } = {}) => {
       await stableClick('.htab[data-page="household"]');
@@ -3686,9 +3698,19 @@ try {
         riskProfile: 3,
         withdrawalStrategy: 'taxable-first',
         accounts: {
-          taxable: { balance: 0, basisPct: 1 },
-          traditional: { balance: 400000 },
-          roth: { balance: 0 },
+          taxable: {
+            ...plan.portfolio.accounts.taxable,
+            balance: 0,
+            basisPct: 1,
+          },
+          traditional: {
+            ...plan.portfolio.accounts.traditional,
+            balance: 400000,
+          },
+          roth: {
+            ...plan.portfolio.accounts.roth,
+            balance: 0,
+          },
         },
         extraAccounts: [],
       };
@@ -3745,8 +3767,7 @@ try {
     await stableReload({ waitUntil: 'networkidle0' });
     await waitForUnselectedWizard(page);
     await stableClick('.htab[data-page="household"]');
-    await page.select('#hh-switch', withdrawalPlannerFixtureHouseholdId);
-    await waitForWizard(page, { householdId: withdrawalPlannerFixtureHouseholdId });
+    await selectHouseholdVisible(page, withdrawalPlannerFixtureHouseholdId);
     await sleep(1200);
     await page.waitForSelector('#run-btn:not([disabled])', { timeout: 10000 });
     await page.$eval('#run-btn', button => button.click());
@@ -4255,6 +4276,7 @@ try {
         meta: { householdId:id, name, isDemo:id === 'demo', primaryName:name, spouseName:spouse ? 'Co-Client' : '', filingStatus:spouse ? 'marriedFilingJointly' : 'single', state:'VA', accountSchemaVersion:0 },
         household: { primary:{ currentAge:60, retirementAge:65, planEndAge:90, birthYear:1966 }, spouse:spouse ? { currentAge:59, retirementAge:65, birthYear:1967 } : null, children:[] },
         portfolio: {
+          riskProfile: 3,
           accounts: { taxable:{ balance:0, basisPct:1 }, traditional:{ balance:0 }, roth:{ balance:0 } },
           extraAccounts: spouse
             ? [

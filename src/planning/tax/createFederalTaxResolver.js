@@ -5,7 +5,7 @@ import { buildRowTaxableGainPlanMeta } from './taxableBasisTracker.js';
 import { TaxInputError } from '../../tax/core/errors.js';
 import {
   buildProjectedAnnualFederalTaxInput,
-  calculateAnnualFederalTax,
+  calculateAnnualFederalTaxLiability,
   buildDefaultTaxContext,
 } from '../../tax/annual1040.js';
 
@@ -29,7 +29,7 @@ export function createFederalTaxResolver(params, options = {}){
   const contextByTaxYear = new Map();
   const line24ByFacts = new Map();
 
-  return (row) => {
+  const resolveFederalTax = (row) => {
     const unresolvedMeta = {
       ...planMeta,
       ...(rowPlanMeta ? rowPlanMeta(row, 0) : {}),
@@ -47,8 +47,7 @@ export function createFederalTaxResolver(params, options = {}){
       context = buildDefaultTaxContext({ ...contextOverrides, taxYear });
       contextByTaxYear.set(taxYear, context);
     }
-    const annual = calculateAnnualFederalTax(input, context).annual1040Result;
-    const line24 = annual?.lines?.line24?.value;
+    const line24 = calculateAnnualFederalTaxLiability(input, context);
     if(!Number.isFinite(line24)){
       throw new TaxInputError('federal tax resolver did not produce Form 1040 line 24', {
         rowYear: row?.year ?? null,
@@ -57,4 +56,5 @@ export function createFederalTaxResolver(params, options = {}){
     line24ByFacts.set(factsKey, line24);
     return line24;
   };
+  return resolveFederalTax;
 }

@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
 import { defaultPlan, runSimulation } from '../../../engine.js';
+import { flatAssetReturnRow } from '../../../test/fixtures/assetReturnRows.js';
 import { createAccount } from '../../household/createAccount.js';
 import { promoteTaxFundedProbability } from '../../scenarios/promoteTaxFundedProbability.js';
 import { rerunMonteCarloWithFederalTax } from './rerunMonteCarloWithFederalTax.js';
@@ -39,7 +40,7 @@ function controlledFixture(){
 
   const returnPaths = Array.from(
     { length: 40 },
-    () => [{ y: 2025, proxyReturn: 0 }]
+    () => [flatAssetReturnRow(2025)],
   );
   return { plan, returnPaths };
 }
@@ -78,10 +79,10 @@ function projectedIncomeFixture(){
   const horizon = 6;
   const returnPaths = Array.from(
     { length: 40 },
-    () => Array.from({ length: horizon }, (_, index) => ({
-      y: 2026 + index,
-      proxyReturn: 0,
-    }))
+    () => Array.from(
+      { length: horizon },
+      (_, index) => flatAssetReturnRow(2026 + index),
+    ),
   );
   return { plan, returnPaths };
 }
@@ -127,7 +128,7 @@ function taxableWithdrawalFixture(basis = null){
   plan.simulation.iterations = 1;
   return {
     plan,
-    returnPaths: [[{ y: 2026, proxyReturn: 0 }]],
+    returnPaths: [[flatAssetReturnRow(2026)]],
   };
 }
 

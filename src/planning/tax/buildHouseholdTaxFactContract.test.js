@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { defaultPlan, resolveInputs, runSinglePath } from '../../../engine.js';
+import { flatAssetReturnRow } from '../../../test/fixtures/assetReturnRows.js';
 import { createAccount } from '../../household/createAccount.js';
 import { applyHouseholdTaxFactEdit } from '../../household/taxFactEdits.js';
 import {
@@ -378,7 +379,7 @@ test('confirmed cost basis reaches row gain facts and changes federal line 24', 
   const unknownParams = resolveInputs(unknown, {});
   const returnPath = Array.from(
     { length: confirmedParams.horizonYears },
-    (_, yearIndex) => ({ y: 2025 + yearIndex, proxyReturn: 0 })
+    (_, yearIndex) => flatAssetReturnRow(2025 + yearIndex),
   );
   const confirmedRow = runSinglePath(confirmedParams, returnPath).rows[0];
   const unknownRow = runSinglePath(unknownParams, returnPath).rows[0];

@@ -2,7 +2,13 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { ACCOUNT_SCHEMA_VERSION } from './accountTypes.js';
+import { createAccount } from './createAccount.js';
 import { createBlankTaxProfiles } from './factEnvelope.js';
+import {
+  snapshotLegacyRiskProfileAllocation,
+  snapshotPresetAllocation,
+} from './investmentAllocation.js';
+import { LEGACY_BASE_ACCOUNT_IDS } from './migrateAccounts.js';
 import { SPENDING_SCHEMA_VERSION } from './migrateSpendingToGoals.js';
 import { HOUSEHOLD_RECORD_SCHEMA_VERSION } from './householdRecordSchema.js';
 import {
@@ -21,7 +27,9 @@ import {
   readHouseholdStore,
 } from './persistence.js';
 
-const pristinePlan = { meta: {}, household: { primary: { currentAge: 60, retirementAge: 65, planEndAge: 90 } }, portfolio: { accounts: { taxable: { balance: 0, basisPct: 1 }, traditional: { balance: 0 }, roth: { balance: 0 } }, extraAccounts: [] }, income: {}, expenses: {}, savings: {}, simulation: {} };
+const LEGACY_RISK_PROFILE = 3;
+const legacyAllocation = snapshotLegacyRiskProfileAllocation(LEGACY_RISK_PROFILE);
+const pristinePlan = { meta: {}, household: { primary: { currentAge: 60, retirementAge: 65, planEndAge: 90 } }, portfolio: { riskProfile: LEGACY_RISK_PROFILE, accounts: { taxable: { id: LEGACY_BASE_ACCOUNT_IDS.taxable, balance: 0, basisPct: 1, investmentAllocation: structuredClone(legacyAllocation) }, traditional: { id: LEGACY_BASE_ACCOUNT_IDS.traditional, balance: 0, investmentAllocation: structuredClone(legacyAllocation) }, roth: { id: LEGACY_BASE_ACCOUNT_IDS.roth, balance: 0, investmentAllocation: structuredClone(legacyAllocation) } }, extraAccounts: [] }, income: {}, expenses: {}, savings: {}, simulation: {} };
 
 function createBlankHousehold(id){
   const p = JSON.parse(JSON.stringify(pristinePlan));
@@ -447,8 +455,8 @@ test('a valid saved pointer is ignored after all households migrate', () => {
   assert.equal(prepared.activeHouseholdId, null);
   assert.equal(prepared.hydrate, false);
   assert.equal(prepared.pointerChanged, true);
-  assert.equal(prepared.db.one.meta.accountSchemaVersion, 1);
-  assert.equal(prepared.db.two.meta.accountSchemaVersion, 1);
+  assert.equal(prepared.db.one.meta.accountSchemaVersion, ACCOUNT_SCHEMA_VERSION);
+  assert.equal(prepared.db.two.meta.accountSchemaVersion, ACCOUNT_SCHEMA_VERSION);
 });
 
 test('a mixed valid and malformed database preserves bytes and uses runtime defaults read-only', () => {
@@ -470,13 +478,32 @@ test('invalid current-schema records cannot overwrite storage and fall back read
     plan => { delete plan.portfolio.extraAccounts; },
     plan => { delete plan.portfolio.accounts.roth; },
     plan => { delete plan.taxProfiles.client.rothIra; },
+    plan => { delete plan.portfolio.accounts.taxable.investmentAllocation; },
+    plan => {
+      const account = createAccount('brokerage_taxable', { balance: 100 });
+      delete account.investmentAllocation;
+      plan.portfolio.extraAccounts = [account];
+    },
+    plan => {
+      const account = createAccount('brokerage_taxable', { balance: 100 });
+      account.investmentAllocation = structuredClone(snapshotPresetAllocation('balanced'));
+      account.investmentAllocation.weights.usLarge += 0.01;
+      account.investmentAllocation.weights.cash -= 0.01;
+      plan.portfolio.extraAccounts = [account];
+    },
   ];
-  for(const mutate of cases){
+  for(const [index, mutate] of cases.entries()){
     const plan = createBlankHousehold('strict');
     plan.meta.name = 'Invalid Schema Household';
     mutate(plan);
     const raw = JSON.stringify({ strict: plan });
-    const storage = createCountingStorage({ [HHDB_KEY]: raw, [ACTIVE_KEY]: 'strict' });
+    const scenarioKey = `parallax.scenarios.strict-${index}.v1`;
+    const scenarioBytes = `strict-scenario-bytes-${index}`;
+    const storage = createCountingStorage({
+      [HHDB_KEY]: raw,
+      [ACTIVE_KEY]: 'strict',
+      [scenarioKey]: scenarioBytes,
+    });
     const prepared = prepareHouseholdStore(readHouseholdStore(storage), deps);
     assert.equal(prepared.ok, true);
     assert.equal(prepared.mode, 'read_only');
@@ -484,6 +511,8 @@ test('invalid current-schema records cannot overwrite storage and fall back read
     assert.equal(commitPreparedHouseholdStore(storage, prepared).readOnly, true);
     assert.equal(storage.writeCount(), 0);
     assert.equal(storage.getItem(HHDB_KEY), raw);
+    assert.equal(storage.getItem(ACTIVE_KEY), 'strict');
+    assert.equal(storage.getItem(scenarioKey), scenarioBytes);
   }
 });
 
@@ -504,6 +533,7 @@ test('database write failure preserves original bytes and pointer while exposing
   const legacy = {
     meta: { householdId: 'legacy' },
     portfolio: {
+      riskProfile: LEGACY_RISK_PROFILE,
       accounts: { taxable: { balance: 0, basisPct: 1 }, traditional: { balance: 0 }, roth: { balance: 0 } },
       extraAccounts: [{ type: 'HSA', bucket: 'roth', owner: 'client', balance: 5000 }],
     },
@@ -512,7 +542,7 @@ test('database write failure preserves original bytes and pointer while exposing
   const storage = createMemoryStorage({ [HHDB_KEY]: originalDb, [ACTIVE_KEY]: 'legacy' });
   const prepared = prepareHouseholdStore(readHouseholdStore(storage), deps);
   assert.equal(prepared.ok, true);
-  assert.equal(prepared.db.legacy.meta.accountSchemaVersion, 1);
+  assert.equal(prepared.db.legacy.meta.accountSchemaVersion, ACCOUNT_SCHEMA_VERSION);
   assert.ok(prepared.db.legacy.portfolio.extraAccounts[0].id);
   storage.setItem = () => { throw new Error('quota'); };
   const commit = commitPreparedHouseholdStore(storage, prepared);
@@ -542,7 +572,7 @@ test('stale-pointer removal failure leaves the completed database and reports pa
   assert.equal(commit.partialWrite, true);
   assert.equal(commit.databasePersisted, true);
   assert.equal(commit.pointerPersisted, false);
-  assert.equal(JSON.parse(data[HHDB_KEY])['now-household'].meta.accountSchemaVersion, 1);
+  assert.equal(JSON.parse(data[HHDB_KEY])['now-household'].meta.accountSchemaVersion, ACCOUNT_SCHEMA_VERSION);
   assert.equal(data[ACTIVE_KEY], 'stale');
 });
 
@@ -644,7 +674,7 @@ test('Net Worth shell records and Property/Mortgage metadata survive Save and re
   );
 });
 
-test('exact v1 Net Worth fixture migrates once and the committed bytes reload unchanged', () => {
+test('v1 fixture without an allocation source fails closed and preserves exact bytes', () => {
   const legacyKeys = {
     dbKey: 'parallax.households.v1',
     activeKey: 'parallax.activeHouseholdId',
@@ -667,30 +697,19 @@ test('exact v1 Net Worth fixture migrates once and the committed bytes reload un
   assert.equal(storage.getItem(legacyKeys.dbKey), sourceDatabaseBytes);
   assert.equal(storage.getItem(legacyKeys.activeKey), sourcePointerBytes);
   assert.equal(first.ok, true);
-  assert.equal(first.changed, true);
-  const migrated = first.db['anonymized-net-worth-v1'];
-  assert.equal(
-    migrated.meta.householdRecordSchemaVersion,
-    HOUSEHOLD_RECORD_SCHEMA_VERSION,
-  );
-  assert.deepEqual(migrated.netWorth, createEmptyNetWorthRecords());
-  assert.deepEqual(migrated.properties, sourceRecord.properties);
-  assert.ok(first.repairsByHousehold['anonymized-net-worth-v1'].some(repair =>
-    repair.code === 'NET_WORTH_RECORDS_INITIALIZED'));
+  assert.equal(first.mode, 'read_only');
+  assert.equal(first.changed, false);
+  assert.equal(first.hydrate, false);
+  assert.equal(first.error.includes('riskProfile'), true);
+  assert.equal(sourceRecord.portfolio.riskProfile, undefined);
 
   const committed = commitPreparedHouseholdStore(storage, first, legacyKeys);
   assert.equal(committed.ok, true);
-  const destinationDatabaseBytes = storage.getItem(legacyKeys.dbKey);
-  assert.notEqual(destinationDatabaseBytes, sourceDatabaseBytes);
-  const writesAfterMigration = storage.writeCount();
-
-  const second = prepareHouseholdStore(readHouseholdStore(storage, legacyKeys), deps);
-  assert.equal(second.ok, true);
-  assert.equal(second.changed, false);
-  assert.deepEqual(second.repairsByHousehold['anonymized-net-worth-v1'], []);
-  assert.equal(commitPreparedHouseholdStore(storage, second, legacyKeys).wrote, false);
-  assert.equal(storage.writeCount(), writesAfterMigration);
-  assert.equal(storage.getItem(legacyKeys.dbKey), destinationDatabaseBytes);
+  assert.equal(committed.readOnly, true);
+  assert.equal(committed.wrote, false);
+  assert.equal(storage.writeCount(), 0);
+  assert.equal(storage.getItem(legacyKeys.dbKey), sourceDatabaseBytes);
+  assert.equal(storage.getItem(legacyKeys.activeKey), sourcePointerBytes);
 });
 
 test('Tax completion zeros and planning source overrides survive Save and reload', () => {
@@ -798,6 +817,7 @@ test('pointer write failure reports partial persistence without destructive roll
   const legacy = {
     meta: { householdId: 'hh1' },
     portfolio: {
+      riskProfile: LEGACY_RISK_PROFILE,
       accounts: { taxable: { balance: 0, basisPct: 1 }, traditional: { balance: 0 }, roth: { balance: 0 } },
       extraAccounts: [{ type: 'HSA', bucket: 'roth', owner: 'client', balance: 5000 }],
     },
@@ -822,6 +842,6 @@ test('pointer write failure reports partial persistence without destructive roll
   assert.equal(commit.databasePersisted, true);
   assert.equal(commit.pointerPersisted, false);
   assert.notEqual(storage.data[HHDB_KEY], originalDb);
-  assert.equal(JSON.parse(storage.data[HHDB_KEY]).hh1.meta.accountSchemaVersion, 1);
+  assert.equal(JSON.parse(storage.data[HHDB_KEY]).hh1.meta.accountSchemaVersion, ACCOUNT_SCHEMA_VERSION);
   assert.equal(storage.data[ACTIVE_KEY], 'missing-id');
 });

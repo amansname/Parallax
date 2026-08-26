@@ -5,6 +5,11 @@ import {
   isValidValuationDate,
 } from './accountTypes.js';
 import { createFact } from './factEnvelope.js';
+import {
+  cloneInvestmentAllocation,
+  resolveCashOnlyAllocation,
+  snapshotPresetAllocation,
+} from './investmentAllocation.js';
 
 function newAccountId(){
   if(typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'){
@@ -81,6 +86,25 @@ function defaultDesignatedRothFacts(entry){
   };
 }
 
+function resolveCreatedInvestmentAllocation(entry, options){
+  const hasExplicitAllocation = Object.prototype.hasOwnProperty.call(options, 'investmentAllocation');
+  if(entry.investmentAllocationEligible){
+    const allocation = hasExplicitAllocation
+      ? cloneInvestmentAllocation(options.investmentAllocation)
+      : snapshotPresetAllocation('balanced');
+    if(allocation.source === 'cash-only'){
+      throw new Error('Investment accounts require preset, custom, or legacy allocation provenance');
+    }
+    return allocation;
+  }
+  if(!hasExplicitAllocation) return resolveCashOnlyAllocation();
+  const allocation = cloneInvestmentAllocation(options.investmentAllocation);
+  if(allocation.source !== 'cash-only'){
+    throw new Error('Non-investment accounts require cash-only allocation');
+  }
+  return allocation;
+}
+
 /**
  * Create a new account at the current schema version.
  */
@@ -118,6 +142,7 @@ export function createAccount(typeId, options = {}){
     taxReporting: defaultTaxReporting(entry, owner),
     employerPlanFacts: defaultEmployerPlanFacts(entry),
     designatedRothFacts: defaultDesignatedRothFacts(entry),
+    investmentAllocation: resolveCreatedInvestmentAllocation(entry, options),
   };
 }
 

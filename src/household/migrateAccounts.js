@@ -16,6 +16,12 @@ import {
   validateFactEnvelope,
 } from './factEnvelope.js';
 import { resolvePortfolioAccounts } from './resolvePortfolioAccounts.js';
+import {
+  cloneInvestmentAllocation,
+  resolveCashOnlyAllocation,
+  snapshotLegacyRiskProfileAllocation,
+  validateInvestmentAllocation,
+} from './investmentAllocation.js';
 
 export const ACCOUNT_MIGRATION_BLOCKED = 'ACCOUNT_MIGRATION_BLOCKED';
 export const ACCOUNT_MIGRATION_READ_ONLY = 'ACCOUNT_MIGRATION_READ_ONLY';
@@ -25,7 +31,8 @@ export const BLOCKED_MESSAGE = 'Household data could not be safely upgraded. No 
 export const READ_ONLY_MESSAGE = 'Household storage could not be upgraded. Viewing a read-only copy; reload after storage is available.';
 
 const VALID_INCLUSION = new Set(['household-return', 'separate-return', 'unknown']);
-const ACCOUNT_KEYS = ['id', 'typeId', 'type', 'owner', 'bucket', 'balance', 'valuationDate', 'basis', 'taxReporting', 'employerPlanFacts', 'designatedRothFacts'];
+const ACCOUNT_KEYS = ['id', 'typeId', 'type', 'owner', 'bucket', 'balance', 'valuationDate', 'basis', 'taxReporting', 'employerPlanFacts', 'designatedRothFacts', 'investmentAllocation'];
+const ACCOUNT_KEYS_V1 = ACCOUNT_KEYS.filter(key => key !== 'investmentAllocation');
 const REPORTING_KEYS = ['inclusion', 'reportingTaxpayer', 'householdReturnShare'];
 const EMPLOYER_FACT_KEYS = ['afterTaxContributionBasis', 'planSubtypeConfirmed'];
 const DESIGNATED_FACT_KEYS = ['firstContributionYear', 'contributionBasis', 'inPlanRolloverCohorts'];
@@ -38,6 +45,12 @@ const TRADITIONAL_IRA_FACT_KEYS = [
   'otherForm8606Adjustments',
 ];
 const ROTH_IRA_FACT_KEYS = ['firstContributionYear', 'contributionBasis', 'conversionCohorts'];
+
+export const LEGACY_BASE_ACCOUNT_IDS = Object.freeze({
+  taxable: 'base-taxable',
+  traditional: 'base-traditional',
+  roth: 'base-roth',
+});
 
 const hasOwn = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
 
@@ -178,7 +191,7 @@ function validateTaxProfileOwner(profile, path){
   }
 }
 
-function validateBaseSleeves(accounts, path){
+function validateBaseSleeves(accounts, path, { allocationRequired = true } = {}){
   if(!accounts || typeof accounts !== 'object' || Array.isArray(accounts)){
     throw new Error(`${path}.portfolio.accounts is required`);
   }
@@ -191,6 +204,15 @@ function validateBaseSleeves(accounts, path){
       throw new Error(`${path}.portfolio.accounts.${sleeve}.balance is required`);
     }
     assertFiniteNonNegativeBalance(acct.balance, `${path}.portfolio.accounts.${sleeve}`);
+    if(allocationRequired){
+      if(acct.id !== LEGACY_BASE_ACCOUNT_IDS[sleeve]){
+        throw new Error(`${path}.portfolio.accounts.${sleeve}.id is invalid`);
+      }
+      validateInvestmentAllocation(acct.investmentAllocation);
+      if(acct.investmentAllocation.source !== 'legacy-risk-profile'){
+        throw new Error(`${path}.portfolio.accounts.${sleeve}.investmentAllocation must be legacy-derived`);
+      }
+    }
   }
   if(!hasOwn(accounts.taxable, 'basisPct')){
     throw new Error(`${path}.portfolio.accounts.taxable.basisPct is required`);
@@ -201,12 +223,12 @@ function validateBaseSleeves(accounts, path){
   }
 }
 
-function validateCurrentAccount(acct, index){
+function validateCurrentAccount(acct, index, { allocationRequired = true } = {}){
   const path = `account[${index}]`;
   if(!acct || typeof acct !== 'object' || Array.isArray(acct)){
     throw new Error(`${path} must be an object`);
   }
-  assertRequiredKeys(acct, ACCOUNT_KEYS, path);
+  assertRequiredKeys(acct, allocationRequired ? ACCOUNT_KEYS : ACCOUNT_KEYS_V1, path);
   if(typeof acct.id !== 'string' || !acct.id.trim()){
     throw new Error(`${path}.id is required`);
   }
@@ -235,9 +257,28 @@ function validateCurrentAccount(acct, index){
   const canonical = acct.typeId === UNSUPPORTED_TYPE_ID ? null : getAccountTypeById(acct.typeId);
   validateEmployerFacts(acct.employerPlanFacts, path, canonical?.taxCharacter === 'employer_pretax');
   validateDesignatedFacts(acct.designatedRothFacts, path, canonical?.taxCharacter === 'designated_roth');
+  if(allocationRequired){
+    if(canonical){
+      validateInvestmentAllocation(acct.investmentAllocation);
+      if(canonical.investmentAllocationEligible && acct.investmentAllocation.source === 'cash-only'){
+        throw new Error(`${path}.investmentAllocation cash-only provenance is reserved for bank accounts`);
+      }
+      if(!canonical.investmentAllocationEligible && acct.investmentAllocation.source !== 'cash-only'){
+        throw new Error(`${path}.investmentAllocation must be cash-only`);
+      }
+    }else if(acct.balance > 0 && isValidEngineBucket(acct.bucket)){
+      validateInvestmentAllocation(acct.investmentAllocation);
+      if(acct.investmentAllocation.source !== 'legacy-risk-profile'
+          || acct.investmentAllocation.reviewRequired !== true){
+        throw new Error(`${path}.investmentAllocation must preserve reviewed legacy provenance`);
+      }
+    }else if(acct.investmentAllocation !== null){
+      throw new Error(`${path}.investmentAllocation must be null`);
+    }
+  }
 }
 
-export function validateCurrentSchemaHousehold(plan, householdId = 'household'){
+function validateSchemaHousehold(plan, householdId, expectedVersion){
   if(!plan || typeof plan !== 'object' || Array.isArray(plan)){
     throw new Error(`${householdId}: household must be an object`);
   }
@@ -245,19 +286,20 @@ export function validateCurrentSchemaHousehold(plan, householdId = 'household'){
     throw new Error(`${householdId}: meta is required`);
   }
   const version = parseSchemaVersion(plan.meta.accountSchemaVersion);
-  if(version !== ACCOUNT_SCHEMA_VERSION){
+  if(version !== expectedVersion){
     throw new Error(`${householdId}: unsupported accountSchemaVersion`);
   }
   if(!plan.portfolio || typeof plan.portfolio !== 'object' || Array.isArray(plan.portfolio)){
     throw new Error(`${householdId}: portfolio is required`);
   }
-  validateBaseSleeves(plan.portfolio.accounts, householdId);
+  const allocationRequired = expectedVersion === ACCOUNT_SCHEMA_VERSION;
+  validateBaseSleeves(plan.portfolio.accounts, householdId, { allocationRequired });
   if(!Array.isArray(plan.portfolio.extraAccounts)){
     throw new Error(`${householdId}: portfolio.extraAccounts must be an array`);
   }
-  const seen = new Set();
+  const seen = new Set(Object.values(LEGACY_BASE_ACCOUNT_IDS));
   plan.portfolio.extraAccounts.forEach((acct, index) => {
-    validateCurrentAccount(acct, index);
+    validateCurrentAccount(acct, index, { allocationRequired });
     if(seen.has(acct.id)){
       throw new Error(`${householdId}: duplicate account id ${acct.id}`);
     }
@@ -268,6 +310,10 @@ export function validateCurrentSchemaHousehold(plan, householdId = 'household'){
   }
   validateTaxProfileOwner(plan.taxProfiles.client, `${householdId}.taxProfiles.client`);
   validateTaxProfileOwner(plan.taxProfiles.spouse, `${householdId}.taxProfiles.spouse`);
+}
+
+export function validateCurrentSchemaHousehold(plan, householdId = 'household'){
+  validateSchemaHousehold(plan, householdId, ACCOUNT_SCHEMA_VERSION);
 }
 
 function basisFromLegacy(entry, balance, plan){
@@ -289,6 +335,33 @@ function basisFromLegacy(entry, balance, plan){
     return { amount: null, method: 'unknown', status: 'unknown', source: null, confirmedAt: null, version: 1 };
   }
   return { amount: null, method: 'unknown', status: 'unknown', source: null, confirmedAt: null, version: 1 };
+}
+
+function legacyAllocationForPlan(plan, path){
+  const riskProfile = plan?.portfolio?.riskProfile;
+  if(!Number.isInteger(riskProfile) || riskProfile < 1 || riskProfile > 6){
+    throw new Error(`${path}.portfolio.riskProfile is invalid`);
+  }
+  return snapshotLegacyRiskProfileAllocation(riskProfile);
+}
+
+function allocationForMigratedAccount(entry, balance, bucket, plan, path){
+  if(entry){
+    return entry.investmentAllocationEligible
+      ? legacyAllocationForPlan(plan, path)
+      : resolveCashOnlyAllocation();
+  }
+  return balance > 0 && isValidEngineBucket(bucket)
+    ? legacyAllocationForPlan(plan, path)
+    : null;
+}
+
+function applyLegacyBaseAllocations(plan, path){
+  const allocation = legacyAllocationForPlan(plan, path);
+  for(const sleeve of ['taxable', 'traditional', 'roth']){
+    plan.portfolio.accounts[sleeve].id = LEGACY_BASE_ACCOUNT_IDS[sleeve];
+    plan.portfolio.accounts[sleeve].investmentAllocation = cloneInvestmentAllocation(allocation);
+  }
 }
 
 function migrateLegacyExtraAccount(legacy, index, householdId, plan){
@@ -316,6 +389,7 @@ function migrateLegacyExtraAccount(legacy, index, householdId, plan){
       taxReporting: { inclusion: 'unknown', reportingTaxpayer: null, householdReturnShare: null },
       employerPlanFacts: null,
       designatedRothFacts: null,
+      investmentAllocation: allocationForMigratedAccount(null, balance, bucket, plan, path),
     };
   }
 
@@ -340,6 +414,7 @@ function migrateLegacyExtraAccount(legacy, index, householdId, plan){
     taxReporting: defaultTaxReportingFor(entry, owner),
     employerPlanFacts: defaultEmployerFactsFor(entry),
     designatedRothFacts: defaultDesignatedFactsFor(entry),
+    investmentAllocation: allocationForMigratedAccount(entry, balance, bucket, plan, path),
   };
 }
 
@@ -390,8 +465,35 @@ export function migrateHouseholdRecord(record, householdId){
       validateCurrentSchemaHousehold(record, householdId);
       return { changed: false, plan: cloneRecord(record) };
     }
+    if(parsed === 1){
+      return { changed: true, plan: migrateV1HouseholdAllocation(record, householdId) };
+    }
   }
   return { changed: true, plan: migrateLegacyHousehold(record, householdId) };
+}
+
+export function migrateV1HouseholdAllocation(record, householdId){
+  validateSchemaHousehold(record, householdId, 1);
+  const plan = cloneRecord(record);
+  applyLegacyBaseAllocations(plan, householdId);
+  plan.portfolio.extraAccounts = plan.portfolio.extraAccounts.map((account, index) => {
+    const canonical = account.typeId === UNSUPPORTED_TYPE_ID
+      ? null
+      : getAccountTypeById(account.typeId);
+    return {
+      ...account,
+      investmentAllocation: allocationForMigratedAccount(
+        canonical,
+        account.balance,
+        account.bucket,
+        plan,
+        `${householdId}: account[${index}]`,
+      ),
+    };
+  });
+  plan.meta.accountSchemaVersion = ACCOUNT_SCHEMA_VERSION;
+  validateCurrentSchemaHousehold(plan, householdId);
+  return plan;
 }
 
 export function migrateLegacyHousehold(record, householdId){
@@ -409,12 +511,14 @@ export function migrateLegacyHousehold(record, householdId){
   if(!Array.isArray(plan.portfolio.extraAccounts)){
     throw new Error(`${householdId}: portfolio.extraAccounts must be an array`);
   }
-  validateBaseSleeves(plan.portfolio.accounts || {}, householdId);
+  validateBaseSleeves(plan.portfolio.accounts || {}, householdId, { allocationRequired: false });
+  legacyAllocationForPlan(plan, householdId);
   if(!plan.taxProfiles) plan.taxProfiles = createBlankTaxProfiles();
   const migrated = plan.portfolio.extraAccounts.map((acct, index) =>
     migrateLegacyExtraAccount(acct, index, householdId, plan)
   );
   plan.portfolio.extraAccounts = migrated;
+  applyLegacyBaseAllocations(plan, householdId);
   plan.meta.accountSchemaVersion = ACCOUNT_SCHEMA_VERSION;
   validateCurrentSchemaHousehold(plan, householdId);
   return plan;

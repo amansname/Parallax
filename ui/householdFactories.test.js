@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import { defaultPlan, resolveInputs } from '../engine.js';
 import { buildCurrentAnnualFederalTaxBaseline } from '../src/household/buildWizardIncomeTaxSummary.js';
 import { prepareHouseholdRecordForSave } from '../src/household/persistence.js';
+import { snapshotLegacyRiskProfileAllocation } from '../src/household/investmentAllocation.js';
 import { resolveTaxableStartingBasis } from '../src/household/resolveTaxableStartingBasis.js';
 import {
   SHIPPED_DEFAULT_HOUSEHOLD_IDS,
@@ -137,6 +138,15 @@ test('Now Household carries the approved plan facts', () => {
   ]);
   assert.equal(household.savings.annual, 46_000);
   assert.equal(household.portfolio.riskProfile, 5);
+  const nowAllocation = snapshotLegacyRiskProfileAllocation(5);
+  assert.deepEqual(
+    Object.values(household.portfolio.accounts).map(account => account.investmentAllocation),
+    [nowAllocation, nowAllocation, nowAllocation],
+  );
+  assert.deepEqual(
+    household.portfolio.extraAccounts.map(account => account.investmentAllocation),
+    household.portfolio.extraAccounts.map(() => nowAllocation),
+  );
   assert.doesNotThrow(() => prepareHouseholdRecordForSave(
     household,
     household.meta.householdId,
@@ -213,6 +223,15 @@ test('Future Household carries the approved current-age retirement facts', () =>
   assert.equal(resolved.accounts.taxable.basis, 1_200_000);
   assert.equal(Math.round(resolved.accounts.traditional.balance), 3_300_000);
   assert.equal(resolved.accounts.roth.balance, 1_300_000);
+  const futureAllocation = snapshotLegacyRiskProfileAllocation(3);
+  assert.deepEqual(
+    Object.values(household.portfolio.accounts).map(account => account.investmentAllocation),
+    [futureAllocation, futureAllocation, futureAllocation],
+  );
+  assert.deepEqual(
+    household.portfolio.extraAccounts.map(account => account.investmentAllocation),
+    household.portfolio.extraAccounts.map(() => futureAllocation),
+  );
 
   assert.deepEqual(household.properties, [{
     name: 'Primary Home',
