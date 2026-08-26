@@ -11,6 +11,7 @@ import {
   ASSET_META,
 } from './src/household/investmentAllocation.js';
 import {
+  createProjectionReturnCache,
   RETURN_SERIES_PROVENANCE,
   weightedAssetReturn,
 } from './src/projection/portfolioReturns.js';
@@ -533,6 +534,12 @@ function runSimulation(plan, overrides = {}, returnPaths = null, options = {}){
   }
   if(returnPaths !== null) validateReturnPaths(returnPaths, inputs.horizonYears);
   const sims = [];
+  const projectionReturnCache = options.projectionReturnCache
+    ?? createProjectionReturnCache();
+  const runOptions = {
+    ...options,
+    projectionReturnCache,
+  };
   // Monte Carlo selection needs compact numeric rows for every trial, but the
   // account-allocation detail is consumed only by the representative paths.
   // Never materialize internal per-account detail, then re-run the at-most-five
@@ -548,7 +555,7 @@ function runSimulation(plan, overrides = {}, returnPaths = null, options = {}){
     let sim;
     try{
       sim = runSinglePath(inputs, returnPath, {
-        ...options,
+        ...runOptions,
         includeAccountDiagnostics: false,
       });
     }catch(error){
@@ -575,7 +582,7 @@ function runSimulation(plan, overrides = {}, returnPaths = null, options = {}){
   return attachSelectedAccountDiagnostics(
     analyzeResults(sims, inputs),
     inputs,
-    options,
+    runOptions,
   );
 }
 
@@ -3300,6 +3307,8 @@ function runSinglePath(p, returnPath, options = {}){
   const taxPolicy = options.taxPolicy ?? null;
   const fundTaxPolicyDelta = options.fundTaxPolicyDelta === true;
   const includeAccountDiagnostics = options.includeAccountDiagnostics !== false;
+  const projectionReturnCache = options.projectionReturnCache
+    ?? createProjectionReturnCache();
   if(taxPolicy !== null && typeof taxPolicy !== 'function'){
     throw new TypeError('options.taxPolicy must be a function');
   }
@@ -3368,7 +3377,12 @@ function runSinglePath(p, returnPath, options = {}){
       }
     }
 
-    const returnFrame = resolveProjectionReturnFrame(projectionAccounts, rp, p.returnAdj);
+    const returnFrame = resolveProjectionReturnFrame(
+      projectionAccounts,
+      rp,
+      p.returnAdj,
+      { includeAccountDiagnostics, projectionReturnCache },
+    );
     const r = returnFrame.returnRate;
 
     // ── Per-owner RMD for the year ────────────────────────────────────────

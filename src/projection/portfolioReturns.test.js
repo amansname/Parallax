@@ -7,7 +7,9 @@ import {
   snapshotLegacyRiskProfileAllocation,
 } from '../household/investmentAllocation.js';
 import {
+  createProjectionReturnCache,
   INVALID_RETURN_ROW,
+  prepareProjectionAssetAllocation,
   RETURN_SERIES_PROVENANCE,
   resolveEffectiveAssetAllocation,
   validateAssetReturnRow,
@@ -84,6 +86,22 @@ test('modern years use the requested weights directly', () => {
   assert.deepEqual(resolved.unavailableAssetKeys, []);
   assert.deepEqual(resolved.effectiveWeights, requested);
   assert.ok(Math.abs(resolved.baseRealReturn - manual) < 1e-15);
+});
+
+test('run-scoped return cache reuses exact row and allocation pairs without year collisions', () => {
+  const requested = snapshotLegacyRiskProfileAllocation(4).weights;
+  const prepared = prepareProjectionAssetAllocation(requested);
+  const cache = createProjectionReturnCache();
+  const firstRow = { ...RETURN_DATA.find(value => value.y === 2024) };
+  const secondRow = { ...firstRow, usLarge: firstRow.usLarge + 0.01 };
+
+  const first = cache.resolve(firstRow, prepared);
+  assert.strictEqual(cache.resolve(firstRow, prepared), first);
+  assert.notStrictEqual(cache.resolve(secondRow, prepared), first);
+  assert.notEqual(
+    cache.resolve(secondRow, prepared).baseRealReturn,
+    first.baseRealReturn,
+  );
 });
 
 test('malformed annual rows fail closed with one deterministic code', () => {

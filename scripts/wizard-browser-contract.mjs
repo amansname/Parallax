@@ -431,7 +431,6 @@ async function selectHouseholdVisible(page, householdId){
   return waitForWizard(page, {
     householdId,
     afterRevision: before.revision,
-    timeout: 30000,
   });
 }
 

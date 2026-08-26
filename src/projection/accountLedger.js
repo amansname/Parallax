@@ -5,10 +5,14 @@ import {
   resolveCashOnlyAllocation,
   snapshotLegacyRiskProfileAllocation,
 } from '../household/investmentAllocation.js';
-import { resolveEffectiveAssetAllocation } from './portfolioReturns.js';
+import {
+  createProjectionReturnCache,
+  prepareProjectionAssetAllocation,
+} from './portfolioReturns.js';
 
 const BUCKET_KEYS = Object.freeze(['taxable', 'traditional', 'roth']);
 const OWNER_KEYS = Object.freeze(['client', 'spouse', 'unattributed']);
+const PREPARED_ALLOCATION_BY_RECORD = new WeakMap();
 
 function allocationError(code, message){
   const error = new RangeError(message ?? code);
@@ -22,11 +26,26 @@ function growthShare(allocation){
   ), 0);
 }
 
+function prepareAllocationAtLedgerBoundary(allocation){
+  if(!allocation || typeof allocation !== 'object' || Array.isArray(allocation)){
+    throw allocationError('INVALID_ASSET_WEIGHTS', 'Investment allocation is required');
+  }
+  const prepared = prepareProjectionAssetAllocation(allocation.weights);
+  PREPARED_ALLOCATION_BY_RECORD.set(allocation, prepared);
+  return prepared;
+}
+
+function preparedAllocationForRead(allocation){
+  return PREPARED_ALLOCATION_BY_RECORD.get(allocation)
+    ?? prepareAllocationAtLedgerBoundary(allocation);
+}
+
 function cloneAccount(account){
-  return {
+  const clone = {
     ...account,
     investmentAllocation: account.investmentAllocation,
   };
+  return clone;
 }
 
 function evidenceBasisById(taxableBasis){
@@ -84,13 +103,14 @@ export function buildProjectionAccountLedger({ plan, accountFold, taxableBasis, 
     if(!allocation){
       throw allocationError('INVALID_ASSET_WEIGHTS', `Account ${account.id} has no investment allocation`);
     }
+    prepareAllocationAtLedgerBoundary(allocation);
     const shockMultiplier = 1 - initialShock * growthShare(allocation);
     const rawBalance = account.balance;
     const basis = account.engineBucket === 'taxable'
       ? (basisById.get(account.id)
         ?? (missingBalance > 0 ? remainingBasis * (rawBalance / missingBalance) : 0))
       : 0;
-    return {
+    const projectionAccount = {
       id: account.id,
       bucket: account.engineBucket,
       owner: account.owner === 'client' || account.owner === 'spouse'
@@ -103,8 +123,10 @@ export function buildProjectionAccountLedger({ plan, accountFold, taxableBasis, 
       taxCharacter: account.taxCharacter,
       balance: rawBalance * shockMultiplier,
       basis,
+      appliedReturn: 0,
       investmentAllocation: allocation,
     };
+    return projectionAccount;
   });
 }
 
@@ -138,40 +160,50 @@ export function syncProjectionAggregates(ledger, accounts){
   return aggregate;
 }
 
-export function resolveProjectionReturnFrame(ledger, returnRow, returnAdj){
-  const accountReturns = {};
+export function resolveProjectionReturnFrame(ledger, returnRow, returnAdj, options = {}){
+  const includeAccountDiagnostics = options.includeAccountDiagnostics !== false;
+  const projectionReturnCache = options.projectionReturnCache
+    ?? createProjectionReturnCache();
+  const accountReturns = includeAccountDiagnostics ? {} : null;
   const appliedReturns = [];
   let openingBalance = 0;
   let returnDollars = 0;
-  const requestedTotals = Object.fromEntries(ASSET_KEYS.map(key => [key, 0]));
-  const effectiveTotals = Object.fromEntries(ASSET_KEYS.map(key => [key, 0]));
+  const requestedTotals = includeAccountDiagnostics
+    ? Object.fromEntries(ASSET_KEYS.map(key => [key, 0]))
+    : null;
+  const effectiveTotals = includeAccountDiagnostics
+    ? Object.fromEntries(ASSET_KEYS.map(key => [key, 0]))
+    : null;
 
   for(const account of ledger){
-    const allocation = resolveEffectiveAssetAllocation(
+    const allocation = projectionReturnCache.resolve(
       returnRow,
-      account.investmentAllocation.weights,
+      preparedAllocationForRead(account.investmentAllocation),
     );
     const appliedReturn = allocation.baseRealReturn + returnAdj;
+    account.appliedReturn = appliedReturn;
     appliedReturns.push(appliedReturn);
     const contribution = account.balance * appliedReturn;
     openingBalance += account.balance;
     returnDollars += contribution;
-    for(const key of ASSET_KEYS){
-      requestedTotals[key] += account.balance * allocation.requestedWeights[key];
-      effectiveTotals[key] += account.balance * allocation.effectiveWeights[key];
+    if(includeAccountDiagnostics){
+      for(const key of ASSET_KEYS){
+        requestedTotals[key] += account.balance * allocation.requestedWeights[key];
+        effectiveTotals[key] += account.balance * allocation.effectiveWeights[key];
+      }
+      accountReturns[account.id] = Object.freeze({
+        mode: 'asset-blend',
+        sourceYear: allocation.sourceYear,
+        baseRealReturn: allocation.baseRealReturn,
+        returnAdj,
+        appliedReturn,
+        requestedWeights: allocation.requestedWeights,
+        effectiveWeights: allocation.effectiveWeights,
+        unavailableAssetKeys: allocation.unavailableAssetKeys,
+        redistributionKind: allocation.redistributionKind,
+        returnDollars: contribution,
+      });
     }
-    accountReturns[account.id] = Object.freeze({
-      mode: 'asset-blend',
-      sourceYear: allocation.sourceYear,
-      baseRealReturn: allocation.baseRealReturn,
-      returnAdj,
-      appliedReturn,
-      requestedWeights: allocation.requestedWeights,
-      effectiveWeights: allocation.effectiveWeights,
-      unavailableAssetKeys: allocation.unavailableAssetKeys,
-      redistributionKind: allocation.redistributionKind,
-      returnDollars: contribution,
-    });
   }
 
   const householdWeights = totals => Object.freeze(Object.fromEntries(
@@ -181,19 +213,22 @@ export function resolveProjectionReturnFrame(ledger, returnRow, returnAdj){
     && appliedReturns.every(value => value === appliedReturns[0])
     ? appliedReturns[0]
     : null;
-  return Object.freeze({
+  const frame = {
     sourceYear: Number.isInteger(returnRow?.y) ? returnRow.y : null,
     openingBalance,
     returnDollars,
     returnRate: openingBalance > 0
       ? (commonAppliedReturn ?? returnDollars / openingBalance)
       : 0,
-    accountReturns: Object.freeze(accountReturns),
-    householdAllocation: Object.freeze({
+  };
+  if(includeAccountDiagnostics){
+    frame.accountReturns = Object.freeze(accountReturns);
+    frame.householdAllocation = Object.freeze({
       requestedWeights: householdWeights(requestedTotals),
       effectiveWeights: householdWeights(effectiveTotals),
-    }),
-  });
+    });
+  }
+  return Object.freeze(frame);
 }
 
 function midyearFactor(returnRate){
@@ -202,10 +237,10 @@ function midyearFactor(returnRate){
     : returnRate / (Math.pow(1 + returnRate, 1 / 12) - 1);
 }
 
-function capacityFor(account, accountReturn){
-  const factor = midyearFactor(accountReturn.appliedReturn);
+function capacityFor(account){
+  const factor = midyearFactor(account.appliedReturn);
   const rawScale = factor > 0
-    ? ((1 + accountReturn.appliedReturn) * 12) / factor
+    ? ((1 + account.appliedReturn) * 12) / factor
     : 0;
   return account.balance * Math.max(0, Math.min(1, rawScale));
 }
@@ -232,7 +267,7 @@ export function fundProjectionGap(
   const traditionalGrossByOwner = { client: 0, spouse: 0, unattributed: 0 };
   const available = new Map(ledger.map(account => [
     account.id,
-    capacityFor(account, frame.accountReturns[account.id]),
+    capacityFor(account),
   ]));
 
   function drawBucket(bucket, netNeeded){
@@ -334,7 +369,7 @@ export function applyProjectionYearReturnsAndWithdrawals(ledger, frame, grossByI
   for(const account of ledger){
     const start = account.balance;
     const gross = grossById?.[account.id] ?? 0;
-    const appliedReturn = frame.accountReturns[account.id].appliedReturn;
+    const appliedReturn = account.appliedReturn;
     const factor = midyearFactor(appliedReturn);
     if(account.bucket === 'taxable' && gross > 0 && start > 0){
       const basisFraction = Math.max(0, account.basis / start);
@@ -385,7 +420,7 @@ export function applyProjectionContributions(ledger, frame, annualByBucket){
   }
   for(const account of ledger){
     const annual = contributionsById[account.id];
-    const appliedReturn = frame.accountReturns[account.id].appliedReturn;
+    const appliedReturn = account.appliedReturn;
     const factor = midyearFactor(appliedReturn);
     account.balance = account.balance * (1 + appliedReturn) + (annual / 12) * factor;
     if(account.bucket === 'taxable') account.basis += annual;

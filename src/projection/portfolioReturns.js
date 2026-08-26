@@ -1,7 +1,6 @@
 import {
   ASSET_KEYS,
   ASSET_META,
-  snapshotAssetWeights,
   validateAssetWeights,
 } from '../household/investmentAllocation.js';
 
@@ -68,6 +67,30 @@ function returnRowError(message){
   return error;
 }
 
+const PREPARED_ALLOCATION = Symbol('preparedProjectionAssetAllocation');
+
+function snapshotValidatedWeights(weights){
+  return Object.freeze(Object.fromEntries(
+    ASSET_KEYS.map(key => [key, weights[key]]),
+  ));
+}
+
+export function prepareProjectionAssetAllocation(requestedWeights){
+  validateAssetWeights(requestedWeights);
+  const weights = snapshotValidatedWeights(requestedWeights);
+  return Object.freeze({
+    [PREPARED_ALLOCATION]: true,
+    cacheKey: ASSET_KEYS.map(key => `${key}:${weights[key]}`).join('|'),
+    requestedWeights: weights,
+  });
+}
+
+function assertPreparedAllocation(prepared){
+  if(!prepared || prepared[PREPARED_ALLOCATION] !== true){
+    throw new TypeError('Prepared projection asset allocation is required');
+  }
+}
+
 export function validateAssetReturnRow(row){
   if(!row || typeof row !== 'object' || Array.isArray(row)){
     throw returnRowError('Return row must be an object');
@@ -87,10 +110,8 @@ export function validateAssetReturnRow(row){
   return true;
 }
 
-export function resolveEffectiveAssetAllocation(row, requestedWeights){
-  validateAssetWeights(requestedWeights);
-  validateAssetReturnRow(row);
-
+function resolvePreparedEffectiveAssetAllocation(row, prepared){
+  const requestedWeights = prepared.requestedWeights;
   const effective = Object.fromEntries(ASSET_KEYS.map(key => [key, 0]));
   const unavailableAssetKeys = ASSET_KEYS.filter(key => !available(row, key));
   const sleeves = [
@@ -138,10 +159,10 @@ export function resolveEffectiveAssetAllocation(row, requestedWeights){
     }
   }
 
-  const effectiveWeights = snapshotAssetWeights(effective);
+  const effectiveWeights = snapshotValidatedWeights(effective);
   return Object.freeze({
     sourceYear: Number.isInteger(row.y) ? row.y : null,
-    requestedWeights: snapshotAssetWeights(requestedWeights),
+    requestedWeights,
     effectiveWeights,
     unavailableAssetKeys: Object.freeze(unavailableAssetKeys),
     redistributionKind: wholePortfolioRedistributed
@@ -151,6 +172,36 @@ export function resolveEffectiveAssetAllocation(row, requestedWeights){
         : 'none',
     baseRealReturn: returnRate,
   });
+}
+
+export function createProjectionReturnCache(){
+  const byReturnRow = new WeakMap();
+  return Object.freeze({
+    resolve(row, prepared){
+      assertPreparedAllocation(prepared);
+      if(!row || typeof row !== 'object' || Array.isArray(row)){
+        validateAssetReturnRow(row);
+      }
+      let byAllocation = byReturnRow.get(row);
+      if(!byAllocation){
+        validateAssetReturnRow(row);
+        byAllocation = new Map();
+        byReturnRow.set(row, byAllocation);
+      }
+      let resolved = byAllocation.get(prepared.cacheKey);
+      if(!resolved){
+        resolved = resolvePreparedEffectiveAssetAllocation(row, prepared);
+        byAllocation.set(prepared.cacheKey, resolved);
+      }
+      return resolved;
+    },
+  });
+}
+
+export function resolveEffectiveAssetAllocation(row, requestedWeights){
+  const prepared = prepareProjectionAssetAllocation(requestedWeights);
+  validateAssetReturnRow(row);
+  return resolvePreparedEffectiveAssetAllocation(row, prepared);
 }
 
 export function weightedAssetReturn(row, weights){

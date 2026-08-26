@@ -900,10 +900,7 @@ try {
     withdrawalPlannerFixtureHouseholdId = durableFixtureHousehold.active;
     fixture.householdId = durableFixtureHousehold.active;
     await page.select('#hh-switch', durableFixtureHousehold.active);
-    await waitForWizard(page, {
-      householdId: durableFixtureHousehold.active,
-      timeout: 30000,
-    });
+    await waitForWizard(page, { householdId: durableFixtureHousehold.active });
     const [birthYear, birthMonth, birthDay] = fixture.family.birthDate.split('-');
     await typeAndBlur(
       '[data-birth-date-group="client"] [data-birth-date-display]',
@@ -1291,7 +1288,7 @@ try {
             && root?.getAttribute('aria-busy') === 'false'
             && document.querySelectorAll('.taw-range:not(:disabled)').length === 5
             && document.querySelector('[data-taw-federal-tax]')?.textContent.trim() !== '\u2014';
-        }, { timeout: 30000 }, householdId);
+        }, { timeout: 15000 }, householdId);
       }catch(error){
         const observed = await page.evaluate(() => ({
           selectedHouseholdId: document.querySelector('#hh-switch')?.value ?? null,

@@ -139,7 +139,7 @@ export function buildIntakeReport(intake, result, validation, context){
   };
 }
 
-export function runClient1040Intake(
+function composeClient1040Intake(
   intake,
   context,
   { strict = true, additionalNetLongTermCapitalGain = 0 } = {},
@@ -157,6 +157,18 @@ export function runClient1040Intake(
     additionalNetLongTermCapitalGain,
   });
   const { result, audits } = composeAnnualFederalTax(input, context);
+
+  return { input, result, audits, validation };
+}
+
+export function calculateClient1040Liability(intake, context, options = {}){
+  const { result } = composeClient1040Intake(intake, context, options);
+  return result.form1040?.line24?.value ?? result.totalFederalTax ?? null;
+}
+
+export function runClient1040Intake(intake, context, options = {}){
+  const pipeline = composeClient1040Intake(intake, context, options);
+  const { input, result, audits, validation } = pipeline;
   const report = buildIntakeReport(intake, result, validation, context);
 
   return { input, result, audits, validation, report };
