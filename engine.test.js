@@ -732,7 +732,9 @@ test('purchasePrice / value are inert — they move no current number', () => {
 
 test('a pre-retirement lump sum debits the portfolio (no longer ignored in accumulation)', () => {
   const p = JSON.parse(JSON.stringify(defaultPlan));
-  p.household.primary = { currentAge: 58, retirementAge: 65, planEndAge: 95 };
+  // Keep this accumulation-only assertion before RMD age; RMD disposition is
+  // covered independently and must not collapse both terminal balances.
+  p.household.primary = { currentAge: 58, retirementAge: 65, planEndAge: 72 };
   const base = runHistoricalPath(p, 1995, 'taxable-first');
   const buy  = runHistoricalPath(p, 1995, 'taxable-first', undefined, { lumpSum: 200000, lumpSumYear: 0 });
   assert.ok(buy.terminalBalance < base.terminalBalance - 1,
@@ -741,9 +743,10 @@ test('a pre-retirement lump sum debits the portfolio (no longer ignored in accum
 
 // ── RMDs (Required Minimum Distributions) ───────────────────────────────────
 // From age 73 the pre-tax sleeve must distribute a minimum even if spending
-// doesn't need it; the after-tax excess is reinvested into the taxable sleeve.
+// doesn't need it; the full gross amount is treated as spending and does not
+// silently move into the taxable sleeve.
 // Roth / taxable-only plans have no RMD.
-test('RMDs force pre-tax distributions from 73 and reinvest the excess', () => {
+test('RMDs force pre-tax distributions from 73 and spend the full gross amount', () => {
   const p = JSON.parse(JSON.stringify(defaultPlan));
   p.household.primary = {
     currentAge: 73, retirementAge: 73, planEndAge: 95, birthYear: 1953,
@@ -754,10 +757,21 @@ test('RMDs force pre-tax distributions from 73 and reinvest the excess', () => {
   const r = runHistoricalPath(p, 1995, 'taxable-first');
   const at73 = r.rows.find(x => x.age === 73);
   assert.ok(at73 && at73.rmd > 0, 'a required distribution fires at age 73');
-  // Taxable began at $0 and nothing else funds it in retirement, so any positive
-  // taxable balance can ONLY be reinvested RMD proceeds.
-  assert.ok(r.rows.some(x => x.age >= 73 && x.accountBalances.taxable > 1),
-    'excess RMD is reinvested into the taxable sleeve');
+  // Taxable began at $0 and this plan has no other taxable funding source.
+  // Excess RMD proceeds are spent, never silently saved in taxable.
+  assert.ok(r.rows.every(x => x.accountBalances.taxable <= 0.01),
+    'full gross RMD is spent rather than reinvested into the taxable sleeve');
+
+  const federalFunding = runHistoricalPath(
+    p,
+    1995,
+    'taxable-first',
+    undefined,
+    undefined,
+    { taxPolicy: (_row, { shortcutTax }) => shortcutTax, fundTaxPolicyDelta: true }
+  );
+  assert.ok(federalFunding.rows.every(x => x.accountBalances.taxable <= 0.01),
+    'federal-tax funding also leaves forced RMD proceeds out of taxable savings');
 
   // No pre-tax balance → no RMD ever (Roth/taxable are exempt).
   const q = JSON.parse(JSON.stringify(defaultPlan));
@@ -766,6 +780,107 @@ test('RMDs force pre-tax distributions from 73 and reinvest the excess', () => {
   q.portfolio.accounts.roth.balance        = 0;
   const r2 = runHistoricalPath(q, 1995, 'taxable-first');
   assert.ok(r2.rows.every(x => !(x.rmd > 0)), 'no Traditional balance → no RMD');
+});
+
+test('forced gross-spent RMDs reconcile exactly in normal, federal-funded, and accumulation routes', () => {
+  const build = (retirementAge, portfolioFundedGoal = 0) => {
+    const p = structuredClone(defaultPlan);
+    p.household.primary = {
+      currentAge: 73, retirementAge, planEndAge: 73, birthYear: 1953,
+    };
+    p.household.spouse = null;
+    p.portfolio.accounts = {
+      taxable: { balance: 0, basisPct: 1 },
+      traditional: { balance: 10_000_000 },
+      roth: { balance: 0 },
+    };
+    p.portfolio.extraAccounts = [];
+    p.savings = { annual: 0, split: { taxable: 0, traditional: 0, roth: 0 } };
+    p.income.socialSecurity = { primary: { pia: 0, claimAge: 70 }, spouse: null };
+    p.income.other = [];
+    p.income.pension = { benefitByAge: {}, base: 0, startAge: 99, colaPct: 0 };
+    p.expenses = {
+      living: 0, housing: 0, debt: 0, healthcare: 0,
+      healthcareRealGrowth: 0, extra: [],
+    };
+    p.goals = portfolioFundedGoal > 0 ? [{
+      name: 'Pre-retirement outlay', amount: portfolioFundedGoal,
+      startAge: 73, endAge: 73, fundFromPortfolioBeforeRetirement: true,
+    }] : [];
+    p.liabilities = [];
+    p.properties = [];
+    p.ltc = { amount: 0, onsetAge: 99 };
+    return resolveInputs(p, {});
+  };
+  const rmd = 10_000_000 / 26.5;
+  const assertGrossSpentRmd = (sim, expectedTax, phase) => {
+    const row = sim.rows[0];
+    assert.equal(row.phase, phase);
+    assert.ok(Math.abs(row.rmdRequired - rmd) < 0.01);
+    assert.ok(Math.abs(row.rmd - rmd) < 0.01);
+    assert.deepEqual(row.rmdRequiredByOwner, { client: rmd, spouse: 0, unattributed: 0 });
+    assert.equal(row.rmdGrossByOwner.client, 0, 'no spending withdrawal satisfies the RMD');
+    assert.equal(row.rmdGrossByOwner.spouse, 0);
+    assert.ok(Math.abs(row.accountWithdrawalsById['base-traditional'] - rmd) < 0.01);
+    assert.equal(row.accountWithdrawalsById['base-taxable'] ?? 0, 0);
+    assert.equal(row.accountWithdrawalsById['base-roth'] ?? 0, 0);
+    assert.deepEqual(row.accountBalances, {
+      taxable: 0,
+      traditional: 10_000_000 - rmd,
+      roth: 0,
+    });
+    assert.deepEqual(row.accountBalancesById, {
+      'base-taxable': 0,
+      'base-traditional': 10_000_000 - rmd,
+      'base-roth': 0,
+    });
+    assert.equal(row.taxableStartingBasis, 0);
+    assert.equal(row.taxableEndingBasis, 0);
+    assert.equal(row.taxableCapitalGain, 0);
+    assert.ok(Math.abs(row.taxes - expectedTax) < 0.01);
+    assert.ok(Math.abs(sim.lifetimeTax - expectedTax) < 0.01);
+    assert.ok(Math.abs(row.balance - (10_000_000 - rmd)) < 0.01);
+    assert.ok(Math.abs(sim.terminalBalance - row.balance) < 0.01);
+  };
+
+  const normalInputs = build(73);
+  const normal = runSinglePath(normalInputs, [flatAssetReturnRow(2026)]);
+  assertGrossSpentRmd(normal, rmd * normalInputs.taxRates.ordinary, undefined);
+
+  const federallyFunded = runSinglePath(normalInputs, [flatAssetReturnRow(2026)], {
+    taxPolicy: () => 0,
+    fundTaxPolicyDelta: true,
+  });
+  assertGrossSpentRmd(federallyFunded, 0, undefined);
+  assert.equal(federallyFunded.rows[0].taxFundingConvergence.taxSavingsReinvested, 0,
+    'a lower federal RMD liability must not recreate taxable cash');
+
+  const accumulationInputs = build(74);
+  const accumulation = runSinglePath(accumulationInputs, [flatAssetReturnRow(2026)]);
+  assertGrossSpentRmd(accumulation, rmd * accumulationInputs.taxRates.ordinary, 'accum');
+
+  const accumulationOutlayInputs = build(74, 100_000);
+  const accumulationOutlay = runSinglePath(
+    accumulationOutlayInputs,
+    [flatAssetReturnRow(2026)],
+  );
+  const outlayRow = accumulationOutlay.rows[0];
+  assert.ok(Math.abs(outlayRow.rmdRequired - rmd) < 0.01);
+  assert.ok(Math.abs(outlayRow.rmd - (rmd - 100_000)) < 0.01,
+    'only the RMD amount not satisfied by the Traditional outlay is forced');
+  assert.equal(outlayRow.rmdGrossByOwner.client, 100_000);
+  assert.ok(Math.abs(outlayRow.accountWithdrawalsById['base-traditional'] - rmd) < 0.01);
+  assert.equal(outlayRow.accountBalances.traditional, 10_000_000 - rmd);
+  assert.equal(outlayRow.accountBalances.taxable, 0);
+  assert.equal(outlayRow.accountBalances.roth, 0);
+  assert.ok(Math.abs(outlayRow.taxes - rmd * accumulationOutlayInputs.taxRates.ordinary) < 0.01);
+  assert.ok(Math.abs(accumulationOutlay.lifetimeTax - outlayRow.taxes) < 0.01);
+
+  const compactAccumulation = runSinglePath(accumulationInputs, [flatAssetReturnRow(2026)], {
+    includeAccountDiagnostics: false,
+  }).rows[0];
+  assert.equal(compactAccumulation.rmdRequiredByOwner, undefined);
+  assert.equal(compactAccumulation.rmdGrossByOwner, undefined);
 });
 
 test('engine rows separate total required RMD from the forced top-up', () => {
@@ -1485,6 +1600,67 @@ test('lower federal tax beyond a zero draw retains only the incremental saving a
   assert.equal(funded.rows[0].taxFundingConvergence.taxSavingsReinvested, 10_000);
   assert.equal(funded.rows[0].accountBalances.taxable, 110_000);
   assert.equal(funded.rows[0].taxableStartingBasis, 100_000);
+});
+
+test('lower federal tax retains only non-RMD savings when an RMD is forced', () => {
+  const p = structuredClone(defaultPlan);
+  p.household.primary = { currentAge: 73, retirementAge: 73, planEndAge: 73, birthYear: 1953 };
+  p.household.spouse = null;
+  p.portfolio.accounts = {
+    taxable: { balance: 0, basisPct: 1 },
+    traditional: { balance: 0 },
+    roth: { balance: 0 },
+  };
+  const rmdIra = createAccount('traditional_ira', { owner: 'client', balance: 10_000_000 });
+  rmdIra.id = 'rmd-ira';
+  p.portfolio.extraAccounts = [
+    explicitlyBasedBrokerage(100_000, 100_000),
+    rmdIra,
+  ];
+  p.income.socialSecurity = { primary: { pia: 0, claimAge: 70 }, spouse: null };
+  p.income.other = [{
+    label: 'Pension-like income', amount: 100_000,
+    startAge: 73, endAge: 73, taxablePct: 1,
+  }];
+  p.income.pension = { benefitByAge: {}, base: 0, startAge: 99, colaPct: 0 };
+  p.expenses = {
+    living: 90_000, housing: 0, debt: 0, healthcare: 0,
+    healthcareRealGrowth: 0, extra: [],
+  };
+  p.goals = [];
+  p.liabilities = [];
+  p.properties = [];
+  p.ltc = { amount: 0, onsetAge: 99 };
+
+  const params = resolveInputs(p, {});
+  const funded = runSinglePath(params, [flatAssetReturnRow(2026)], {
+    taxPolicy: () => 0,
+    fundTaxPolicyDelta: true,
+  });
+  const row = funded.rows[0];
+  const rmd = 10_000_000 / 26.5;
+
+  assert.equal(row.taxFundingConvergence.taxSavingsReinvested, 10_000);
+  assert.equal(row.accountBalances.taxable, 110_000);
+  assert.equal(row.taxableStartingBasis, 100_000);
+  assert.equal(row.taxableEndingBasis, 110_000);
+  assert.equal(row.taxableCapitalGain, 0);
+  assert.ok(Math.abs(row.rmd - rmd) < 0.01);
+  assert.equal(row.rmdGrossByOwner.client, 0);
+  assert.ok(Math.abs(row.accountWithdrawalsById['rmd-ira'] - rmd) < 0.01);
+  assert.ok(Math.abs(row.accountBalances.traditional - (10_000_000 - rmd)) < 0.01);
+  assert.equal(row.accountBalances.roth, 0);
+
+  const flatReduction = runSinglePath(params, [flatAssetReturnRow(2026)], {
+    taxPolicy: (_row, { shortcutTax }) => Math.max(0, shortcutTax - 22_000),
+    fundTaxPolicyDelta: true,
+  });
+  const flatReductionRow = flatReduction.rows[0];
+  assert.equal(flatReductionRow.taxFundingConvergence.taxSavingsReinvested, 10_000,
+    'an RMD-independent flat tax reduction remains taxable cash even below the RMD shortcut tax');
+  assert.equal(flatReductionRow.accountBalances.taxable, 110_000);
+  assert.equal(flatReductionRow.taxableEndingBasis, 110_000);
+  assert.equal(flatReductionRow.taxableCapitalGain, 0);
 });
 
 test('converged funding fails closed when a discontinuous tax policy has no fixed point', () => {
@@ -2245,6 +2421,8 @@ test('a known RMD owner receives required distributions during household accumul
   assert.ok(Math.abs(first.rmdRequired - 10_000) < 0.01);
   assert.ok(Math.abs(first.rmd - 10_000) < 0.01);
   assert.ok(first.taxBySource.traditional > 0);
+  assert.ok(first.accountBalances.taxable <= 0.01,
+    'an accumulation-year RMD is spent rather than added to taxable savings');
 });
 
 test('RMD applicable age follows the owner birth cohort', () => {
@@ -3694,7 +3872,8 @@ test('return observations, selected path years, and the ordinary simulation core
   }));
   assert.strictEqual(
     hashJson(core),
-    'a49159533003af4ef4be7c6c2b6696f3f78a6b9d724060d860235074b5cfb6d5',
+    // The projection core includes the explicitly changed gross-RMD-spent path.
+    'c93f0d37507b3f96be12d66b9eab4bd6f5a9a82783f8d1d40a4f2331b929286b',
   );
 });
 

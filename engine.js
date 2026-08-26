@@ -2153,9 +2153,8 @@ function resolveInputs(plan, ov){
 // ── RMDs (Required Minimum Distributions) ───────────────────────────────────
 // SECURE 2.0: the pre-tax (Traditional) sleeve must distribute a minimum each
 // year from the owner's cohort-specific applicable age. Roth is exempt. The
-// distribution is ordinary income; any part
-// not needed for spending is reinvested (after tax) into the taxable sleeve —
-// you must TAKE it, not SPEND it, so the portfolio only loses the tax.
+// distribution is ordinary income and is modeled as spent in full. Required
+// distributions never silently move into the taxable sleeve.
 //
 // ── Owner-level traditional sleeve ──────────────────────────────────────────
 // The traditional sleeve is tracked per owner because RMDs are per owner: each
@@ -2977,6 +2976,19 @@ function combineAccountAmounts(...maps){
   return combined;
 }
 
+function traditionalWithdrawalsByOwner(ledger, withdrawalsById){
+  if(!withdrawalsById || Object.keys(withdrawalsById).length === 0){
+    return ZERO_TRADITIONAL_OWNER_BUCKETS;
+  }
+  const byOwner = emptyTraditionalOwnerBuckets();
+  for(const account of ledger){
+    if(account.bucket === 'traditional'){
+      byOwner[account.owner] += withdrawalsById?.[account.id] ?? 0;
+    }
+  }
+  return byOwner;
+}
+
 function appendFailedTailRows(rows, p, failedYearIndex){
   for(let z = failedYearIndex + 1; z < p.horizonYears; z++){
     rows.push({
@@ -3083,29 +3095,17 @@ function buildFederalFundingCandidate({
     rmdWithdrawalsById = forced.byId;
     if(rmdForced > 0.01){
       rmdTax = rmdForced * p.taxRates.ordinary;
-      const reinvest = rmdForced - rmdTax;
-      addProjectionCash(accounts.projectionAccounts, 'taxable', reinvest, reinvest);
     }
     syncProjectionAggregates(accounts.projectionAccounts, accounts);
   }
 
-  // If a lower federal liability more than eliminates the ordinary spending
-  // draw, retain only that incremental tax saving as after-tax taxable cash.
-  // Existing off-book income surplus remains off-book, preserving the base
-  // engine contract while making the signed tax adjustment symmetric.
-  const taxSavingsReinvested = Math.max(
+  // Save the gross lower-tax surplus for the converged solver. Attribution to
+  // a forced gross-spent RMD needs the final policy liability, so crediting
+  // taxable cash here would be both premature and wrong for custom policies.
+  const grossTaxSavingsReinvested = Math.max(
     0,
     -(Math.max(0, gap) + taxFundingAdjustment)
   );
-  if(taxSavingsReinvested > 0){
-    addProjectionCash(
-      accounts.projectionAccounts,
-      'taxable',
-      taxSavingsReinvested,
-      taxSavingsReinvested,
-    );
-    syncProjectionAggregates(accounts.projectionAccounts, accounts);
-  }
 
   const shortcutTax = taxOnSS + taxOnOI + taxOnPen + funding.totalTax + rmdTax;
   const wdRate = startBalance > 0.01 && withdrawal > 0
@@ -3190,7 +3190,8 @@ function buildFederalFundingCandidate({
     funding,
     policyRow,
     shortcutTax,
-    taxSavingsReinvested,
+    grossTaxSavingsReinvested,
+    rmdShortcutTax: rmdTax,
   };
 }
 
@@ -3226,6 +3227,42 @@ function solveFederalFundingYear(args, taxPolicy){
     const residual = targetAdjustment - adjustment;
     if(Math.abs(residual) <= FEDERAL_FUNDING_CONVERGENCE_TOLERANCE){
       const accounts = candidate.accounts;
+      let taxSavingsReinvested = candidate.grossTaxSavingsReinvested;
+      if(candidate.policyRow.rmd > 0.01 && taxSavingsReinvested > 0){
+        const shortcutTaxWithoutForcedRmd = Math.max(
+          0,
+          candidate.shortcutTax - candidate.rmdShortcutTax,
+        );
+        const counterfactualTax = taxPolicy({
+          ...candidate.policyRow,
+          rmd: 0,
+          taxes: shortcutTaxWithoutForcedRmd,
+          netCashflow: (
+            args.ssInc + args.oiInc + args.penInc + args.saleProceeds
+          ) - (args.expenses + args.goalsY + args.liabCost + shortcutTaxWithoutForcedRmd),
+        }, {
+          shortcutTax: shortcutTaxWithoutForcedRmd,
+          yearIndex: args.y,
+        });
+        if(!Number.isFinite(counterfactualTax) || counterfactualTax < 0){
+          throw new TypeError('taxPolicy must return a finite non-negative tax');
+        }
+        const actualRmdMarginalTax = Math.max(0, resolvedTax - counterfactualTax);
+        const rmdTaxSaving = Math.max(
+          0,
+          candidate.rmdShortcutTax - actualRmdMarginalTax,
+        );
+        taxSavingsReinvested = Math.max(0, taxSavingsReinvested - rmdTaxSaving);
+      }
+      if(taxSavingsReinvested > 0){
+        addProjectionCash(
+          accounts.projectionAccounts,
+          'taxable',
+          taxSavingsReinvested,
+          taxSavingsReinvested,
+        );
+        syncProjectionAggregates(accounts.projectionAccounts, accounts);
+      }
       for(const account of accounts.projectionAccounts){
         if(account.balance < 0) account.balance = 0;
       }
@@ -3258,7 +3295,7 @@ function solveFederalFundingYear(args, taxPolicy){
           tolerance: FEDERAL_FUNDING_CONVERGENCE_TOLERANCE,
           residual,
           fundingAdjustment: adjustment,
-          taxSavingsReinvested: candidate.taxSavingsReinvested,
+          taxSavingsReinvested,
         },
       };
       return { accounts, row, failed };
@@ -3424,20 +3461,6 @@ function runSinglePath(p, returnPath, options = {}){
       let rmdForcedA = 0;
       let rmdTaxA = 0;
       let rmdWithdrawalsByIdA = {};
-      if(openingRmd.required > 0){
-        const forcedA = applyProjectionOwnerRmd(
-          projectionAccounts,
-          openingRmd.requiredByOwner,
-        );
-        rmdForcedA = forcedA.total;
-        rmdWithdrawalsByIdA = forcedA.byId;
-        if(rmdForcedA > 0.01){
-          rmdTaxA = rmdForcedA * p.taxRates.ordinary;
-          const reinvest = rmdForcedA - rmdTaxA;
-          addProjectionCash(projectionAccounts, 'taxable', reinvest, reinvest);
-        }
-        syncProjectionAggregates(projectionAccounts, accounts);
-      }
       // One-time capital outlay (e.g. a home purchase) during working years. The
       // engine assumes salary covers recurring costs while working, but a large
       // purchase is funded by liquidating investments — taxable first, then
@@ -3478,6 +3501,37 @@ function runSinglePath(p, returnPath, options = {}){
         }
         syncProjectionAggregates(projectionAccounts, accounts);
       }
+      const traditionalOutlayByOwner = accumulationFunding.breakdown.traditional > 0.01
+        && (openingRmd.required > 0 || includeAccountDiagnostics)
+        ? traditionalWithdrawalsByOwner(projectionAccounts, outlayWithdrawalsByIdA)
+        : ZERO_TRADITIONAL_OWNER_BUCKETS;
+      if(openingRmd.required > 0){
+        // A Traditional outlay already distributed by a given owner satisfies
+        // that owner's RMD. Force only the remaining owner-level top-up.
+        const outstandingByOwner = Object.fromEntries(
+          TRADITIONAL_PERSON_OWNERS.map(owner => [owner, Math.max(
+            0,
+            (openingRmd.requiredByOwner[owner] ?? 0)
+              - (traditionalOutlayByOwner[owner] ?? 0),
+          )]),
+        );
+        const forcedA = applyProjectionOwnerRmd(
+          projectionAccounts,
+          outstandingByOwner,
+        );
+        rmdForcedA = forcedA.total;
+        rmdWithdrawalsByIdA = forcedA.byId;
+        const rmdSatisfied = TRADITIONAL_PERSON_OWNERS.reduce((sum, owner) => (
+          sum + Math.min(
+            openingRmd.requiredByOwner[owner] ?? 0,
+            (traditionalOutlayByOwner[owner] ?? 0) + (forcedA.byOwner[owner] ?? 0),
+          )
+        ), 0);
+        if(rmdSatisfied > 0.01){
+          rmdTaxA = rmdSatisfied * p.taxRates.ordinary;
+        }
+        syncProjectionAggregates(projectionAccounts, accounts);
+      }
       const taxableGainFractionA = accumulationFunding.breakdown.taxable > 0.01
         ? taxableCapitalGainA / accumulationFunding.breakdown.taxable
         : undefined;
@@ -3507,6 +3561,10 @@ function runSinglePath(p, returnPath, options = {}){
         incomeTaxFacts: { ...taxIncome }, withdrawal: accumulationFunding.totalWithdrawn,
         rmd: rmdForcedA,
         rmdRequired: openingRmd.required,
+        ...(includeAccountDiagnostics ? {
+          rmdRequiredByOwner: { ...openingRmd.requiredByOwner },
+          rmdGrossByOwner: { ...traditionalOutlayByOwner },
+        } : {}),
         rmdAvailable: true,
         rmdOwner: openingRmd.owner,
         rmdIssue: null,
@@ -3741,8 +3799,8 @@ function runSinglePath(p, returnPath, options = {}){
     // ── RMD: force out any required distribution beyond what spending pulled ──
     // Spending may already have drawn from Traditional (funding.breakdown). Only
     // the shortfall to the required amount is forced. It's taxed as ordinary
-    // income; the after-tax remainder moves to the taxable sleeve (reinvested,
-    // already-taxed → pure basis). Net portfolio effect = just the tax.
+    // income and the full gross distribution is treated as spent. It does not
+    // silently enter the taxable sleeve.
     let rmdForced = 0, rmdTax = 0;
     let rmdWithdrawalsById = {};
     if(rmdRequired > 0){
@@ -3759,8 +3817,6 @@ function runSinglePath(p, returnPath, options = {}){
       rmdWithdrawalsById = forced.byId;
       if(rmdForced > 0.01){
         rmdTax = rmdForced * p.taxRates.ordinary;
-        const reinvest = rmdForced - rmdTax;
-        addProjectionCash(projectionAccounts, 'taxable', reinvest, reinvest);
         lifetimeTax += rmdTax;
       }
       syncProjectionAggregates(projectionAccounts, accounts);
