@@ -1347,7 +1347,7 @@ try {
     if(Object.values(productionDefaultProof).some(proofs => proofs.length !== 5)){
       throw new Error(`not every funded lever was exercised for every production default: ${JSON.stringify(productionDefaultProof)}`);
     }
-    await page.select('#hh-switch', withdrawalPlannerFixtureHouseholdId);
+    await selectHouseholdVisible(page, withdrawalPlannerFixtureHouseholdId);
     await page.waitForFunction(expectedHouseholdId => (
       document.querySelector('[data-hh-wizard-root]')?.dataset.householdId === expectedHouseholdId
       && document.querySelector('[data-taw-root]')?.dataset.tawHouseholdId === expectedHouseholdId
@@ -2139,10 +2139,7 @@ try {
 
     await goToWizardStep(page, 'family');
     await stableClick('#hh-menu-btn');
-    await page.select('#hh-switch', withdrawalPlannerFixtureHouseholdId);
-    await waitForWizard(page, {
-      householdId: withdrawalPlannerFixtureHouseholdId,
-    });
+    await selectHouseholdVisible(page, withdrawalPlannerFixtureHouseholdId);
     await page.click('.htab[data-sub-target="goals"]');
     await page.waitForFunction(
       () => [...document.querySelectorAll('.gh-chip__name')]
@@ -2353,8 +2350,7 @@ try {
     await stableReload({ waitUntil: 'networkidle2', timeout: 20000 });
     await waitForUnselectedWizard(page);
     await stableClick('.htab[data-page="household"]');
-    await page.select('#hh-switch', withdrawalPlannerFixtureHouseholdId);
-    await waitForWizard(page, { householdId: withdrawalPlannerFixtureHouseholdId });
+    await selectHouseholdVisible(page, withdrawalPlannerFixtureHouseholdId);
     await stableClick('button[data-page="scenarios"]');
     await page.waitForFunction(() => {
       const probabilities = [...document.querySelectorAll('#scn-view .scol__prob')]
@@ -2484,8 +2480,7 @@ try {
     await stableReload({ waitUntil: 'networkidle2', timeout: 20000 });
     await waitForUnselectedWizard(page);
     await stableClick('.htab[data-page="household"]');
-    await page.select('#hh-switch', withdrawalPlannerFixtureHouseholdId);
-    await waitForWizard(page, { householdId: withdrawalPlannerFixtureHouseholdId });
+    await selectHouseholdVisible(page, withdrawalPlannerFixtureHouseholdId);
     await page.$eval('#run-btn', button => button.click());
     for(let i = 0; i < 60; i++){
       await new Promise(r => setTimeout(r, 500));
@@ -3034,8 +3029,7 @@ try {
       await stableReload({ waitUntil: 'networkidle2', timeout: 20000 });
       await waitForUnselectedWizard(page);
       await stableClick('.htab[data-page="household"]');
-      await page.select('#hh-switch', withdrawalPlannerFixtureHouseholdId);
-      await waitForWizard(page, { householdId: withdrawalPlannerFixtureHouseholdId });
+      await selectHouseholdVisible(page, withdrawalPlannerFixtureHouseholdId);
       await page.waitForFunction(
         () => /Plan updated|Partial run/i.test(document.querySelector('#status')?.textContent || ''),
         { timeout: 30000 }
@@ -3444,8 +3438,7 @@ try {
     await stableReload({ waitUntil: 'networkidle0' });
     await waitForUnselectedWizard(page);
     await stableClick('.htab[data-page="household"]');
-    await page.select('#hh-switch', withdrawalPlannerFixtureHouseholdId);
-    await waitForWizard(page, { householdId: withdrawalPlannerFixtureHouseholdId });
+    await selectHouseholdVisible(page, withdrawalPlannerFixtureHouseholdId);
 
     const openFundingGoal = async ({ keyboard = false } = {}) => {
       await stableClick('.htab[data-page="household"]');
@@ -3754,8 +3747,7 @@ try {
     await stableReload({ waitUntil: 'networkidle0' });
     await waitForUnselectedWizard(page);
     await stableClick('.htab[data-page="household"]');
-    await page.select('#hh-switch', withdrawalPlannerFixtureHouseholdId);
-    await waitForWizard(page, { householdId: withdrawalPlannerFixtureHouseholdId });
+    await selectHouseholdVisible(page, withdrawalPlannerFixtureHouseholdId);
     await sleep(1200);
     await page.waitForSelector('#run-btn:not([disabled])', { timeout: 10000 });
     await page.$eval('#run-btn', button => button.click());
