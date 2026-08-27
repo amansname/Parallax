@@ -1,10 +1,15 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { validatePullRequestBody, validatePullRequestEvent } from './validate-pr-body.mjs';
 
 const BASE_SHA = '1111111111111111111111111111111111111111';
 const HEAD_SHA = '2222222222222222222222222222222222222222';
 const COMPLETION = 'Every scoped behavior meets its done-when evidence on this candidate, and every required check and review is satisfied.';
+const PULL_REQUEST_TEMPLATE = readFileSync(
+  new URL('../.github/PULL_REQUEST_TEMPLATE.md', import.meta.url),
+  'utf8',
+);
 const EVIDENCE_TABLE = `| Done-when criterion | Baseline or pre-fix evidence | Production change | Verification | Candidate result |
 |---|---|---|---|---|
 | Governance policy is risk-scaled | Existing workflow has fourteen stages | Canonical workflow and validator | Governance tests | Five phases and three tiers validated |`;
@@ -37,7 +42,11 @@ ${EVIDENCE_TABLE}`,
 
   if(workType === 'defect'){
     sections.push(`## Defect reproduction and root cause
-The existing default PR path requires defect-only evidence for every change.`);
+- Exact reproduction: Submit the previous template for a governance-only change.
+- Base failure evidence: The base validator rejects that body for defect-only evidence.
+- Root cause: The previous template made defect fields unconditional.
+- Fail-before regression evidence: The focused test fails against the base implementation.
+- Pass-after candidate evidence: The focused test passes on the candidate.`);
   }
 
   sections.push(
@@ -68,7 +77,11 @@ Separate review against main found no blocking issue.`,
     `## Known failures and proof gaps
 None recorded.`,
     `## Rollback and deployment
-Revert this governance-only PR; automatic Pages remains unchanged.`,
+- Rollback considerations: Revert this governance-only PR.
+- Saved-data risk: None - repository governance only.
+- Deployment impact: None - automatic Pages remains unchanged.
+- Planned live proof: Not applicable - no product behavior changes.
+- Post-merge identity chain: Candidate to squash merge to Pages artifact receipt.`,
     `## Truthful completion gate
 - [x] ${COMPLETION}`,
   );
@@ -105,6 +118,31 @@ test('accepts Draft-ready with pending CI and an unchecked completion gate', () 
   assert.deepEqual(validatePullRequestBody(body), []);
 });
 
+test('accepts the actual template completion task and ignores adjacent or trailing guidance comments', () => {
+  const templateCompletion = PULL_REQUEST_TEMPLATE.slice(
+    PULL_REQUEST_TEMPLATE.indexOf('## Truthful completion gate'),
+  ).replace(`- [ ] ${COMPLETION}`, `- [x] ${COMPLETION}`);
+  const actualTemplateBody = validBody().replace(
+    /## Truthful completion gate[\s\S]*$/,
+    templateCompletion,
+  );
+  assert.deepEqual(validatePullRequestBody(actualTemplateBody), []);
+
+  const trailingCommentBody = validBody().replace(
+    `- [x] ${COMPLETION}`,
+    `- [x] ${COMPLETION} <!-- Check only for Merge-ready. -->`,
+  );
+  assert.deepEqual(validatePullRequestBody(trailingCommentBody), []);
+});
+
+test('requires Tier 3 for governance work', () => {
+  const failures = validatePullRequestBody(validBody({
+    riskTier: 'Tier 1',
+    workType: 'governance',
+  })).join('\n');
+  assert.match(failures, /governance requires Risk tier: Tier 3/);
+});
+
 test('requires the full local command set for Tier 2 and Tier 3', () => {
   const body = validBody({ riskTier: 'Tier 2', workType: 'feature' })
     .replace('npm run verify — exit 0', 'npm run verify — required CI');
@@ -128,6 +166,44 @@ test('requires reproduction and root cause for defects', () => {
   );
   const failures = validatePullRequestBody(body).join('\n');
   assert.match(failures, /missing required PR section for work type defect/);
+});
+
+test('requires explicit fail-before and pass-after defect evidence', () => {
+  for(const label of [
+    'Exact reproduction',
+    'Base failure evidence',
+    'Root cause',
+    'Fail-before regression evidence',
+    'Pass-after candidate evidence',
+  ]){
+    const body = validBody().replace(
+      new RegExp(`- ${label}:.*`),
+      `- ${label}: <!-- missing -->`,
+    );
+    assert.match(
+      validatePullRequestBody(body).join('\n'),
+      new RegExp(`must provide ${label}`),
+    );
+  }
+});
+
+test('requires substantive rollback and deployment field values', () => {
+  for(const label of [
+    'Rollback considerations',
+    'Saved-data risk',
+    'Deployment impact',
+    'Planned live proof',
+    'Post-merge identity chain',
+  ]){
+    const body = validBody().replace(
+      new RegExp(`- ${label}:.*`),
+      `- ${label}: <!-- missing -->`,
+    );
+    assert.match(
+      validatePullRequestBody(body).join('\n'),
+      new RegExp(`must provide ${label}`),
+    );
+  }
 });
 
 test('rejects invalid tier, work type, lifecycle, and hold values', () => {

@@ -47,6 +47,12 @@
 
 <!-- Required for work type `defect`. Otherwise write `Not applicable - not a defect.` -->
 
+- Exact reproduction:
+- Base failure evidence:
+- Root cause:
+- Fail-before regression evidence:
+- Pass-after candidate evidence:
+
 ## Implementation and authority
 
 <!-- List production files and why each change belongs in the named authority. Write `None - test/docs/governance-only` when true. -->
@@ -93,11 +99,13 @@ git diff --check          # actual result
 - Saved-data risk:
 - Deployment impact:
 - Planned live proof:
-- Post-merge identity chain: <!-- candidate SHA -> squash merge SHA -> Pages run/artifact -> live proof; complete after merge -->
+<!-- Complete after merge: candidate SHA -> squash merge SHA -> Pages run/artifact -> live proof. -->
+- Post-merge identity chain:
 
 ## Truthful completion gate
 
-- [ ] Every scoped behavior meets its done-when evidence on this candidate, and every required check and review is satisfied. <!-- Check only for Lifecycle: Merge-ready. -->
+<!-- Check only for Lifecycle: Merge-ready. -->
+- [ ] Every scoped behavior meets its done-when evidence on this candidate, and every required check and review is satisfied.
 
 Do not describe this PR as `fixed`, `complete`, or `merge-ready` while this
 checkbox cannot be checked or any required gate remains unresolved.

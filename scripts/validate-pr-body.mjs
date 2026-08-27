@@ -135,11 +135,22 @@ function requireConditionalEvidence(failures, sections, heading, reason){
   else if(!hasSubstantiveEvidence(content)) failures.push(`${heading} has no evidence for ${reason}`);
 }
 
+function requireLabeledValues(failures, sections, heading, labels, reason){
+  const tokens = sectionTokens(sections, heading);
+  if(!tokens) return;
+  for(const label of labels){
+    if(!labeledValue(tokens, label)) failures.push(`${heading} must provide ${label} for ${reason}`);
+  }
+}
+
 function taskChecked(tokens, label){
   if(!tokens) return null;
   for(const token of tokens){
     if(token.type !== 'list') continue;
-    const item = token.items?.find(candidate => candidate.task && candidate.text.trim() === label);
+    const item = token.items?.find(candidate => (
+      candidate.task
+      && visibleTokenText(candidate).trim() === label
+    ));
     if(item) return item.checked === true;
   }
   return null;
@@ -173,6 +184,9 @@ export function validatePullRequestBody(body, expectedShas = {}){
   if(!WORK_TYPES.has(workType)) failures.push('Workflow classification must name Work type: feature, defect, governance, docs, or test');
   if(!LIFECYCLES.has(lifecycle)) failures.push('Workflow classification must name Lifecycle: Draft-ready or Merge-ready');
   if(!HOLDS.has(hold)) failures.push('Workflow classification must use a canonical Hold value');
+  if(workType === 'governance' && riskTier !== 'Tier 3'){
+    failures.push('Work type governance requires Risk tier: Tier 3');
+  }
 
   const acceptance = sectionTokens(sections, 'Acceptance evidence');
   if(!validateAcceptanceEvidence(acceptance)){
@@ -181,6 +195,19 @@ export function validatePullRequestBody(body, expectedShas = {}){
 
   if(workType === 'defect'){
     requireConditionalEvidence(failures, sections, 'Defect reproduction and root cause', 'work type defect');
+    requireLabeledValues(
+      failures,
+      sections,
+      'Defect reproduction and root cause',
+      [
+        'Exact reproduction',
+        'Base failure evidence',
+        'Root cause',
+        'Fail-before regression evidence',
+        'Pass-after candidate evidence',
+      ],
+      'work type defect',
+    );
   }
   if(riskTier === 'Tier 3'){
     requireConditionalEvidence(failures, sections, 'Protected policy and compatibility evidence', 'Tier 3');
@@ -200,6 +227,20 @@ export function validatePullRequestBody(body, expectedShas = {}){
   if(expectedShas.headSha && documentedHeadSha !== expectedShas.headSha.toLowerCase()){
     failures.push('Candidate identity Candidate head SHA must equal the current head SHA');
   }
+
+  requireLabeledValues(
+    failures,
+    sections,
+    'Rollback and deployment',
+    [
+      'Rollback considerations',
+      'Saved-data risk',
+      'Deployment impact',
+      'Planned live proof',
+      'Post-merge identity chain',
+    ],
+    lifecycle || 'the declared lifecycle',
+  );
 
   const verification = sectionContent(sections, 'Tests and verification') || '';
   const commandLines = verification.split(/\r?\n/);
@@ -228,14 +269,11 @@ export function validatePullRequestBody(body, expectedShas = {}){
   }
 
   const completion = sectionTokens(sections, 'Truthful completion gate') || [];
-  const checked = completion.some(token => (
-    token.type === 'list'
-    && token.items?.some(item => item.task && item.checked === true && item.text.trim() === COMPLETION_SENTENCE)
-  ));
-  if(lifecycle === 'Merge-ready' && !checked){
+  const checked = taskChecked(completion, COMPLETION_SENTENCE);
+  if(lifecycle === 'Merge-ready' && checked !== true){
     failures.push('truthful completion checkbox must be checked for Lifecycle: Merge-ready');
   }
-  if(lifecycle === 'Draft-ready' && checked){
+  if(lifecycle === 'Draft-ready' && checked === true){
     failures.push('truthful completion checkbox must remain unchecked for Lifecycle: Draft-ready');
   }
 
