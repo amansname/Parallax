@@ -2655,25 +2655,66 @@ try {
     await waitForUnselectedWizard(page);
     await stableClick('.htab[data-page="household"]');
     await selectHouseholdVisible(page, withdrawalPlannerFixtureHouseholdId);
+    try{
+      await page.waitForFunction(() => {
+        const buttons = document.querySelectorAll('#run-btn');
+        const status = document.querySelector('#status')?.textContent.trim() || '';
+        return buttons.length === 1
+          && !buttons[0].disabled
+          && !/Running/i.test(status)
+          && /Plan updated|Partial run/i.test(status);
+      }, { timeout: 30000 });
+    }catch(error){
+      const observed = await page.evaluate(() => ({
+        runButtonCount: document.querySelectorAll('#run-btn').length,
+        runButtonDisabled: document.querySelector('#run-btn')?.disabled ?? null,
+        status: document.querySelector('#status')?.textContent.trim() ?? null,
+      }));
+      throw new Error(
+        `Cash Flow Run baseline did not settle: ${JSON.stringify({ observed, consoleErrors: errs })}; ${error.message || error}`,
+      );
+    }
     await page.$eval('#run-btn', button => {
       const status = document.querySelector('#status');
+      const baselineStatus = status?.textContent.trim() || '';
+      if(button.disabled || /Running/i.test(baselineStatus)){
+        throw new Error(`Run action baseline is not settled: ${JSON.stringify({
+          baselineStatus,
+          buttonDisabled: button.disabled,
+        })}`);
+      }
       const tracker = {
+        baselineStatus,
         observed: [],
         sawRunning: false,
+        sawDisabled: false,
         observer: null,
       };
       const record = () => {
         const value = status?.textContent.trim() || '';
         if(tracker.observed.at(-1) !== value) tracker.observed.push(value);
         if(/Running/i.test(value)) tracker.sawRunning = true;
+        if(button.disabled) tracker.sawDisabled = true;
       };
       tracker.observer = new MutationObserver(record);
       if(status){
         tracker.observer.observe(status, { childList: true, characterData: true, subtree: true });
       }
-      record();
+      tracker.observer.observe(button, { attributes: true, attributeFilter: ['disabled'] });
       globalThis.__parallaxVerifyCashFlowRunTracker = tracker;
       button.click();
+      record();
+      tracker.postClickStatus = status?.textContent.trim() || '';
+      tracker.postClickDisabled = button.disabled;
+      if(tracker.postClickStatus !== 'Running…' || tracker.postClickDisabled !== true){
+        tracker.observer.disconnect();
+        delete globalThis.__parallaxVerifyCashFlowRunTracker;
+        throw new Error(`Run action did not synchronously enter Running: ${JSON.stringify({
+          baselineStatus,
+          postClickStatus: tracker.postClickStatus,
+          postClickDisabled: tracker.postClickDisabled,
+        })}`);
+      }
     });
     let cashFlowRunError = null;
     try{
@@ -2682,6 +2723,7 @@ try {
         const status = document.querySelector('#status')?.textContent.trim() || '';
         const button = document.querySelector('#run-btn');
         return tracker?.sawRunning === true
+          && tracker.sawDisabled === true
           && button
           && !button.disabled
           && /Plan updated|Partial run/i.test(status);
@@ -2693,7 +2735,11 @@ try {
       const tracker = globalThis.__parallaxVerifyCashFlowRunTracker;
       tracker?.observer?.disconnect();
       const diagnostic = {
+        baselineStatus: tracker?.baselineStatus ?? null,
+        postClickStatus: tracker?.postClickStatus ?? null,
+        postClickDisabled: tracker?.postClickDisabled ?? null,
         sawRunning: tracker?.sawRunning === true,
+        sawDisabled: tracker?.sawDisabled === true,
         observedStatuses: tracker?.observed ?? [],
         finalStatus: document.querySelector('#status')?.textContent.trim() ?? null,
         runButtonCount: document.querySelectorAll('#run-btn').length,
