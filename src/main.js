@@ -9,6 +9,10 @@ import {
   createSelectableDefaultHouseholds,
 } from '../ui/householdFactories.js';
 import { bindHouseholdEditor } from './household/commit.js';
+import {
+  DELETE_HOUSEHOLD_FAILURE,
+  deleteStoredHousehold,
+} from './household/deleteHousehold.js';
 import { createHouseholdWizardController } from './household/wizard.js';
 import { createHouseholdWizardCommitBoundary } from './household/wizardEdits.js';
 import {
@@ -156,7 +160,7 @@ function syncRecoveryControls(){
   const locked = isHouseholdStorageBlocked() || isHouseholdStorageReadOnly();
   if(!locked) return;
   const selectors = [
-    '#hh-new','#hh-view input','#hh-view select','#hh-view textarea','#hh-view .row-x','#hh-view [data-add]',
+    '#hh-new','#hh-delete','#hh-view input','#hh-view select','#hh-view textarea','#hh-view .row-x','#hh-view [data-add]',
     '#hh-view [data-hh-action="add-account"]','#hh-view [data-hh-action="save-account"]','#hh-view [data-hh-action="remove-account"]',
     '#hh-view [data-hh-action="net-worth-toggle-more"]','#hh-view [data-hh-action="net-worth-pick-type"]','#hh-view [data-hh-action="net-worth-pick-custom"]',
     '#hh-view [data-hh-action="net-worth-clear-type"]','#hh-view [data-hh-action="net-worth-save-entry"]','#hh-view [data-hh-action="net-worth-remove-entry"]',
@@ -728,8 +732,10 @@ const householdWizardController = createHouseholdWizardController({
   isStorageBlocked: isHouseholdStorageBlocked,
   renderBlockedRecoverySurfaces,
   syncRecoveryControls,
+  canDeleteHousehold: id => Boolean(id && householdsDb[id] && !isRuntimeHousehold(id)),
   onSwitchHousehold: switchHousehold,
   onNewHousehold: newHousehold,
+  onDeleteHousehold: deleteHousehold,
 });
 const hhUiState = householdWizardController.uiState;
 const householdWizardCommitBoundary = createHouseholdWizardCommitBoundary({
@@ -782,6 +788,49 @@ function newHousehold(){
   hhLoadRecord('New household created');
   autoSavePlan();
   syncPlanEditStatus('New household created · saved automatically');
+}
+function deleteHousehold(id){
+  if(!guardHouseholdStorageMutation()) return;
+  if(!id || id !== activeHouseholdId || !householdsDb[id] || isRuntimeHousehold(id)) return;
+  const name = householdsDb[id]?.meta?.name || householdsDb[id]?.meta?.primaryName || 'this household';
+  if(!confirm(`Delete "${name}"? This permanently removes the household and its saved scenarios from this browser.`)) return;
+
+  const result = deleteStoredHousehold({
+    storage: householdStorage,
+    householdId: id,
+    protectedHouseholdIds: SHIPPED_DEFAULT_HOUSEHOLD_IDS,
+    databaseKey: HHDB_KEY,
+    activeHouseholdKey: ACTIVE_KEY,
+    scenarioKey: scenKey(id),
+  });
+  if(!result.ok){
+    if(result.reason === DELETE_HOUSEHOLD_FAILURE.ROLLBACK_FAILED){
+      accountMigrationState = {
+        ...accountMigrationState,
+        blocked: true,
+        readOnly: false,
+        message: 'Household could not be deleted and related data could not be restored · reload before continuing',
+      };
+      syncRecoveryStatus(accountMigrationState.message);
+      renderBlockedRecoverySurfaces();
+    } else if(result.reason === DELETE_HOUSEHOLD_FAILURE.READ_FAILED){
+      syncHeaderStatus('Household could not be deleted because saved data could not be read');
+    } else {
+      syncHeaderStatus('Household could not be deleted · saved data was restored');
+    }
+    return;
+  }
+
+  householdsDb = result.database;
+  activeHouseholdId = null;
+  const unselected = createBlankHousehold(PRISTINE_PLAN, '', new Date().getFullYear());
+  unselected.meta.name = '';
+  hydratePlan(unselected);
+  uiState.scenarios = [];
+  uiState.baseSnapshot = defaultLevers();
+  planSaveDirty = false;
+  saveFailed = false;
+  hhLoadRecord('Household deleted');
 }
 // Switching is blocked only when the latest automatic save failed.
 function switchHousehold(id){
