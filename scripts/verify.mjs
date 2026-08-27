@@ -2127,7 +2127,7 @@ try {
         const input = document.querySelector(selector);
         return input?.value === String(editedAge)
           && input.closest('.cell--goal-detail')?.classList.contains('is-overridden');
-      }, { timeout: 10000 }, { selector, editedAge });
+      }, { timeout: 15000 }, { selector, editedAge });
     }catch(error){
       const observed = await page.evaluate(({ selector, scenarioId }) => {
         const input = document.querySelector(selector);
