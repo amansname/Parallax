@@ -8,10 +8,11 @@ import {
   readIntakeField,
 } from '../core/1040BasicLineMap.js';
 import { INCOME_DETAIL_LINE_IDS, LINE_STATUS, SPINE_LINE_IDS } from '../core/form1040Lines.js';
-import { client1040IntakeToComposerInput } from './client1040Intake.js';
-import { applyValidationWarnings, validateClient1040Intake } from './client1040IntakeValidate.js';
-import { reconcileTaxTotal } from './client1040Intake.js';
-import { CLIENT_1040_COMPATIBILITY_MODES } from '../core/client1040IntakeContract.js';
+import {
+  prepareClient1040IntakeForComposition,
+  reconcileTaxTotal,
+} from './client1040Intake.js';
+import { applyValidationWarnings } from './client1040IntakeValidate.js';
 
 function isPassThroughLine(line){
   return line?.ruleId === 'INTAKE_PASS_THROUGH';
@@ -142,20 +143,13 @@ export function buildIntakeReport(intake, result, validation, context){
 function composeClient1040Intake(
   intake,
   context,
-  { strict = true, additionalNetLongTermCapitalGain = 0 } = {},
+  options = {},
 ){
-  const validation = validateClient1040Intake(intake, context);
-  const canonical = validation.contract.compatibilityMode
-    === CLIENT_1040_COMPATIBILITY_MODES.CANONICAL;
-  if(validation.errors.length > 0 && (strict || canonical)){
-    const err = new Error(validation.errors.map((e) => e.message).join('; '));
-    err.validation = validation;
-    throw err;
-  }
-
-  const input = client1040IntakeToComposerInput(intake, {
-    additionalNetLongTermCapitalGain,
-  });
+  const { input, validation } = prepareClient1040IntakeForComposition(
+    intake,
+    context,
+    options
+  );
   const { result, audits } = composeAnnualFederalTax(input, context);
 
   return { input, result, audits, validation };

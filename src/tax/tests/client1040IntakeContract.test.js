@@ -14,7 +14,10 @@ import {
 } from '../core/client1040IntakeContract.js';
 import { client1040IntakeToComposerInput } from '../adapters/client1040Intake.js';
 import { validateClient1040Intake } from '../adapters/client1040IntakeValidate.js';
-import { runClient1040Intake } from '../annual1040.js';
+import {
+  calculateAnnualFederalTaxLiability,
+  runClient1040Intake,
+} from '../annual1040.js';
 import { composeAnnualFederalTax } from '../federal/composers/annualFederalTax.js';
 
 const context = (taxYear = 2026) => ({
@@ -71,6 +74,22 @@ function canonical(overrides = {}){
       schedule1A: { mode: 'supplied-line13b', amount: 0 },
     },
     ...overrides,
+  };
+}
+
+function validationCountedCanonical(){
+  let labelReads = 0;
+  const intake = canonical();
+  Object.defineProperty(intake, 'label', {
+    enumerable: true,
+    get(){
+      labelReads += 1;
+      return 'validation-counted';
+    },
+  });
+  return {
+    intake,
+    labelReads: () => labelReads,
   };
 }
 
@@ -146,6 +165,27 @@ test('pipeline receipt preserves modeled return and source-mode provenance', () 
     pipeline.annual1040Result.contract,
     pipeline.report.contract
   );
+});
+
+test('full and compact pipelines validate each intake once before mapping', () => {
+  const standalone = validationCountedCanonical();
+  assert.strictEqual(
+    client1040IntakeToComposerInput(standalone.intake).filingStatus,
+    'single'
+  );
+  assert.strictEqual(standalone.labelReads(), 1);
+
+  const full = validationCountedCanonical();
+  const fullResult = runClient1040Intake(full.intake, context());
+  assert.ok(Number.isFinite(fullResult.result.form1040.line24.value));
+  assert.strictEqual(full.labelReads(), 1);
+
+  const compact = validationCountedCanonical();
+  assert.strictEqual(
+    calculateAnnualFederalTaxLiability(compact.intake, context()),
+    fullResult.result.form1040.line24.value
+  );
+  assert.strictEqual(compact.labelReads(), 1);
 });
 
 test('canonical intake requires the supported year and exact context year', () => {
