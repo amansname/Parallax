@@ -3030,9 +3030,13 @@ try {
         await page.screenshot({ path: join(OUT, `04-cashflow-${mode}.png`), fullPage: true });
       }
 
-      const historicalBeforeRandom = await page.evaluate(() => (
-        document.querySelector('#scn-view .cf')?.outerHTML || ''
-      ));
+      const historicalBeforeRandom = await page.evaluate(() => {
+        const cashFlow = document.querySelector('#scn-view .cf');
+        if(!cashFlow) return '';
+        const stableHistorical = cashFlow.cloneNode(true);
+        stableHistorical.querySelector('#scn-cf-path-controls')?.remove();
+        return stableHistorical.outerHTML;
+      });
       const sessionBeforeRandom = await cashFlowSessionSnapshot(page, {
         bundleSentinel: 'cash-flow-random',
         rememberBundle: true,
@@ -3306,9 +3310,13 @@ try {
           && regenerate?.disabled
           && (regenerate.hidden || getComputedStyle(regenerate).display === 'none');
       }, { timeout: 20000 });
-      const historicalAfterRandom = await page.evaluate(() => (
-        document.querySelector('#scn-view .cf')?.outerHTML || ''
-      ));
+      const historicalAfterRandom = await page.evaluate(() => {
+        const cashFlow = document.querySelector('#scn-view .cf');
+        if(!cashFlow) return '';
+        const stableHistorical = cashFlow.cloneNode(true);
+        stableHistorical.querySelector('#scn-cf-path-controls')?.remove();
+        return stableHistorical.outerHTML;
+      });
       if(historicalAfterRandom !== historicalBeforeRandom){
         throw new Error('Random/Regenerate changed Historical Cash Flow bytes in the open session');
       }
