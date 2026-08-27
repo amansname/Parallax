@@ -365,7 +365,16 @@ function changedFilesForPullRequest(event){
   const baseSha = event.pull_request?.base?.sha || '';
   const headSha = event.pull_request?.head?.sha || '';
   if(!baseSha || !headSha) return [];
-  return execFileSync('git', ['diff', '--name-only', `${baseSha}...${headSha}`], {
+
+  for(const sha of [baseSha, headSha]){
+    try{
+      execFileSync('git', ['cat-file', '-e', `${sha}^{commit}`], { stdio: 'ignore' });
+    }catch{
+      execFileSync('git', ['fetch', '--no-tags', '--depth=1', 'origin', sha], { stdio: 'ignore' });
+    }
+  }
+
+  return execFileSync('git', ['diff', '--name-only', baseSha, headSha], {
     encoding: 'utf8',
   })
     .split(/\r?\n/)
