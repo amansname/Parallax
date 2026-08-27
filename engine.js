@@ -1069,7 +1069,9 @@ function resolveWithdrawalPlannerAccountState(
   let traditionalOwnerCapacityIssue = null;
   let traditionalOwnerAttributionMissing = false;
   let rmdOwnerCapacityIssue = null;
-  if(rmdByOwner){
+  // Aggregate current-return IRA activity can reserve household capacity until
+  // an owner-specific RMD obligation makes attribution legally relevant.
+  if(rmdByOwner && rmdStatus !== 'not-required'){
     const traditionalOwnerTotal = reservedTraditionalByOwner
       ? reservedTraditionalByOwner.client + reservedTraditionalByOwner.spouse
       : null;
