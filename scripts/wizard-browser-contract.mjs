@@ -1070,6 +1070,7 @@ async function verifyRuntimeTemplateSessionIsolation(page){
       runtimeAllocationCheck = {
         accountId,
         originalPresetId,
+        temporaryPresetId,
         baselineHistorical,
         changedHistorical,
       };
@@ -1128,8 +1129,14 @@ async function verifyRuntimeTemplateSessionIsolation(page){
         previousEndingBalance: runtimeAllocationCheck.changedHistorical.endingBalance,
       });
       requireCondition(
-        JSON.stringify(resetHistorical)
-          === JSON.stringify(runtimeAllocationCheck.baselineHistorical),
+        resetHistorical.pathId === runtimeAllocationCheck.baselineHistorical.pathId
+          && resetHistorical.kind === runtimeAllocationCheck.baselineHistorical.kind
+          && resetHistorical.sourceYear === runtimeAllocationCheck.baselineHistorical.sourceYear
+          && resetHistorical.returnText === runtimeAllocationCheck.baselineHistorical.returnText
+          && Number.isFinite(Number(resetHistorical.startBalance))
+          && Number.isFinite(Number(resetHistorical.endingBalance))
+          && resetHistorical.endingBalance
+            !== runtimeAllocationCheck.changedHistorical.endingBalance,
         `Demo allocation downstream result did not reset after reselection: ${JSON.stringify({
           baselineHistorical: runtimeAllocationCheck.baselineHistorical,
           changedHistorical: runtimeAllocationCheck.changedHistorical,
@@ -1137,6 +1144,58 @@ async function verifyRuntimeTemplateSessionIsolation(page){
         })}`,
       );
       await requireUnchangedPersistence('Now demo allocation downstream reset');
+
+      // The household switch intentionally starts a fresh Monte Carlo session,
+      // so its dollar balances need not equal the prior session. Prove the
+      // allocation reset exactly inside this new session: change to the same
+      // temporary preset again, then restore the shipped preset and require the
+      // complete Historical snapshot to return byte-for-byte.
+      requireCondition(
+        runtimeAllocationCheck.originalPresetId !== '',
+        'Now demo allocation reset requires a shipped preset identity',
+      );
+      await openNetWorthCategory(page, 'investment');
+      await clickWizardAction(
+        page,
+        `[data-hh-action="net-worth-edit-entry"][data-account-id="${runtimeAllocationCheck.accountId}"]`,
+      );
+      await selectNetWorthAllocation(page, runtimeAllocationCheck.temporaryPresetId);
+      await clickWizardAction(page, '[data-hh-action="net-worth-save-entry"]');
+      const resetSessionChangedHistorical = await historicalCashFlowSnapshot(page, {
+        previousEndingBalance: resetHistorical.endingBalance,
+      });
+      requireCondition(
+        resetSessionChangedHistorical.pathId === resetHistorical.pathId
+          && resetSessionChangedHistorical.kind === resetHistorical.kind
+          && resetSessionChangedHistorical.sourceYear === resetHistorical.sourceYear
+          && resetSessionChangedHistorical.returnText !== resetHistorical.returnText
+          && resetSessionChangedHistorical.endingBalance !== resetHistorical.endingBalance,
+        `Demo allocation did not change Historical Cash Flow in the fresh session: ${JSON.stringify({
+          resetHistorical,
+          resetSessionChangedHistorical,
+        })}`,
+      );
+      await requireUnchangedPersistence('Now demo fresh-session allocation change');
+
+      await openNetWorthCategory(page, 'investment');
+      await clickWizardAction(
+        page,
+        `[data-hh-action="net-worth-edit-entry"][data-account-id="${runtimeAllocationCheck.accountId}"]`,
+      );
+      await selectNetWorthAllocation(page, runtimeAllocationCheck.originalPresetId);
+      await clickWizardAction(page, '[data-hh-action="net-worth-save-entry"]');
+      const resetSessionRestoredHistorical = await historicalCashFlowSnapshot(page, {
+        previousEndingBalance: resetSessionChangedHistorical.endingBalance,
+      });
+      requireCondition(
+        JSON.stringify(resetSessionRestoredHistorical) === JSON.stringify(resetHistorical),
+        `Demo allocation did not restore the exact fresh-session Historical result: ${JSON.stringify({
+          resetHistorical,
+          resetSessionChangedHistorical,
+          resetSessionRestoredHistorical,
+        })}`,
+      );
+      await requireUnchangedPersistence('Now demo fresh-session allocation restore');
       await page.click('#scn-seg-compare');
       await page.waitForFunction(expectedCount => (
         document.querySelector('.page.on')?.dataset.page === 'scenarios'
