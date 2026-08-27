@@ -208,7 +208,7 @@ export function renderCashflow(scn, allScns, {
     const rows = cashFromRetirement ? allRows.filter((r) => !r.accum) : allRows;
     const hasWorking = allRows.some((r) => r.accum);
     const summary = selected?.summary ?? cashSummary(scn.raw);
-    const typicalPath = selected ? selected.kind !== 'historical' : isTypicalPath();
+    const typicalPath = selected ? selected.kind === 'typical' : isTypicalPath();
     const sidecar = selected?.taxScope === 'MODELED_FEDERAL_LINE_24'
       ? {
           byAge: new Map(),
@@ -253,7 +253,7 @@ export function renderCashflow(scn, allScns, {
           '<div class="cf-stat" data-cash-header-metric="ending-position">' +
             '<div class="cf-stat__label">Ending position</div>' +
             '<div class="cf-stat__value">' + formatCashFlowHeaderMoney(headerMetrics.endingPosition) + '</div>' +
-            '<div class="cf-stat__support">' + (selected?.kind === 'random' ? 'Sampled path' : 'Median path') + '</div>' +
+            '<div class="cf-stat__support">Median path</div>' +
           '</div>' +
         '</div>' +
       '</div>'

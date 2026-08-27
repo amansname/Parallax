@@ -287,35 +287,56 @@ async function cashFlowSessionSnapshot(page, {
   }, { bundleSentinel, rememberBundle, includeBundleIdentity });
 }
 
-async function visibleCashFlowPathSnapshot(page){
-  return page.evaluate(() => {
-    const root = document.querySelector('#scn-view .cf');
-    return {
-      pathId: root?.dataset.cashPathId || '',
-      kind: root?.dataset.cashPathKind || '',
-      simIndex: Number(root?.dataset.simIndex),
-      support: root?.querySelector('[data-cash-header-metric="ending-position"] .cf-stat__support')
-        ?.textContent.trim() || '',
-      rowBytes: JSON.stringify([...document.querySelectorAll('#scn-view .cf-row')].map(row => ({
-        age: row.dataset.age,
-        phase: row.dataset.phase,
-        sourceYear: row.dataset.sourceYear,
-        startBalance: row.dataset.startBalance,
-        endingBalance: row.dataset.endingBalance,
-        wdRate: row.dataset.wdRate,
-        fundingShortfall: row.dataset.fundingShortfall,
-        text: row.textContent,
-      }))),
-    };
-  });
-}
-
-async function localStorageBytes(page){
-  return page.evaluate(() => JSON.stringify(
-    Object.keys(localStorage)
-      .sort()
-      .map(key => [key, localStorage.getItem(key)])
-  ));
+async function waitForCashFlowPath(page, {
+  pathId,
+  kind = null,
+  sourceYear = null,
+  requireHistoricalSummary = false,
+  timeout = 20000,
+}){
+  const expected = { pathId, kind, sourceYear, requireHistoricalSummary };
+  try{
+    await page.waitForFunction(want => {
+      const selectors = document.querySelectorAll('#cashflow-path-mode');
+      const roots = document.querySelectorAll('#scn-view .cf');
+      if(selectors.length !== 1 || roots.length !== 1) return false;
+      const select = selectors[0];
+      const root = roots[0];
+      const firstRetirement = root.querySelector('.cf-row[data-phase="retirement"]');
+      const summary = root.querySelector('.cf-summary--historical');
+      return select.value === want.pathId
+        && root.dataset.cashPathId === want.pathId
+        && (!want.kind || root.dataset.cashPathKind === want.kind)
+        && (want.sourceYear === null
+          || Number(firstRetirement?.dataset.sourceYear) === want.sourceYear)
+        && (!want.requireHistoricalSummary
+          || ['underfunded', 'survives'].includes(summary?.dataset.outcome));
+    }, { timeout }, expected);
+  }catch(error){
+    const observed = await page.evaluate(() => {
+      const selectors = [...document.querySelectorAll('#cashflow-path-mode')];
+      const roots = [...document.querySelectorAll('#scn-view .cf')];
+      const select = selectors[0] ?? null;
+      const root = roots[0] ?? null;
+      return {
+        selectorCount: selectors.length,
+        optionValues: select ? [...select.options].map(option => option.value) : [],
+        optionLabels: select ? [...select.options].map(option => option.textContent.trim()) : [],
+        selectedValue: select?.value ?? null,
+        rootCount: roots.length,
+        rootPathId: root?.dataset.cashPathId ?? null,
+        rootPathKind: root?.dataset.cashPathKind ?? null,
+        firstRetirementSourceYear: root
+          ?.querySelector('.cf-row[data-phase="retirement"]')?.dataset.sourceYear ?? null,
+        summaryOutcome: root?.querySelector('.cf-summary--historical')?.dataset.outcome ?? null,
+        regenerateCount: document.querySelectorAll('#cashflow-path-regenerate').length,
+        status: document.querySelector('#status')?.textContent.trim() ?? null,
+      };
+    });
+    throw new Error(
+      `Cash Flow path readiness timed out: ${JSON.stringify({ expected, observed })}; ${error.message || error}`,
+    );
+  }
 }
 
 /* Household verification now enters through the semantic four-step wizard.
@@ -648,7 +669,7 @@ try {
       || cashFlowTheme.labelColor !== 'rgb(167, 156, 132)'
       || cashFlowTheme.labelBackground !== 'rgba(0, 0, 0, 0)'
       || cashFlowTheme.knobColor !== 'rgb(177, 132, 92)'
-      || cashFlowTheme.paths.length !== 11){
+      || cashFlowTheme.paths.length !== 10){
       throw new Error(`Cash Flow Graphite Aubergine contract drifted: ${JSON.stringify(cashFlowTheme)}`);
     }
 
@@ -2634,11 +2655,60 @@ try {
     await waitForUnselectedWizard(page);
     await stableClick('.htab[data-page="household"]');
     await selectHouseholdVisible(page, withdrawalPlannerFixtureHouseholdId);
-    await page.$eval('#run-btn', button => button.click());
-    for(let i = 0; i < 60; i++){
-      await new Promise(r => setTimeout(r, 500));
-      const status = await page.evaluate(() => document.querySelector('#status')?.textContent || '');
-      if(/Plan updated|Partial run/i.test(status)) break;
+    await page.$eval('#run-btn', button => {
+      const status = document.querySelector('#status');
+      const tracker = {
+        observed: [],
+        sawRunning: false,
+        observer: null,
+      };
+      const record = () => {
+        const value = status?.textContent.trim() || '';
+        if(tracker.observed.at(-1) !== value) tracker.observed.push(value);
+        if(/Running/i.test(value)) tracker.sawRunning = true;
+      };
+      tracker.observer = new MutationObserver(record);
+      if(status){
+        tracker.observer.observe(status, { childList: true, characterData: true, subtree: true });
+      }
+      record();
+      globalThis.__parallaxVerifyCashFlowRunTracker = tracker;
+      button.click();
+    });
+    let cashFlowRunError = null;
+    try{
+      await page.waitForFunction(() => {
+        const tracker = globalThis.__parallaxVerifyCashFlowRunTracker;
+        const status = document.querySelector('#status')?.textContent.trim() || '';
+        const button = document.querySelector('#run-btn');
+        return tracker?.sawRunning === true
+          && button
+          && !button.disabled
+          && /Plan updated|Partial run/i.test(status);
+      }, { timeout: 30000 });
+    }catch(error){
+      cashFlowRunError = error;
+    }
+    const cashFlowRunDiagnostic = await page.evaluate(() => {
+      const tracker = globalThis.__parallaxVerifyCashFlowRunTracker;
+      tracker?.observer?.disconnect();
+      const diagnostic = {
+        sawRunning: tracker?.sawRunning === true,
+        observedStatuses: tracker?.observed ?? [],
+        finalStatus: document.querySelector('#status')?.textContent.trim() ?? null,
+        runButtonCount: document.querySelectorAll('#run-btn').length,
+        runButtonDisabled: document.querySelector('#run-btn')?.disabled ?? null,
+      };
+      delete globalThis.__parallaxVerifyCashFlowRunTracker;
+      return diagnostic;
+    });
+    if(cashFlowRunError){
+      throw new Error(
+        `Cash Flow Run did not reach its observable completion state: ${JSON.stringify({
+          observed: cashFlowRunDiagnostic,
+          consoleErrors: errs,
+        })}; ${cashFlowRunError.message || cashFlowRunError}`,
+      );
     }
 
     await page.click('button[data-page="scenarios"]');
@@ -2810,40 +2880,51 @@ try {
 
     if(!SKIP_SEQUENCING){
       const pathReplayBefore = await page.evaluate(() => localStorage.getItem('parallax.pathReplay.v1'));
-      const selectorContract = await page.evaluate(() => ({
-        values: [...document.querySelectorAll('#cashflow-path-mode option')].map(option => option.value),
-        labels: [...document.querySelectorAll('#cashflow-path-mode option')].map(option => option.textContent.trim()),
-        oldSelector: !!document.querySelector('#path-mode'),
-        indexInput: !!document.querySelector('#path-index'),
-        seedInput: !!document.querySelector('#path-seed'),
-        persistedSeed: (() => {
-          try{
-            const value = JSON.parse(localStorage.getItem('parallax.pathReplay.v1') || '{}');
-            return Object.prototype.hasOwnProperty.call(value, 'seed');
-          }catch{
-            return true;
-          }
-        })(),
-        regenerate: (() => {
-          const button = document.querySelector('#cashflow-path-regenerate');
-          return button ? {
-            exists: true,
-            hidden: button.hidden || getComputedStyle(button).display === 'none',
-            disabled: button.disabled,
-          } : { exists: false, hidden: false, disabled: false };
-        })(),
-      }));
-      const expectedPathIds = [
-        'typical', 'random', 'historical-1929', 'historical-1937', 'historical-1966',
-        'historical-1973', 'historical-1995', 'historical-2000',
-        'historical-2008', 'historical-2009', 'historical-2022',
+      const selectorContract = await page.evaluate(() => {
+        const selectors = [...document.querySelectorAll('#cashflow-path-mode')];
+        const select = selectors[0] ?? null;
+        return {
+          selectorCount: selectors.length,
+          options: select ? [...select.options].map(option => ({
+            value: option.value,
+            label: option.textContent.trim().replace(/^[✓!]\s+/, ''),
+          })) : [],
+          oldSelectorCount: document.querySelectorAll('#path-mode').length,
+          indexInputCount: document.querySelectorAll('#path-index').length,
+          seedInputCount: document.querySelectorAll('#path-seed').length,
+          regenerateCount: document.querySelectorAll('#cashflow-path-regenerate').length,
+          persistedSeed: (() => {
+            try{
+              const value = JSON.parse(localStorage.getItem('parallax.pathReplay.v1') || '{}');
+              return Object.prototype.hasOwnProperty.call(value, 'seed');
+            }catch{
+              return true;
+            }
+          })(),
+        };
+      });
+      const expectedPathOptions = [
+        { value: 'typical', label: 'Typical path' },
+        { value: 'historical-1929', label: '1929 · Great Depression' },
+        { value: 'historical-1937', label: '1937 · Double-Dip Recession' },
+        { value: 'historical-1966', label: '1966 · Lost Decade' },
+        { value: 'historical-1973', label: '1973 · Stagflation' },
+        { value: 'historical-1995', label: '1995 · 90s Boom' },
+        { value: 'historical-2000', label: '2000 · Dot-com Crash' },
+        { value: 'historical-2008', label: '2008 · Financial Crisis' },
+        { value: 'historical-2009', label: '2009 · Recovery Bull' },
+        { value: 'historical-2022', label: '2022 · Inflation & Rate Shock' },
       ];
-      if(JSON.stringify(selectorContract.values) !== JSON.stringify(expectedPathIds)) throw new Error(`Cash Flow path registry mismatch: ${JSON.stringify(selectorContract)}`);
-      if(selectorContract.labels[0] !== 'Typical path' || selectorContract.labels[1] !== 'Random path') throw new Error(`Typical/Random path choices are not visible: ${JSON.stringify(selectorContract.labels)}`);
-      if(selectorContract.labels.some(label => /Black Monday|Stressed path|Favorable path|Sequence Stress/i.test(label))) throw new Error(`removed generic or Black Monday path remains: ${JSON.stringify(selectorContract.labels)}`);
-      if(selectorContract.oldSelector || selectorContract.indexInput || selectorContract.seedInput) throw new Error(`Cash Flow still exposes old replay controls: ${JSON.stringify(selectorContract)}`);
+      if(selectorContract.selectorCount !== 1
+          || JSON.stringify(selectorContract.options) !== JSON.stringify(expectedPathOptions)){
+        throw new Error(`Cash Flow path registry mismatch: ${JSON.stringify({
+          expected: expectedPathOptions,
+          observed: selectorContract,
+        })}`);
+      }
+      if(selectorContract.oldSelectorCount || selectorContract.indexInputCount || selectorContract.seedInputCount) throw new Error(`Cash Flow still exposes old replay controls: ${JSON.stringify(selectorContract)}`);
       if(selectorContract.persistedSeed) throw new Error('the session Monte Carlo seed is still persisted');
-      if(!selectorContract.regenerate.exists || !selectorContract.regenerate.hidden || !selectorContract.regenerate.disabled) throw new Error(`Regenerate must be unavailable outside Random mode: ${JSON.stringify(selectorContract.regenerate)}`);
+      if(selectorContract.regenerateCount !== 0) throw new Error(`Cash Flow still exposes a Regenerate control: ${JSON.stringify(selectorContract)}`);
 
       let reloadExpected = null;
       const observedHistoricalOutcomes = new Set();
@@ -2852,18 +2933,12 @@ try {
         ['historical-1995', 1995, 'survives'],
       ]){
         await page.select('#cashflow-path-mode', mode);
-        await page.waitForFunction(({ expectedMode, expectedStartYear }) => {
-          const root = document.querySelector('#scn-view .cf');
-          const select = document.querySelector('#cashflow-path-mode');
-          const firstRetirement = document.querySelector('#scn-view .cf-row[data-phase="retirement"]');
-          const summary = document.querySelector('#scn-view .cf-summary--historical');
-          return root?.dataset.cashPathId === expectedMode
-            && select?.value === expectedMode
-            && Number(firstRetirement?.dataset.sourceYear) === expectedStartYear
-            && ['underfunded', 'survives'].includes(summary?.dataset.outcome);
-        }, { timeout: 20000 }, {
-          expectedMode: mode,
-          expectedStartYear: startYear,
+        await waitForCashFlowPath(page, {
+          pathId: mode,
+          kind: 'historical',
+          sourceYear: startYear,
+          requireHistoricalSummary: true,
+          timeout: 20000,
         });
         const historicalPath = await page.evaluate(() => {
           const th = document.querySelector('#scn-view .cf-table__head .cf-th[data-tax-source]');
@@ -3037,15 +3112,15 @@ try {
         await page.screenshot({ path: join(OUT, `04-cashflow-${mode}.png`), fullPage: true });
       }
 
-      const historicalBeforeRandom = await page.evaluate(() => {
+      const historicalBeforeGoalEdit = await page.evaluate(() => {
         const cashFlow = document.querySelector('#scn-view .cf');
         if(!cashFlow) return '';
         const stableHistorical = cashFlow.cloneNode(true);
         stableHistorical.querySelector('#scn-cf-path-controls')?.remove();
         return stableHistorical.outerHTML;
       });
-      const sessionBeforeRandom = await cashFlowSessionSnapshot(page, {
-        bundleSentinel: 'cash-flow-random',
+      const sessionBeforeGoalEdit = await cashFlowSessionSnapshot(page, {
+        bundleSentinel: 'cash-flow-goal-edit',
         rememberBundle: true,
       });
       const stableSessionAnalysis = snapshot => ({
@@ -3058,62 +3133,9 @@ try {
         trialCounts: snapshot.trialCounts,
         typicalIndices: snapshot.typicalIndices,
       });
-      const randomPersistenceBefore = await localStorageBytes(page);
-
-      await page.select('#cashflow-path-mode', 'random');
-      await page.waitForFunction(() => {
-        const root = document.querySelector('#scn-view .cf');
-        const regenerate = document.querySelector('#cashflow-path-regenerate');
-        return document.querySelector('#cashflow-path-mode')?.value === 'random'
-          && root?.dataset.cashPathId === 'random'
-          && root?.dataset.cashPathKind === 'random'
-          && root.hasAttribute('data-sim-index')
-          && regenerate
-          && !regenerate.hidden
-          && !regenerate.disabled
-          && getComputedStyle(regenerate).display !== 'none'
-          && root.querySelector('[data-cash-header-metric="ending-position"] .cf-stat__support')
-            ?.textContent.trim() === 'Sampled path';
-      }, { timeout: 20000 });
-      const firstRandomPath = await visibleCashFlowPathSnapshot(page);
-      if(!Number.isInteger(firstRandomPath.simIndex)
-          || firstRandomPath.support !== 'Sampled path'
-          || sessionBeforeRandom.trialCounts.some(count => count !== sessionBeforeRandom.bundleCount)
-          || (sessionBeforeRandom.bundleCount > 1
-            && firstRandomPath.simIndex === sessionBeforeRandom.typicalIndices[0])){
-        throw new Error(`Random did not choose a non-Typical member of the session bundle: ${JSON.stringify({
-          firstRandomPath,
-          sessionBeforeRandom,
-        })}`);
-      }
-
-      const randomScenarioValues = await page.evaluate(() => (
-        [...document.querySelectorAll('#scn-view [data-cash-select] option')]
-          .map(option => option.value)
-      ));
-      for(const scenarioId of randomScenarioValues){
-        await page.select('#scn-view [data-cash-select]', scenarioId);
-        await page.waitForFunction(({ expectedScenario, expectedIndex }) => {
-          const root = document.querySelector('#scn-view .cf');
-          return document.querySelector('#scn-view [data-cash-select]')?.value === expectedScenario
-            && root?.dataset.cashPathKind === 'random'
-            && Number(root.dataset.simIndex) === expectedIndex;
-        }, { timeout: 20000 }, {
-          expectedScenario: scenarioId,
-          expectedIndex: firstRandomPath.simIndex,
-        });
-      }
-      await page.select('#scn-view [data-cash-select]', baselineValue);
-      await page.waitForFunction(({ expectedScenario, expectedIndex }) => {
-        const root = document.querySelector('#scn-view .cf');
-        return document.querySelector('#scn-view [data-cash-select]')?.value === expectedScenario
-          && Number(root?.dataset.simIndex) === expectedIndex;
-      }, { timeout: 20000 }, {
-        expectedScenario: baselineValue,
-        expectedIndex: firstRandomPath.simIndex,
-      });
-      if(await localStorageBytes(page) !== randomPersistenceBefore){
-        throw new Error('Random selection or Scenario switching leaked session path state into persistence');
+      if(!(sessionBeforeGoalEdit.bundleCount > 0)
+          || sessionBeforeGoalEdit.trialCounts.some(count => count !== sessionBeforeGoalEdit.bundleCount)){
+        throw new Error(`Cash Flow session bundle is incomplete before the Goals edit: ${JSON.stringify(sessionBeforeGoalEdit)}`);
       }
 
       const householdGoalEditBefore = await page.evaluate(householdId => {
@@ -3159,31 +3181,30 @@ try {
         && /Plan updated|Partial run/i.test(document.querySelector('#status')?.textContent || '')
       ), { timeout: 30000 });
       await setCashFlow(page, true);
-      await page.waitForFunction(expectedIndex => (
-        document.querySelector('#scn-view .cf')?.dataset.cashPathKind === 'random'
-        && Number(document.querySelector('#scn-view .cf')?.dataset.simIndex) === expectedIndex
-      ), { timeout: 20000 }, firstRandomPath.simIndex);
-      const householdGoalEditPath = await visibleCashFlowPathSnapshot(page);
-      const householdGoalEditSession = await cashFlowSessionSnapshot(page, {
-        bundleSentinel: 'cash-flow-random',
+      await waitForCashFlowPath(page, {
+        pathId: 'historical-1995',
+        kind: 'historical',
+        sourceYear: 1995,
+        requireHistoricalSummary: true,
+        timeout: 20000,
       });
-      if(householdGoalEditSession.seed !== sessionBeforeRandom.seed
+      const householdGoalEditSession = await cashFlowSessionSnapshot(page, {
+        bundleSentinel: 'cash-flow-goal-edit',
+      });
+      if(householdGoalEditSession.seed !== sessionBeforeGoalEdit.seed
           || !householdGoalEditSession.sameBundleObject
-          || householdGoalEditSession.bundleCount !== sessionBeforeRandom.bundleCount
-          || householdGoalEditSession.bundleHorizon !== sessionBeforeRandom.bundleHorizon
-          || householdGoalEditPath.simIndex !== firstRandomPath.simIndex
-          || householdGoalEditSession.aggregateBytes === sessionBeforeRandom.aggregateBytes
+          || householdGoalEditSession.bundleCount !== sessionBeforeGoalEdit.bundleCount
+          || householdGoalEditSession.bundleHorizon !== sessionBeforeGoalEdit.bundleHorizon
+          || householdGoalEditSession.aggregateBytes === sessionBeforeGoalEdit.aggregateBytes
           || householdGoalEditSession.probabilityRangeEnvelopeBytes
-            === sessionBeforeRandom.probabilityRangeEnvelopeBytes){
-        throw new Error(`same-household Goals edit did not reuse the session bundle and Random index while updating analysis: ${JSON.stringify({
-          seedBefore: sessionBeforeRandom.seed,
+            === sessionBeforeGoalEdit.probabilityRangeEnvelopeBytes){
+        throw new Error(`same-household Goals edit did not reuse the session bundle while updating analysis: ${JSON.stringify({
+          seedBefore: sessionBeforeGoalEdit.seed,
           seedAfter: householdGoalEditSession.seed,
           sameBundleObject: householdGoalEditSession.sameBundleObject,
-          randomIndexBefore: firstRandomPath.simIndex,
-          randomIndexAfter: householdGoalEditPath.simIndex,
-          aggregateChanged: householdGoalEditSession.aggregateBytes !== sessionBeforeRandom.aggregateBytes,
+          aggregateChanged: householdGoalEditSession.aggregateBytes !== sessionBeforeGoalEdit.aggregateBytes,
           probabilityRangeEnvelopeChanged: householdGoalEditSession.probabilityRangeEnvelopeBytes
-            !== sessionBeforeRandom.probabilityRangeEnvelopeBytes,
+            !== sessionBeforeGoalEdit.probabilityRangeEnvelopeBytes,
         })}`);
       }
 
@@ -3219,119 +3240,43 @@ try {
         && /Plan updated|Partial run/i.test(document.querySelector('#status')?.textContent || '')
       ), { timeout: 30000 });
       await setCashFlow(page, true);
-      await page.waitForFunction(expectedIndex => (
-        document.querySelector('#scn-view .cf')?.dataset.cashPathKind === 'random'
-        && Number(document.querySelector('#scn-view .cf')?.dataset.simIndex) === expectedIndex
-      ), { timeout: 20000 }, firstRandomPath.simIndex);
-      const restoredGoalPath = await visibleCashFlowPathSnapshot(page);
+      await waitForCashFlowPath(page, {
+        pathId: 'historical-1995',
+        kind: 'historical',
+        sourceYear: 1995,
+        requireHistoricalSummary: true,
+        timeout: 20000,
+      });
       const restoredGoalSession = await cashFlowSessionSnapshot(page, {
-        bundleSentinel: 'cash-flow-random',
+        bundleSentinel: 'cash-flow-goal-edit',
       });
       if(!restoredGoalSession.sameBundleObject
-          || restoredGoalPath.simIndex !== firstRandomPath.simIndex
           || JSON.stringify(stableSessionAnalysis(restoredGoalSession))
-            !== JSON.stringify(stableSessionAnalysis(sessionBeforeRandom))){
+            !== JSON.stringify(stableSessionAnalysis(sessionBeforeGoalEdit))){
         throw new Error(`reversing the same-household Goals edit did not exactly restore probability/range/envelope analysis: ${JSON.stringify({
           sameBundleObject: restoredGoalSession.sameBundleObject,
-          randomIndexBefore: firstRandomPath.simIndex,
-          randomIndexAfter: restoredGoalPath.simIndex,
-          successRatesBefore: sessionBeforeRandom.successRates,
+          successRatesBefore: sessionBeforeGoalEdit.successRates,
           successRatesAfter: restoredGoalSession.successRates,
           probabilityRangeEnvelopeRestored: restoredGoalSession.probabilityRangeEnvelopeBytes
-            === sessionBeforeRandom.probabilityRangeEnvelopeBytes,
-          aggregateRestored: restoredGoalSession.aggregateBytes === sessionBeforeRandom.aggregateBytes,
+            === sessionBeforeGoalEdit.probabilityRangeEnvelopeBytes,
+          aggregateRestored: restoredGoalSession.aggregateBytes === sessionBeforeGoalEdit.aggregateBytes,
         })}`);
       }
-
-      await page.select('#cashflow-path-mode', 'typical');
-      await page.waitForFunction(expectedIndex => {
-        const root = document.querySelector('#scn-view .cf');
-        const regenerate = document.querySelector('#cashflow-path-regenerate');
-        return root?.dataset.cashPathId === 'typical'
-          && Number(root.dataset.simIndex) === expectedIndex
-          && regenerate?.disabled
-          && (regenerate.hidden || getComputedStyle(regenerate).display === 'none');
-      }, { timeout: 20000 }, sessionBeforeRandom.typicalIndices[0]);
-      await page.select('#cashflow-path-mode', 'random');
-      await page.waitForFunction(expectedIndex => {
-        const root = document.querySelector('#scn-view .cf');
-        return root?.dataset.cashPathId === 'random'
-          && Number(root.dataset.simIndex) === expectedIndex;
-      }, { timeout: 20000 }, firstRandomPath.simIndex);
-
-      const randomPersistenceBeforeRegenerate = await localStorageBytes(page);
-      await page.click('#cashflow-path-regenerate');
-      await page.waitForFunction(previousIndex => {
-        const root = document.querySelector('#scn-view .cf');
-        return root?.dataset.cashPathKind === 'random'
-          && Number.isInteger(Number(root.dataset.simIndex))
-          && Number(root.dataset.simIndex) !== previousIndex;
-      }, { timeout: 20000 }, firstRandomPath.simIndex);
-      const regeneratedRandomPath = await visibleCashFlowPathSnapshot(page);
-      const sessionAfterRegenerate = await cashFlowSessionSnapshot(page, {
-        bundleSentinel: 'cash-flow-random',
-      });
-      if(regeneratedRandomPath.simIndex === firstRandomPath.simIndex
-          || regeneratedRandomPath.rowBytes === firstRandomPath.rowBytes){
-        throw new Error(`Regenerate did not change the visible existing-bundle path: ${JSON.stringify({
-          firstRandomPath,
-          regeneratedRandomPath,
-        })}`);
-      }
-      if(!sessionAfterRegenerate.sameBundleObject
-          || JSON.stringify(stableSessionAnalysis(sessionAfterRegenerate))
-            !== JSON.stringify(stableSessionAnalysis(sessionBeforeRandom))){
-        throw new Error(`Regenerate mutated Monte Carlo bundle or aggregate bytes: ${JSON.stringify({
-          before: sessionBeforeRandom,
-          after: sessionAfterRegenerate,
-        })}`);
-      }
-      if(await localStorageBytes(page) !== randomPersistenceBeforeRegenerate){
-        throw new Error('Regenerate persisted the Random path index');
-      }
-
-      for(const scenarioId of randomScenarioValues){
-        await page.select('#scn-view [data-cash-select]', scenarioId);
-        await page.waitForFunction(({ expectedScenario, expectedIndex }) => {
-          const root = document.querySelector('#scn-view .cf');
-          return document.querySelector('#scn-view [data-cash-select]')?.value === expectedScenario
-            && root?.dataset.cashPathKind === 'random'
-            && Number(root.dataset.simIndex) === expectedIndex;
-        }, { timeout: 20000 }, {
-          expectedScenario: scenarioId,
-          expectedIndex: regeneratedRandomPath.simIndex,
-        });
-      }
-      await page.select('#scn-view [data-cash-select]', baselineValue);
-      await page.waitForFunction(expectedIndex => (
-        Number(document.querySelector('#scn-view .cf')?.dataset.simIndex) === expectedIndex
-      ), { timeout: 20000 }, regeneratedRandomPath.simIndex);
-      await page.screenshot({ path: join(OUT, '04-cashflow-random.png'), fullPage: true });
-
-      await page.select('#cashflow-path-mode', 'historical-1995');
-      await page.waitForFunction(() => {
-        const root = document.querySelector('#scn-view .cf');
-        const regenerate = document.querySelector('#cashflow-path-regenerate');
-        return root?.dataset.cashPathId === 'historical-1995'
-          && Number(document.querySelector('#scn-view .cf-row[data-phase="retirement"]')?.dataset.sourceYear) === 1995
-          && regenerate?.disabled
-          && (regenerate.hidden || getComputedStyle(regenerate).display === 'none');
-      }, { timeout: 20000 });
-      const historicalAfterRandom = await page.evaluate(() => {
+      const historicalAfterGoalEdit = await page.evaluate(() => {
         const cashFlow = document.querySelector('#scn-view .cf');
         if(!cashFlow) return '';
         const stableHistorical = cashFlow.cloneNode(true);
         stableHistorical.querySelector('#scn-cf-path-controls')?.remove();
         return stableHistorical.outerHTML;
       });
-      if(historicalAfterRandom !== historicalBeforeRandom){
-        throw new Error('Random/Regenerate changed Historical Cash Flow bytes in the open session');
+      if(historicalAfterGoalEdit !== historicalBeforeGoalEdit){
+        throw new Error('reversing the same-household Goals edit did not restore Historical Cash Flow bytes');
       }
       if(await page.evaluate(() => localStorage.getItem('parallax.pathReplay.v1')) !== pathReplayBefore){
-        throw new Error('Random/Regenerate changed Monte Carlo replay persistence');
+        throw new Error('same-household Goals edit changed Monte Carlo replay persistence');
       }
 
-      // This funded browser household correctly survives both live paths above.
+      // This funded browser household correctly survives both live Historical paths above.
       // Exercise the underfunded matrix through the same production controller,
       // renderer and stylesheet without mutating the persisted household.
       const underfundedMatrixProof = await page.evaluate(async () => {
@@ -3494,13 +3439,13 @@ try {
       );
       await stableClick('button[data-page="scenarios"]');
       await setCashFlow(page, true);
-      await page.waitForFunction(() => {
-        const root = document.querySelector('#scn-view .cf');
-        const firstRetirement = document.querySelector('#scn-view .cf-row[data-phase="retirement"]');
-        return document.querySelector('#cashflow-path-mode')?.value === 'historical-1995'
-          && root?.dataset.cashPathId === 'historical-1995'
-          && Number(firstRetirement?.dataset.sourceYear) === 1995;
-      }, { timeout: 30000 });
+      await waitForCashFlowPath(page, {
+        pathId: 'historical-1995',
+        kind: 'historical',
+        sourceYear: 1995,
+        requireHistoricalSummary: true,
+        timeout: 30000,
+      });
       const historicalReloadSessionBefore = await cashFlowSessionSnapshot(page, {
         includeBundleIdentity: true,
       });
@@ -3550,17 +3495,12 @@ try {
       );
       await page.click('button[data-page="scenarios"]');
       await setCashFlow(page, true);
-      await page.waitForFunction(({ expectedMode, expectedStartYear }) => {
-        const root = document.querySelector('#scn-view .cf');
-        const firstRetirement = document.querySelector('#scn-view .cf-row[data-phase="retirement"]');
-        const summary = document.querySelector('#scn-view .cf-summary--historical');
-        return document.querySelector('#cashflow-path-mode')?.value === expectedMode
-          && root?.dataset.cashPathId === expectedMode
-          && Number(firstRetirement?.dataset.sourceYear) === expectedStartYear
-          && ['underfunded', 'survives'].includes(summary?.dataset.outcome);
-      }, { timeout: 30000 }, {
-        expectedMode: reloadExpected.mode,
-        expectedStartYear: reloadExpected.sourceYear,
+      await waitForCashFlowPath(page, {
+        pathId: reloadExpected.mode,
+        kind: 'historical',
+        sourceYear: reloadExpected.sourceYear,
+        requireHistoricalSummary: true,
+        timeout: 30000,
       });
       const sessionAfterReload = await cashFlowSessionSnapshot(page, {
         includeBundleIdentity: true,
@@ -3579,7 +3519,6 @@ try {
           shortfall: Number(row.dataset.fundingShortfall),
         }));
         const retirementRows = rows.filter(row => row.phase === 'retirement');
-        const regenerate = document.querySelector('#cashflow-path-regenerate');
         return {
           snapshot: {
             mode: document.querySelector('#cashflow-path-mode')?.value || '',
@@ -3602,9 +3541,7 @@ try {
           },
           persisted: JSON.parse(localStorage.getItem('parallax.cashFlowPath.v1') || '{}'),
           pathReplay: localStorage.getItem('parallax.pathReplay.v1'),
-          regenerateUnavailable: !!regenerate
-            && regenerate.disabled
-            && (regenerate.hidden || getComputedStyle(regenerate).display === 'none'),
+          regenerateCount: document.querySelectorAll('#cashflow-path-regenerate').length,
         };
       });
       const historicalContract = snapshot => ({
@@ -3632,7 +3569,7 @@ try {
       if(JSON.stringify(historicalContract(reloadedHistorical.snapshot)) !== JSON.stringify(historicalContract(reloadExpected))
           || reloadedHistorical.persisted?.id !== reloadExpected.mode
           || reloadedHistorical.pathReplay !== pathReplayBefore
-          || !reloadedHistorical.regenerateUnavailable){
+          || reloadedHistorical.regenerateCount !== 0){
         throw new Error(`Historical selection/generation contract changed across reload: ${JSON.stringify({ reloadExpected, reloadedHistorical })}`);
       }
       if(sessionAfterReload.seed === historicalReloadSessionBefore.seed
@@ -3644,7 +3581,11 @@ try {
       }
 
       await page.select('#cashflow-path-mode', 'typical');
-      await page.waitForFunction(() => document.querySelector('#scn-view .cf')?.dataset.cashPathId === 'typical', { timeout: 20000 });
+      await waitForCashFlowPath(page, {
+        pathId: 'typical',
+        kind: 'typical',
+        timeout: 20000,
+      });
       const restoredTypical = await page.evaluate(() => {
         const th = document.querySelector('#scn-view .cf-table__head .cf-th[data-tax-source]');
         return {

@@ -167,7 +167,7 @@ function syncRecoveryControls(){
     '#np-content .row-x','#np-content [data-add]','#np-content [data-act]','#scn-add','#scn-view [data-lever-key]','#scn-view .cmp-lev-in',
     '#scn-view .cmp-goal-in','#scn-view .scol__menu'
   ];
-  if(isHouseholdStorageBlocked()) selectors.push('#run-btn','#hh-menu-btn','#hh-switch','#cashflow-path-mode','#cashflow-path-regenerate','#seq-select','#seq-chips button');
+  if(isHouseholdStorageBlocked()) selectors.push('#run-btn','#hh-menu-btn','#hh-switch','#cashflow-path-mode','#seq-select','#seq-chips button');
   document.querySelectorAll(selectors.join(',')).forEach(el => {
     if('disabled' in el) el.disabled=true;
     el.setAttribute('aria-disabled','true');
@@ -759,7 +759,6 @@ function hhLoadRecord(status){
   if(!readOnly) reseedScenarios({ markDirty: false });
   householdWizardController.resetForPlan();
   refreshPathSeed();
-  cashFlowController.resetSessionPath();
   uiState.plansDirty = true; uiState.sharedPaths = null;
   syncHousehold();
   updateHouseholdControls();
@@ -1288,21 +1287,6 @@ const cashFlowController = createCashFlowController({
 });
 const syncCashFlowPathControls = (scenario = null) => {
   cashFlowController.syncSelect($('#cashflow-path-mode'), scenario);
-  const regenerate = $('#cashflow-path-regenerate');
-  if(!regenerate) return;
-  const randomActive = cashFlowController.isRandom();
-  ['hidden', 'disabled', 'aria-disabled', 'style'].forEach(attribute => (
-    regenerate.removeAttribute(attribute)
-  ));
-  if(!randomActive){
-    regenerate.setAttribute('hidden', '');
-    regenerate.setAttribute('disabled', '');
-    regenerate.setAttribute('aria-disabled', 'true');
-    regenerate.setAttribute('style', 'display:none');
-  }else if(isHouseholdStorageBlocked()){
-    regenerate.setAttribute('disabled', '');
-    regenerate.setAttribute('aria-disabled', 'true');
-  }
 };
 
 syncCashFlowPathControls();
@@ -1315,18 +1299,6 @@ $('#cashflow-path-mode').onchange=e=>{
   cashFlowController.setPathId(e.target.value, {
     persist: !isHouseholdStorageReadOnly(),
   });
-  if(window.ScenariosUI) window.ScenariosUI.sync();
-};
-$('#cashflow-path-regenerate').onclick=()=>{
-  if(isHouseholdStorageBlocked()){
-    syncCashFlowPathControls();
-    renderBlockedRecoverySurfaces();
-    return;
-  }
-  if(cashFlowController.regenerateRandomPath() === null){
-    syncCashFlowPathControls();
-    return;
-  }
   if(window.ScenariosUI) window.ScenariosUI.sync();
 };
 // Cash Flow is now an explicit view inside the ScenariosUI view layer (the
@@ -1902,7 +1874,6 @@ if(isHouseholdStorageBlocked()){
 }
 if(canRunEngine()){
   refreshPathSeed();
-  cashFlowController.resetSessionPath();
   reseedScenarios({ markDirty: false });   // align baseline levers with hydrated plan (saved levers can be stale)
   runAll();   // first iteration runs immediately so the tool opens populated
 }
