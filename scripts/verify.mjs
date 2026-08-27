@@ -2470,18 +2470,25 @@ try {
         savedSavings: saved.find(scenario => scenario.name === 'Scenario D')?.lev?.savings,
       };
     }, withdrawalPlannerFixtureHouseholdId);
-    if(beforeReload.medians.length !== 4
-        || beforeReload.medians.some(value => !/^\$[\d,.]+[KMB]?$/.test(value))
-        || beforeReload.medians[3] === beforeReload.medians[0]
-        || beforeReload.savings[3] !== '45000'
-        || beforeReload.spending[3] !== beforeReload.spending[0]
-        || beforeReload.savedSavings !== 45000){
-      throw new Error(`zero-base savings did not reach the fourth scenario: ${JSON.stringify(beforeReload)}`);
-    }
-
     const zeroBaseSessionBeforeReload = await cashFlowSessionSnapshot(page, {
       includeBundleIdentity: true,
     });
+    const exactMedians = JSON.parse(zeroBaseSessionBeforeReload.probabilityRangeEnvelopeBytes)
+      .map(analysis => analysis?.envelope?.at(-1)?.p50 ?? null);
+    if(beforeReload.medians.length !== 4
+        || beforeReload.medians.some(value => !/^\$[\d,.]+[KMB]?$/.test(value))
+        || exactMedians.length !== 4
+        || exactMedians.some(value => !Number.isFinite(value))
+        || exactMedians[3] === exactMedians[0]
+        || beforeReload.savings[3] !== '45000'
+        || beforeReload.spending[3] !== beforeReload.spending[0]
+        || beforeReload.savedSavings !== 45000){
+      throw new Error(`zero-base savings did not reach the fourth scenario: ${JSON.stringify({
+        ...beforeReload,
+        exactMedians,
+      })}`);
+    }
+
     await stableReload({ waitUntil: 'networkidle2', timeout: 20000 });
     await waitForUnselectedWizard(page);
     await stableClick('.htab[data-page="household"]');
