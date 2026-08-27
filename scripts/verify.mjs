@@ -4599,11 +4599,13 @@ try {
     await page.waitForFunction(() => {
       const id = document.querySelector('#hh-switch')?.value;
       const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
-      return /New household created/.test(document.querySelector('#status')?.textContent || '')
-        && id
+      const status = document.querySelector('#status')?.textContent || '';
+      return id
         && localStorage.getItem('parallax.activeHouseholdId') === id
-        && Boolean(db?.[id]);
-    }, { timeout: 10000 });
+        && Boolean(db?.[id])
+        && !document.querySelector('#run-btn')?.disabled
+        && /Plan updated|Partial run/i.test(status);
+    }, { timeout: 15000 });
     const pendingCustomId = await page.$eval('#hh-switch', element => element.value);
     if(!pendingCustomId){
       throw new Error(`New Household did not become the working record (id="${pendingCustomId}")`);
