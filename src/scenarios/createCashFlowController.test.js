@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createCashFlowController } from './createCashFlowController.js';
-import { RANDOM_CASH_FLOW_PATH_ID } from './historicalPeriods.js';
 
 function simulation(simIndex, balance){
   return {
@@ -89,7 +88,7 @@ test('Typical Cash Flow compares every scenario on the baseline p50 market index
   assert.equal(Object.isFrozen(result.headerMetrics), true);
 });
 
-test('Random Cash Flow retains and regenerates one shared session index without mutating analyses', () => {
+test('removed Random Cash Flow requests normalize to the shared Typical path', () => {
   const baseline = {
     base: true,
     name: 'Baseline',
@@ -128,37 +127,25 @@ test('Random Cash Flow retains and regenerates one shared session index without 
     ]),
     selection,
     saveSelection: () => saved.push(selection.id),
-    random: () => 0,
     digest: selected => ({ endingBalance: selected.rows.at(-1).balance }),
     buildRows,
   });
 
-  assert.equal(controller.regenerateRandomPath(), null);
-  controller.setPathId(RANDOM_CASH_FLOW_PATH_ID, { persist: true });
+  controller.setPathId('random', { persist: true });
   const firstBaseline = controller.resultForScenario(baseline);
   const firstAlternative = controller.resultForScenario(alternative);
 
-  assert.equal(controller.activePathId(), RANDOM_CASH_FLOW_PATH_ID);
-  assert.equal(firstBaseline.simIndex, 7);
-  assert.equal(firstAlternative.simIndex, 7);
-  assert.equal(firstAlternative.simulation, alternative.res.sims[1]);
-  assert.equal(selection.id, 'typical');
-  assert.deepEqual(saved, []);
-
-  controller.setPathId('typical');
-  assert.equal(controller.resultForScenario(baseline).simIndex, 3);
-  controller.setPathId(RANDOM_CASH_FLOW_PATH_ID);
-  assert.equal(controller.resultForScenario(alternative).simIndex, 7);
-
-  assert.equal(controller.regenerateRandomPath(), 3);
-  assert.equal(controller.resultForScenario(baseline).simIndex, 3);
-  assert.equal(controller.resultForScenario(alternative).simIndex, 3);
-  assert.equal(JSON.stringify([baseline.res, alternative.res]), analysesBefore);
-
-  controller.resetSessionPath();
   assert.equal(controller.activePathId(), 'typical');
-  assert.equal(controller.randomSimulationIndex(), null);
-  assert.equal(controller.regenerateRandomPath(), null);
+  assert.equal(firstBaseline.simIndex, 3);
+  assert.equal(firstAlternative.simIndex, 3);
+  assert.equal(firstAlternative.simulation, alternative.res.sims[0]);
+  assert.equal(selection.id, 'typical');
+  assert.deepEqual(saved, ['typical']);
+  assert.equal(JSON.stringify([baseline.res, alternative.res]), analysesBefore);
+  assert.equal('isRandom' in controller, false);
+  assert.equal('randomSimulationIndex' in controller, false);
+  assert.equal('regenerateRandomPath' in controller, false);
+  assert.equal('resetSessionPath' in controller, false);
 });
 
 test('Typical Cash Flow replaces probability and federal total with the same-path header contract', () => {

@@ -1,5 +1,4 @@
 export const TYPICAL_CASH_FLOW_PATH_ID = 'typical';
-export const RANDOM_CASH_FLOW_PATH_ID = 'random';
 
 const PERIODS = [
   { id: 'historical-1929', startYear: 1929, name: 'Great Depression', tone: '#8C6664', sequencingDefault: false },
@@ -25,11 +24,6 @@ export const CASH_FLOW_PATH_OPTIONS = Object.freeze([
     id: TYPICAL_CASH_FLOW_PATH_ID,
     label: 'Typical path',
     kind: 'typical',
-  }),
-  Object.freeze({
-    id: RANDOM_CASH_FLOW_PATH_ID,
-    label: 'Random path',
-    kind: 'random',
   }),
   ...HISTORICAL_PERIODS.map(period => Object.freeze({
     id: period.id,

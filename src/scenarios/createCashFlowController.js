@@ -3,8 +3,8 @@ import { buildCashFlowHeaderMetrics } from './buildCashFlowHeaderMetrics.js';
 import { createHistoricalCashFlowCache } from './buildHistoricalCashFlowResult.js';
 import {
   CASH_FLOW_PATH_OPTIONS,
-  RANDOM_CASH_FLOW_PATH_ID,
   TYPICAL_CASH_FLOW_PATH_ID,
+  normalizeCashFlowPathId,
 } from './historicalPeriods.js';
 
 function simulationByIndex(result, simIndex){
@@ -29,21 +29,6 @@ export function baselineP50SimulationIndex(scenarios){
   return Number.isInteger(simIndex) && simIndex >= 0 ? simIndex : null;
 }
 
-function baselineSimulationIndices(scenarios){
-  const list = Array.isArray(scenarios) ? scenarios : [];
-  const baseline = list.find(scenario => scenario?.base) ?? list[0] ?? null;
-  if(!Array.isArray(baseline?.res?.sims)) return [];
-  const seen = new Set();
-  return baseline.res.sims.reduce((indices, simulation) => {
-    const simIndex = simulation?.simIndex;
-    if(Number.isInteger(simIndex) && simIndex >= 0 && !seen.has(simIndex)){
-      seen.add(simIndex);
-      indices.push(simIndex);
-    }
-    return indices;
-  }, []);
-}
-
 export function createCashFlowController({
   getScenarios,
   scenarioInputsByResult,
@@ -52,7 +37,6 @@ export function createCashFlowController({
   historicalCache = createHistoricalCashFlowCache(),
   digest = pathDigest,
   buildRows,
-  random = Math.random,
   currentYear = () => new Date().getFullYear(),
   onError = (...args) => console.error(...args),
   onHeaderDiagnostic = (...args) => console.warn(...args),
@@ -64,78 +48,18 @@ export function createCashFlowController({
   if(!selection || typeof selection !== 'object') throw new TypeError('selection is required');
   if(typeof buildRows !== 'function') throw new TypeError('buildRows is required');
 
-  let sessionPathId = null;
-  let randomSimIndex = null;
-
   function activePathId(){
-    return sessionPathId ?? selection.id;
+    return normalizeCashFlowPathId(selection.id);
   }
 
   function isTypical(){
     return activePathId() === TYPICAL_CASH_FLOW_PATH_ID;
   }
 
-  function isRandom(){
-    return activePathId() === RANDOM_CASH_FLOW_PATH_ID;
-  }
-
-  function pickRandomSimulationIndex({ avoid = null, avoidTypical = false } = {}){
-    const allIndices = baselineSimulationIndices(getScenarios());
-    if(allIndices.length === 0) return null;
-
-    let candidates = allIndices.filter(simIndex => simIndex !== avoid);
-    if(candidates.length === 0) candidates = allIndices;
-
-    if(avoidTypical && candidates.length > 1){
-      const typicalIndex = baselineP50SimulationIndex(getScenarios());
-      const nonTypical = candidates.filter(simIndex => simIndex !== typicalIndex);
-      if(nonTypical.length > 0) candidates = nonTypical;
-    }
-
-    const sample = Number(random());
-    const bounded = Number.isFinite(sample)
-      ? Math.min(0.9999999999999999, Math.max(0, sample))
-      : 0;
-    return candidates[Math.floor(bounded * candidates.length)] ?? candidates[0];
-  }
-
-  function ensureRandomSimulationIndex(){
-    const indices = baselineSimulationIndices(getScenarios());
-    if(indices.includes(randomSimIndex)) return randomSimIndex;
-    randomSimIndex = pickRandomSimulationIndex({ avoidTypical: true });
-    return randomSimIndex;
-  }
-
-  function randomSimulationIndex(){
-    return randomSimIndex;
-  }
-
   function setPathId(pathId, { persist = false } = {}){
-    const requested = typeof pathId === 'string'
-      ? pathId.trim().toLowerCase()
-      : pathId;
-    if(requested === RANDOM_CASH_FLOW_PATH_ID){
-      sessionPathId = RANDOM_CASH_FLOW_PATH_ID;
-      ensureRandomSimulationIndex();
-      return activePathId();
-    }
-
-    sessionPathId = null;
-    selection.id = pathId;
+    selection.id = normalizeCashFlowPathId(pathId);
     if(persist && typeof saveSelection === 'function') saveSelection();
     return activePathId();
-  }
-
-  function regenerateRandomPath(){
-    if(!isRandom()) return null;
-    const current = ensureRandomSimulationIndex();
-    randomSimIndex = pickRandomSimulationIndex({ avoid: current });
-    return randomSimIndex;
-  }
-
-  function resetSessionPath(){
-    sessionPathId = null;
-    randomSimIndex = null;
   }
 
   function historicalArgsForScenario(scenario, periodId){
@@ -224,7 +148,7 @@ export function createCashFlowController({
 
   function resultForScenario(scenario){
     const pathId = activePathId();
-    const kind = isTypical() ? 'typical' : isRandom() ? 'random' : 'historical';
+    const kind = isTypical() ? 'typical' : 'historical';
     if(!scenario?.res){
       return freezeSelectedResult({
         kind,
@@ -243,15 +167,13 @@ export function createCashFlowController({
         ? scenarioPlan.meta.planningAsOfYear
         : currentYear();
 
-      if(kind === 'typical' || kind === 'random'){
-        const simIndex = kind === 'random'
-          ? ensureRandomSimulationIndex()
-          : baselineP50SimulationIndex(getScenarios());
+      if(kind === 'typical'){
+        const simIndex = baselineP50SimulationIndex(getScenarios());
         if(simIndex === null){
-          throw new Error(`${kind === 'random' ? 'Random' : 'baseline Typical'} simulation identity is unavailable`);
+          throw new Error('baseline Typical simulation identity is unavailable');
         }
         const simulation = simulationByIndex(scenario.res, simIndex);
-        if(!simulation?.rows) throw new Error(`shared ${kind === 'random' ? 'Random' : 'Typical'} simulation is unavailable`);
+        if(!simulation?.rows) throw new Error('shared Typical simulation is unavailable');
         const summary = digest(simulation);
         const headerMetrics = headerMetricsOrNull({
           typicalSimulation: simulation,
@@ -309,10 +231,6 @@ export function createCashFlowController({
   return Object.freeze({
     activePathId,
     isTypical,
-    isRandom,
-    randomSimulationIndex,
-    regenerateRandomPath,
-    resetSessionPath,
     resultForScenario,
     setPathId,
     syncSelect,

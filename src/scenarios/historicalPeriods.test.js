@@ -4,19 +4,20 @@ import assert from 'node:assert/strict';
 import {
   CASH_FLOW_PATH_OPTIONS,
   HISTORICAL_PERIODS,
-  RANDOM_CASH_FLOW_PATH_ID,
   TYPICAL_CASH_FLOW_PATH_ID,
   historicalPeriodById,
   normalizeCashFlowPathId,
 } from './historicalPeriods.js';
 
-test('Cash Flow keeps Typical, adds session-only Random, and exposes the nine approved historical periods', () => {
-  assert.equal(CASH_FLOW_PATH_OPTIONS[0].id, TYPICAL_CASH_FLOW_PATH_ID);
-  assert.deepEqual(CASH_FLOW_PATH_OPTIONS[1], {
-    id: RANDOM_CASH_FLOW_PATH_ID,
-    label: 'Random path',
-    kind: 'random',
-  });
+test('Cash Flow exposes only Typical and the nine approved historical periods', () => {
+  assert.deepEqual(
+    CASH_FLOW_PATH_OPTIONS.map(option => option.id),
+    [TYPICAL_CASH_FLOW_PATH_ID, ...HISTORICAL_PERIODS.map(period => period.id)]
+  );
+  assert.equal(CASH_FLOW_PATH_OPTIONS[0].kind, 'typical');
+  assert.equal(CASH_FLOW_PATH_OPTIONS.slice(1).every(option => option.kind === 'historical'), true);
+  assert.equal(CASH_FLOW_PATH_OPTIONS.some(option => option.id === 'random'), false);
+  assert.equal(CASH_FLOW_PATH_OPTIONS.some(option => option.label === 'Random path'), false);
   assert.deepEqual(
     HISTORICAL_PERIODS.map(period => period.startYear),
     [1929, 1937, 1966, 1973, 1995, 2000, 2008, 2009, 2022]
