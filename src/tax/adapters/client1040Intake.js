@@ -16,8 +16,16 @@ import { validateClient1040Intake } from './client1040IntakeValidate.js';
 
 const PASS_THROUGH_LINE_IDS = ['line11a', 'line15', 'line17', 'line19', 'line20', 'line23'];
 
-function assertVersionedIntakeIsMappable(intake){
-  const validation = validateClient1040Intake(intake);
+function assertClient1040IntakeShape(intake){
+  if(!intake || typeof intake !== 'object' || Array.isArray(intake)){
+    throw new Error('intake must be a plain object');
+  }
+  if(!intake.filingStatus){
+    throw new Error('intake.filingStatus is required');
+  }
+}
+
+function assertVersionedIntakeIsMappable(validation){
   if(validation.contract.compatibilityMode
       === CLIENT_1040_COMPATIBILITY_MODES.LEGACY_UNVERSIONED){
     return validation.contract.compatibilityMode;
@@ -36,25 +44,11 @@ function assertVersionedIntakeIsMappable(intake){
 
 
 
-export function client1040IntakeToComposerInput(
+function mapClient1040IntakeToComposerInput(
   intake,
-  { additionalNetLongTermCapitalGain = 0 } = {},
+  intakeCompatibilityMode,
+  additionalNetLongTermCapitalGain,
 ){
-
-  if(!intake || typeof intake !== 'object' || Array.isArray(intake)){
-
-    throw new Error('intake must be a plain object');
-
-  }
-
-  if(!intake.filingStatus){
-
-    throw new Error('intake.filingStatus is required');
-
-  }
-
-  const intakeCompatibilityMode = assertVersionedIntakeIsMappable(intake);
-
   const input = {
     filingStatus: intake.filingStatus,
     intakeCompatibilityMode,
@@ -436,6 +430,44 @@ export function client1040IntakeToComposerInput(
 
   return input;
 
+}
+
+export function client1040IntakeToComposerInput(
+  intake,
+  { additionalNetLongTermCapitalGain = 0 } = {},
+){
+  assertClient1040IntakeShape(intake);
+  const validation = validateClient1040Intake(intake);
+  const intakeCompatibilityMode = assertVersionedIntakeIsMappable(validation);
+  return mapClient1040IntakeToComposerInput(
+    intake,
+    intakeCompatibilityMode,
+    additionalNetLongTermCapitalGain
+  );
+}
+
+export function prepareClient1040IntakeForComposition(
+  intake,
+  context,
+  { strict = true, additionalNetLongTermCapitalGain = 0 } = {},
+){
+  const validation = validateClient1040Intake(intake, context);
+  const canonical = validation.contract.compatibilityMode
+    === CLIENT_1040_COMPATIBILITY_MODES.CANONICAL;
+  if(validation.errors.length > 0 && (strict || canonical)){
+    const error = new Error(validation.errors.map(entry => entry.message).join('; '));
+    error.validation = validation;
+    throw error;
+  }
+
+  assertClient1040IntakeShape(intake);
+  const intakeCompatibilityMode = assertVersionedIntakeIsMappable(validation);
+  const input = mapClient1040IntakeToComposerInput(
+    intake,
+    intakeCompatibilityMode,
+    additionalNetLongTermCapitalGain
+  );
+  return { input, validation };
 }
 
 
