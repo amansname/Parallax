@@ -63,6 +63,44 @@ required-check monitoring in one decision.
 Decision 1 never authorizes merge, auto-merge, deployment-setting changes,
 manual deployment, destructive Git operations, or material scope expansion.
 
+### Delivery-capability gate
+
+When Decision 1 explicitly authorizes end-to-end delivery through a draft PR,
+it is not permission to build an undeliverable local candidate. Before the
+first implementation edit, prove that the chosen execution environment can
+complete every required step through the draft PR. For a narrower assignment,
+prove only the capabilities required to reach its explicitly authorized
+terminal state.
+
+The end-to-end gate requires:
+
+- it is attached to the Parallax repository and a clean isolated worktree based
+  on current `origin/main`;
+- `origin` exists and the approved Parallax identity can fetch, push, publish a
+  draft PR, and read its checks;
+- locked dependencies can be installed and, when the selected tier requires
+  `npm run verify`, a supported Chrome/Chromium executable is available; and
+- the environment can commit the frozen candidate and request independent
+  review.
+
+Use harmless probes before editing. Do not infer these capabilities from a
+task label, a Cloud/local badge, a prior session, or the presence of source
+files.
+
+If a capability required for the authorized terminal state is missing, do not
+implement that assignment in the environment. Route end-to-end delivery to the
+saved local Parallax project and create a clean worktree there. Cloud or
+projectless work may continue when the owner explicitly narrows the assignment
+to an endpoint that the environment can actually complete.
+
+A task or session ID is a reference, not a portable Git artifact. Do not use a
+generic **Apply changes** handoff for governed Parallax candidates when the
+destination checkout, baseline, cleanliness, or branch is unverified. Prefer a
+pushed branch or fetchable commit. If no portable commit exists, reproduce the
+accepted behavior narrowly from the original request and evidence in a new
+clean worktree; leave any conflicted apply result untouched as recovery
+evidence.
+
 ## 2. Preflight and build
 
 Before editing, record:
@@ -155,6 +193,16 @@ Preview and browser verification use only `http://127.0.0.1:8825/` and the
 immutable artifact from the exact clean candidate. Stop a stale preview; do not
 change the canonical origin.
 
+Before freezing the candidate, install locked dependencies and, when the
+selected tier requires `npm run verify`, confirm that port 8825 and the browser
+executable are available. Run one authoritative clean-candidate verifier when
+required by the selected tier. Classify its first failure before changing
+anything: correct only branch-caused, in-scope product or verifier defects;
+remove stale local preview/process state for environment failures. After a
+pass, do not amend or replace the candidate without either a concrete
+branch-caused required-gate failure or a concrete in-scope independent-review
+finding.
+
 ## 4. Draft PR and review
 
 Commit only the reviewed scope, freeze the candidate SHA, push through the
@@ -184,6 +232,10 @@ complexity.
 Automation enforces objective facts. Independent review evaluates whether
 scope, rationale, and evidence are sufficient. Do not encode every judgment
 call in the PR-body parser.
+
+When both a branch push and draft-PR creation start equivalent checks for the
+same SHA, monitor the pull-request run as authoritative. Do not rerun, amend, or
+publish another candidate merely because the duplicate run is still visible.
 
 Report lifecycle and hold:
 
