@@ -2993,7 +2993,9 @@ export async function runWizardBrowserContract(
       failure = failure
         ? new AggregateError(
             [failure, error],
-            'Wizard contract and restoration diagnostics both failed',
+            `Wizard contract and restoration diagnostics both failed\n`
+              + `Primary: ${failure.stack || failure.message || String(failure)}\n`
+              + `Restoration: ${error.stack || error.message || String(error)}`,
           )
         : error;
     }
