@@ -1,94 +1,49 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { validatePullRequestBody, validatePullRequestEvent } from './validate-pr-body.mjs';
 
+const headings = [
+  'Problem and user-visible impact',
+  'Exact reproduction',
+  'Root cause',
+  'Acceptance matrix',
+  'Production code changed',
+  'Tests added or changed',
+  'Fail-before evidence',
+  'Pass-after evidence',
+  'Persisted-state and migration impact',
+  'Financial invariants checked',
+  'Exact commands and results',
+  'Required CI status',
+  'Known failures and proof gaps',
+  'Scope exclusions',
+  'Independent review status',
+  'Rollback considerations',
+  'Truthful completion gate',
+];
+
 const BASE_SHA = '1111111111111111111111111111111111111111';
 const HEAD_SHA = '2222222222222222222222222222222222222222';
-const COMPLETION = 'Every scoped behavior meets its done-when evidence on this candidate, and every required check and review is satisfied.';
-const PULL_REQUEST_TEMPLATE = readFileSync(
-  new URL('../.github/PULL_REQUEST_TEMPLATE.md', import.meta.url),
-  'utf8',
-);
-const EVIDENCE_TABLE = `| Done-when criterion | Baseline or pre-fix evidence | Production change | Verification | Candidate result |
-|---|---|---|---|---|
-| Governance policy is risk-scaled | Existing workflow has fourteen stages | Canonical workflow and validator | Governance tests | Five phases and three tiers validated |`;
 
-function validBody({
-  baseSha = BASE_SHA,
-  headSha = HEAD_SHA,
-  riskTier = 'Tier 3',
-  workType = 'defect',
-  lifecycle = 'Merge-ready',
-  hold = 'None',
-  bareCommands = false,
-} = {}){
-  const commandResult = command => bareCommands ? command : `${command} — exit 0`;
-  const sections = [
-    `## Workflow classification
-- Risk tier: ${riskTier}
-- Risk rationale: Governance and workflow behavior
-- Work type: ${workType}
-- Lifecycle: ${lifecycle}
-- Hold: ${hold}`,
-    `## Outcome and scope
-The workflow scales evidence while preserving required GitHub gates.`,
-    `## Candidate identity
-- Base commit SHA: ${baseSha}
-- Candidate head SHA: ${headSha}`,
-    `## Acceptance evidence
-${EVIDENCE_TABLE}`,
-  ];
-
-  if(workType === 'defect'){
-    sections.push(`## Defect reproduction and root cause
-- Exact reproduction: Submit the previous template for a governance-only change.
-- Base failure evidence: The base validator rejects that body for defect-only evidence.
-- Root cause: The previous template made defect fields unconditional.
-- Fail-before regression evidence: The focused test fails against the base implementation.
-- Pass-after candidate evidence: The focused test passes on the candidate.`);
-  }
-
-  sections.push(
-    `## Implementation and authority
-Repository governance files implement the approved policy.`,
-    `## Tests and verification
-Focused governance validation passed.
-
-${commandResult('npm run governance:check')}
-${riskTier === 'Tier 1' ? 'npm test — required CI' : commandResult('npm test')}
-${riskTier === 'Tier 1' ? 'npm run verify — required CI' : commandResult('npm run verify')}
-${commandResult('git diff --check')}`,
-  );
-
-  if(riskTier === 'Tier 3'){
-    sections.push(`## Protected policy and compatibility evidence
-Required GitHub checks remain invariant and the existing deployment director is unchanged.`);
-  }
-
-  sections.push(
-    `## Required CI status
-- [x] Governance safeguards
-- [x] Unit tests
-- [x] Build deployable site artifact
-- [x] Full browser verification`,
-    `## Independent review
-- Review method: Separate review against main.
-- Reviewer/result link: https://example.com/review/1
-- Findings and re-review status: No blocking issue.`,
-    `## Known failures and proof gaps
-None recorded.`,
-    `## Rollback and deployment
-- Rollback considerations: Revert this governance-only PR.
-- Saved-data risk: None - repository governance only.
-- Deployment impact: None - automatic Pages remains unchanged.
-- Planned live proof: Not applicable - no product behavior changes.
-- Post-merge identity chain: Candidate to squash merge to Pages artifact receipt.`,
-    `## Truthful completion gate
-- [x] ${COMPLETION}`,
-  );
-
-  return sections.join('\n\n');
+function validBody({ baseSha = BASE_SHA, headSha = HEAD_SHA, bareCommands = false } = {}){
+  return headings.map(heading => {
+    if(heading === 'Exact reproduction'){
+      return `## ${heading}\n- Base commit SHA: ${baseSha}\n- Branch commit SHA: ${headSha}`;
+    }
+    if(heading === 'Acceptance matrix'){
+      return `## ${heading}\n| Reported symptom | Exact reproduction | Pre-fix failure | Production change | Regression assertion | Post-fix proof |\n|---|---|---|---|---|---|\n| Governance gap | Base inspection | Missing guard | Validator | Reject missing evidence | Validator accepts full evidence |`;
+    }
+    if(heading === 'Exact commands and results'){
+      if(bareCommands){
+        return `## ${heading}\nnpm run governance:check\nnpm test\nnpm run verify\ngit diff --check`;
+      }
+      return `## ${heading}\nnpm run governance:check — exit 0\nnpm test — 662 passed\nnpm run verify — exact blocker recorded\ngit diff --check — exit 0`;
+    }
+    if(heading === 'Truthful completion gate'){
+      return `## ${heading}\n- [x] Every behavior described as fixed was reproduced on the base branch and directly verified on this branch.`;
+    }
+    return `## ${heading}\nRecorded evidence`;
+  }).join('\n\n');
 }
 
 function validEvent(body = validBody()){
@@ -102,161 +57,29 @@ function validEvent(body = validBody()){
   };
 }
 
-test('accepts a Tier 3 defect body with protected and defect evidence', () => {
+test('accepts a PR body with all required evidence fields', () => {
   assert.deepEqual(validatePullRequestBody(validBody()), []);
 });
 
-test('accepts a compact Tier 1 docs body with focused local commands', () => {
-  assert.deepEqual(validatePullRequestBody(validBody({
-    riskTier: 'Tier 1',
-    workType: 'docs',
-  })), []);
+test('rejects an unchecked gate, placeholder commands, and blank acceptance row', () => {
+  const invalid = validBody()
+    .replace('- [x] Every behavior', '- [ ] Every behavior')
+    .replace('— exit 0', '# actual result')
+    .replace('| Governance gap | Base inspection | Missing guard | Validator | Reject missing evidence | Validator accepts full evidence |', '| | | | | | |');
+  const failures = validatePullRequestBody(invalid).join('\n');
+  assert.match(failures, /completion checkbox/);
+  assert.match(failures, /template placeholder/);
+  assert.match(failures, /fully populated/);
 });
 
-test('accepts Draft-ready with pending CI and an unchecked completion gate', () => {
-  const body = validBody({ lifecycle: 'Draft-ready', hold: 'CI' })
-    .replace(/- \[x\] (Governance safeguards|Unit tests|Build deployable site artifact|Full browser verification)/g, '- [ ] $1')
-    .replace(`- [x] ${COMPLETION}`, `- [ ] ${COMPLETION}`);
-  assert.deepEqual(validatePullRequestBody(body), []);
+test('skips non-pull-request event payloads', () => {
+  assert.deepEqual(validatePullRequestEvent({ ref: 'refs/heads/main' }), {
+    skipped: true,
+    failures: [],
+  });
 });
 
-test('accepts the actual template completion task and ignores adjacent or trailing guidance comments', () => {
-  const templateCompletion = PULL_REQUEST_TEMPLATE.slice(
-    PULL_REQUEST_TEMPLATE.indexOf('## Truthful completion gate'),
-  ).replace(`- [ ] ${COMPLETION}`, `- [x] ${COMPLETION}`);
-  const actualTemplateBody = validBody().replace(
-    /## Truthful completion gate[\s\S]*$/,
-    templateCompletion,
-  );
-  assert.deepEqual(validatePullRequestBody(actualTemplateBody), []);
-
-  const trailingCommentBody = validBody().replace(
-    `- [x] ${COMPLETION}`,
-    `- [x] ${COMPLETION} <!-- Check only for Merge-ready. -->`,
-  );
-  assert.deepEqual(validatePullRequestBody(trailingCommentBody), []);
-});
-
-test('requires Tier 3 for governance work', () => {
-  const failures = validatePullRequestBody(validBody({
-    riskTier: 'Tier 1',
-    workType: 'governance',
-  })).join('\n');
-  assert.match(failures, /governance requires Risk tier: Tier 3/);
-});
-
-test('requires Tier 3 when protected paths change', () => {
-  for(const protectedPath of [
-    'engine.js',
-    'src/household/migrateAccounts.js',
-    '.github/workflows/test.yml',
-  ]){
-    const failures = validatePullRequestBody(
-      validBody({ riskTier: 'Tier 1', workType: 'feature' }),
-      { changedFiles: [protectedPath] },
-    ).join('\n');
-    assert.match(failures, /Protected changes require Risk tier: Tier 3/);
-  }
-});
-
-test('requires Tier 3 for cross-authority changes', () => {
-  const failures = validatePullRequestBody(
-    validBody({ riskTier: 'Tier 2', workType: 'feature' }),
-    { changedFiles: ['ui/householdWizard.js', 'src/household/wizardEdits.js'] },
-  ).join('\n');
-  assert.match(failures, /Cross-authority changes require Risk tier: Tier 3: UI, household/);
-});
-
-test('requires the full local command set for Tier 2 and Tier 3', () => {
-  const body = validBody({ riskTier: 'Tier 2', workType: 'feature' })
-    .replace('npm run verify — exit 0', 'npm run verify — required CI');
-  const failures = validatePullRequestBody(body).join('\n');
-  assert.match(failures, /concrete result for: npm run verify/);
-});
-
-test('requires protected evidence for Tier 3', () => {
-  const body = validBody().replace(
-    /\n\n## Protected policy and compatibility evidence\n[^#]+/,
-    '',
-  );
-  const failures = validatePullRequestBody(body).join('\n');
-  assert.match(failures, /missing required PR section for Tier 3/);
-});
-
-test('requires reproduction and root cause for defects', () => {
-  const body = validBody().replace(
-    /\n\n## Defect reproduction and root cause\n[^#]+/,
-    '',
-  );
-  const failures = validatePullRequestBody(body).join('\n');
-  assert.match(failures, /missing required PR section for work type defect/);
-});
-
-test('requires explicit fail-before and pass-after defect evidence', () => {
-  for(const label of [
-    'Exact reproduction',
-    'Base failure evidence',
-    'Root cause',
-    'Fail-before regression evidence',
-    'Pass-after candidate evidence',
-  ]){
-    const body = validBody().replace(
-      new RegExp(`- ${label}:.*`),
-      `- ${label}: <!-- missing -->`,
-    );
-    assert.match(
-      validatePullRequestBody(body).join('\n'),
-      new RegExp(`must provide ${label}`),
-    );
-  }
-});
-
-test('requires substantive rollback and deployment field values', () => {
-  for(const label of [
-    'Rollback considerations',
-    'Saved-data risk',
-    'Deployment impact',
-    'Planned live proof',
-    'Post-merge identity chain',
-  ]){
-    const body = validBody().replace(
-      new RegExp(`- ${label}:.*`),
-      `- ${label}: <!-- missing -->`,
-    );
-    assert.match(
-      validatePullRequestBody(body).join('\n'),
-      new RegExp(`must provide ${label}`),
-    );
-  }
-});
-
-test('requires substantive independent-review field values', () => {
-  for(const label of ['Review method', 'Reviewer/result link', 'Findings and re-review status']){
-    const body = validBody().replace(
-      new RegExp(`- ${label}:.*`),
-      `- ${label}: <!-- missing -->`,
-    );
-    assert.match(
-      validatePullRequestBody(body).join('\n'),
-      new RegExp(`must provide ${label}`),
-    );
-  }
-});
-
-test('rejects invalid tier, work type, lifecycle, and hold values', () => {
-  const body = validBody()
-    .replace('Risk tier: Tier 3', 'Risk tier: Tiny')
-    .replace('Work type: defect', 'Work type: cleanup')
-    .replace('Lifecycle: Merge-ready', 'Lifecycle: Done')
-    .replace('Hold: None', 'Hold: Maybe');
-  const failures = validatePullRequestBody(body).join('\n');
-  assert.match(failures, /Risk tier/);
-  assert.match(failures, /Work type/);
-  assert.match(failures, /Lifecycle/);
-  assert.match(failures, /Hold/);
-});
-
-test('rejects stale evidence that does not name current event SHAs', () => {
+test('rejects stale evidence that does not name the event base and head SHAs', () => {
   const historicalBody = validBody({
     baseSha: '3333333333333333333333333333333333333333',
     headSha: '4444444444444444444444444444444444444444',
@@ -266,97 +89,163 @@ test('rejects stale evidence that does not name current event SHAs', () => {
   assert.match(failures, /current head SHA/);
 });
 
-test('requires checked CI and completion evidence for Merge-ready', () => {
-  const failures = validatePullRequestBody(
-    validBody()
-      .replace('- [x] Build deployable site artifact', '- [ ] Build deployable site artifact')
-      .replace(`- [x] ${COMPLETION}`, `- [ ] ${COMPLETION}`),
-  ).join('\n');
-  assert.match(failures, /checked CI status: Build deployable site artifact/);
-  assert.match(failures, /completion checkbox must be checked/);
-});
-
-test('rejects a checked completion claim for Draft-ready', () => {
-  const failures = validatePullRequestBody(validBody({
-    lifecycle: 'Draft-ready',
-    hold: 'Review',
-  })).join('\n');
-  assert.match(failures, /must remain unchecked/);
-});
-
-test('rejects required commands without concrete results', () => {
-  const failures = validatePullRequestBody(validBody({ bareCommands: true })).join('\n');
-  for(const command of ['npm run governance:check', 'npm test', 'npm run verify', 'git diff --check']){
-    assert.ok(failures.includes(`must record a concrete result for: ${command}`));
-  }
-});
-
-test('rejects failed or blocked local results for Merge-ready', () => {
-  for(const [command, failedResult] of [
-    ['npm run governance:check', 'exit 1'],
-    ['npm test', '841 tests passed; 1 failed'],
-    ['npm run verify', 'blocked by browser error'],
-    ['git diff --check', 'failed'],
-  ]){
-    const body = validBody().replace(`${command} — exit 0`, `${command} — ${failedResult}`);
-    assert.match(
-      validatePullRequestBody(body).join('\n'),
-      new RegExp(`Merge-ready requires a successful local result for: ${command.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`),
-    );
-  }
-});
-
-test('rejects a blank acceptance row', () => {
-  const body = validBody().replace(
-    '| Governance policy is risk-scaled | Existing workflow has fourteen stages | Canonical workflow and validator | Governance tests | Five phases and three tiers validated |',
-    '| | | | | |',
-  );
-  assert.match(validatePullRequestBody(body).join('\n'), /fully populated five-column/);
-});
-
-test('rejects required headings hidden in H3, comments, or fenced examples', () => {
-  for(const body of [
+test('rejects required headings hidden in H3, HTML comments, or fenced examples', () => {
+  const spoofedBodies = [
     validBody().replace(/^## /gm, '### '),
     `<!--\n${validBody()}\n-->`,
     `\`\`\`markdown\n${validBody()}\n\`\`\``,
-  ]){
-    assert.match(validatePullRequestBody(body).join('\n'), /missing required PR section/);
+  ];
+
+  for(const body of spoofedBodies){
+    const failures = validatePullRequestEvent(validEvent(body)).failures.join('\n');
+    assert.match(failures, /missing required PR section/);
   }
 });
 
-test('rejects raw HTML evidence wrappers', () => {
-  for(const tag of ['pre', 'textarea', 'script', 'style']){
-    const failures = validatePullRequestBody(`<${tag}>\n${validBody()}\n</${tag}>`).join('\n');
+test('rejects a completion gate hidden in an HTML comment or fenced example', () => {
+  const checkedGate = '- [x] Every behavior described as fixed was reproduced on the base branch and directly verified on this branch.';
+  const uncheckedBody = validBody().replace('- [x] Every behavior', '- [ ] Every behavior');
+  const spoofedBodies = [
+    `${uncheckedBody}\n\n<!-- ${checkedGate} -->`,
+    `${uncheckedBody}\n\n\`\`\`markdown\n${checkedGate}\n\`\`\``,
+  ];
+
+  for(const body of spoofedBodies){
+    const failures = validatePullRequestEvent(validEvent(body)).failures.join('\n');
+    assert.match(failures, /completion checkbox/);
+  }
+});
+
+test('rejects an acceptance row hidden in a fenced example', () => {
+  const acceptanceRow = '| Governance gap | Base inspection | Missing guard | Validator | Reject missing evidence | Validator accepts full evidence |';
+  const spoofedBody = validBody().replace(
+    acceptanceRow,
+    `\`\`\`markdown\n${acceptanceRow}\n\`\`\``,
+  );
+  const failures = validatePullRequestEvent(validEvent(spoofedBody)).failures.join('\n');
+  assert.match(failures, /fully populated/);
+});
+
+test('rejects completion and acceptance evidence hidden in indented code', () => {
+  const acceptanceRow = '| Governance gap | Base inspection | Missing guard | Validator | Reject missing evidence | Validator accepts full evidence |';
+  const checkedGate = '- [x] Every behavior described as fixed was reproduced on the base branch and directly verified on this branch.';
+  const spoofedBody = validBody()
+    .replace(acceptanceRow, `    ${acceptanceRow}`)
+    .replace(checkedGate, `- [ ] Every behavior described as fixed was reproduced on the base branch and directly verified on this branch.\n\n    ${checkedGate}`);
+  const failures = validatePullRequestEvent(validEvent(spoofedBody)).failures.join('\n');
+  assert.match(failures, /fully populated/);
+  assert.match(failures, /completion checkbox/);
+});
+
+test('rejects required evidence wrapped in an HTML pre block', () => {
+  const failures = validatePullRequestEvent(validEvent(`<pre>\n${validBody()}\n</pre>`)).failures.join('\n');
+  assert.match(failures, /raw HTML block/);
+});
+
+test('rejects required evidence wrapped in other raw HTML blocks', () => {
+  for(const tag of ['textarea', 'script', 'style']){
+    const failures = validatePullRequestEvent(validEvent(`<${tag}>\n${validBody()}\n</${tag}>`)).failures.join('\n');
     assert.match(failures, /raw HTML block/);
   }
 });
 
-test('rejects visually blank acceptance evidence', () => {
-  const evidenceRow = '| Governance policy is risk-scaled | Existing workflow has fourteen stages | Canonical workflow and validator | Governance tests | Five phases and three tiers validated |';
-  for(const invisible of ['&#x200B;', '&#x2800;', '&#x3164;', '&#xFFA0;', '&#x13441;']){
-    const row = `| ${invisible} | ${invisible} | ${invisible} | ${invisible} | ${invisible} |`;
-    assert.match(validatePullRequestBody(validBody().replace(evidenceRow, row)).join('\n'), /fully populated/);
-  }
+test('rejects the unit-test counts placeholder from the PR template', () => {
+  const placeholderBody = validBody().replace(
+    'npm test',
+    'npm test # actual counts and result\n',
+  );
+  const failures = validatePullRequestEvent(validEvent(placeholderBody)).failures.join('\n');
+  assert.match(failures, /template placeholder/);
 });
 
-test('rejects image alt text as acceptance or command evidence', () => {
-  const image = '![Recorded evidence](https://example.com/transparent.gif)';
-  const evidenceRow = '| Governance policy is risk-scaled | Existing workflow has fourteen stages | Canonical workflow and validator | Governance tests | Five phases and three tiers validated |';
-  const imageRow = `| ${image} | ${image} | ${image} | ${image} | ${image} |`;
-  let body = validBody({ bareCommands: true }).replace(evidenceRow, imageRow);
-  for(const command of ['npm run governance:check', 'npm test', 'npm run verify', 'git diff --check']){
-    body = body.replace(command, `${command} ${image}`);
-  }
-  const failures = validatePullRequestBody(body).join('\n');
+test('rejects required evidence hidden in a list-contained fenced block', () => {
+  const hiddenBody = validBody().split('\n').map(line => `  ${line}`).join('\n');
+  const spoofedBody = `- \`\`\`markdown\n${hiddenBody}\n  \`\`\``;
+  const failures = validatePullRequestEvent(validEvent(spoofedBody)).failures.join('\n');
+  assert.match(failures, /missing required PR section/);
+});
+
+test('rejects a pipe-delimited row that is not a rendered GFM table', () => {
+  const table = '| Reported symptom | Exact reproduction | Pre-fix failure | Production change | Regression assertion | Post-fix proof |\n|---|---|---|---|---|---|\n| Governance gap | Base inspection | Missing guard | Validator | Reject missing evidence | Validator accepts full evidence |';
+  const rowOnly = '| Governance gap | Base inspection | Missing guard | Validator | Reject missing evidence | Validator accepts full evidence |';
+  const failures = validatePullRequestEvent(validEvent(validBody().replace(table, rowOnly))).failures.join('\n');
   assert.match(failures, /fully populated/);
+});
+
+test('rejects an acceptance row whose cells render as blank HTML comments', () => {
+  const evidenceRow = '| Governance gap | Base inspection | Missing guard | Validator | Reject missing evidence | Validator accepts full evidence |';
+  const commentOnlyRow = '| <!-- omitted --> | <!-- omitted --> | <!-- omitted --> | <!-- omitted --> | <!-- omitted --> | <!-- omitted --> |';
+  const failures = validatePullRequestEvent(validEvent(validBody().replace(evidenceRow, commentOnlyRow))).failures.join('\n');
+  assert.match(failures, /fully populated/);
+});
+
+test('rejects required commands that do not record concrete results', () => {
+  const failures = validatePullRequestEvent(validEvent(validBody({ bareCommands: true }))).failures.join('\n');
   for(const command of ['npm run governance:check', 'npm test', 'npm run verify', 'git diff --check']){
     assert.ok(failures.includes(`must record a concrete result for: ${command}`));
   }
 });
 
-test('skips non-pull-request event payloads', () => {
-  assert.deepEqual(validatePullRequestEvent({ ref: 'refs/heads/main' }), {
-    skipped: true,
-    failures: [],
-  });
+test('rejects acceptance cells made only from invisible character references', () => {
+  const evidenceRow = '| Governance gap | Base inspection | Missing guard | Validator | Reject missing evidence | Validator accepts full evidence |';
+  const invisibleRow = '| &#8203; | &#x200B; | &ZeroWidthSpace; | &zwnj; | &NoBreak; | &nbsp; |';
+  const failures = validatePullRequestEvent(validEvent(validBody().replace(evidenceRow, invisibleRow))).failures.join('\n');
+  assert.match(failures, /fully populated/);
+});
+
+test('rejects literal and referenced default-ignorable acceptance cells', () => {
+  const evidenceRow = '| Governance gap | Base inspection | Missing guard | Validator | Reject missing evidence | Validator accepts full evidence |';
+  for(const invisible of ['\u034f', '&#x034F;']){
+    const invisibleRow = `| ${invisible} | ${invisible} | ${invisible} | ${invisible} | ${invisible} | ${invisible} |`;
+    const failures = validatePullRequestEvent(validEvent(validBody().replace(evidenceRow, invisibleRow))).failures.join('\n');
+    assert.match(failures, /fully populated/);
+  }
+});
+
+test('rejects required sections containing only default-ignorable evidence', () => {
+  const rootCause = '## Root cause\nRecorded evidence';
+  for(const invisible of ['\u034f', '&#x034F;']){
+    const failures = validatePullRequestEvent(validEvent(validBody().replace(rootCause, `## Root cause\n${invisible}`))).failures.join('\n');
+    assert.match(failures, /required PR section has no evidence: Root cause/);
+  }
+});
+
+test('rejects visually blank symbols, fillers, and hieroglyphs across tables and sections', () => {
+  const evidenceRow = '| Governance gap | Base inspection | Missing guard | Validator | Reject missing evidence | Validator accepts full evidence |';
+  const rootCause = '## Root cause\nRecorded evidence';
+  for(const invisible of [
+    '\u2800', '&#x2800;',
+    '\u3164', '&#x3164;',
+    '\uffa0', '&#xFFA0;',
+    '\u{13441}', '&#x13441;',
+    '\u{13442}', '&#x13442;',
+  ]){
+    const invisibleRow = `| ${invisible} | ${invisible} | ${invisible} | ${invisible} | ${invisible} | ${invisible} |`;
+    const failures = validatePullRequestEvent(validEvent(validBody()
+      .replace(evidenceRow, invisibleRow)
+      .replace(rootCause, `## Root cause\n${invisible}`))).failures.join('\n');
+    assert.match(failures, /fully populated/);
+    assert.match(failures, /required PR section has no evidence: Root cause/);
+  }
+});
+
+test('rejects image alt text as section, table, or command evidence', () => {
+  const image = '![Recorded evidence](https://example.com/transparent.gif)';
+  const evidenceRow = '| Governance gap | Base inspection | Missing guard | Validator | Reject missing evidence | Validator accepts full evidence |';
+  const imageRow = `| ${image} | ${image} | ${image} | ${image} | ${image} | ${image} |`;
+  const rootCause = '## Root cause\nRecorded evidence';
+  let spoofedBody = validBody({ bareCommands: true })
+    .replace(evidenceRow, imageRow)
+    .replace(rootCause, `## Root cause\n${image}`);
+
+  for(const command of ['npm run governance:check', 'npm test', 'npm run verify', 'git diff --check']){
+    spoofedBody = spoofedBody.replace(command, `${command} ${image}`);
+  }
+
+  const failures = validatePullRequestEvent(validEvent(spoofedBody)).failures.join('\n');
+  assert.match(failures, /fully populated/);
+  assert.match(failures, /required PR section has no evidence: Root cause/);
+  for(const command of ['npm run governance:check', 'npm test', 'npm run verify', 'git diff --check']){
+    assert.ok(failures.includes(`must record a concrete result for: ${command}`));
+  }
 });
