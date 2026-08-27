@@ -1400,7 +1400,7 @@ test('matching Tax-page IRA distributions and Roth conversions reach tax, cash, 
   assert.strictEqual(future.grossOtherIncome, 0);
 });
 
-test('MFJ current-return IRA totals stay taxable without inventing owner attribution', async () => {
+test('MFJ current-return IRA totals reduce aggregate capacity without inventing owner attribution', async () => {
   const subject = structuredClone(plan);
   subject.meta.planningAsOfYear = 2026;
   subject.meta.filingStatus = 'marriedFilingJointly';
@@ -1419,10 +1419,10 @@ test('MFJ current-return IRA totals stay taxable without inventing owner attribu
   };
   subject.portfolio.extraAccounts = [
     createAccount('traditional_ira', {
-      owner: 'client', balance: 150_000, valuationDate: '2025-12-31',
+      owner: 'client', balance: 973_390, valuationDate: '2025-12-31',
     }),
     createAccount('traditional_ira', {
-      owner: 'spouse', balance: 150_000, valuationDate: '2025-12-31',
+      owner: 'spouse', balance: 438_062, valuationDate: '2025-12-31',
     }),
   ];
   subject.incomeTax.current1040 = {
@@ -1444,9 +1444,9 @@ test('MFJ current-return IRA totals stay taxable without inventing owner attribu
       taxExemptInterest: 0,
       ordinaryDividends: 0,
       qualifiedDividends: 0,
-      iraDistributions: 40_000,
-      taxableIra: 40_000,
-      rothConversion: 20_000,
+      iraDistributions: 0,
+      taxableIra: 0,
+      rothConversion: 40_000,
       pensionAmount: 0,
       taxablePensions: 0,
       otherIncome: 0,
@@ -1457,19 +1457,19 @@ test('MFJ current-return IRA totals stay taxable without inventing owner attribu
   };
 
   const facts = await householdIncome(subject, 2026, { baseYear: 2026 });
-  assert.strictEqual(facts.iraDistributions, 60_000);
-  assert.strictEqual(facts.iraCashDistributions, 40_000);
-  assert.strictEqual(facts.taxableIra, 60_000);
+  assert.strictEqual(facts.iraDistributions, 40_000);
+  assert.strictEqual(facts.iraCashDistributions, 0);
+  assert.strictEqual(facts.taxableIra, 40_000);
   assert.strictEqual(Object.hasOwn(facts, 'iraDistributionsByOwner'), false);
   assert.strictEqual(Object.hasOwn(facts, 'iraCashDistributionsByOwner'), false);
 
   const state = await withdrawalAccountState(subject, {}, facts);
   assert.strictEqual(state.valid, true);
   assert.strictEqual(state.rmd.status, 'not-required');
-  assert.strictEqual(state.reservations.traditionalTotal, 60_000);
-  assert.strictEqual(state.limits.deferredWithdrawal.max, null);
-  assert.strictEqual(state.limits.rothConversion.max, null);
-  assert.strictEqual(state.limits.qcd.max, null);
+  assert.strictEqual(state.reservations.traditionalTotal, 40_000);
+  assert.strictEqual(state.limits.deferredWithdrawal.max, 1_371_452);
+  assert.strictEqual(state.limits.rothConversion.max, 1_371_452);
+  assert.strictEqual(state.limits.qcd.max, 1_371_452);
 
   const result = await evaluateYear({
     plan: subject,
@@ -1481,10 +1481,10 @@ test('MFJ current-return IRA totals stay taxable without inventing owner attribu
     },
   });
   assert.strictEqual(result.code, undefined);
-  assert.strictEqual(result.totals.agi, 60_000);
+  assert.strictEqual(result.totals.agi, 40_000);
   assert.ok(result.modeledFederalIncomeTax.selected > 0);
 
-  const blocked = await evaluateYear({
+  const incremental = await evaluateYear({
     plan: subject,
     taxYear: 2026,
     facts,
@@ -1493,10 +1493,12 @@ test('MFJ current-return IRA totals stay taxable without inventing owner attribu
       rothWithdrawal: 0, qcd: 0,
     },
   });
-  assert.strictEqual(blocked.code, 'WITHDRAWAL_ACCOUNT_LIMIT_EXCEEDED');
-  assert.ok(blocked.accountState.issues.some(issue => (
-    issue.code === 'TRADITIONAL_DISTRIBUTION_OWNER_UNAVAILABLE'
-  )));
+  assert.strictEqual(incremental.code, undefined);
+  assert.strictEqual(incremental.accountState.valid, true);
+  assert.strictEqual(incremental.accountState.levers.rothConversion, 1);
+  assert.strictEqual(incremental.accountState.pools.traditional.available, 1_411_452);
+  assert.strictEqual(incremental.accountState.pools.traditional.used, 40_001);
+  assert.strictEqual(incremental.accountState.pools.traditional.remaining, 1_371_451);
 });
 
 test('known current-year RMD is enforced before tax and net-cash calculations', async () => {
