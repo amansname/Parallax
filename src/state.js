@@ -25,29 +25,87 @@ export const uiState = {
 };
 
 const PATH_KEY = 'parallax.pathReplay.v1';
-const DEFAULT_PATH_SEED = 20260609;
-const replayValues = (() => {
-  try{
-    const saved = JSON.parse(localStorage.getItem(PATH_KEY) || '{}');
-    return {
-      mode: ['typical','stressed','favorable','sequence-stress'].includes(saved.mode) ? saved.mode : 'typical',
-      seed: Math.max(1, parseInt(saved.seed, 10) || DEFAULT_PATH_SEED),
-    };
-  }catch{
-    return { mode:'typical', seed:DEFAULT_PATH_SEED };
-  }
-})();
+const PATH_REPLAY_MODES = Object.freeze([
+  'typical',
+  'stressed',
+  'favorable',
+  'sequence-stress',
+]);
 
-export const pathReplay = {
-  get mode(){ return replayValues.mode; },
-  set mode(value){ replayValues.mode = value; },
-  get seed(){ return replayValues.seed; },
-  set seed(value){ replayValues.seed = value; },
-};
-
-export function savePathReplay(){
-  try{ localStorage.setItem(PATH_KEY, JSON.stringify(pathReplay)); }catch{}
+function normalizePathSeed(value){
+  const numeric = Number(value);
+  if(!Number.isFinite(numeric)) return 1;
+  return (Math.trunc(numeric) >>> 0) || 1;
 }
+
+export function generateFreshPathSeed({
+  cryptoApi = globalThis.crypto,
+  random = Math.random,
+} = {}){
+  try{
+    if(typeof cryptoApi?.getRandomValues === 'function'){
+      const values = new Uint32Array(1);
+      cryptoApi.getRandomValues(values);
+      return normalizePathSeed(values[0]);
+    }
+  }catch{}
+
+  const sample = Number(random());
+  const bounded = Number.isFinite(sample)
+    ? Math.min(0.9999999999999999, Math.max(0, sample))
+    : 0;
+  return normalizePathSeed(Math.floor(bounded * 0xFFFFFFFF) + 1);
+}
+
+export function createPathReplaySession({
+  storage = globalThis.localStorage,
+  generateSeed = generateFreshPathSeed,
+} = {}){
+  let mode = 'typical';
+  try{
+    const saved = JSON.parse(storage?.getItem(PATH_KEY) || '{}');
+    mode = PATH_REPLAY_MODES.includes(saved.mode) ? saved.mode : 'typical';
+    if(Object.prototype.hasOwnProperty.call(saved, 'seed')){
+      storage?.setItem(PATH_KEY, JSON.stringify({ mode }));
+    }
+  }catch{}
+
+  let sessionSeed = null;
+  const pathReplay = {
+    get mode(){ return mode; },
+    set mode(value){ mode = value; },
+    get seed(){
+      if(sessionSeed === null) sessionSeed = normalizePathSeed(generateSeed());
+      return sessionSeed;
+    },
+  };
+
+  function refreshPathSeed(){
+    const generatedSeed = normalizePathSeed(generateSeed());
+    sessionSeed = sessionSeed !== null && generatedSeed === sessionSeed
+      ? normalizePathSeed(generatedSeed + 1)
+      : generatedSeed;
+    return sessionSeed;
+  }
+
+  function savePathReplay(){
+    try{
+      storage?.setItem(PATH_KEY, JSON.stringify({ mode: pathReplay.mode }));
+    }catch{}
+  }
+
+  return Object.freeze({
+    pathReplay,
+    refreshPathSeed,
+    savePathReplay,
+  });
+}
+
+const pathReplaySession = createPathReplaySession();
+
+export const pathReplay = pathReplaySession.pathReplay;
+export const refreshPathSeed = pathReplaySession.refreshPathSeed;
+export const savePathReplay = pathReplaySession.savePathReplay;
 
 const CASH_FLOW_PATH_KEY = 'parallax.cashFlowPath.v1';
 const cashFlowPathValues = (() => {

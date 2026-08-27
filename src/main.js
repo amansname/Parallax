@@ -1,4 +1,4 @@
-import { runSimulation, resolveInputs, generateReturnPath, resetSeed, LONGRUN_INFLATION, pathDigest, RISK_PROFILES, defaultPlan as plan } from '../engine.js';
+import { runSimulation, resolveInputs, generateReturnPath, resetSeed, LONGRUN_INFLATION, pathDigest, RISK_PROFILES, PROJECTION_EXECUTION_LIMITS, defaultPlan as plan } from '../engine.js';
 import { runFederalFundingSimulation } from './planning/tax/runMonteCarloWithFederalFunding.js';
 import { runHistoricalPathWithFederalTax } from './planning/tax/runHistoricalPathWithFederalTax.js';
 import { seqChartSvg } from '../ui/charts.js';
@@ -42,7 +42,7 @@ import { HISTORICAL_PERIODS } from './scenarios/historicalPeriods.js';
 import { installDesignSystemPrimitives } from '../ui/designSystemPrimitives.js';
 import {
   scenarios, sharedPaths, plansDirty, baseSnapshot,
-  pathReplay, cashFlowPathSelection, saveCashFlowPathSelection,
+  pathReplay, refreshPathSeed, cashFlowPathSelection, saveCashFlowPathSelection,
   uiState, scenariosUiState as state,
 } from './state.js';
 /* ╔══════════════════════════════════════════════════════════════╗
@@ -167,7 +167,7 @@ function syncRecoveryControls(){
     '#np-content .row-x','#np-content [data-add]','#np-content [data-act]','#scn-add','#scn-view [data-lever-key]','#scn-view .cmp-lev-in',
     '#scn-view .cmp-goal-in','#scn-view .scol__menu'
   ];
-  if(isHouseholdStorageBlocked()) selectors.push('#run-btn','#hh-menu-btn','#hh-switch','#cashflow-path-mode','#seq-select','#seq-chips button');
+  if(isHouseholdStorageBlocked()) selectors.push('#run-btn','#hh-menu-btn','#hh-switch','#cashflow-path-mode','#cashflow-path-regenerate','#seq-select','#seq-chips button');
   document.querySelectorAll(selectors.join(',')).forEach(el => {
     if('disabled' in el) el.disabled=true;
     el.setAttribute('aria-disabled','true');
@@ -650,7 +650,7 @@ function reseedScenarios({ markDirty = true } = {}){
 // Post-edit refresh for the live Goals Horizon.
 function commitPlanEdit(){
   if(!guardPlanMutation()) return;
-  reseedScenarios(); uiState.sharedPaths=null; uiState.plansDirty=true; renderInputs();
+  reseedScenarios(); uiState.plansDirty=true; renderInputs();
   syncPlanEditStatus('Saved automatically · open Scenarios');
 }
 
@@ -705,7 +705,6 @@ const goalsHorizon=createGoalsHorizonController({
   guardMutation:guardPlanMutation,
   arm:()=>{
     reseedScenarios();
-    uiState.sharedPaths=null;
     uiState.plansDirty=true;
     syncPlanEditStatus('Saved automatically · open Scenarios');
   },
@@ -738,7 +737,6 @@ const householdWizardCommitBoundary = createHouseholdWizardCommitBoundary({
   replacePlan: next => hydratePlan(next),
   afterCommit(){
     reseedScenarios();
-    uiState.sharedPaths = null;
     uiState.plansDirty = true;
     renderInputs();
     syncHousehold();
@@ -760,6 +758,8 @@ function hhLoadRecord(status){
   planSaveDirty = false; saveFailed = false;
   if(!readOnly) reseedScenarios({ markDirty: false });
   householdWizardController.resetForPlan();
+  refreshPathSeed();
+  cashFlowController.resetSessionPath();
   uiState.plansDirty = true; uiState.sharedPaths = null;
   syncHousehold();
   updateHouseholdControls();
@@ -913,25 +913,33 @@ if(plan.properties && plan.properties.length && plan.properties[0]){
 
 let running=false;
 const scenarioInputsByResult = new WeakMap();
-// Cached market bundle. Generated once, reused across Runs so that hitting Run
-// twice with no changes yields the EXACT same numbers (sampling noise was
-// causing the % to drift between identical clicks). Invalidated to null
-// whenever the plan changes in the Inputs tab.
+// One household-session market bundle. It is generated after household load
+// and survives every ordinary edit and Scenario run so comparisons use the
+// exact same markets. Only loading a household clears it.
 
 /* ── run the engine for all three columns (shared nothing; each its own MC) ── */
 // ONE seeded bundle of return paths, shared by every surface that compares
 // runs (scenario columns, the goals page's per-goal cost runs). Identical
 // markets across runs make any difference a pure decision-effect, and the
-// fixed seed keeps an unchanged plan at an identical % between Runs.
+// session seed keeps edits and Scenario choices directly comparable.
 function ensureSharedPaths(resolvedInputs=null){
   if(!canRunEngine()) return null;
   const horizon = (resolvedInputs || resolveInputs(plan, {})).horizonYears;
   if(!(horizon > 0)) return null;
   const iters = plan.simulation.iterations;
-  if(!sharedPaths || sharedPaths.length !== iters || sharedPaths[0].length !== horizon){
+  const sessionHorizon = PROJECTION_EXECUTION_LIMITS.maxHorizonYears;
+  if(!sharedPaths){
     resetSeed(pathReplay.seed);
     uiState.sharedPaths = [];
-    for(let i=0;i<iters;i++) uiState.appendSharedPath(generateReturnPath(horizon));
+    for(let i=0;i<iters;i++) uiState.appendSharedPath(generateReturnPath(sessionHorizon));
+  }
+  if(
+    sharedPaths.length !== iters
+    || sharedPaths.some(path => !Array.isArray(path) || path.length < sessionHorizon)
+  ){
+    const error = new Error('household-session market bundle dimensions changed');
+    error.code = 'PROJECTION_RETURN_PATH_DIMENSIONS_INVALID';
+    throw error;
   }
   return sharedPaths;
 }
@@ -1278,8 +1286,24 @@ const cashFlowController = createCashFlowController({
   saveSelection: saveCashFlowPathSelection,
   buildRows: buildSimulationRows,
 });
-const syncCashFlowPathControls = (scenario = null) =>
+const syncCashFlowPathControls = (scenario = null) => {
   cashFlowController.syncSelect($('#cashflow-path-mode'), scenario);
+  const regenerate = $('#cashflow-path-regenerate');
+  if(!regenerate) return;
+  const randomActive = cashFlowController.isRandom();
+  ['hidden', 'disabled', 'aria-disabled', 'style'].forEach(attribute => (
+    regenerate.removeAttribute(attribute)
+  ));
+  if(!randomActive){
+    regenerate.setAttribute('hidden', '');
+    regenerate.setAttribute('disabled', '');
+    regenerate.setAttribute('aria-disabled', 'true');
+    regenerate.setAttribute('style', 'display:none');
+  }else if(isHouseholdStorageBlocked()){
+    regenerate.setAttribute('disabled', '');
+    regenerate.setAttribute('aria-disabled', 'true');
+  }
+};
 
 syncCashFlowPathControls();
 $('#cashflow-path-mode').onchange=e=>{
@@ -1291,6 +1315,18 @@ $('#cashflow-path-mode').onchange=e=>{
   cashFlowController.setPathId(e.target.value, {
     persist: !isHouseholdStorageReadOnly(),
   });
+  if(window.ScenariosUI) window.ScenariosUI.sync();
+};
+$('#cashflow-path-regenerate').onclick=()=>{
+  if(isHouseholdStorageBlocked()){
+    syncCashFlowPathControls();
+    renderBlockedRecoverySurfaces();
+    return;
+  }
+  if(cashFlowController.regenerateRandomPath() === null){
+    syncCashFlowPathControls();
+    return;
+  }
   if(window.ScenariosUI) window.ScenariosUI.sync();
 };
 // Cash Flow is now an explicit view inside the ScenariosUI view layer (the
@@ -1865,6 +1901,8 @@ if(isHouseholdStorageBlocked()){
   syncHousehold();
 }
 if(canRunEngine()){
+  refreshPathSeed();
+  cashFlowController.resetSessionPath();
   reseedScenarios({ markDirty: false });   // align baseline levers with hydrated plan (saved levers can be stale)
   runAll();   // first iteration runs immediately so the tool opens populated
 }
