@@ -648,7 +648,7 @@ try {
       || cashFlowTheme.labelColor !== 'rgb(167, 156, 132)'
       || cashFlowTheme.labelBackground !== 'rgba(0, 0, 0, 0)'
       || cashFlowTheme.knobColor !== 'rgb(177, 132, 92)'
-      || cashFlowTheme.paths.length !== 10){
+      || cashFlowTheme.paths.length !== 11){
       throw new Error(`Cash Flow Graphite Aubergine contract drifted: ${JSON.stringify(cashFlowTheme)}`);
     }
 
