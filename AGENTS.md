@@ -92,13 +92,24 @@ they must never serve mutable worktree files.
 
 ## Risk and required evidence
 
-Projection Engine, Tax Engine, RMD, withdrawal, persistence, migration, Goals,
-Scenarios, and Cash Flow changes are high risk. They require focused tests,
-applicable cross-surface invariants, `npm test`, `npm run verify`, and an
+Use the automatic Tier 1 Fast, Tier 2 Standard, and Tier 3 Protected routing in
+`docs/CODEX_WORKFLOW.md`. The highest-risk trigger in a proposed PR controls the
+whole PR unless genuinely independent work is split. Risk scales additional
+local and gatekeeper evidence; it never bypasses required GitHub checks,
+review, conversation resolution, exact-ref verification, or mergeability.
+
+Projection Engine, Tax Engine, RMD, withdrawal, allocation, persistence-shape,
+migration, financial-result, security, CI/deployment, repository-governance,
+and cross-authority changes are Tier 3. Goals, Scenarios, Cash Flow, household,
+or UI work is Tier 2 only when protected calculations, saved-data contracts,
+migrations, and financial policy remain unchanged. Tier 3 requires focused
+tests, applicable cross-surface invariants, `npm test`, `npm run verify`, and an
 independent review against `main`. Persistence and migration work also requires
-both clean-state and exact legacy-state evidence. Docs, templates, and CI-only
-changes require `npm run governance:check`, `git diff --check`, link/command
-validation, and the full required CI suite before merge.
+clean-state and exact legacy-state evidence. Tier 1 docs, non-governance
+templates, copy, and
+strictly non-behavioral changes require `npm run governance:check`,
+`git diff --check`, applicable focused/rendered proof, and the full required CI
+suite before merge.
 
 Protected product contracts include the Withdrawal Planner's smaller-of-engine-
 limit-and-$500,000 display ceiling and scenario-relative resolution of a
@@ -107,17 +118,23 @@ test requirements live in `docs/CODEX_WORKFLOW.md`.
 
 ## Definition of done and PR evidence
 
-Work is done only when every acceptance row is complete; the base failure and
-branch result are recorded; targeted and full required checks succeed; the full
-diff is reviewed against `main`; no production behavior outside scope changed;
-and a separate reviewer completed `docs/CODE_REVIEW.md`. A deployment is only
-availability evidence, never behavioral proof. Shipping additionally requires
-the exact artifact workflow and live-byte receipt in `docs/DEPLOYMENT-INTEGRITY.md`.
+Work is done only when every acceptance row is complete; applicable base or
+starting-state evidence and the candidate result are recorded; targeted and
+full required checks succeed; the full diff is reviewed against `main`; no
+production behavior outside scope changed; and a separate reviewer completed
+`docs/CODE_REVIEW.md`. Use the lifecycle-plus-hold model and two owner decision
+points in `docs/CODEX_WORKFLOW.md`. A changed candidate SHA invalidates prior
+acceptance and merge authorization. A deployment is only availability evidence,
+never behavioral proof. Shipping additionally requires the candidate-to-merge-
+commit-to-artifact identity chain and live-byte receipt in
+`docs/DEPLOYMENT-INTEGRITY.md`.
 
-Every PR must include base and branch SHAs, exact reproduction, root cause,
-production files changed, fail-before/pass-after evidence, exact commands and
-actual results, fixture provenance, financial invariants, known failures, proof
-gaps, scope exclusions, rollback notes, and independent-review status. Do not
+Every PR must include its classification, base and candidate SHAs, scope,
+acceptance evidence, implementation authority, exact commands and results,
+required CI status, known failures, proof gaps, rollback notes, and independent-
+review status. Defects additionally require exact reproduction, root cause, and
+fail-before/pass-after proof. Tier 3 adds the applicable financial, tax,
+persistence, migration, compatibility, security, or deployment evidence. Do not
 use “fixed,” “complete,” “passing,” or “merge-ready” while any required check or
 acceptance row is unresolved. State limitations and unverified behavior plainly.
 

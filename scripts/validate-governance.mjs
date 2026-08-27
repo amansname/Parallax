@@ -79,8 +79,16 @@ requireText('README.md', [
 ]);
 
 requireText('docs/CODEX_WORKFLOW.md', [
-  '### 1. Goal',
-  '### 14. Post-failure retrospective and instruction update',
+  '## 1. Scope and route',
+  '## 2. Preflight and build',
+  '## 3. Verify',
+  '## 4. Draft PR and review',
+  '## 5. Merge, deploy, and confirm',
+  '### Decision 1 - authorize delivery',
+  '### Decision 2 - authorize the exact merge',
+  '**Tier 1 - Fast**',
+  '**Tier 2 - Standard**',
+  '**Tier 3 - Protected**',
   '| Reported symptom | Exact reproduction | Pre-fix failure | Production change | Regression assertion | Post-fix proof |',
   'A test-only PR may improve coverage but cannot close a product-behavior issue.',
   'Moving a withdrawal lever changes the expected tax or financial column',
