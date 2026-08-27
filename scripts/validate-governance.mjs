@@ -79,13 +79,20 @@ requireText('README.md', [
 ]);
 
 requireText('docs/CODEX_WORKFLOW.md', [
-  '### 1. Goal',
-  '### 14. Post-failure retrospective and instruction update',
-  '| Reported symptom | Exact reproduction | Pre-fix failure | Production change | Regression assertion | Post-fix proof |',
+  '## Automatic routing and risk lanes',
+  '## Two owner decision points',
+  '## Phase 1 - Scope',
+  '## Phase 2 - Preflight and build',
+  '## Phase 3 - Verify',
+  '## Phase 4 - PR and review',
+  '## Phase 5 - Merge, deploy, and confirm',
+  '| Done-when criterion | Baseline or pre-fix evidence | Production change | Verification | Candidate result |',
   'A test-only PR may improve coverage but cannot close a product-behavior issue.',
   'Moving a withdrawal lever changes the expected tax or financial column',
   'Goals Essentials plus documented overrides reconcile to Cash Flow Essentials',
   'Income and expense outputs trace to distinct engine inputs',
+  'candidate head SHA',
+  'squash merge commit on main',
   '## Existing-rule mapping',
 ]);
 
@@ -127,25 +134,21 @@ requireText('docs/templates/CODEX_BUG_FIX_PROMPT.md', [
 ]);
 
 const prTemplate = requireText('.github/PULL_REQUEST_TEMPLATE.md', [
-  '## Problem and user-visible impact',
-  '## Exact reproduction',
-  '## Root cause',
-  '## Acceptance matrix',
-  '## Production code changed',
-  '## Tests added or changed',
-  '## Fail-before evidence',
-  '## Pass-after evidence',
-  '## Persisted-state and migration impact',
-  '## Financial invariants checked',
-  '## Exact commands and results',
+  '## Workflow classification',
+  '## Outcome and scope',
+  '## Candidate identity',
+  '## Acceptance evidence',
+  '## Defect reproduction and root cause',
+  '## Implementation and authority',
+  '## Tests and verification',
+  '## Protected policy and compatibility evidence',
   '## Required CI status',
   '## Known failures and proof gaps',
-  '## Scope exclusions',
-  '## Independent review status',
-  '## Rollback considerations',
-  '- [ ] Every behavior described as fixed was reproduced on the base branch and directly verified on this branch.',
+  '## Independent review',
+  '## Rollback and deployment',
+  '- [ ] Every scoped behavior meets its done-when evidence on this candidate, and every required check and review is satisfied.',
 ]);
-if((prTemplate.match(/Every behavior described as fixed was reproduced/g) || []).length !== 1){
+if((prTemplate.match(/Every scoped behavior meets its done-when evidence/g) || []).length !== 1){
   failures.push('.github/PULL_REQUEST_TEMPLATE.md must contain the completion checkbox exactly once');
 }
 

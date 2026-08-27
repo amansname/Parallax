@@ -1,85 +1,103 @@
-## Problem and user-visible impact
+## Workflow classification
 
-<!-- Quote or link every reported symptom. Explain the financial or data impact. -->
+- Risk tier: <!-- Tier 1 / Tier 2 / Tier 3 -->
+- Risk rationale:
+- Work type: <!-- feature / defect / governance / docs / test -->
+- Lifecycle: <!-- Draft-ready / Merge-ready -->
+- Hold: <!-- None / Owner decision / Scope / Verification / CI / Review / Deployment / External blocker -->
 
-## Exact reproduction
+## Outcome and scope
+
+### Outcome
+
+<!-- What can the user or advisor do, see, or trust after this ships? -->
+
+### Included
+
+-
+
+### Done when
+
+-
+
+### Authority
+
+<!-- Projection Engine / Tax Engine / household / planning / Scenario / UI / styling / governance -->
+
+### Protected boundaries
+
+-
+
+### Non-goals
+
+-
+
+## Candidate identity
 
 - Base commit SHA:
-- Branch commit SHA:
-- Fixture: <!-- clean / persisted-current / persisted-legacy and exact path -->
-- Browser origin and route:
-- Exact steps and observed output:
+- Candidate head SHA:
 
-## Root cause
+## Acceptance evidence
 
-<!-- Identify the responsible production path. A failing test is not the root cause. -->
+| Done-when criterion | Baseline or pre-fix evidence | Production change | Verification | Candidate result |
+|---|---|---|---|---|
+| | | | | |
 
-## Acceptance matrix
+## Defect reproduction and root cause
 
-| Reported symptom | Exact reproduction | Pre-fix failure | Production change | Regression assertion | Post-fix proof |
-|---|---|---|---|---|---|
-| | | | | | |
+<!-- Required for work type `defect`. Otherwise write `Not applicable - not a defect.` -->
 
-## Production code changed
+## Implementation and authority
 
-<!-- List production files and why each is required. Write "None — test/governance-only" when true. -->
+<!-- List production files and why each change belongs in the named authority. Write `None - test/docs/governance-only` when true. -->
 
-## Tests added or changed
+## Tests and verification
 
-<!-- List each test/fixture and the product contract it protects. -->
+### Focused evidence
 
-## Fail-before evidence
+<!-- Exact command or live action, candidate SHA, and actual result. -->
 
-<!-- Exact base SHA, command, exit/result, and failure for the reported reason. -->
-
-## Pass-after evidence
-
-<!-- Exact branch SHA, command, exit/result, and asserted user-visible output. -->
-
-## Persisted-state and migration impact
-
-<!-- State exact saved fixture, schema/scenario versions, migration behavior, and source-byte preservation. -->
-
-## Financial invariants checked
-
-<!-- List every applicable invariant from docs/CODEX_WORKFLOW.md and its evidence. -->
-
-## Exact commands and results
+### Required local commands
 
 ```text
 npm run governance:check  # actual result
-npm test                  # actual counts and result
-npm run verify            # actual result or exact first failure
+npm test                  # actual result, or Tier 1: required CI
+npm run verify            # actual result, or Tier 1: required CI
 git diff --check          # actual result
 ```
+
+## Protected policy and compatibility evidence
+
+<!-- Required for Tier 3. State the approved policy and applicable financial, tax, migration, compatibility, security, or deployment evidence. Otherwise write `Not applicable - Tier 1/2.` -->
 
 ## Required CI status
 
 - [ ] Governance safeguards
 - [ ] Unit tests
+- [ ] Build deployable site artifact
 - [ ] Full browser verification
 
-## Known failures and proof gaps
-
-<!-- Include pre-existing failures, unverified behavior, unavailable environments, and why each remains. -->
-
-## Scope exclusions
-
-<!-- List related defects, refactors, copy changes, deployments, or cleanup not included. -->
-
-## Independent review status
+## Independent review
 
 - Review method: <!-- separate /review against main or @codex review -->
 - Reviewer/result link:
 - Findings and re-review status:
 
-## Rollback considerations
+## Known failures and proof gaps
 
-<!-- State rollback steps, saved-data risk, and whether schema or fixture changes are reversible. -->
+<!-- Include every failing gate, unavailable environment, unverified behavior, and hold condition. Write `None.` only when true. -->
+
+## Rollback and deployment
+
+- Rollback considerations:
+- Saved-data risk:
+- Deployment impact:
+- Planned live proof:
+- Post-merge identity chain: <!-- candidate SHA -> squash merge SHA -> Pages run/artifact -> live proof; complete after merge -->
 
 ## Truthful completion gate
 
-- [ ] Every behavior described as fixed was reproduced on the base branch and directly verified on this branch.
+- [ ] Every scoped behavior meets its done-when evidence on this candidate, and every required check and review is satisfied. <!-- Check only for Lifecycle: Merge-ready. -->
 
-Do not describe this PR as “fixed,” “complete,” or “merge-ready” when the
-checkbox above cannot truthfully be checked or any required check is failing.
+Do not describe this PR as `fixed`, `complete`, or `merge-ready` while this
+checkbox cannot be checked or any required gate remains unresolved.
