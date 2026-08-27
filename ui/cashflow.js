@@ -208,7 +208,7 @@ export function renderCashflow(scn, allScns, {
     const rows = cashFromRetirement ? allRows.filter((r) => !r.accum) : allRows;
     const hasWorking = allRows.some((r) => r.accum);
     const summary = selected?.summary ?? cashSummary(scn.raw);
-    const typicalPath = selected ? selected.kind === 'typical' : isTypicalPath();
+    const typicalPath = selected ? selected.kind !== 'historical' : isTypicalPath();
     const sidecar = selected?.taxScope === 'MODELED_FEDERAL_LINE_24'
       ? {
           byAge: new Map(),
@@ -253,7 +253,7 @@ export function renderCashflow(scn, allScns, {
           '<div class="cf-stat" data-cash-header-metric="ending-position">' +
             '<div class="cf-stat__label">Ending position</div>' +
             '<div class="cf-stat__value">' + formatCashFlowHeaderMoney(headerMetrics.endingPosition) + '</div>' +
-            '<div class="cf-stat__support">Median path</div>' +
+            '<div class="cf-stat__support">' + (selected?.kind === 'random' ? 'Sampled path' : 'Median path') + '</div>' +
           '</div>' +
         '</div>' +
       '</div>'
@@ -405,8 +405,12 @@ export function renderCashflow(scn, allScns, {
       : 'No cash-flow data yet. Press Run — or check the plan inputs if the status bar shows a warning.';
     const empty = rows.length ? '' : '<div class="cf-band"><div style="padding:26px 18px;color:var(--muted);">' + esc(emptyMessage) + '</div></div>';
 
+    const simulationIndexAttribute = Number.isInteger(selected?.simIndex)
+      ? ' data-sim-index="' + selected.simIndex + '"'
+      : '';
+
     return (
-      '<div class="cf" data-cash-path-id="' + esc(selected?.pathId ?? (typicalPath ? 'typical' : '')) + '" data-cash-path-kind="' + esc(selected?.kind ?? (typicalPath ? 'typical' : '')) + '">' +
+      '<div class="cf" data-cash-path-id="' + esc(selected?.pathId ?? (typicalPath ? 'typical' : '')) + '" data-cash-path-kind="' + esc(selected?.kind ?? (typicalPath ? 'typical' : '')) + '"' + simulationIndexAttribute + '>' +
         '<div class="cf__head">' +
           scenarioPicker +
           (hasWorking

@@ -1013,6 +1013,16 @@ async function verifyRuntimeTemplateSessionIsolation(page){
         )}`,
       );
       await requireUnchangedPersistence('Now demo Historical Cash Flow baseline');
+      await page.click('#scn-seg-compare');
+      await page.waitForFunction(() => (
+        document.querySelector('#scn-seg-compare')?.classList.contains('is-active')
+          && document.querySelector('#scn-view .cmp-step-btn[data-lever-key="risk"]')
+            ?.closest('.cmp-lev-row')?.querySelector('.cmp-lev-val')
+      ), { timeout: 15000 });
+      const baselineAllocationText = await page.evaluate(() => (
+        document.querySelector('#scn-view .cmp-step-btn[data-lever-key="risk"]')
+          ?.closest('.cmp-lev-row')?.querySelector('.cmp-lev-val')?.textContent.trim() || ''
+      ));
       await openNetWorthCategory(page, 'investment');
       const accountId = await page.$eval(
         '[data-hh-action="net-worth-edit-entry"][data-entry-category-id="investment"]',
@@ -1067,9 +1077,14 @@ async function verifyRuntimeTemplateSessionIsolation(page){
         })}`,
       );
       await requireUnchangedPersistence('Now demo allocation downstream change');
+      const baselineSessionSeed = await page.evaluate(async () => (
+        (await import('./src/state.js')).pathReplay.seed
+      ));
       runtimeAllocationCheck = {
         accountId,
         originalPresetId,
+        baselineSessionSeed,
+        baselineAllocationText,
         baselineHistorical,
         changedHistorical,
       };
@@ -1127,17 +1142,41 @@ async function verifyRuntimeTemplateSessionIsolation(page){
       const resetHistorical = await historicalCashFlowSnapshot(page, {
         previousEndingBalance: runtimeAllocationCheck.changedHistorical.endingBalance,
       });
+      const resetSessionSeed = await page.evaluate(async () => (
+        (await import('./src/state.js')).pathReplay.seed
+      ));
+      await page.click('#scn-seg-compare');
+      await page.waitForFunction(() => (
+        document.querySelector('#scn-seg-compare')?.classList.contains('is-active')
+          && document.querySelector('#scn-view .cmp-step-btn[data-lever-key="risk"]')
+            ?.closest('.cmp-lev-row')?.querySelector('.cmp-lev-val')
+      ), { timeout: 15000 });
+      const resetAllocationText = await page.evaluate(() => (
+        document.querySelector('#scn-view .cmp-step-btn[data-lever-key="risk"]')
+          ?.closest('.cmp-lev-row')?.querySelector('.cmp-lev-val')?.textContent.trim() || ''
+      ));
       requireCondition(
-        JSON.stringify(resetHistorical)
-          === JSON.stringify(runtimeAllocationCheck.baselineHistorical),
+        resetHistorical.pathId === runtimeAllocationCheck.baselineHistorical.pathId
+          && resetHistorical.kind === runtimeAllocationCheck.baselineHistorical.kind
+          && resetHistorical.sourceYear === runtimeAllocationCheck.baselineHistorical.sourceYear
+          && resetHistorical.returnText === runtimeAllocationCheck.baselineHistorical.returnText
+          && Number.isFinite(Number(resetHistorical.startBalance))
+          && Number.isFinite(Number(resetHistorical.endingBalance))
+          && resetHistorical.endingBalance
+            !== runtimeAllocationCheck.changedHistorical.endingBalance
+          && resetSessionSeed !== runtimeAllocationCheck.baselineSessionSeed
+          && resetAllocationText === runtimeAllocationCheck.baselineAllocationText,
         `Demo allocation downstream result did not reset after reselection: ${JSON.stringify({
+          baselineSessionSeed: runtimeAllocationCheck.baselineSessionSeed,
+          resetSessionSeed,
+          baselineAllocationText: runtimeAllocationCheck.baselineAllocationText,
+          resetAllocationText,
           baselineHistorical: runtimeAllocationCheck.baselineHistorical,
           changedHistorical: runtimeAllocationCheck.changedHistorical,
           resetHistorical,
         })}`,
       );
       await requireUnchangedPersistence('Now demo allocation downstream reset');
-      await page.click('#scn-seg-compare');
       await page.waitForFunction(expectedCount => (
         document.querySelector('.page.on')?.dataset.page === 'scenarios'
           && document.querySelector('#scn-seg-compare')?.classList.contains('is-active')
@@ -2934,7 +2973,9 @@ export async function runWizardBrowserContract(
       failure = failure
         ? new AggregateError(
             [failure, error],
-            'Wizard contract and restoration diagnostics both failed',
+            `Wizard contract and restoration diagnostics both failed\n`
+              + `Primary: ${failure.stack || failure.message || String(failure)}\n`
+              + `Restoration: ${error.stack || error.message || String(error)}`,
           )
         : error;
     }

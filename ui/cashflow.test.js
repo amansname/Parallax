@@ -139,6 +139,20 @@ test('Typical Cash Flow uses one selector and the locked two-metric header', () 
   assert.doesNotMatch(html, /Peak withdrawal/);
   assert.doesNotMatch(html, /Probability of success|Median Ending|Federal total|data-federal-total/);
 
+  selected.kind = 'random';
+  selected.pathId = 'random';
+  selected.simIndex = 11;
+  const randomHtml = renderCashflow(baseline, [baseline, alternative], renderDeps);
+  assert.match(randomHtml, /data-cash-path-id="random"/);
+  assert.match(randomHtml, /data-cash-path-kind="random"/);
+  assert.match(randomHtml, /data-sim-index="11"/);
+  assert.match(randomHtml, /Sampled path/);
+  assert.doesNotMatch(randomHtml, /Median path/);
+
+  selected.kind = 'typical';
+  selected.pathId = 'typical';
+  selected.simIndex = 7;
+
   selected.headerMetrics = {
     ...selected.headerMetrics,
     outcome: 'underfunded',

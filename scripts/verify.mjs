@@ -217,6 +217,107 @@ async function waitCashRows(page, min = 1, ms = 8000){
   return page.evaluate(() => document.querySelectorAll('#scn-view .cf-row').length);
 }
 
+async function cashFlowSessionSnapshot(page, {
+  bundleSentinel = null,
+  rememberBundle = false,
+  includeBundleIdentity = false,
+} = {}){
+  return page.evaluate(async options => {
+    const state = await import('./src/state.js');
+    const sentinels = globalThis.__parallaxVerifySharedPathSentinels
+      || (globalThis.__parallaxVerifySharedPathSentinels = Object.create(null));
+    if(options.bundleSentinel && options.rememberBundle){
+      sentinels[options.bundleSentinel] = state.sharedPaths;
+    }
+    const sameBundleObject = options.bundleSentinel
+      ? Object.prototype.hasOwnProperty.call(sentinels, options.bundleSentinel)
+        && sentinels[options.bundleSentinel] === state.sharedPaths
+      : null;
+    const analyses = state.scenarios.map(scenario => {
+      const result = scenario?.res;
+      if(!result) return null;
+      return {
+        projectionStatus: result.projectionStatus,
+        issue: result.issue,
+        successRate: result.successRate,
+        terminal: result.terminal,
+        envelope: result.envelope,
+        selectedPathIndices: Object.fromEntries(
+          Object.entries(result.paths || {}).map(([key, path]) => [key, path?.simIndex ?? null])
+        ),
+        returnSeriesProvenance: result.returnSeriesProvenance,
+        assumptions: result.assumptions,
+        survived: result.survived,
+        total: result.total,
+        medianCagr: result.medianCagr,
+        horizonYears: result.horizonYears,
+        iterations: result.iterations,
+        params: result.params,
+        medianLifetimeTax: result.medianLifetimeTax,
+        metrics: result.metrics,
+      };
+    });
+    let bundleIdentityHash = null;
+    if(options.includeBundleIdentity){
+      const sourceYearSequences = (state.sharedPaths || []).map(path => (
+        path.map(row => Number.isInteger(row?.y) ? row.y : null)
+      ));
+      const bytes = new TextEncoder().encode(JSON.stringify(sourceYearSequences));
+      const digest = await crypto.subtle.digest('SHA-256', bytes);
+      bundleIdentityHash = [...new Uint8Array(digest)]
+        .map(value => value.toString(16).padStart(2, '0'))
+        .join('');
+    }
+    return {
+      seed: state.pathReplay.seed,
+      sameBundleObject,
+      bundleIdentityHash,
+      bundleCount: state.sharedPaths?.length ?? 0,
+      bundleHorizon: state.sharedPaths?.[0]?.length ?? 0,
+      aggregateBytes: JSON.stringify(analyses),
+      probabilityRangeEnvelopeBytes: JSON.stringify(analyses.map(analysis => analysis && ({
+        successRate: analysis.successRate,
+        terminal: analysis.terminal,
+        envelope: analysis.envelope,
+      }))),
+      successRates: state.scenarios.map(scenario => scenario?.res?.successRate ?? null),
+      trialCounts: state.scenarios.map(scenario => scenario?.res?.sims?.length ?? 0),
+      typicalIndices: state.scenarios.map(scenario => scenario?.res?.paths?.p50?.simIndex ?? null),
+    };
+  }, { bundleSentinel, rememberBundle, includeBundleIdentity });
+}
+
+async function visibleCashFlowPathSnapshot(page){
+  return page.evaluate(() => {
+    const root = document.querySelector('#scn-view .cf');
+    return {
+      pathId: root?.dataset.cashPathId || '',
+      kind: root?.dataset.cashPathKind || '',
+      simIndex: Number(root?.dataset.simIndex),
+      support: root?.querySelector('[data-cash-header-metric="ending-position"] .cf-stat__support')
+        ?.textContent.trim() || '',
+      rowBytes: JSON.stringify([...document.querySelectorAll('#scn-view .cf-row')].map(row => ({
+        age: row.dataset.age,
+        phase: row.dataset.phase,
+        sourceYear: row.dataset.sourceYear,
+        startBalance: row.dataset.startBalance,
+        endingBalance: row.dataset.endingBalance,
+        wdRate: row.dataset.wdRate,
+        fundingShortfall: row.dataset.fundingShortfall,
+        text: row.textContent,
+      }))),
+    };
+  });
+}
+
+async function localStorageBytes(page){
+  return page.evaluate(() => JSON.stringify(
+    Object.keys(localStorage)
+      .sort()
+      .map(key => [key, localStorage.getItem(key)])
+  ));
+}
+
 /* Household verification now enters through the semantic four-step wizard.
    The retired Balance-Sheet / Map editor and its numeric step selectors are
    intentionally absent from this verifier. */
@@ -547,7 +648,7 @@ try {
       || cashFlowTheme.labelColor !== 'rgb(167, 156, 132)'
       || cashFlowTheme.labelBackground !== 'rgba(0, 0, 0, 0)'
       || cashFlowTheme.knobColor !== 'rgb(177, 132, 92)'
-      || cashFlowTheme.paths.length !== 10){
+      || cashFlowTheme.paths.length !== 11){
       throw new Error(`Cash Flow Graphite Aubergine contract drifted: ${JSON.stringify(cashFlowTheme)}`);
     }
 
@@ -2026,7 +2127,7 @@ try {
         const input = document.querySelector(selector);
         return input?.value === String(editedAge)
           && input.closest('.cell--goal-detail')?.classList.contains('is-overridden');
-      }, { timeout: 10000 }, { selector, editedAge });
+      }, { timeout: 15000 }, { selector, editedAge });
     }catch(error){
       const observed = await page.evaluate(({ selector, scenarioId }) => {
         const input = document.querySelector(selector);
@@ -2153,9 +2254,27 @@ try {
 
   await step('scenarios Compare view: columns, rings, levers, goals', async () => {
     await page.click('button[data-page="scenarios"]');
-    await new Promise(r => setTimeout(r, 900));
+    await page.waitForFunction(() => {
+      const scenariosPage = document.querySelector('.page[data-page="scenarios"]');
+      const runButton = document.querySelector('#run-btn');
+      const status = document.querySelector('#status')?.textContent || '';
+      return scenariosPage?.classList.contains('on')
+        && runButton
+        && !runButton.disabled
+        && /Plan updated|Partial run/i.test(status);
+    }, { timeout: 30000 });
     await page.click('#scn-seg-compare');
-    await new Promise(r => setTimeout(r, 400));
+    await page.waitForFunction(() => {
+      const view = document.querySelector('#scn-view');
+      const columns = [...(view?.querySelectorAll('.scol') || [])];
+      const probabilities = columns.map(column => (
+        column.querySelector('.scol__prob')?.textContent.trim() || ''
+      ));
+      return document.querySelector('#scn-seg-compare')?.classList.contains('is-active')
+        && !!view?.querySelector('.compare')
+        && columns.length > 0
+        && probabilities.every(value => /\d/.test(value));
+    }, { timeout: 30000 });
     const m = await page.evaluate(() => {
       const v = document.querySelector('#scn-view');
       return {
@@ -2195,6 +2314,10 @@ try {
     const cmpStepBtns = await page.evaluate(() => document.querySelectorAll('#scn-view .compare .cmp-step-btn[data-scn-id]').length);
     const cmpInputs   = await page.evaluate(() => document.querySelectorAll('#scn-view .compare .cmp-lev-in[data-scn-id]').length);
     if(cmpStepBtns < 2 && cmpInputs < 1) throw new Error(`Compare lever controls missing (stepBtns=${cmpStepBtns}, inputs=${cmpInputs})`);
+    const compareEditSessionBefore = await cashFlowSessionSnapshot(page, {
+      bundleSentinel: 'compare-scenario-edit',
+      rememberBundle: true,
+    });
     const cmpStep = await page.evaluate(() => {
       const button = document.querySelector(
         '#scn-view .compare .cmp-step-btn[data-dir="1"][data-scn-id]',
@@ -2238,6 +2361,15 @@ try {
       return current === value
         && /Plan updated/i.test(document.querySelector('#status')?.textContent || '');
     }, { timeout: 30000 }, cmpStep);
+    const compareEditSessionAfter = await cashFlowSessionSnapshot(page, {
+      bundleSentinel: 'compare-scenario-edit',
+    });
+    if(JSON.stringify(compareEditSessionAfter) !== JSON.stringify(compareEditSessionBefore)){
+      throw new Error(`Scenario edit rebuilt or mutated the household-session Monte Carlo bundle: ${JSON.stringify({
+        before: compareEditSessionBefore,
+        after: compareEditSessionAfter,
+      })}`);
+    }
 
     await page.screenshot({ path: join(OUT, '03-scenarios.png'), fullPage: true });
   });
@@ -2338,13 +2470,23 @@ try {
         savedSavings: saved.find(scenario => scenario.name === 'Scenario D')?.lev?.savings,
       };
     }, withdrawalPlannerFixtureHouseholdId);
+    const zeroBaseSessionBeforeReload = await cashFlowSessionSnapshot(page, {
+      includeBundleIdentity: true,
+    });
+    const exactMedians = JSON.parse(zeroBaseSessionBeforeReload.probabilityRangeEnvelopeBytes)
+      .map(analysis => analysis?.envelope?.at(-1)?.p50 ?? null);
     if(beforeReload.medians.length !== 4
         || beforeReload.medians.some(value => !/^\$[\d,.]+[KMB]?$/.test(value))
-        || beforeReload.medians[3] === beforeReload.medians[0]
+        || exactMedians.length !== 4
+        || exactMedians.some(value => !Number.isFinite(value))
+        || exactMedians[3] === exactMedians[0]
         || beforeReload.savings[3] !== '45000'
         || beforeReload.spending[3] !== beforeReload.spending[0]
         || beforeReload.savedSavings !== 45000){
-      throw new Error(`zero-base savings did not reach the fourth scenario: ${JSON.stringify(beforeReload)}`);
+      throw new Error(`zero-base savings did not reach the fourth scenario: ${JSON.stringify({
+        ...beforeReload,
+        exactMedians,
+      })}`);
     }
 
     await stableReload({ waitUntil: 'networkidle2', timeout: 20000 });
@@ -2361,6 +2503,9 @@ try {
         && probabilities.every(value => /\d/.test(value))
         && savings[3] === '45000';
     }, { timeout: 30000 });
+    const zeroBaseSessionAfterReload = await cashFlowSessionSnapshot(page, {
+      includeBundleIdentity: true,
+    });
     const afterReload = await page.evaluate(() => ({
         medians: [...document.querySelectorAll('#scn-view .scol__median b')]
           .map(element => element.textContent.trim()),
@@ -2370,9 +2515,17 @@ try {
           .filter(element => !/\d/.test(element.textContent || '')).length,
       }));
     if(afterReload.errors !== 0
-        || JSON.stringify(afterReload.medians) !== JSON.stringify(beforeReload.medians)
+        || afterReload.medians.length !== beforeReload.medians.length
+        || afterReload.medians.some(value => !/^\$[\d,.]+[KMB]?$/.test(value))
         || JSON.stringify(afterReload.spending) !== JSON.stringify(beforeReload.spending)){
       throw new Error(`saved scenarios changed or blanked after reload: ${JSON.stringify({ beforeReload, afterReload })}`);
+    }
+    if(zeroBaseSessionAfterReload.seed === zeroBaseSessionBeforeReload.seed
+        || zeroBaseSessionAfterReload.bundleIdentityHash === zeroBaseSessionBeforeReload.bundleIdentityHash){
+      throw new Error(`saved Scenario reload reused the previous Monte Carlo session: ${JSON.stringify({
+        before: zeroBaseSessionBeforeReload,
+        after: zeroBaseSessionAfterReload,
+      })}`);
     }
     await page.screenshot({ path: join(OUT, '03c-scenarios-savings-reloaded.png'), fullPage: true });
   });
@@ -2663,15 +2816,34 @@ try {
         oldSelector: !!document.querySelector('#path-mode'),
         indexInput: !!document.querySelector('#path-index'),
         seedInput: !!document.querySelector('#path-seed'),
+        persistedSeed: (() => {
+          try{
+            const value = JSON.parse(localStorage.getItem('parallax.pathReplay.v1') || '{}');
+            return Object.prototype.hasOwnProperty.call(value, 'seed');
+          }catch{
+            return true;
+          }
+        })(),
+        regenerate: (() => {
+          const button = document.querySelector('#cashflow-path-regenerate');
+          return button ? {
+            exists: true,
+            hidden: button.hidden || getComputedStyle(button).display === 'none',
+            disabled: button.disabled,
+          } : { exists: false, hidden: false, disabled: false };
+        })(),
       }));
       const expectedPathIds = [
-        'typical', 'historical-1929', 'historical-1937', 'historical-1966',
+        'typical', 'random', 'historical-1929', 'historical-1937', 'historical-1966',
         'historical-1973', 'historical-1995', 'historical-2000',
         'historical-2008', 'historical-2009', 'historical-2022',
       ];
       if(JSON.stringify(selectorContract.values) !== JSON.stringify(expectedPathIds)) throw new Error(`Cash Flow path registry mismatch: ${JSON.stringify(selectorContract)}`);
+      if(selectorContract.labels[0] !== 'Typical path' || selectorContract.labels[1] !== 'Random path') throw new Error(`Typical/Random path choices are not visible: ${JSON.stringify(selectorContract.labels)}`);
       if(selectorContract.labels.some(label => /Black Monday|Stressed path|Favorable path|Sequence Stress/i.test(label))) throw new Error(`removed generic or Black Monday path remains: ${JSON.stringify(selectorContract.labels)}`);
       if(selectorContract.oldSelector || selectorContract.indexInput || selectorContract.seedInput) throw new Error(`Cash Flow still exposes old replay controls: ${JSON.stringify(selectorContract)}`);
+      if(selectorContract.persistedSeed) throw new Error('the session Monte Carlo seed is still persisted');
+      if(!selectorContract.regenerate.exists || !selectorContract.regenerate.hidden || !selectorContract.regenerate.disabled) throw new Error(`Regenerate must be unavailable outside Random mode: ${JSON.stringify(selectorContract.regenerate)}`);
 
       let reloadExpected = null;
       const observedHistoricalOutcomes = new Set();
@@ -2862,17 +3034,301 @@ try {
         }else{
           throw new Error(`${mode} has an unknown historical outcome: ${JSON.stringify(historicalPath.summary)}`);
         }
-        if(mode === 'historical-1995'){
-          reloadExpected = {
-            mode: historicalPath.mode,
-            rootMode: historicalPath.rootMode,
-            sourceYear: historicalPath.retirementRows[0].sourceYear,
-            metrics: historicalPath.metrics,
-            summary: historicalPath.summary,
-            retirementAges: historicalPath.retirementRows.map(row => row.age),
-          };
-        }
         await page.screenshot({ path: join(OUT, `04-cashflow-${mode}.png`), fullPage: true });
+      }
+
+      const historicalBeforeRandom = await page.evaluate(() => {
+        const cashFlow = document.querySelector('#scn-view .cf');
+        if(!cashFlow) return '';
+        const stableHistorical = cashFlow.cloneNode(true);
+        stableHistorical.querySelector('#scn-cf-path-controls')?.remove();
+        return stableHistorical.outerHTML;
+      });
+      const sessionBeforeRandom = await cashFlowSessionSnapshot(page, {
+        bundleSentinel: 'cash-flow-random',
+        rememberBundle: true,
+      });
+      const stableSessionAnalysis = snapshot => ({
+        seed: snapshot.seed,
+        bundleCount: snapshot.bundleCount,
+        bundleHorizon: snapshot.bundleHorizon,
+        aggregateBytes: snapshot.aggregateBytes,
+        probabilityRangeEnvelopeBytes: snapshot.probabilityRangeEnvelopeBytes,
+        successRates: snapshot.successRates,
+        trialCounts: snapshot.trialCounts,
+        typicalIndices: snapshot.typicalIndices,
+      });
+      const randomPersistenceBefore = await localStorageBytes(page);
+
+      await page.select('#cashflow-path-mode', 'random');
+      await page.waitForFunction(() => {
+        const root = document.querySelector('#scn-view .cf');
+        const regenerate = document.querySelector('#cashflow-path-regenerate');
+        return document.querySelector('#cashflow-path-mode')?.value === 'random'
+          && root?.dataset.cashPathId === 'random'
+          && root?.dataset.cashPathKind === 'random'
+          && root.hasAttribute('data-sim-index')
+          && regenerate
+          && !regenerate.hidden
+          && !regenerate.disabled
+          && getComputedStyle(regenerate).display !== 'none'
+          && root.querySelector('[data-cash-header-metric="ending-position"] .cf-stat__support')
+            ?.textContent.trim() === 'Sampled path';
+      }, { timeout: 20000 });
+      const firstRandomPath = await visibleCashFlowPathSnapshot(page);
+      if(!Number.isInteger(firstRandomPath.simIndex)
+          || firstRandomPath.support !== 'Sampled path'
+          || sessionBeforeRandom.trialCounts.some(count => count !== sessionBeforeRandom.bundleCount)
+          || (sessionBeforeRandom.bundleCount > 1
+            && firstRandomPath.simIndex === sessionBeforeRandom.typicalIndices[0])){
+        throw new Error(`Random did not choose a non-Typical member of the session bundle: ${JSON.stringify({
+          firstRandomPath,
+          sessionBeforeRandom,
+        })}`);
+      }
+
+      const randomScenarioValues = await page.evaluate(() => (
+        [...document.querySelectorAll('#scn-view [data-cash-select] option')]
+          .map(option => option.value)
+      ));
+      for(const scenarioId of randomScenarioValues){
+        await page.select('#scn-view [data-cash-select]', scenarioId);
+        await page.waitForFunction(({ expectedScenario, expectedIndex }) => {
+          const root = document.querySelector('#scn-view .cf');
+          return document.querySelector('#scn-view [data-cash-select]')?.value === expectedScenario
+            && root?.dataset.cashPathKind === 'random'
+            && Number(root.dataset.simIndex) === expectedIndex;
+        }, { timeout: 20000 }, {
+          expectedScenario: scenarioId,
+          expectedIndex: firstRandomPath.simIndex,
+        });
+      }
+      await page.select('#scn-view [data-cash-select]', baselineValue);
+      await page.waitForFunction(({ expectedScenario, expectedIndex }) => {
+        const root = document.querySelector('#scn-view .cf');
+        return document.querySelector('#scn-view [data-cash-select]')?.value === expectedScenario
+          && Number(root?.dataset.simIndex) === expectedIndex;
+      }, { timeout: 20000 }, {
+        expectedScenario: baselineValue,
+        expectedIndex: firstRandomPath.simIndex,
+      });
+      if(await localStorageBytes(page) !== randomPersistenceBefore){
+        throw new Error('Random selection or Scenario switching leaked session path state into persistence');
+      }
+
+      const householdGoalEditBefore = await page.evaluate(householdId => {
+        const db = JSON.parse(localStorage.getItem('parallax.households.v1') || '{}');
+        const goal = (db[householdId]?.goals || [])
+          .find(item => item?.system && item?.name === 'Essentials');
+        return goal ? { id: goal.id, amount: goal.amount } : null;
+      }, withdrawalPlannerFixtureHouseholdId);
+      if(!householdGoalEditBefore?.id || !Number.isFinite(householdGoalEditBefore.amount)){
+        throw new Error(`same-household Goals edit target is unavailable: ${JSON.stringify(householdGoalEditBefore)}`);
+      }
+
+      await stableClick('.htab[data-page="household"]');
+      await stableClick('.htab[data-sub-target="goals"]');
+      await page.waitForFunction(goalId => (
+        [...document.querySelectorAll('[data-goal-chip]')]
+          .filter(chip => chip.dataset.goalChip === goalId).length === 1
+      ), { timeout: 8000 }, householdGoalEditBefore.id);
+      await stableClick(`[data-goal-chip="${householdGoalEditBefore.id}"]`);
+      await page.waitForFunction(() => (
+        document.querySelectorAll('.gh-rail .gh-amount-input').length === 1
+        && document.querySelectorAll('.gh-rail [data-action="amount-plus"]').length === 1
+      ), { timeout: 8000 });
+      const householdGoalDisplayBefore = await page.$eval('.gh-rail .gh-amount-input', input => input.value);
+      await stableClick('.gh-rail [data-action="amount-plus"]');
+      await page.waitForFunction(({ householdId, goalId, priorAmount, priorDisplay }) => {
+        const db = JSON.parse(localStorage.getItem('parallax.households.v1') || '{}');
+        const goal = (db[householdId]?.goals || []).find(item => item?.id === goalId);
+        return goal?.amount !== priorAmount
+          && document.querySelector('.gh-rail .gh-amount-input')?.value !== priorDisplay
+          && /Saved automatically/i.test(document.querySelector('#status')?.textContent || '');
+      }, { timeout: 8000 }, {
+        householdId: withdrawalPlannerFixtureHouseholdId,
+        goalId: householdGoalEditBefore.id,
+        priorAmount: householdGoalEditBefore.amount,
+        priorDisplay: householdGoalDisplayBefore,
+      });
+
+      await stableClick('button[data-page="scenarios"]');
+      await page.waitForFunction(() => (
+        document.querySelector('.page[data-page="scenarios"]')?.classList.contains('on')
+        && !document.querySelector('#run-btn')?.disabled
+        && /Plan updated|Partial run/i.test(document.querySelector('#status')?.textContent || '')
+      ), { timeout: 30000 });
+      await setCashFlow(page, true);
+      await page.waitForFunction(expectedIndex => (
+        document.querySelector('#scn-view .cf')?.dataset.cashPathKind === 'random'
+        && Number(document.querySelector('#scn-view .cf')?.dataset.simIndex) === expectedIndex
+      ), { timeout: 20000 }, firstRandomPath.simIndex);
+      const householdGoalEditPath = await visibleCashFlowPathSnapshot(page);
+      const householdGoalEditSession = await cashFlowSessionSnapshot(page, {
+        bundleSentinel: 'cash-flow-random',
+      });
+      if(householdGoalEditSession.seed !== sessionBeforeRandom.seed
+          || !householdGoalEditSession.sameBundleObject
+          || householdGoalEditSession.bundleCount !== sessionBeforeRandom.bundleCount
+          || householdGoalEditSession.bundleHorizon !== sessionBeforeRandom.bundleHorizon
+          || householdGoalEditPath.simIndex !== firstRandomPath.simIndex
+          || householdGoalEditSession.aggregateBytes === sessionBeforeRandom.aggregateBytes
+          || householdGoalEditSession.probabilityRangeEnvelopeBytes
+            === sessionBeforeRandom.probabilityRangeEnvelopeBytes){
+        throw new Error(`same-household Goals edit did not reuse the session bundle and Random index while updating analysis: ${JSON.stringify({
+          seedBefore: sessionBeforeRandom.seed,
+          seedAfter: householdGoalEditSession.seed,
+          sameBundleObject: householdGoalEditSession.sameBundleObject,
+          randomIndexBefore: firstRandomPath.simIndex,
+          randomIndexAfter: householdGoalEditPath.simIndex,
+          aggregateChanged: householdGoalEditSession.aggregateBytes !== sessionBeforeRandom.aggregateBytes,
+          probabilityRangeEnvelopeChanged: householdGoalEditSession.probabilityRangeEnvelopeBytes
+            !== sessionBeforeRandom.probabilityRangeEnvelopeBytes,
+        })}`);
+      }
+
+      await stableClick('.htab[data-page="household"]');
+      await stableClick('.htab[data-sub-target="goals"]');
+      await page.waitForFunction(goalId => (
+        [...document.querySelectorAll('[data-goal-chip]')]
+          .filter(chip => chip.dataset.goalChip === goalId).length === 1
+      ), { timeout: 8000 }, householdGoalEditBefore.id);
+      await stableClick(`[data-goal-chip="${householdGoalEditBefore.id}"]`);
+      await page.waitForFunction(previousDisplay => (
+        document.querySelector('.gh-rail .gh-amount-input')?.value !== previousDisplay
+        && document.querySelectorAll('.gh-rail [data-action="amount-minus"]').length === 1
+      ), { timeout: 8000 }, householdGoalDisplayBefore);
+      await stableClick('.gh-rail [data-action="amount-minus"]');
+      await page.waitForFunction(({ householdId, goalId, amount, display }) => {
+        const db = JSON.parse(localStorage.getItem('parallax.households.v1') || '{}');
+        const goal = (db[householdId]?.goals || []).find(item => item?.id === goalId);
+        return goal?.amount === amount
+          && document.querySelector('.gh-rail .gh-amount-input')?.value === display
+          && /Saved automatically/i.test(document.querySelector('#status')?.textContent || '');
+      }, { timeout: 8000 }, {
+        householdId: withdrawalPlannerFixtureHouseholdId,
+        goalId: householdGoalEditBefore.id,
+        amount: householdGoalEditBefore.amount,
+        display: householdGoalDisplayBefore,
+      });
+
+      await stableClick('button[data-page="scenarios"]');
+      await page.waitForFunction(() => (
+        document.querySelector('.page[data-page="scenarios"]')?.classList.contains('on')
+        && !document.querySelector('#run-btn')?.disabled
+        && /Plan updated|Partial run/i.test(document.querySelector('#status')?.textContent || '')
+      ), { timeout: 30000 });
+      await setCashFlow(page, true);
+      await page.waitForFunction(expectedIndex => (
+        document.querySelector('#scn-view .cf')?.dataset.cashPathKind === 'random'
+        && Number(document.querySelector('#scn-view .cf')?.dataset.simIndex) === expectedIndex
+      ), { timeout: 20000 }, firstRandomPath.simIndex);
+      const restoredGoalPath = await visibleCashFlowPathSnapshot(page);
+      const restoredGoalSession = await cashFlowSessionSnapshot(page, {
+        bundleSentinel: 'cash-flow-random',
+      });
+      if(!restoredGoalSession.sameBundleObject
+          || restoredGoalPath.simIndex !== firstRandomPath.simIndex
+          || JSON.stringify(stableSessionAnalysis(restoredGoalSession))
+            !== JSON.stringify(stableSessionAnalysis(sessionBeforeRandom))){
+        throw new Error(`reversing the same-household Goals edit did not exactly restore probability/range/envelope analysis: ${JSON.stringify({
+          sameBundleObject: restoredGoalSession.sameBundleObject,
+          randomIndexBefore: firstRandomPath.simIndex,
+          randomIndexAfter: restoredGoalPath.simIndex,
+          successRatesBefore: sessionBeforeRandom.successRates,
+          successRatesAfter: restoredGoalSession.successRates,
+          probabilityRangeEnvelopeRestored: restoredGoalSession.probabilityRangeEnvelopeBytes
+            === sessionBeforeRandom.probabilityRangeEnvelopeBytes,
+          aggregateRestored: restoredGoalSession.aggregateBytes === sessionBeforeRandom.aggregateBytes,
+        })}`);
+      }
+
+      await page.select('#cashflow-path-mode', 'typical');
+      await page.waitForFunction(expectedIndex => {
+        const root = document.querySelector('#scn-view .cf');
+        const regenerate = document.querySelector('#cashflow-path-regenerate');
+        return root?.dataset.cashPathId === 'typical'
+          && Number(root.dataset.simIndex) === expectedIndex
+          && regenerate?.disabled
+          && (regenerate.hidden || getComputedStyle(regenerate).display === 'none');
+      }, { timeout: 20000 }, sessionBeforeRandom.typicalIndices[0]);
+      await page.select('#cashflow-path-mode', 'random');
+      await page.waitForFunction(expectedIndex => {
+        const root = document.querySelector('#scn-view .cf');
+        return root?.dataset.cashPathId === 'random'
+          && Number(root.dataset.simIndex) === expectedIndex;
+      }, { timeout: 20000 }, firstRandomPath.simIndex);
+
+      const randomPersistenceBeforeRegenerate = await localStorageBytes(page);
+      await page.click('#cashflow-path-regenerate');
+      await page.waitForFunction(previousIndex => {
+        const root = document.querySelector('#scn-view .cf');
+        return root?.dataset.cashPathKind === 'random'
+          && Number.isInteger(Number(root.dataset.simIndex))
+          && Number(root.dataset.simIndex) !== previousIndex;
+      }, { timeout: 20000 }, firstRandomPath.simIndex);
+      const regeneratedRandomPath = await visibleCashFlowPathSnapshot(page);
+      const sessionAfterRegenerate = await cashFlowSessionSnapshot(page, {
+        bundleSentinel: 'cash-flow-random',
+      });
+      if(regeneratedRandomPath.simIndex === firstRandomPath.simIndex
+          || regeneratedRandomPath.rowBytes === firstRandomPath.rowBytes){
+        throw new Error(`Regenerate did not change the visible existing-bundle path: ${JSON.stringify({
+          firstRandomPath,
+          regeneratedRandomPath,
+        })}`);
+      }
+      if(!sessionAfterRegenerate.sameBundleObject
+          || JSON.stringify(stableSessionAnalysis(sessionAfterRegenerate))
+            !== JSON.stringify(stableSessionAnalysis(sessionBeforeRandom))){
+        throw new Error(`Regenerate mutated Monte Carlo bundle or aggregate bytes: ${JSON.stringify({
+          before: sessionBeforeRandom,
+          after: sessionAfterRegenerate,
+        })}`);
+      }
+      if(await localStorageBytes(page) !== randomPersistenceBeforeRegenerate){
+        throw new Error('Regenerate persisted the Random path index');
+      }
+
+      for(const scenarioId of randomScenarioValues){
+        await page.select('#scn-view [data-cash-select]', scenarioId);
+        await page.waitForFunction(({ expectedScenario, expectedIndex }) => {
+          const root = document.querySelector('#scn-view .cf');
+          return document.querySelector('#scn-view [data-cash-select]')?.value === expectedScenario
+            && root?.dataset.cashPathKind === 'random'
+            && Number(root.dataset.simIndex) === expectedIndex;
+        }, { timeout: 20000 }, {
+          expectedScenario: scenarioId,
+          expectedIndex: regeneratedRandomPath.simIndex,
+        });
+      }
+      await page.select('#scn-view [data-cash-select]', baselineValue);
+      await page.waitForFunction(expectedIndex => (
+        Number(document.querySelector('#scn-view .cf')?.dataset.simIndex) === expectedIndex
+      ), { timeout: 20000 }, regeneratedRandomPath.simIndex);
+      await page.screenshot({ path: join(OUT, '04-cashflow-random.png'), fullPage: true });
+
+      await page.select('#cashflow-path-mode', 'historical-1995');
+      await page.waitForFunction(() => {
+        const root = document.querySelector('#scn-view .cf');
+        const regenerate = document.querySelector('#cashflow-path-regenerate');
+        return root?.dataset.cashPathId === 'historical-1995'
+          && Number(document.querySelector('#scn-view .cf-row[data-phase="retirement"]')?.dataset.sourceYear) === 1995
+          && regenerate?.disabled
+          && (regenerate.hidden || getComputedStyle(regenerate).display === 'none');
+      }, { timeout: 20000 });
+      const historicalAfterRandom = await page.evaluate(() => {
+        const cashFlow = document.querySelector('#scn-view .cf');
+        if(!cashFlow) return '';
+        const stableHistorical = cashFlow.cloneNode(true);
+        stableHistorical.querySelector('#scn-cf-path-controls')?.remove();
+        return stableHistorical.outerHTML;
+      });
+      if(historicalAfterRandom !== historicalBeforeRandom){
+        throw new Error('Random/Regenerate changed Historical Cash Flow bytes in the open session');
+      }
+      if(await page.evaluate(() => localStorage.getItem('parallax.pathReplay.v1')) !== pathReplayBefore){
+        throw new Error('Random/Regenerate changed Monte Carlo replay persistence');
       }
 
       // This funded browser household correctly survives both live paths above.
@@ -3024,12 +3480,70 @@ try {
       if(JSON.stringify([...observedHistoricalOutcomes].sort()) !== JSON.stringify(['survives', 'underfunded'])){
         throw new Error(`Cash Flow verifier did not observe both locked Historical outcomes: ${JSON.stringify([...observedHistoricalOutcomes])}`);
       }
+
+      // Historical-only financial bytes must survive a genuinely new session.
+      // Use the shipped retirement-now household so those rows have no Typical
+      // accumulation handoff; Typical-dependent comparison fields may change,
+      // while the Historical ledger itself must remain exact.
+      const historicalReloadHouseholdId = 'future-household';
+      await stableClick('.htab[data-page="household"]');
+      await selectHouseholdVisible(page, historicalReloadHouseholdId);
+      await page.waitForFunction(
+        () => /Plan updated|Partial run/i.test(document.querySelector('#status')?.textContent || ''),
+        { timeout: 30000 }
+      );
+      await stableClick('button[data-page="scenarios"]');
+      await setCashFlow(page, true);
+      await page.waitForFunction(() => {
+        const root = document.querySelector('#scn-view .cf');
+        const firstRetirement = document.querySelector('#scn-view .cf-row[data-phase="retirement"]');
+        return document.querySelector('#cashflow-path-mode')?.value === 'historical-1995'
+          && root?.dataset.cashPathId === 'historical-1995'
+          && Number(firstRetirement?.dataset.sourceYear) === 1995;
+      }, { timeout: 30000 });
+      const historicalReloadSessionBefore = await cashFlowSessionSnapshot(page, {
+        includeBundleIdentity: true,
+      });
+      reloadExpected = await page.evaluate(() => {
+        const root = document.querySelector('#scn-view .cf');
+        const summary = document.querySelector('#scn-view .cf-summary--historical');
+        const rows = [...document.querySelectorAll('#scn-view .cf-row')].map((row, index) => ({
+          planYear: index + 1,
+          age: Number(row.dataset.age),
+          phase: row.dataset.phase || '',
+          sourceYear: row.dataset.sourceYear === '' ? null : Number(row.dataset.sourceYear),
+          startBalance: Number(row.dataset.startBalance),
+          endingBalance: Number(row.dataset.endingBalance),
+          wdRate: Number(row.dataset.wdRate),
+          shortfall: Number(row.dataset.fundingShortfall),
+        }));
+        const retirementRows = rows.filter(row => row.phase === 'retirement');
+        return {
+          mode: document.querySelector('#cashflow-path-mode')?.value || '',
+          rootMode: root?.dataset.cashPathId || '',
+          sourceYear: retirementRows[0]?.sourceYear ?? null,
+          rows: retirementRows,
+          metrics: [...document.querySelectorAll('#scn-view [data-historical-metric]')].map(metric => ({
+            id: metric.dataset.historicalMetric || '',
+            label: metric.querySelector('.cf-comparison__label')?.textContent.trim() || '',
+            values: [...metric.querySelectorAll('.cf-comparison__value')].map(value => value.textContent.trim()),
+            thisPath: metric.dataset.thisPath === '' ? null : Number(metric.dataset.thisPath),
+            typicalPath: metric.dataset.typicalPath === '' ? null : Number(metric.dataset.typicalPath),
+            delta: metric.dataset.delta === '' ? null : Number(metric.dataset.delta),
+            planYear: metric.dataset.planYear === '' || metric.dataset.planYear === undefined
+              ? null
+              : Number(metric.dataset.planYear),
+          })),
+          summary: summary ? { outcome: summary.dataset.outcome || '' } : null,
+          retirementAges: retirementRows.map(row => row.age),
+        };
+      });
       if(!reloadExpected) throw new Error('historical reload checkpoint was not captured');
 
       await stableReload({ waitUntil: 'networkidle2', timeout: 20000 });
       await waitForUnselectedWizard(page);
       await stableClick('.htab[data-page="household"]');
-      await selectHouseholdVisible(page, withdrawalPlannerFixtureHouseholdId);
+      await selectHouseholdVisible(page, historicalReloadHouseholdId);
       await page.waitForFunction(
         () => /Plan updated|Partial run/i.test(document.querySelector('#status')?.textContent || ''),
         { timeout: 30000 }
@@ -3048,15 +3562,29 @@ try {
         expectedMode: reloadExpected.mode,
         expectedStartYear: reloadExpected.sourceYear,
       });
+      const sessionAfterReload = await cashFlowSessionSnapshot(page, {
+        includeBundleIdentity: true,
+      });
       const reloadedHistorical = await page.evaluate(() => {
         const root = document.querySelector('#scn-view .cf');
         const summary = document.querySelector('#scn-view .cf-summary--historical');
-        const retirementRows = [...document.querySelectorAll('#scn-view .cf-row[data-phase="retirement"]')];
+        const rows = [...document.querySelectorAll('#scn-view .cf-row')].map((row, index) => ({
+          planYear: index + 1,
+          age: Number(row.dataset.age),
+          phase: row.dataset.phase || '',
+          sourceYear: row.dataset.sourceYear === '' ? null : Number(row.dataset.sourceYear),
+          startBalance: Number(row.dataset.startBalance),
+          endingBalance: Number(row.dataset.endingBalance),
+          wdRate: Number(row.dataset.wdRate),
+          shortfall: Number(row.dataset.fundingShortfall),
+        }));
+        const retirementRows = rows.filter(row => row.phase === 'retirement');
+        const regenerate = document.querySelector('#cashflow-path-regenerate');
         return {
           snapshot: {
             mode: document.querySelector('#cashflow-path-mode')?.value || '',
             rootMode: root?.dataset.cashPathId || '',
-            sourceYear: Number(retirementRows[0]?.dataset.sourceYear),
+            sourceYear: retirementRows[0]?.sourceYear ?? null,
             metrics: [...document.querySelectorAll('#scn-view [data-historical-metric]')].map(metric => ({
               id: metric.dataset.historicalMetric || '',
               label: metric.querySelector('.cf-comparison__label')?.textContent.trim() || '',
@@ -3068,17 +3596,51 @@ try {
                 ? null
                 : Number(metric.dataset.planYear),
             })),
+            rows: retirementRows,
             summary: summary ? { outcome: summary.dataset.outcome || '' } : null,
-            retirementAges: retirementRows.map(row => Number(row.dataset.age)),
+            retirementAges: retirementRows.map(row => row.age),
           },
           persisted: JSON.parse(localStorage.getItem('parallax.cashFlowPath.v1') || '{}'),
           pathReplay: localStorage.getItem('parallax.pathReplay.v1'),
+          regenerateUnavailable: !!regenerate
+            && regenerate.disabled
+            && (regenerate.hidden || getComputedStyle(regenerate).display === 'none'),
         };
       });
-      if(JSON.stringify(reloadedHistorical.snapshot) !== JSON.stringify(reloadExpected)
+      const historicalContract = snapshot => ({
+        mode: snapshot.mode,
+        rootMode: snapshot.rootMode,
+        sourceYear: snapshot.sourceYear,
+        metrics: snapshot.metrics.map(metric => ({
+          id: metric.id,
+          label: metric.label,
+          planYear: metric.planYear,
+          thisPath: metric.thisPath,
+        })),
+        rows: snapshot.rows.map(row => ({
+          planYear: row.planYear,
+          age: row.age,
+          sourceYear: row.sourceYear,
+          startBalance: row.startBalance,
+          endingBalance: row.endingBalance,
+          wdRate: row.wdRate,
+          shortfall: row.shortfall,
+        })),
+        summary: snapshot.summary,
+        retirementAges: snapshot.retirementAges,
+      });
+      if(JSON.stringify(historicalContract(reloadedHistorical.snapshot)) !== JSON.stringify(historicalContract(reloadExpected))
           || reloadedHistorical.persisted?.id !== reloadExpected.mode
-          || reloadedHistorical.pathReplay !== pathReplayBefore){
-        throw new Error(`historical selection/result changed across reload: ${JSON.stringify({ reloadExpected, reloadedHistorical })}`);
+          || reloadedHistorical.pathReplay !== pathReplayBefore
+          || !reloadedHistorical.regenerateUnavailable){
+        throw new Error(`Historical selection/generation contract changed across reload: ${JSON.stringify({ reloadExpected, reloadedHistorical })}`);
+      }
+      if(sessionAfterReload.seed === historicalReloadSessionBefore.seed
+          || sessionAfterReload.bundleIdentityHash === historicalReloadSessionBefore.bundleIdentityHash){
+        throw new Error(`household reload reused the previous session seed or Monte Carlo bundle: ${JSON.stringify({
+          before: historicalReloadSessionBefore,
+          after: sessionAfterReload,
+        })}`);
       }
 
       await page.select('#cashflow-path-mode', 'typical');
@@ -3140,6 +3702,49 @@ try {
     if(disclosureStates.warned.state !== 'federal-sidecar' || disclosureStates.warned.warning !== 'A supplied tax fact needs review.') throw new Error(`sidecar warnings were not surfaced: ${JSON.stringify(disclosureStates)}`);
     if(disclosureStates.failed.state !== 'engine-fallback' || disclosureStates.failed.source !== 'engine' || !/tax column uses engine estimates/i.test(disclosureStates.failed.fallback)) throw new Error(`sidecar attach-failure fallback is unclear: ${JSON.stringify(disclosureStates)}`);
     await page.screenshot({ path: join(OUT, '04-cashflow.png'), fullPage: true });
+
+    await stableClick('.htab[data-page="household"]');
+    await selectHouseholdVisible(page, withdrawalPlannerFixtureHouseholdId);
+    await page.waitForFunction(householdId => {
+      const status = document.querySelector('#status')?.textContent || '';
+      const runButton = document.querySelector('#run-btn');
+      return localStorage.getItem('parallax.activeHouseholdId') === householdId
+        && document.querySelector('[data-hh-wizard-root]')?.dataset.householdId === householdId
+        && document.querySelector('#hh-switch')?.value === householdId
+        && runButton
+        && !runButton.disabled
+        && /Plan updated|Partial run/i.test(status);
+    }, { timeout: 30000 }, withdrawalPlannerFixtureHouseholdId);
+    const restoredWithdrawalPlannerFixture = await page.evaluate(householdId => {
+      const db = JSON.parse(localStorage.getItem('parallax.households.v1') || '{}');
+      const household = db[householdId]?.household || {};
+      return {
+        activeHouseholdId: localStorage.getItem('parallax.activeHouseholdId'),
+        rootHouseholdId: document.querySelector('[data-hh-wizard-root]')?.dataset.householdId || '',
+        selectedHouseholdId: document.querySelector('#hh-switch')?.value || '',
+        primary: household.primary
+          ? {
+              currentAge: household.primary.currentAge,
+              retirementAge: household.primary.retirementAge,
+            }
+          : null,
+        spouse: household.spouse
+          ? {
+              currentAge: household.spouse.currentAge,
+              retirementAge: household.spouse.retirementAge,
+            }
+          : null,
+      };
+    }, withdrawalPlannerFixtureHouseholdId);
+    if(restoredWithdrawalPlannerFixture.activeHouseholdId !== withdrawalPlannerFixtureHouseholdId
+        || restoredWithdrawalPlannerFixture.rootHouseholdId !== withdrawalPlannerFixtureHouseholdId
+        || restoredWithdrawalPlannerFixture.selectedHouseholdId !== withdrawalPlannerFixtureHouseholdId
+        || restoredWithdrawalPlannerFixture.primary?.currentAge !== 64
+        || restoredWithdrawalPlannerFixture.primary?.retirementAge !== 66
+        || restoredWithdrawalPlannerFixture.spouse?.currentAge !== 63
+        || restoredWithdrawalPlannerFixture.spouse?.retirementAge !== 65){
+      throw new Error(`Withdrawal Planner fixture was not restored after Historical reload: ${JSON.stringify(restoredWithdrawalPlannerFixture)}`);
+    }
   });
 
   if(!SKIP_SEQUENCING){
@@ -4001,11 +4606,13 @@ try {
     await page.waitForFunction(() => {
       const id = document.querySelector('#hh-switch')?.value;
       const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
-      return /New household created/.test(document.querySelector('#status')?.textContent || '')
-        && id
+      const status = document.querySelector('#status')?.textContent || '';
+      return id
         && localStorage.getItem('parallax.activeHouseholdId') === id
-        && Boolean(db?.[id]);
-    }, { timeout: 10000 });
+        && Boolean(db?.[id])
+        && !document.querySelector('#run-btn')?.disabled
+        && /Plan updated|Partial run/i.test(status);
+    }, { timeout: 15000 });
     const pendingCustomId = await page.$eval('#hh-switch', element => element.value);
     if(!pendingCustomId){
       throw new Error(`New Household did not become the working record (id="${pendingCustomId}")`);
