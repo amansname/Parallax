@@ -73,7 +73,9 @@ Required GitHub checks remain invariant and the existing deployment director is 
 - [x] Build deployable site artifact
 - [x] Full browser verification`,
     `## Independent review
-Separate review against main found no blocking issue.`,
+- Review method: Separate review against main.
+- Reviewer/result link: https://example.com/review/1
+- Findings and re-review status: No blocking issue.`,
     `## Known failures and proof gaps
 None recorded.`,
     `## Rollback and deployment
@@ -143,6 +145,28 @@ test('requires Tier 3 for governance work', () => {
   assert.match(failures, /governance requires Risk tier: Tier 3/);
 });
 
+test('requires Tier 3 when protected paths change', () => {
+  for(const protectedPath of [
+    'engine.js',
+    'src/household/migrateAccounts.js',
+    '.github/workflows/test.yml',
+  ]){
+    const failures = validatePullRequestBody(
+      validBody({ riskTier: 'Tier 1', workType: 'feature' }),
+      { changedFiles: [protectedPath] },
+    ).join('\n');
+    assert.match(failures, /Protected changes require Risk tier: Tier 3/);
+  }
+});
+
+test('requires Tier 3 for cross-authority changes', () => {
+  const failures = validatePullRequestBody(
+    validBody({ riskTier: 'Tier 2', workType: 'feature' }),
+    { changedFiles: ['ui/householdWizard.js', 'src/household/wizardEdits.js'] },
+  ).join('\n');
+  assert.match(failures, /Cross-authority changes require Risk tier: Tier 3: UI, household/);
+});
+
 test('requires the full local command set for Tier 2 and Tier 3', () => {
   const body = validBody({ riskTier: 'Tier 2', workType: 'feature' })
     .replace('npm run verify — exit 0', 'npm run verify — required CI');
@@ -206,6 +230,19 @@ test('requires substantive rollback and deployment field values', () => {
   }
 });
 
+test('requires substantive independent-review field values', () => {
+  for(const label of ['Review method', 'Reviewer/result link', 'Findings and re-review status']){
+    const body = validBody().replace(
+      new RegExp(`- ${label}:.*`),
+      `- ${label}: <!-- missing -->`,
+    );
+    assert.match(
+      validatePullRequestBody(body).join('\n'),
+      new RegExp(`must provide ${label}`),
+    );
+  }
+});
+
 test('rejects invalid tier, work type, lifecycle, and hold values', () => {
   const body = validBody()
     .replace('Risk tier: Tier 3', 'Risk tier: Tiny')
@@ -251,6 +288,21 @@ test('rejects required commands without concrete results', () => {
   const failures = validatePullRequestBody(validBody({ bareCommands: true })).join('\n');
   for(const command of ['npm run governance:check', 'npm test', 'npm run verify', 'git diff --check']){
     assert.ok(failures.includes(`must record a concrete result for: ${command}`));
+  }
+});
+
+test('rejects failed or blocked local results for Merge-ready', () => {
+  for(const [command, failedResult] of [
+    ['npm run governance:check', 'exit 1'],
+    ['npm test', '841 tests passed; 1 failed'],
+    ['npm run verify', 'blocked by browser error'],
+    ['git diff --check', 'failed'],
+  ]){
+    const body = validBody().replace(`${command} — exit 0`, `${command} — ${failedResult}`);
+    assert.match(
+      validatePullRequestBody(body).join('\n'),
+      new RegExp(`Merge-ready requires a successful local result for: ${command.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`),
+    );
   }
 });
 

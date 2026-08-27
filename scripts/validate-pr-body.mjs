@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { marked } from 'marked';
@@ -38,6 +39,21 @@ const HOLDS = new Set([
   'Deployment',
   'External blocker',
 ]);
+
+const PROTECTED_PATH_PATTERNS = [
+  /^engine\.js$/,
+  /^src\/tax\//,
+  /^src\/planning\//,
+  /^src\/projection\//,
+  /(?:^|\/)(?:rmd|withdrawal|allocation|persistence|migrat|schema|financial|security)/i,
+  /^\.claude\//,
+  /^\.github\/workflows\//,
+  /^\.github\/PULL_REQUEST_TEMPLATE\.md$/,
+  /^(?:AGENTS|PRINCIPLES)\.md$/,
+  /^docs\/(?:ARCHITECTURE|CODEX_WORKFLOW|CODE_REVIEW|EXECUTION-PROTOCOL|DEPLOYMENT-INTEGRITY)\.md$/,
+  /^scripts\/(?:validate-governance|validate-pr-body|build-site-artifact|verify-site-artifact|verify-live-site)\.(?:mjs|test\.mjs)$/,
+  /^package(?:-lock)?\.json$/,
+];
 
 function visibleTokenText(token){
   if(!token || token.type === 'html' || token.type === 'space' || token.type === 'image') return '';
@@ -143,6 +159,44 @@ function requireLabeledValues(failures, sections, heading, labels, reason){
   }
 }
 
+function protectedChangedFiles(changedFiles = []){
+  return changedFiles
+    .map(file => file.replaceAll('\\', '/'))
+    .filter(file => PROTECTED_PATH_PATTERNS.some(pattern => pattern.test(file)));
+}
+
+function changedAuthority(file){
+  const normalized = file.replaceAll('\\', '/');
+  if(/^engine(?:\.test)?\.js$/.test(normalized) || normalized.startsWith('src/projection/')) return 'Projection Engine';
+  if(normalized.startsWith('src/tax/')) return 'Tax Engine';
+  if(normalized.startsWith('src/planning/')) return 'planning';
+  if(normalized.startsWith('src/household/')) return 'household';
+  if(normalized.startsWith('src/scenarios/')) return 'Scenario';
+  if(normalized.startsWith('ui/')) return 'UI';
+  if(/^src\/(?:state|main)(?:\.test)?\.js$/.test(normalized) || normalized === 'index.html') return 'composition/state';
+  return null;
+}
+
+function changedAuthorities(changedFiles = []){
+  return new Set(changedFiles.map(changedAuthority).filter(Boolean));
+}
+
+function concreteCommandResult(commandLines, command){
+  const escapedCommand = command.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const linePattern = new RegExp(`^[ \\t]*${escapedCommand}(?:[ \\t]+(.+))?$`, 'i');
+  return commandLines
+    .map(line => line.match(linePattern)?.[1]?.trim() || '')
+    .find(result => /\b(?:exit(?:[ \\t]+code)?[ \\t]+-?\d+|\d+[ \\t]+(?:tests?[ \\t]+)?passed|\d+[ \\t]+failed|passed|failed|blocked|blocker|error|successful(?:ly)?)\b/i.test(result)) || null;
+}
+
+function commandResultSucceeded(result){
+  if(!result) return false;
+  if(/\b(?:failed|blocked|blocker|error)\b/i.test(result)) return false;
+  const exitCode = result.match(/\bexit(?:[ \\t]+code)?[ \\t]+(-?\d+)\b/i)?.[1];
+  if(exitCode !== undefined && Number(exitCode) !== 0) return false;
+  return /\b(?:exit(?:[ \\t]+code)?[ \\t]+0|\d+[ \\t]+(?:tests?[ \\t]+)?passed|passed|successful(?:ly)?)\b/i.test(result);
+}
+
 function taskChecked(tokens, label){
   if(!tokens) return null;
   for(const token of tokens){
@@ -186,6 +240,14 @@ export function validatePullRequestBody(body, expectedShas = {}){
   if(!HOLDS.has(hold)) failures.push('Workflow classification must use a canonical Hold value');
   if(workType === 'governance' && riskTier !== 'Tier 3'){
     failures.push('Work type governance requires Risk tier: Tier 3');
+  }
+  const protectedFiles = protectedChangedFiles(expectedShas.changedFiles);
+  if(protectedFiles.length && riskTier !== 'Tier 3'){
+    failures.push(`Protected changes require Risk tier: Tier 3: ${protectedFiles.join(', ')}`);
+  }
+  const authorities = changedAuthorities(expectedShas.changedFiles);
+  if(authorities.size > 1 && riskTier !== 'Tier 3'){
+    failures.push(`Cross-authority changes require Risk tier: Tier 3: ${[...authorities].join(', ')}`);
   }
 
   const acceptance = sectionTokens(sections, 'Acceptance evidence');
@@ -241,6 +303,13 @@ export function validatePullRequestBody(body, expectedShas = {}){
     ],
     lifecycle || 'the declared lifecycle',
   );
+  requireLabeledValues(
+    failures,
+    sections,
+    'Independent review',
+    ['Review method', 'Reviewer/result link', 'Findings and re-review status'],
+    lifecycle || 'the declared lifecycle',
+  );
 
   const verification = sectionContent(sections, 'Tests and verification') || '';
   const commandLines = verification.split(/\r?\n/);
@@ -249,13 +318,11 @@ export function validatePullRequestBody(body, expectedShas = {}){
     : ['npm run governance:check', 'npm test', 'npm run verify', 'git diff --check'];
   for(const command of requiredCommands){
     if(!verification.includes(command)) failures.push(`Tests and verification is missing: ${command}`);
-    const escapedCommand = command.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const linePattern = new RegExp(`^[ \\t]*${escapedCommand}(?:[ \\t]+(.+))?$`, 'i');
-    const hasConcreteResult = commandLines.some(line => {
-      const result = line.match(linePattern)?.[1]?.trim() || '';
-      return /\b(?:exit(?:[ \\t]+code)?[ \\t]+-?\d+|\d+[ \\t]+(?:tests?[ \\t]+)?passed|\d+[ \\t]+failed|passed|failed|blocked|blocker|error|successful(?:ly)?)\b/i.test(result);
-    });
-    if(!hasConcreteResult) failures.push(`Tests and verification must record a concrete result for: ${command}`);
+    const result = concreteCommandResult(commandLines, command);
+    if(!result) failures.push(`Tests and verification must record a concrete result for: ${command}`);
+    else if(lifecycle === 'Merge-ready' && !commandResultSucceeded(result)){
+      failures.push(`Merge-ready requires a successful local result for: ${command}`);
+    }
   }
   if(/#[ \\t]*actual(?:[ \\t]+counts[ \\t]+and)?[ \\t]+result\b/i.test(verification)){
     failures.push('Tests and verification still contains a template placeholder');
@@ -289,8 +356,21 @@ export function validatePullRequestEvent(event){
     failures: validatePullRequestBody(event.pull_request?.body || '', {
       baseSha: event.pull_request?.base?.sha || '',
       headSha: event.pull_request?.head?.sha || '',
+      changedFiles: event.changedFiles || [],
     }),
   };
+}
+
+function changedFilesForPullRequest(event){
+  const baseSha = event.pull_request?.base?.sha || '';
+  const headSha = event.pull_request?.head?.sha || '';
+  if(!baseSha || !headSha) return [];
+  return execFileSync('git', ['diff', '--name-only', `${baseSha}...${headSha}`], {
+    encoding: 'utf8',
+  })
+    .split(/\r?\n/)
+    .map(file => file.trim())
+    .filter(Boolean);
 }
 
 function run(){
@@ -303,6 +383,7 @@ function run(){
     process.exit(1);
   }
   const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
+  event.changedFiles = changedFilesForPullRequest(event);
   const result = validatePullRequestEvent(event);
   if(result.failures.length){
     console.error('PR evidence validation failed:');
