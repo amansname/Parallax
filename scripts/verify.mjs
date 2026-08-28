@@ -2069,6 +2069,11 @@ try {
       const select = document.querySelector(
         '#scn-view .cmp-lev-select[data-scn-id="1"][data-lever-key="allocationPresetId"]',
       );
+      const bodyFontSize = getComputedStyle(document.documentElement)
+        .getPropertyValue('--fs-body').trim();
+      const editorFontSizes = [...document.querySelectorAll(
+        '#scn-view .cmp-lev-val, #scn-view .cmp-lev-in, #scn-view .cmp-lev-select, #scn-view .cmp-goal-in',
+      )].map(element => getComputedStyle(element).fontSize);
       const ageValues = {};
       for(const key of ['retireAge', 'spouseRetireAge', 'ssAge', 'spouseSsAge']){
         const value = document.querySelector(
@@ -2086,6 +2091,11 @@ try {
         allocationCount: document.querySelectorAll(
           '#scn-view .cmp-lev-select[data-lever-key="allocationPresetId"]',
         ).length,
+        removedDecisionControlCount: document.querySelectorAll(
+          '#scn-view [data-lever-key="sellAge"], #scn-view [data-key="sellAge"]',
+        ).length,
+        bodyFontSize,
+        editorFontSizes,
         ageValues,
         ageControlCounts: Object.fromEntries(
           ['retireAge', 'spouseRetireAge', 'ssAge', 'spouseSsAge'].map(key => [
@@ -2109,6 +2119,10 @@ try {
         || before.allocationCount !== before.scenarioCount
         || JSON.stringify(before.allocationLabels) !== JSON.stringify(expectedAllocationLabels)
         || expectedLeverNames.some(name => !before.leverNames.includes(name))
+        || before.leverNames.some(name => /^Sell\s/i.test(name))
+        || before.removedDecisionControlCount !== 0
+        || before.editorFontSizes.length === 0
+        || before.editorFontSizes.some(size => size !== before.bodyFontSize)
         || Object.values(before.ageValues).some(value => !Number.isInteger(value))
         || Object.values(before.ageControlCounts).some(count => count !== before.scenarioCount * 2)
         || before.overflow > 2){
@@ -2154,6 +2168,7 @@ try {
       const saved = raw ? JSON.parse(raw) : null;
       const levers = saved?.[1]?.lev;
       return levers?.allocationPresetId === allocation
+        && !Object.prototype.hasOwnProperty.call(levers || {}, 'sellAge')
         && Object.entries(ages).every(([key, value]) => levers?.[key] === value);
     }, { timeout: 10000 }, {
       householdId: withdrawalPlannerFixtureHouseholdId,
@@ -2226,6 +2241,32 @@ try {
         document.querySelector('#scn-view [data-goals-toggle]')?.getAttribute('aria-expanded') === 'true'
       ), { timeout: 10000 });
     }
+    await page.click('#scn-seg-focus');
+    await page.waitForSelector('#scn-view .focus', { visible: true, timeout: 10000 });
+    const focusContract = await page.evaluate(() => {
+      const bodyFontSize = getComputedStyle(document.documentElement)
+        .getPropertyValue('--fs-body').trim();
+      const editorFontSizes = [...document.querySelectorAll(
+        '#scn-view .assum__value, #scn-view .assum__select',
+      )].map(element => getComputedStyle(element).fontSize);
+      return {
+        bodyFontSize,
+        editorFontSizes,
+        removedDecisionControlCount: document.querySelectorAll(
+          '#scn-view [data-lever-key="sellAge"], #scn-view [data-key="sellAge"]',
+        ).length,
+        removedDecisionLabelCount: [...document.querySelectorAll('#scn-view .assum__label')]
+          .filter(element => /^Sell\s/i.test(element.textContent.trim())).length,
+      };
+    });
+    if(focusContract.removedDecisionControlCount !== 0
+        || focusContract.removedDecisionLabelCount !== 0
+        || focusContract.editorFontSizes.length === 0
+        || focusContract.editorFontSizes.some(size => size !== focusContract.bodyFontSize)){
+      throw new Error(`scenario Focus controls violate the removed-decision/type contract: ${JSON.stringify(focusContract)}`);
+    }
+    await page.click('#scn-seg-compare');
+    await page.waitForSelector('#scn-view .compare', { visible: true, timeout: 10000 });
   });
 
   await step('scenarios: retirement-relative goal ages resolve and round-trip', async () => {

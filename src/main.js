@@ -48,6 +48,7 @@ import {
   applyScenarioPlanInputs,
   resolveCurrentScenarioAllocation,
 } from './scenarios/scenarioPlanInputs.js';
+import { withoutRemovedScenarioLevers } from './scenarios/scenarioLevers.js';
 import { installDesignSystemPrimitives } from '../ui/designSystemPrimitives.js';
 import {
   scenarios, sharedPaths, plansDirty, baseSnapshot,
@@ -316,10 +317,7 @@ function defaultLevers(){
     // earning). pensionAuto stays true until the advisor grabs the pension
     // slider, which frees it to hold any quoted age independently.
     pensionAuto: true,
-    pensionAge: (plan.income.pension && plan.income.pension.startAge) || 65,
-    // Earmarked-asset sale. Off sentinel = currentAge−1 (renders "Keep"); any
-    // value ≥ currentAge is a sale age. Targets the first property.
-    sellAge: plan.household.primary.currentAge - 1
+    pensionAge: (plan.income.pension && plan.income.pension.startAge) || 65
   };
   syncPension(L);
   return L;
@@ -345,7 +343,11 @@ function saveScenarios(){
   if(!activeHouseholdId) return false;
   if(isRuntimeHousehold(activeHouseholdId)) return false;
   try{
-    const slim=scenarios.map(s=>({name:s.name, base:!!s.base, lev:s.lev}));
+    const slim=scenarios.map(s=>({
+      name:s.name,
+      base:!!s.base,
+      lev:withoutRemovedScenarioLevers(s.lev),
+    }));
     localStorage.setItem(scenKey(), JSON.stringify(slim));
     return true;
   }catch(e){ return false; }
@@ -361,15 +363,9 @@ function loadScenarios(id){
     // Backfill any lever keys added since the save (forward-compat) so old saves
     // don't break when defaultLevers() grows new fields.
     const proto=defaultLevers();
-    const hasProperty = !!(plan.properties && plan.properties.length);
     return arr.map(s=>{
-      const lev={...proto, ...s.lev};
-      let name=String(s.name||'Scenario');
-      if(!hasProperty){
-        lev.sellAge = proto.sellAge;
-        if(/sell\s*home|allocation\s*tilt/i.test(name)) name = 'Risk tilt';
-      }
-      return { name, base:!!s.base, lev, res:null };
+      const lev={...proto, ...withoutRemovedScenarioLevers(s.lev)};
+      return { name:String(s.name||'Scenario'), base:!!s.base, lev, res:null };
     });
   }catch(e){ return null; }
 }
@@ -559,11 +555,6 @@ function leversToOverrides(L){
   // Pension: always pass the chosen age as an absolute override so the engine
   // looks up the entered benefit for THAT exact age (or pays 0 if no entry).
   ov.pensionStartAge = L.pensionAge;
-  // Earmarked-asset sale — emitted ONLY when an age is chosen (≥ currentAge), so
-  // the Baseline (sellAge = off) carries no sale and stays clean.
-  if(plan.properties && plan.properties.length && L.sellAge != null && L.sellAge >= plan.household.primary.currentAge){
-    ov.assetSale = { asset: 0, age: L.sellAge };
-  }
   return ov;
 }
 /* Person ages and the allocation model belong on the scenario plan clone so
@@ -920,11 +911,6 @@ function levRange(cfg){
     if(a.length) return { min:a[0], max:a[a.length-1], step:1 };
     return { min:62, max:65, step:1 };
   }
-  // Sale lever: min = currentAge−1 (the "Keep" / off state), max = plan end.
-  if(cfg.key==='sellAge'){
-    const c=plan.household.primary.currentAge, e=resolveGoalSpan(plan).planEndAge;
-    return { min:c-1, max:e, step:1 };
-  }
   return { min:cfg.min, max:cfg.max, step:cfg.step };
 }
 
@@ -969,17 +955,6 @@ function leverConfigs(){
     const amt=m[v]; return (amt && amt>0) ? ['$'+amt.toLocaleString('en-US'),'@ '+v] : ['__needs__', v];
   }},
   ];
-// Earmarked-asset sale lever — only shown when there's a property to sell. A
-// discrete stepper: "Keep" (off) → a sale age. Net proceeds (value − mortgage −
-// commission − cap-gains) flow into the portfolio via the assetSale override, so
-// you can stand a "sell at 72" column next to a "keep" Baseline. (See engine.js.)
-if(plan.properties && plan.properties.length && plan.properties[0]){
-  configs.push({
-    key:'sellAge', name:'Sell '+(plan.properties[0].name||'asset'),
-    min:0, max:120, step:1,                              // real range is dynamic (levRange)
-    fmt:v => (v <= plan.household.primary.currentAge-1) ? ['Keep',''] : ['age '+v,'']
-  });
-}
   return configs;
 }
 
@@ -1488,7 +1463,7 @@ $('#cashflow-path-mode').onchange=e=>{
       && (k !== 'spouseRetireAge' || (spouse && spouse.currentAge < spouse.retirementAge)));
   }
   function leverDeltaText(cfg, lev, baseLev) {
-    if (!baseLev || lev === baseLev || cfg.key === 'sellAge') return null;
+    if (!baseLev || lev === baseLev) return null;
     if (cfg.control === 'select') return lev[cfg.key] === baseLev[cfg.key] ? null : 'Changed';
     const d = (lev[cfg.key] || 0) - (baseLev[cfg.key] || 0);
     if (!d) return null;

@@ -347,7 +347,8 @@
   border-radius: 0;
   background: transparent;
   color: var(--ink);
-  font-size: var(--fs-emphasis);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-body);
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
@@ -382,8 +383,8 @@
   flex-wrap: nowrap;
 }
 
-/* A dollar lever is typed directly. The underline is the whole affordance —
-   the value stays the loudest thing in the cell. */
+/* A dollar lever is typed directly. The underline is the whole affordance;
+   editor values retain the design system's standard interface typography. */
 .page[data-page="scenarios"] .cmp-lev-in {
   width: 114px; /* geometry: currency width */
   height: auto;
@@ -393,8 +394,8 @@
   border-radius: 0;
   background: transparent;
   color: var(--ink);
-  font-size: var(--fs-heading);
-  font-weight: var(--fw-heading);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-body);
   text-align: right;
   -moz-appearance: textfield;
   font-variant-numeric: tabular-nums;
@@ -410,7 +411,7 @@
 .page[data-page="scenarios"] .cmp-lev-in--age {
   width: 42px; /* geometry: two digits */
   padding: 2px;
-  font-size: var(--fs-emphasis);
+  font-size: var(--fs-body);
   text-align: center;
 }
 
@@ -429,8 +430,8 @@
 .page[data-page="scenarios"] .cmp-lev-val {
   min-width: 70px; /* geometry: value column */
   color: var(--ink);
-  font-size: var(--fs-heading);
-  font-weight: var(--fw-heading);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-body);
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
@@ -445,8 +446,9 @@
   border-radius: var(--r-ctl);
   background: var(--panel);
   color: var(--ink);
-  font: inherit;
-  font-size: var(--fs-emphasis);
+  font-family: var(--f);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-body);
 }
 
 .page[data-page="scenarios"] .cmp-lev-select:hover,
@@ -642,8 +644,8 @@
 .page[data-page="scenarios"] .assum__value {
   min-width: 92px; /* geometry: assumption value column */
   color: var(--ink);
-  font-size: var(--fs-heading);
-  font-weight: var(--fw-heading);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-body);
   text-align: center;
   font-variant-numeric: tabular-nums;
 }

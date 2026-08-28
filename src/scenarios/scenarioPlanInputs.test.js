@@ -11,6 +11,7 @@ import {
   applyScenarioPlanInputs,
   resolveCurrentScenarioAllocation,
 } from './scenarioPlanInputs.js';
+import { withoutRemovedScenarioLevers } from './scenarioLevers.js';
 
 function account(id, typeId, balance, investmentAllocation){
   return { id, typeId, balance, investmentAllocation };
@@ -54,6 +55,28 @@ test('Scenario allocation choices use the canonical asset-class model labels', (
     'Aggressive',
     'All Equity',
   ]);
+});
+
+test('removed Scenarios decisions are stripped without mutating retained levers', () => {
+  const saved = {
+    retireAge: 68,
+    spouseRetireAge: 66,
+    allocationPresetId: 'balanced',
+    sellAge: 72,
+    goalOv: { 0: { amount: 150_000 } },
+  };
+
+  const clean = withoutRemovedScenarioLevers(saved);
+
+  assert.deepEqual(clean, {
+    retireAge: 68,
+    spouseRetireAge: 66,
+    allocationPresetId: 'balanced',
+    goalOv: { 0: { amount: 150_000 } },
+  });
+  assert.equal(saved.sellAge, 72);
+  assert.deepEqual(withoutRemovedScenarioLevers(null), {});
+  assert.deepEqual(withoutRemovedScenarioLevers([]), {});
 });
 
 test('Scenario allocation selection reports one shared preset and preserves a mixed current plan', () => {
