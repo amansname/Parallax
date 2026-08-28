@@ -48,6 +48,14 @@ export function deltaVsBaseline(scn, baseline) {
     return (scn.prob - baseline.prob);   // presentation subtraction, not a re-simulation
   }
 
+function leverOptions(lever, esc){
+  return (Array.isArray(lever.options) ? lever.options : []).map(option => (
+    '<option value="' + esc(option.value) + '"'
+      + (option.value === lever.selectedValue ? ' selected' : '') + '>'
+      + esc(option.label) + '</option>'
+  )).join('');
+}
+
 export function renderCompare(scns, baseline, { plan, planEndAge, goalsExpandedState, esc, downTri }) {
     const displayGoalEndAge = value => (
       Number(value) >= 999 && Number.isFinite(planEndAge) ? planEndAge : value
@@ -91,6 +99,21 @@ export function renderCompare(scns, baseline, { plan, planEndAge, goalsExpandedS
         // No lever key for this row → plain read-only value.
         if (!lev.key) {
           return '<div class="cell cell--lev"><div class="cell__val"><span class="cell__num">' + value + '</span></div></div>';
+        }
+
+        // Allocation model: one in-place selector uses less horizontal space
+        // than the old minus/value/plus control and exposes canonical labels.
+        if (lev.controlType === 'select') {
+          return (
+            '<div class="cell cell--lev cell--lev-select">' +
+              '<div class="cmp-lev-row">' +
+                '<select class="cmp-lev-select" data-scn-id="' + esc(s.id) + '" data-lever-key="' + esc(lev.key) + '" aria-label="' + esc(lev.label + ' for ' + s.name) + '">' +
+                  leverOptions(lev, esc) +
+                '</select>' +
+                (delta ? delta : '') +
+              '</div>' +
+            '</div>'
+          );
         }
 
         // Dollar lever: always-visible type-in input
@@ -217,17 +240,22 @@ export function renderFocus(scns, baseline, focusedId, showRange, {
     const heroRing = ring(152, 67, 3.5, f.tone, f.prob, '<span class="hero__numeral">' + f.probStr + '<span class="pct">%</span></span>')
       + scenarioIssue(f, 'hero', esc);
 
-    const assum = f.levers.map((l) => (
-      '<div>' +
-        '<div class="assum__label">' + esc(l.label) + '</div>' +
-        '<div class="assum__stepper">' +
-          '<button class="stepper-btn" type="button" data-lever-key="' + esc(l.key) + '" data-dir="-1" aria-label="Decrease ' + esc(l.label) + '">−</button>' +
-          '<span class="assum__value">' + esc(l.value) + '</span>' +
-          '<button class="stepper-btn" type="button" data-lever-key="' + esc(l.key) + '" data-dir="1" aria-label="Increase ' + esc(l.label) + '">+</button>' +
-          (l.delta ? '<span class="assum__delta">' + esc(l.delta) + '</span>' : '') +
-        '</div>' +
-      '</div>'
-    )).join('');
+    const assum = f.levers.map((l) => {
+      const control = l.controlType === 'select'
+        ? '<div class="assum__stepper assum__stepper--select">' +
+            '<select class="assum__select" data-lever-key="' + esc(l.key) + '" aria-label="' + esc(l.label) + '">' +
+              leverOptions(l, esc) +
+            '</select>' +
+            (l.delta ? '<span class="assum__delta">' + esc(l.delta) + '</span>' : '') +
+          '</div>'
+        : '<div class="assum__stepper">' +
+            '<button class="stepper-btn" type="button" data-lever-key="' + esc(l.key) + '" data-dir="-1" aria-label="Decrease ' + esc(l.label) + '">−</button>' +
+            '<span class="assum__value">' + esc(l.value) + '</span>' +
+            '<button class="stepper-btn" type="button" data-lever-key="' + esc(l.key) + '" data-dir="1" aria-label="Increase ' + esc(l.label) + '">+</button>' +
+            (l.delta ? '<span class="assum__delta">' + esc(l.delta) + '</span>' : '') +
+          '</div>';
+      return '<div><div class="assum__label">' + esc(l.label) + '</div>' + control + '</div>';
+    }).join('');
 
     const activeGoals = f.goals.filter((g) => g.on).length;
     const offGoals = f.goals.filter((g) => !g.on).length;

@@ -105,3 +105,45 @@ test('Compare presents the through-plan-end sentinel as the actual plan-end age'
   assert.match(html, /base: age 65[^<]*95/);
   assert.match(html, /data-goal-field="endAge" value="95"/);
 });
+
+test('Compare and Focus render the canonical allocation model as an in-place selector', () => {
+  const allocation = {
+    key: 'allocationPresetId',
+    label: 'Allocation',
+    value: 'Balanced',
+    delta: null,
+    controlType: 'select',
+    selectedValue: 'balanced',
+    options: [
+      { value: 'current', label: 'Current mix' },
+      { value: 'balanced', label: 'Balanced' },
+      { value: 'aggressive', label: 'Aggressive' },
+    ],
+  };
+  const scenario = {
+    id: '0',
+    name: 'Baseline',
+    isBaseline: true,
+    prob: 80,
+    probStr: '80.0',
+    tone: '#8fa57e',
+    median: '$0',
+    viability: 'Review',
+    levers: [allocation],
+    goals: [],
+    stress: [],
+    range: null,
+  };
+
+  const compare = renderCompare([scenario], scenario, {
+    plan: {}, planEndAge: 95, goalsExpandedState: false, esc, downTri: '',
+  });
+  const focus = renderFocus([scenario], scenario, scenario.id, false, deps);
+
+  assert.match(compare, /class="cmp-lev-select"/);
+  assert.match(compare, /data-scn-id="0" data-lever-key="allocationPresetId"/);
+  assert.match(compare, /<option value="balanced" selected>Balanced<\/option>/);
+  assert.doesNotMatch(compare, /data-lever-key="allocationPresetId"[^>]*data-dir/);
+  assert.match(focus, /class="assum__select"/);
+  assert.match(focus, /<option value="aggressive">Aggressive<\/option>/);
+});
