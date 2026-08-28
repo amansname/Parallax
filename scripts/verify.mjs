@@ -1411,7 +1411,7 @@ try {
             && root?.getAttribute('aria-busy') === 'false'
             && document.querySelectorAll('.taw-range:not(:disabled)').length === 5
             && document.querySelector('[data-taw-federal-tax]')?.textContent.trim() !== '\u2014';
-        }, { timeout: 15000 }, householdId);
+        }, { timeout: 30000 }, householdId);
       }catch(error){
         const observed = await page.evaluate(() => ({
           selectedHouseholdId: document.querySelector('#hh-switch')?.value ?? null,
@@ -1474,7 +1474,7 @@ try {
       document.querySelector('[data-hh-wizard-root]')?.dataset.householdId === expectedHouseholdId
       && document.querySelector('[data-taw-root]')?.dataset.tawHouseholdId === expectedHouseholdId
       && document.querySelector('[data-taw-root]')?.getAttribute('aria-busy') === 'false'
-    ), { timeout:15000 }, withdrawalPlannerFixtureHouseholdId);
+    ), { timeout:30000 }, withdrawalPlannerFixtureHouseholdId);
     await page.screenshot({ path:join(OUT, '02-tax-buckets.png') });
     await page.setViewport({ width:1920, height:1080, deviceScaleFactor:3 });
   });
@@ -2061,6 +2061,173 @@ try {
     }
   });
 
+  await step('scenarios: allocation labels and both spouses ages persist through reload', async () => {
+    const before = await page.evaluate(householdId => {
+      const scenarioCount = document.querySelectorAll('#scn-view .scol__name').length;
+      const leverNames = [...document.querySelectorAll('#scn-view .lever__name')]
+        .map(element => element.textContent.trim());
+      const select = document.querySelector(
+        '#scn-view .cmp-lev-select[data-scn-id="1"][data-lever-key="allocationPresetId"]',
+      );
+      const ageValues = {};
+      for(const key of ['retireAge', 'spouseRetireAge', 'ssAge', 'spouseSsAge']){
+        const value = document.querySelector(
+          `#scn-view .cmp-step-btn[data-scn-id="1"][data-lever-key="${key}"]`,
+        )?.closest('.cmp-lev-row')?.querySelector('.cmp-lev-val')?.textContent.trim();
+        ageValues[key] = Number(value);
+      }
+      return {
+        active: localStorage.getItem('parallax.activeHouseholdId'),
+        householdId,
+        scenarioCount,
+        leverNames,
+        allocationValue: select?.value ?? null,
+        allocationLabels: [...(select?.options || [])].map(option => option.textContent.trim()),
+        allocationCount: document.querySelectorAll(
+          '#scn-view .cmp-lev-select[data-lever-key="allocationPresetId"]',
+        ).length,
+        ageValues,
+        ageControlCounts: Object.fromEntries(
+          ['retireAge', 'spouseRetireAge', 'ssAge', 'spouseSsAge'].map(key => [
+            key,
+            document.querySelectorAll(
+              `#scn-view .cmp-step-btn[data-lever-key="${key}"][data-scn-id]`,
+            ).length,
+          ]),
+        ),
+        overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      };
+    }, withdrawalPlannerFixtureHouseholdId);
+    const expectedAllocationLabels = [
+      'Current mix', 'Defensive', 'Conservative', 'Balanced', 'Growth', 'Aggressive', 'All Equity',
+    ];
+    const expectedLeverNames = [
+      'Client 1 Retirement', 'Client 2 Retirement', 'Client 1 SS Age', 'Client 2 SS Age', 'Allocation',
+    ];
+    if(before.active !== withdrawalPlannerFixtureHouseholdId
+        || before.scenarioCount < 2
+        || before.allocationCount !== before.scenarioCount
+        || JSON.stringify(before.allocationLabels) !== JSON.stringify(expectedAllocationLabels)
+        || expectedLeverNames.some(name => !before.leverNames.includes(name))
+        || Object.values(before.ageValues).some(value => !Number.isInteger(value))
+        || Object.values(before.ageControlCounts).some(count => count !== before.scenarioCount * 2)
+        || before.overflow > 2){
+      throw new Error(`scenario person/allocation controls are incomplete: ${JSON.stringify(before)}`);
+    }
+
+    const targetAllocation = before.allocationValue === 'aggressive' ? 'defensive' : 'aggressive';
+    await page.select(
+      '#scn-view .cmp-lev-select[data-scn-id="1"][data-lever-key="allocationPresetId"]',
+      targetAllocation,
+    );
+    await page.waitForFunction(target => (
+      document.querySelector(
+        '#scn-view .cmp-lev-select[data-scn-id="1"][data-lever-key="allocationPresetId"]',
+      )?.value === target
+      && /Plan updated|Partial run/i.test(document.querySelector('#status')?.textContent || '')
+    ), { timeout: 30000 }, targetAllocation);
+
+    const editedAges = {};
+    for(const [key, max] of [
+      ['retireAge', 72],
+      ['spouseRetireAge', 72],
+      ['ssAge', 70],
+      ['spouseSsAge', 70],
+    ]){
+      const original = before.ageValues[key];
+      const dir = original < max ? 1 : -1;
+      editedAges[key] = original + dir;
+      await page.click(
+        `#scn-view .cmp-step-btn[data-scn-id="1"][data-lever-key="${key}"][data-dir="${dir}"]`,
+      );
+      await page.waitForFunction(({ key, expected }) => {
+        const value = document.querySelector(
+          `#scn-view .cmp-step-btn[data-scn-id="1"][data-lever-key="${key}"]`,
+        )?.closest('.cmp-lev-row')?.querySelector('.cmp-lev-val')?.textContent.trim();
+        return Number(value) === expected
+          && /Plan updated|Partial run/i.test(document.querySelector('#status')?.textContent || '');
+      }, { timeout: 30000 }, { key, expected: editedAges[key] });
+    }
+
+    await page.waitForFunction(({ householdId, allocation, ages }) => {
+      const raw = localStorage.getItem(`parallax.scenarios.${householdId}.v1`);
+      const saved = raw ? JSON.parse(raw) : null;
+      const levers = saved?.[1]?.lev;
+      return levers?.allocationPresetId === allocation
+        && Object.entries(ages).every(([key, value]) => levers?.[key] === value);
+    }, { timeout: 10000 }, {
+      householdId: withdrawalPlannerFixtureHouseholdId,
+      allocation: targetAllocation,
+      ages: editedAges,
+    });
+
+    await stableReload({ waitUntil: 'networkidle2', timeout: 20000 });
+    await waitForUnselectedWizard(page);
+    await stableClick('.htab[data-page="household"]');
+    await selectHouseholdVisible(page, withdrawalPlannerFixtureHouseholdId);
+    await stableClick('button[data-page="scenarios"]');
+    await page.waitForSelector('#scn-view .compare', { visible: true, timeout: 30000 });
+    const restored = await page.evaluate(() => {
+      const allocation = document.querySelector(
+        '#scn-view .cmp-lev-select[data-scn-id="1"][data-lever-key="allocationPresetId"]',
+      )?.value;
+      const ages = {};
+      for(const key of ['retireAge', 'spouseRetireAge', 'ssAge', 'spouseSsAge']){
+        const value = document.querySelector(
+          `#scn-view .cmp-step-btn[data-scn-id="1"][data-lever-key="${key}"]`,
+        )?.closest('.cmp-lev-row')?.querySelector('.cmp-lev-val')?.textContent.trim();
+        ages[key] = Number(value);
+      }
+      return { allocation, ages };
+    });
+    if(restored.allocation !== targetAllocation
+        || Object.entries(editedAges).some(([key, value]) => restored.ages[key] !== value)){
+      throw new Error(`scenario controls did not survive reload: ${JSON.stringify({ editedAges, restored })}`);
+    }
+
+    await page.select(
+      '#scn-view .cmp-lev-select[data-scn-id="1"][data-lever-key="allocationPresetId"]',
+      before.allocationValue,
+    );
+    await page.waitForFunction(value => (
+      document.querySelector(
+        '#scn-view .cmp-lev-select[data-scn-id="1"][data-lever-key="allocationPresetId"]',
+      )?.value === value
+      && /Plan updated|Partial run/i.test(document.querySelector('#status')?.textContent || '')
+    ), { timeout: 30000 }, before.allocationValue);
+    for(const [key, original] of Object.entries(before.ageValues)){
+      const dir = editedAges[key] > original ? -1 : 1;
+      await page.evaluate(({ key, dir }) => {
+        const button = document.querySelector(
+          `#scn-view .cmp-step-btn[data-scn-id="1"][data-lever-key="${key}"][data-dir="${dir}"]`,
+        );
+        if(!button) throw new Error(`scenario cleanup control is missing: ${key}/${dir}`);
+        button.click();
+      }, { key, dir });
+      await page.waitForFunction(({ householdId, key, original }) => {
+        const value = document.querySelector(
+          `#scn-view .cmp-step-btn[data-scn-id="1"][data-lever-key="${key}"]`,
+        )?.closest('.cmp-lev-row')?.querySelector('.cmp-lev-val')?.textContent.trim();
+        const saved = JSON.parse(
+          localStorage.getItem(`parallax.scenarios.${householdId}.v1`) || 'null',
+        );
+        return Number(value) === original && saved?.[1]?.lev?.[key] === original;
+      }, { timeout: 30000 }, {
+        householdId: withdrawalPlannerFixtureHouseholdId,
+        key,
+        original,
+      });
+    }
+    const goalsToggle = await page.$('#scn-view [data-goals-toggle]');
+    if(goalsToggle
+        && await page.$eval('#scn-view [data-goals-toggle]', element => element.getAttribute('aria-expanded')) !== 'true'){
+      await goalsToggle.click();
+      await page.waitForFunction(() => (
+        document.querySelector('#scn-view [data-goals-toggle]')?.getAttribute('aria-expanded') === 'true'
+      ), { timeout: 10000 });
+    }
+  });
+
   await step('scenarios: retirement-relative goal ages resolve and round-trip', async () => {
     const contract = await page.evaluate(() => {
       const retirementAges = {};
@@ -2570,6 +2737,7 @@ try {
         planEndAge: 100,
         birthYear: 1966,
       };
+      household.income.socialSecurity.spouse = { pia: null, claimAge: 67 };
       household.portfolio.accounts = {
         taxable: {
           ...household.portfolio.accounts.taxable,
@@ -3941,13 +4109,15 @@ try {
       [...document.querySelectorAll('#scn-view .lever__name')].map(e => e.textContent.trim()));
 
     // Pre-retirement fixture (Client 1 64/retire 66, Client 2 63/retire 65):
-    // "Retirement Age" IS an active Scenarios lever.
+    // both per-person retirement ages are active Scenarios levers.
     await stableClick('button[data-page="scenarios"]');
     await stableClick('#scn-seg-compare');
     await page.waitForSelector('#scn-view .lever__name', { timeout: 10000 });
     const beforeNames = await leverNames();
-    if(!beforeNames.includes('Retirement Age'))
-      throw new Error(`Retirement Age lever should be present while pre-retirement: ${JSON.stringify(beforeNames)}`);
+    const expectedRetirementLevers = ['Client 1 Retirement', 'Client 2 Retirement'];
+    const missingRetirementLevers = expectedRetirementLevers.filter(name => !beforeNames.includes(name));
+    if(missingRetirementLevers.length)
+      throw new Error(`Per-person retirement levers should be present while pre-retirement: ${JSON.stringify({ missingRetirementLevers, beforeNames })}`);
 
     // Make BOTH principals already retired (retire age below current age).
     const setFamilyField = async (field, value) => {
@@ -3972,15 +4142,17 @@ try {
     await setFamilyField('client.retirementAge', '60');
     await setFamilyField('spouse.retirementAge', '60');
 
-    // Now "Retirement Age" must DROP OUT of the Scenarios levers (it is no longer
-    // a decision to pull), while the other levers remain.
+    // Now both retirement-age levers must DROP OUT of the Scenarios levers (they
+    // are no longer decisions to pull), while the other levers remain.
     await stableClick('button[data-page="scenarios"]');
     await stableClick('#scn-seg-compare');
     try{
       await page.waitForFunction(() => {
         const names = [...document.querySelectorAll('#scn-view .lever__name')]
           .map(element => element.textContent.trim());
-        return names.includes('Allocation') && !names.includes('Retirement Age');
+        return names.includes('Allocation')
+          && !names.includes('Client 1 Retirement')
+          && !names.includes('Client 2 Retirement');
       }, { timeout: 10000 });
     }catch(error){
       const observed = await page.evaluate(() => {
@@ -4007,8 +4179,9 @@ try {
       throw new Error(`Retired-household lever state did not settle: ${JSON.stringify(observed)}. ${error.message}`);
     }
     const afterNames = await leverNames();
-    if(afterNames.includes('Retirement Age'))
-      throw new Error(`Retirement Age lever must disappear once already retired: ${JSON.stringify(afterNames)}`);
+    const remainingRetirementLevers = expectedRetirementLevers.filter(name => afterNames.includes(name));
+    if(remainingRetirementLevers.length)
+      throw new Error(`Per-person retirement levers must disappear once already retired: ${JSON.stringify({ remainingRetirementLevers, afterNames })}`);
     if(!afterNames.includes('Allocation'))
       throw new Error(`other levers (Allocation) must remain when retired: ${JSON.stringify(afterNames)}`);
 

@@ -435,6 +435,29 @@
   font-variant-numeric: tabular-nums;
 }
 
+.page[data-page="scenarios"] .cmp-lev-select,
+.page[data-page="scenarios"] .assum__select {
+  width: 100%;
+  max-width: 132px; /* geometry: replaces the existing stepper footprint */
+  min-width: 0;
+  padding: var(--sp-1) var(--sp-2);
+  border: var(--bw) solid var(--rule);
+  border-radius: var(--r-ctl);
+  background: var(--panel);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--fs-emphasis);
+}
+
+.page[data-page="scenarios"] .cmp-lev-select:hover,
+.page[data-page="scenarios"] .assum__select:hover { border-color: var(--line); }
+
+.page[data-page="scenarios"] .cmp-lev-select:focus,
+.page[data-page="scenarios"] .assum__select:focus {
+  border-color: var(--acc);
+  outline: 0;
+}
+
 /* =============================================================================
    FOCUS VIEW
 
@@ -613,6 +636,8 @@
   gap: var(--sp-3);
   margin-top: var(--sp-2);
 }
+
+.page[data-page="scenarios"] .assum__stepper--select { width: 100%; }
 
 .page[data-page="scenarios"] .assum__value {
   min-width: 92px; /* geometry: assumption value column */

@@ -811,23 +811,22 @@ async function verifyBlankStartupAndNowSelection(page, expectedNameOnlyBytes){
 
   await page.click('.htab[data-page="scenarios"]');
   await page.waitForFunction(() => {
-    const riskControl = document.querySelector(
-      '#scn-view .cmp-step-btn[data-lever-key="risk"]',
+    const allocationControl = document.querySelector(
+      '#scn-view .cmp-lev-select[data-lever-key="allocationPresetId"]',
     );
     return document.querySelector('.page.on')?.dataset.page === 'scenarios'
       && document.querySelector('#scn-seg-compare')?.classList.contains('is-active')
       && document.querySelectorAll('#scn-view .scol__name').length > 0
-      && riskControl?.closest('.cmp-lev-row')?.querySelector('.cmp-lev-val')
+      && allocationControl?.selectedOptions?.[0]
       && document.querySelector('#scn-view .cmp-lev-in[data-key="savings"]');
   }, { timeout: 15000 });
   const nowLevers = await page.evaluate(() => {
-    const riskControl = document.querySelector(
-      '#scn-view .cmp-step-btn[data-lever-key="risk"]',
+    const allocationControl = document.querySelector(
+      '#scn-view .cmp-lev-select[data-lever-key="allocationPresetId"]',
     );
     return {
       baseline: document.querySelector('#scn-view .scol__name')?.textContent.trim() || '',
-      allocation: riskControl?.closest('.cmp-lev-row')
-        ?.querySelector('.cmp-lev-val')?.textContent.trim() || '',
+      allocation: allocationControl?.selectedOptions?.[0]?.textContent.trim() || '',
       savings: Number.parseFloat(
         document.querySelector('#scn-view .cmp-lev-in[data-key="savings"]')?.value.replaceAll(',', '') || '',
       ),
@@ -835,7 +834,7 @@ async function verifyBlankStartupAndNowSelection(page, expectedNameOnlyBytes){
   });
   requireCondition(
     nowLevers.baseline === 'Baseline'
-      && nowLevers.allocation === '90 / 10'
+      && nowLevers.allocation === 'Current mix'
       && nowLevers.savings === 46000,
     `Now Scenarios defaults are wrong: ${JSON.stringify(nowLevers)}`,
   );
@@ -1016,12 +1015,14 @@ async function verifyRuntimeTemplateSessionIsolation(page){
       await page.click('#scn-seg-compare');
       await page.waitForFunction(() => (
         document.querySelector('#scn-seg-compare')?.classList.contains('is-active')
-          && document.querySelector('#scn-view .cmp-step-btn[data-lever-key="risk"]')
-            ?.closest('.cmp-lev-row')?.querySelector('.cmp-lev-val')
+          && document.querySelector(
+            '#scn-view .cmp-lev-select[data-lever-key="allocationPresetId"]',
+          )?.selectedOptions?.[0]
       ), { timeout: 15000 });
       const baselineAllocationText = await page.evaluate(() => (
-        document.querySelector('#scn-view .cmp-step-btn[data-lever-key="risk"]')
-          ?.closest('.cmp-lev-row')?.querySelector('.cmp-lev-val')?.textContent.trim() || ''
+        document.querySelector(
+          '#scn-view .cmp-lev-select[data-lever-key="allocationPresetId"]',
+        )?.selectedOptions?.[0]?.textContent.trim() || ''
       ));
       await openNetWorthCategory(page, 'investment');
       const accountId = await page.$eval(
@@ -1148,12 +1149,14 @@ async function verifyRuntimeTemplateSessionIsolation(page){
       await page.click('#scn-seg-compare');
       await page.waitForFunction(() => (
         document.querySelector('#scn-seg-compare')?.classList.contains('is-active')
-          && document.querySelector('#scn-view .cmp-step-btn[data-lever-key="risk"]')
-            ?.closest('.cmp-lev-row')?.querySelector('.cmp-lev-val')
+          && document.querySelector(
+            '#scn-view .cmp-lev-select[data-lever-key="allocationPresetId"]',
+          )?.selectedOptions?.[0]
       ), { timeout: 15000 });
       const resetAllocationText = await page.evaluate(() => (
-        document.querySelector('#scn-view .cmp-step-btn[data-lever-key="risk"]')
-          ?.closest('.cmp-lev-row')?.querySelector('.cmp-lev-val')?.textContent.trim() || ''
+        document.querySelector(
+          '#scn-view .cmp-lev-select[data-lever-key="allocationPresetId"]',
+        )?.selectedOptions?.[0]?.textContent.trim() || ''
       ));
       requireCondition(
         resetHistorical.pathId === runtimeAllocationCheck.baselineHistorical.pathId

@@ -104,6 +104,18 @@ test('starts-at-retirement goals use the later household boundary', () => {
   assert.equal(goalHasFutureWorkingYears(goal,span),false);
 });
 
+test('scenario household retirement follows independent client and spouse ages', () => {
+  const plan={
+    household:{
+      primary:{currentAge:64,retirementAge:66,planEndAge:95},
+      spouse:{currentAge:60,retirementAge:68,planEndAge:95},
+    },
+  };
+
+  assert.equal(resolveScenarioHouseholdRetirementAge(plan,67,65),69);
+  assert.equal(resolveScenarioHouseholdRetirementAge(plan,67,70),74);
+});
+
 test('changing cadence never rounds or rewrites the canonical annual amount', () => {
   const goal={ amount:10000, per:'yr', startAge:65, endAge:74 };
   setGoalPer(goal, 'mo');

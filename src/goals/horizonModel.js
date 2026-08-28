@@ -44,12 +44,27 @@ export function resolveGoalSpan(plan){
   };
 }
 
-export function resolveScenarioHouseholdRetirementAge(plan, scenarioPrimaryRetirementAge){
+export function resolveScenarioHouseholdRetirementAge(
+  plan,
+  scenarioPrimaryRetirementAge,
+  scenarioSpouseRetirementAge,
+){
   const planPrimaryRetirementAge = Number(plan?.household?.primary?.retirementAge);
   const scenarioRetirementAge = Number(scenarioPrimaryRetirementAge);
   const householdRetirementAge = resolveGoalSpan(plan).retirementAge;
   if(!Number.isFinite(planPrimaryRetirementAge) || !Number.isFinite(scenarioRetirementAge)){
     return householdRetirementAge;
+  }
+  const primaryCurrentAge = Number(plan?.household?.primary?.currentAge);
+  const spouseCurrentAge = Number(plan?.household?.spouse?.currentAge);
+  const spouseScenarioAge = Number(scenarioSpouseRetirementAge);
+  if(Number.isFinite(primaryCurrentAge)
+      && Number.isFinite(spouseCurrentAge)
+      && Number.isFinite(spouseScenarioAge)){
+    return Math.max(
+      scenarioRetirementAge,
+      primaryCurrentAge + (spouseScenarioAge - spouseCurrentAge),
+    );
   }
   return householdRetirementAge + (scenarioRetirementAge - planPrimaryRetirementAge);
 }
