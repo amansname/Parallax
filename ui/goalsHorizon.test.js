@@ -148,3 +148,69 @@ test('Goals horizon opens the first existing goal once and respects a later clos
   assert.doesNotMatch(root.innerHTML, /data-goal-rail=/);
   assert.doesNotMatch(controller.render(), /data-goal-rail=/);
 });
+
+test('Goals horizon switches between client or co-client ages and calendar years without changing the saved shape', () => {
+  const plan = {
+    meta: { primaryName:'Alexandra', spouseName:'Jordan' },
+    household: {
+      primary: { birthYear:1961, currentAge:65, retirementAge:67, planEndAge:95 },
+      spouse: { birthYear:1963, currentAge:63, retirementAge:67, planEndAge:95 },
+    },
+    goals: [{
+      id:'goal_travel', name:'Travel', amount:10_000, per:'yr', cat:'travel',
+      startAge:67, endAge:74,
+    }],
+  };
+  const handlers = {};
+  let guardCalls = 0;
+  let commitCalls = 0;
+  const root = {
+    innerHTML:'',
+    addEventListener(type,handler){ handlers[type]=handler; },
+    querySelector(){ return null; },
+  };
+  const controller = createGoalsHorizonController({
+    getPlan:()=>plan,
+    isReadOnly:()=>false,
+    guardMutation:()=>{ guardCalls += 1; return true; },
+    commit:()=>{ commitCalls += 1; },
+    currentYear:2026,
+  });
+
+  root.innerHTML=controller.render();
+  controller.bind(root);
+  assert.match(root.innerHTML,/data-action="timing-age"[^>]*aria-pressed="true"/);
+  assert.match(root.innerHTML,/data-field="timing-owner"/);
+  assert.match(root.innerHTML,/data-field="start-age"[^>]*value="67"/);
+  assert.match(root.innerHTML,/data-field="end-age"[^>]*value="74"/);
+
+  handlers.click({
+    detail:1,
+    target:{ closest:selector=>selector==='[data-action]' ? {dataset:{action:'timing-year'}} : null },
+  });
+  assert.equal(guardCalls,0);
+  assert.match(root.innerHTML,/data-field="start-year"[^>]*value="2028"/);
+  assert.match(root.innerHTML,/data-field="end-year"[^>]*value="2035"/);
+
+  handlers.input({ target:{ matches:()=>false } });
+  assert.equal(guardCalls,0);
+  handlers.change({ target:{ dataset:{field:'start-year'}, value:'2030' } });
+  assert.equal(plan.goals[0].startAge,69);
+  assert.equal(plan.goals[0].endAge,74);
+  assert.equal(plan.goals[0].timingMode,undefined);
+  assert.equal(guardCalls,1);
+  assert.equal(commitCalls,1);
+
+  handlers.click({
+    detail:1,
+    target:{ closest:selector=>selector==='[data-action]' ? {dataset:{action:'timing-age'}} : null },
+  });
+  handlers.change({ target:{ dataset:{field:'timing-owner'}, value:'spouse' } });
+  assert.match(root.innerHTML,/data-field="timing-owner"[^>]*>[\s\S]*value="spouse" selected/);
+  assert.match(root.innerHTML,/data-field="start-age"[^>]*value="67"/);
+  assert.match(root.innerHTML,/data-field="end-age"[^>]*value="72"/);
+  assert.deepEqual(
+    Object.keys(plan.goals[0]).filter(key=>key.startsWith('timing')),
+    [],
+  );
+});

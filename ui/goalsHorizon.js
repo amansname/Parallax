@@ -6,9 +6,11 @@ import {
   defaultGoalId,
   duplicateGoal,
   formatGoalAmount,
+  goalAgeToPeriodValue,
   goalDisplayAmount,
   goalHasFutureWorkingYears,
   goalPct,
+  goalPeriodValueToAge,
   goalTimingLabel,
   isOneTimeGoal,
   normalizeGoalCategory,
@@ -79,6 +81,28 @@ function timingPresets(span){
   ];
 }
 
+function timingOwnerOptions(plan, lens){
+  const primaryName=plan?.meta?.primaryName || 'Client';
+  const spouseName=plan?.meta?.spouseName || 'Co-client';
+  const options=[`<option value="primary"${lens.owner==='primary'?' selected':''}>${escHtml(primaryName)}</option>`];
+  if(plan?.household?.spouse){
+    options.push(`<option value="spouse"${lens.owner==='spouse'?' selected':''}>${escHtml(spouseName)}</option>`);
+  }
+  return options.join('');
+}
+
+function renderTimingOwner(plan, lens, disabled){
+  if(lens.mode !== 'age') return '';
+  if(!plan?.household?.spouse){
+    return `<span class="gh-timing-person">${escHtml(plan?.meta?.primaryName || 'Client')}</span>`;
+  }
+  return `<select class="gh-timing-owner" data-field="timing-owner" aria-label="Whose age"${disabledAttr(disabled)}>${timingOwnerOptions(plan,lens)}</select>`;
+}
+
+function periodValue(age, plan, lens){
+  return goalAgeToPeriodValue(age,plan,lens);
+}
+
 function tickAges(span){
   const ages=[span.retirementAge];
   for(let age=Math.ceil((span.retirementAge + 1) / 5) * 5; age<=span.planEndAge; age+=5) ages.push(age);
@@ -141,7 +165,7 @@ function renderAddRail(disabled){
   </aside>`;
 }
 
-function renderRail(goal,index,span,disabled){
+function renderRail(goal,index,span,disabled,plan,lens){
   if(!goal) return '';
   const viewGoal=effectiveGoalForView(goal,span);
   const id=viewGoalId(goal,index);
@@ -151,7 +175,12 @@ function renderRail(goal,index,span,disabled){
   const presets=timingPresets(span);
   const presetButtons=presets.map(preset=>{
     const selected=!once && +viewGoal.startAge===preset.from && +viewGoal.endAge===preset.to;
-    return `<button class="gh-preset${selected?' is-selected':''}" type="button" data-action="preset" data-preset="${preset.key}"${disabledAttr(disabled)}>${preset.label}</button>`;
+    const from=periodValue(preset.from,plan,lens);
+    const to=periodValue(preset.to,plan,lens);
+    const label=lens.mode==='year' && preset.key==='all'
+      ? `All ${from}–${to}`
+      : preset.label.replace(/\d+–\d+$/,`${from}–${to}`);
+    return `<button class="gh-preset${selected?' is-selected':''}" type="button" data-action="preset" data-preset="${preset.key}"${disabledAttr(disabled)}>${label}</button>`;
   }).join('');
   const categoryButtons=GOAL_CATEGORIES.map(item=>
     `<button class="gh-category${item.key===category?' is-selected':''}" type="button" data-action="category" data-category="${item.key}" title="${item.label}" aria-label="${item.label}" style="--goal-color:${item.color}"${disabledAttr(disabled)}>${icon(item.key,'gh-category__icon')}</button>`
@@ -163,17 +192,21 @@ function renderRail(goal,index,span,disabled){
         <div class="gh-seg gh-funding-seg" role="group" aria-label="Before retirement funding source"><button class="${portfolioFunded?'':'is-selected'}" type="button" data-action="fund-outside" aria-pressed="${portfolioFunded?'false':'true'}"${disabledAttr(disabled)}>Working income / outside portfolio</button><button class="${portfolioFunded?'is-selected':''}" type="button" data-action="fund-portfolio" aria-pressed="${portfolioFunded?'true':'false'}"${disabledAttr(disabled)}>Portfolio</button></div>
         <div class="gh-funding-note">Choose Portfolio to include the pre-retirement years in plan funding and success.</div>
       </section>` : '';
+  const timingOwner=renderTimingOwner(plan,lens,disabled);
+  const startValue=periodValue(viewGoal.startAge,plan,lens);
+  const endValue=periodValue(viewGoal.endAge,plan,lens);
+  const periodUnit=lens.mode==='year'?'year':'age';
   const years=once
     ? `<div class="gh-once-age">
-        <span>at age</span>
-        <button type="button" data-action="age-minus" aria-label="Decrease age"${disabledAttr(disabled)}>−</button>
-        <input class="gh-age-input" data-field="once-age" inputmode="numeric" value="${viewGoal.startAge}"${disabledAttr(disabled)}>
-        <button type="button" data-action="age-plus" aria-label="Increase age"${disabledAttr(disabled)}>+</button>
+        ${timingOwner}<span>${lens.mode==='year'?'in':'at'}</span>
+        <button type="button" data-action="age-minus" aria-label="Decrease ${periodUnit}"${disabledAttr(disabled)}>−</button>
+        <input class="gh-age-input${lens.mode==='year'?' gh-year-input':''}" data-field="once-${periodUnit}" inputmode="numeric" aria-label="Goal ${periodUnit}" value="${startValue}"${disabledAttr(disabled)}>
+        <button type="button" data-action="age-plus" aria-label="Increase ${periodUnit}"${disabledAttr(disabled)}>+</button>
       </div>`
     : `<div class="gh-presets">${presetButtons}</div>
       <div class="gh-range-inputs">
-        <span>from age</span><input class="gh-age-input" data-field="start-age" inputmode="numeric" value="${viewGoal.startAge}"${disabledAttr(disabled)}>
-        <span>to</span><input class="gh-age-input" data-field="end-age" inputmode="numeric" value="${viewGoal.endAge}"${disabledAttr(disabled)}>
+        ${timingOwner}<input class="gh-age-input${lens.mode==='year'?' gh-year-input':''}" data-field="start-${periodUnit}" inputmode="numeric" aria-label="Start ${periodUnit}" value="${startValue}"${disabledAttr(disabled)}>
+        <span aria-hidden="true">–</span><input class="gh-age-input${lens.mode==='year'?' gh-year-input':''}" data-field="end-${periodUnit}" inputmode="numeric" aria-label="End ${periodUnit}" value="${endValue}"${disabledAttr(disabled)}>
       </div>`;
   return `<aside class="gh-rail" data-goal-rail="${escHtml(id)}" style="--goal-color:${categoryDef.color}" aria-label="Edit goal">
     <header class="gh-rail__header">
@@ -199,7 +232,7 @@ function renderRail(goal,index,span,disabled){
         <div class="gh-seg"><button class="${once?'is-selected':''}" type="button" data-action="kind-once"${disabledAttr(disabled)}>One-time</button><button class="${once?'':'is-selected'}" type="button" data-action="kind-rec"${disabledAttr(disabled)}>Every year</button></div>
       </section>
       <section class="gh-editor-section">
-        <div class="gh-field-label">Which years</div>
+        <div class="gh-period-head"><div class="gh-field-label">Which years</div><div class="gh-period-mode" role="group" aria-label="Enter goal period by age or calendar year"><button class="${lens.mode==='age'?'is-selected':''}" type="button" data-action="timing-age" aria-pressed="${lens.mode==='age'}"${disabledAttr(disabled)}>Age</button><button class="${lens.mode==='year'?'is-selected':''}" type="button" data-action="timing-year" aria-pressed="${lens.mode==='year'}"${disabledAttr(disabled)}>Year</button></div></div>
         ${years}
       </section>
       ${fundingSection}
@@ -231,7 +264,7 @@ function liveCommas(input){
 }
 
 export function createGoalsHorizonController(deps){
-  const state={ selectedId:null, addOpen:false, initialSelectionResolved:false, flashId:null, toast:null, drag:null };
+  const state={ selectedId:null, addOpen:false, initialSelectionResolved:false, flashId:null, toast:null, drag:null, timingLens:new Map() };
   let root=null;
   let abortController=null;
   let toastTimer=null;
@@ -239,6 +272,22 @@ export function createGoalsHorizonController(deps){
   const goals=()=>Array.isArray(deps.getPlan().goals) ? deps.getPlan().goals : [];
   const disabled=()=>Boolean(deps.isReadOnly?.());
   const span=()=>resolveGoalSpan(deps.getPlan());
+  const currentYear=Number.isFinite(+deps.currentYear) ? Math.round(+deps.currentYear) : new Date().getFullYear();
+
+  const timingLensFor=(goal,index)=>{
+    const id=viewGoalId(goal,index);
+    const stored=state.timingLens.get(id) || {};
+    return {
+      mode:stored.mode==='year'?'year':'age',
+      owner:stored.owner==='spouse' && deps.getPlan()?.household?.spouse ? 'spouse' : 'primary',
+      currentYear,
+    };
+  };
+
+  const updateTimingLens=(goal,index,update)=>{
+    const id=viewGoalId(goal,index);
+    state.timingLens.set(id,{...timingLensFor(goal,index),...update});
+  };
 
   const selectedRecord=()=>{
     const list=goals();
@@ -250,6 +299,10 @@ export function createGoalsHorizonController(deps){
     if(!goal.id){
       const old=viewGoalId(goal,index);
       goal.id=defaultGoalId(index);
+      if(state.timingLens.has(old)){
+        state.timingLens.set(goal.id,state.timingLens.get(old));
+        state.timingLens.delete(old);
+      }
       if(state.selectedId===old) state.selectedId=goal.id;
       if(root){
         const lane=root.querySelector(`[data-goal-lane="${CSS.escape(old)}"]`);
@@ -294,7 +347,7 @@ export function createGoalsHorizonController(deps){
           </div>
         </section>
       </div>
-      ${selected ? renderRail(selected.goal,selected.index,currentSpan,isDisabled) : addRail}
+      ${selected ? renderRail(selected.goal,selected.index,currentSpan,isDisabled,deps.getPlan(),timingLensFor(selected.goal,selected.index)) : addRail}
       ${toast}
     </div>`;
   };
@@ -398,6 +451,13 @@ export function createGoalsHorizonController(deps){
       setTimeout(()=>{ state.flashId=null; },1500);
       return;
     }
+    if(action==='timing-age'||action==='timing-year'){
+      const selected=selectedRecord();
+      if(!selected) return;
+      updateTimingLens(selected.goal,selected.index,{mode:action==='timing-year'?'year':'age'});
+      rerender();
+      return;
+    }
     if(!deps.guardMutation()) return;
     const selected=selectedRecord();
     if(!selected) return;
@@ -457,16 +517,19 @@ export function createGoalsHorizonController(deps){
   };
 
   const inputHandler=e=>{
+    const isName=e.target.matches('.gh-name-input');
+    const isAmount=e.target.matches('.gh-amount-input');
+    if(!isName && !isAmount) return;
     if(!deps.guardMutation()) return;
     const selected=selectedRecord();
     if(!selected) return;
     const {goal,index}=selected;
     prepareGoal(goal,index);
-    if(e.target.matches('.gh-name-input')){
+    if(isName){
       goal.name=e.target.value;
       arm();
       updateChipText(goal,goal.id);
-    }else if(e.target.matches('.gh-amount-input')){
+    }else if(isAmount){
       liveCommas(e.target);
       setGoalDisplayAmount(goal,parseInt(e.target.value.replace(/[^0-9]/g,''),10)||0);
       arm();
@@ -476,19 +539,28 @@ export function createGoalsHorizonController(deps){
 
   const changeHandler=e=>{
     const field=e.target.dataset.field;
-    if(!['once-age','start-age','end-age'].includes(field)) return;
+    if(field==='timing-owner'){
+      const selected=selectedRecord();
+      if(!selected) return;
+      updateTimingLens(selected.goal,selected.index,{owner:e.target.value==='spouse'?'spouse':'primary'});
+      rerender();
+      return;
+    }
+    if(!['once-age','start-age','end-age','once-year','start-year','end-year'].includes(field)) return;
     if(!deps.guardMutation()) return;
     const selected=selectedRecord();
     if(!selected) return;
     const {goal,index}=selected;
     prepareGoal(goal,index);
     const currentSpan=span();
-    const value=parseInt(e.target.value.replace(/[^0-9]/g,''),10);
+    const entered=parseInt(e.target.value.replace(/[^0-9]/g,''),10);
+    const lens=timingLensFor(goal,index);
+    const value=goalPeriodValueToAge(entered,deps.getPlan(),lens);
     const effective=effectiveGoalForView(goal,currentSpan);
-    if(field==='once-age'){
+    if(field==='once-age'||field==='once-year'){
       goal.startsAtRetirement=false;
       setGoalRange(goal,value,value,currentSpan.planEndAge);
-    }else if(field==='start-age'){
+    }else if(field==='start-age'||field==='start-year'){
       goal.startsAtRetirement=false;
       setGoalRange(goal,value,effective.endAge,currentSpan.planEndAge,'start');
     }else{
