@@ -1141,67 +1141,6 @@
   color: var(--pos);
 }
 
-.page[data-page="scenarios"] .cf-summary--historical {
-  justify-content: flex-end;
-  padding-block: var(--sp-4);
-  flex-wrap: nowrap;
-}
-
-.page[data-page="scenarios"] .cf-comparison {
-  display: grid;
-  width: max-content;
-  gap: 0;
-  margin: 0 0 0 auto;
-  font-variant-numeric: tabular-nums;
-}
-
-.page[data-page="scenarios"] .cf-comparison__head,
-.page[data-page="scenarios"] .cf-comparison__row {
-  display: grid;
-  grid-template-columns: auto 132px 132px 112px;
-  gap: 0 var(--sp-3);
-  align-items: baseline;
-}
-
-.page[data-page="scenarios"] .cf-comparison__head {
-  padding-bottom: var(--sp-2);
-  color: var(--body);
-  font-size: var(--fs-eyebrow);
-  font-weight: var(--fw-eyebrow);
-  letter-spacing: var(--ls-eyebrow);
-  text-align: right;
-  text-transform: uppercase;
-}
-
-.page[data-page="scenarios"] .cf-comparison__row {
-  padding: var(--sp-2) 0;
-}
-
-.page[data-page="scenarios"] .cf-comparison__label {
-  color: var(--body);
-  font-size: var(--fs-body);
-  line-height: var(--lh-body);
-  text-align: right;
-  white-space: nowrap;
-}
-
-.page[data-page="scenarios"] .cf-comparison__value {
-  color: var(--body);
-  font-size: var(--fs-body);
-  line-height: var(--lh-body);
-  text-align: right;
-  white-space: nowrap;
-}
-
-.page[data-page="scenarios"] .cf-comparison__value--this {
-  color: var(--ink);
-  font-size: 15px;
-  font-weight: var(--fw-body-strong);
-}
-
-.page[data-page="scenarios"] .cf-comparison__value--positive { color: var(--pos); }
-.page[data-page="scenarios"] .cf-comparison__value--negative { color: var(--neg); }
-
 /* ── tax scope and warnings ──────────────────────────────────────────────── */
 .page[data-page="scenarios"] .cf-tax-disclosure {
   display: grid;
@@ -1236,6 +1175,15 @@
 .page[data-page="scenarios"] .cf-tax-warnings li + li { margin-top: var(--sp-1); }
 
 /* ── the ledger ──────────────────────────────────────────────────────────── */
+.page[data-page="scenarios"] .cf-panel__body {
+  display: grid;
+  grid-template-columns: 1fr;
+}
+
+.page[data-page="scenarios"] .cf-panel__body--with-rail {
+  grid-template-columns: 1fr 280px;
+}
+
 .page[data-page="scenarios"] .cf-table {
   min-width: 1180px; /* geometry: complete eleven-column ledger */
   overflow: visible;
@@ -1245,6 +1193,84 @@
   font-variant-numeric: tabular-nums;
 }
 
+.page[data-page="scenarios"] .cf-path-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 280px;
+  padding: 20px 24px 24px;
+  border-left: 1px solid var(--rule);
+}
+
+.page[data-page="scenarios"] .cf-path-rail__reference {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 0 16px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.page[data-page="scenarios"] .cf-path-rail__reference-title {
+  color: var(--acc);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-shadow: 0 0 10px rgba(177, 132, 92, .35);
+}
+
+.page[data-page="scenarios"] .cf-path-rail__reference-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.page[data-page="scenarios"] .cf-path-rail__reference-label {
+  color: var(--body);
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.page[data-page="scenarios"] .cf-path-rail__reference-value {
+  margin-left: auto;
+  color: var(--body);
+  font-size: 15px;
+  white-space: nowrap;
+}
+
+.page[data-page="scenarios"] .cf-path-rail__metric {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.page[data-page="scenarios"] .cf-path-rail__metric + .cf-path-rail__metric {
+  padding-top: 16px;
+  border-top: 1px solid var(--rule-f);
+}
+
+.page[data-page="scenarios"] .cf-path-rail__metric-name {
+  color: var(--body);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.page[data-page="scenarios"] .cf-path-rail__figure {
+  color: var(--ink);
+  font-size: 24px;
+  font-weight: 300;
+  letter-spacing: -.01em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.page[data-page="scenarios"] .cf-path-rail__verdict {
+  font-size: 12px;
+}
+
+.page[data-page="scenarios"] .cf-path-rail__verdict--negative { color: var(--neg); }
+.page[data-page="scenarios"] .cf-path-rail__verdict--muted { color: var(--muted); }
+
 /* Year Age Income RMD Essential Goals Tax Draw Return WDRate Ending */
 .page[data-page="scenarios"] .cf-grid {
   display: grid;
@@ -1253,7 +1279,7 @@
   gap: 0 var(--sp-3);
 }
 
-.page[data-page="scenarios"] .cf-table__head { padding: var(--sp-4) var(--sp-8) var(--sp-3); }
+.page[data-page="scenarios"] .cf-table__head { padding: 20px var(--sp-8) var(--sp-3); }
 
 .page[data-page="scenarios"] .cf-th {
   color: var(--body);
