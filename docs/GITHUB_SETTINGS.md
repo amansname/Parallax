@@ -12,6 +12,7 @@ Configure a branch protection rule or repository ruleset targeting `main`:
 2. Require these exact status-check names:
    - `Governance safeguards`
    - `Unit tests`
+   - `Build deployable site artifact`
    - `Full browser verification`
 3. Require branches to be current before merge when GitHub offers the option
    for the selected required checks.

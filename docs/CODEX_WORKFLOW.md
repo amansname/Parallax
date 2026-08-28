@@ -4,6 +4,10 @@ Codex uses this workflow for Parallax features, fixes, tests, documentation, and
 repository governance. Codex chooses the tier automatically; the owner does not
 need to invoke a workflow or remember a tier.
 
+On the first response to a Parallax task, give one compact receipt:
+`Workflow started | Phase: Scope | Tier: provisional until the authority is traced`.
+Do not make the owner ask whether the workflow is active.
+
 ```text
 1. Scope and route
 2. Preflight and build
@@ -54,6 +58,11 @@ Non-goals:
 Verification:
 ```
 
+Keep the original request and every reported symptom in an acceptance ledger
+through delivery. Each item must remain marked `Fixed`, `Delivered`, `Deferred`,
+or `Separately scoped`. A newly discovered issue may refine or split the work;
+it must never silently replace the task that the owner actually assigned.
+
 ### Decision 1 - authorize delivery
 
 The owner may approve implementation, focused in-scope corrections,
@@ -76,8 +85,9 @@ The end-to-end gate requires:
 
 - it is attached to the Parallax repository and a clean isolated worktree based
   on current `origin/main`;
-- `origin` exists and the approved Parallax identity can fetch, push, publish a
-  draft PR, and read its checks;
+- `origin` exists and the approved Parallax bot identity can fetch, push,
+  publish a bot-authored draft PR, request the human owner as reviewer, and
+  read its checks;
 - locked dependencies can be installed and, when the selected tier requires
   `npm run verify`, a supported Chrome/Chromium executable is available; and
 - the environment can commit the frozen candidate and request independent
@@ -116,12 +126,12 @@ Before editing, record:
 Use one feature or fix per clean isolated worktree, branch, and PR. Preserve
 existing work and exclude unrelated cleanup.
 
-Define observable completion evidence before editing. For defects, use one row
-per reported symptom:
+Define observable completion evidence before editing. Use one row per original
+request or reported symptom:
 
-| Reported symptom | Exact reproduction | Pre-fix failure | Production change | Regression assertion | Post-fix proof |
+| Original request or reported symptom | Disposition | Base or starting-state proof | Production change | Regression assertion | Candidate proof |
 |---|---|---|---|---|---|
-| _Visible symptom_ | _Base SHA, fixture, and steps_ | _Observed result_ | _Responsible path_ | _Fail-before assertion_ | _Candidate result_ |
+| _Requested result_ | _Fixed / Delivered / Deferred / Separately scoped_ | _Base SHA, fixture, steps, and observed state_ | _Responsible path_ | _Exact assertion_ | _Candidate result_ |
 
 A product-defect regression assertion must fail on the recorded base for the
 reported reason, exercise the responsible production path and fixture, pass on
@@ -135,6 +145,13 @@ without a documented product-contract reason.
 Trace visible input -> saved canonical state -> responsible engine, tax,
 controller, or view path -> visible output. Make the smallest responsible
 change. Ask before materially expanding scope.
+
+For a visible UI change, define the exact allowed inventory, its order, and the
+rows, controls, labels, and typography that must remain absent or unchanged.
+If a change turns static configuration into state-dependent configuration or
+makes an existing conditional newly reachable, enumerate the complete output
+for the default state and each affected state. Regression tests must compare
+the exact ordered result, not merely prove that requested elements are present.
 
 For delegated protected work, keep one writer. A read-only gatekeeper checks
 baseline, scope, tests, candidate identity, and drift. The writer applies
@@ -168,6 +185,9 @@ pre-existing against the base; never hide or bypass it.
 Browser proof uses the real visible action and asserts the resulting number,
 column, reconciliation, save/reload behavior, or actionable error. Element
 existence, control values, and screenshots alone are not behavioral proof.
+For visible UI scope, also assert the exact rendered inventory and explicit
+absences. Capture governed viewports and compare key computed typography,
+spacing, and containment with the named canonical component or design tokens.
 
 Persistence and migration work requires anonymized clean, current, and exact
 legacy-state evidence; source-byte preservation; repeat migration/reload;
@@ -205,10 +225,27 @@ finding.
 
 ## 4. Draft PR and review
 
-Commit only the reviewed scope, freeze the candidate SHA, push through the
-approved Parallax identity, and open or update a draft PR. Record base and
+Commit only the reviewed scope, freeze the candidate SHA, and verify both the
+commit author/committer and draft-PR author are
+`parallax-pr-author-amans[bot]`. Push through that identity, open or update the
+draft PR, and request `t66wwpvthy-prog` as the human reviewer. Record base and
 candidate SHAs, scope, evidence, commands, results, failures or gaps, rollback,
-and independent-review status.
+and independent-review status. The human owner must not author the PR they are
+required to review.
+
+The Governance safeguards job inspects every commit in the current
+base-to-candidate range and rejects any Git author or committer other than the
+Parallax bot. Updating the branch through the human GitHub identity is not an
+acceptable way to bring it current.
+
+Prepare the complete truthful PR body before publication. Feature branches do
+not need a second full `push` run in addition to the pull-request run. After the
+PR is open, use comments for progress and the final readiness receipt; edit the
+body only to correct material scope or evidence, because a body edit reruns its
+governance validation through the lightweight `Parallax PR evidence` workflow.
+It must not rerun unit, artifact, or browser jobs for an unchanged candidate
+SHA. The full `Parallax quality` campaign runs only when the PR opens, reopens,
+or receives a new candidate commit.
 
 Request one independent review against current `main`. The authoring session
 cannot self-certify.
@@ -233,9 +270,10 @@ Automation enforces objective facts. Independent review evaluates whether
 scope, rationale, and evidence are sufficient. Do not encode every judgment
 call in the PR-body parser.
 
-When both a branch push and draft-PR creation start equivalent checks for the
-same SHA, monitor the pull-request run as authoritative. Do not rerun, amend, or
-publish another candidate merely because the duplicate run is still visible.
+When an obsolete configuration leaves equivalent checks for the same SHA,
+monitor the pull-request run as authoritative. Do not rerun, amend, or publish
+another candidate merely because the duplicate run is still visible. A PR-body
+edit may start only the lightweight evidence workflow.
 
 Report lifecycle and hold:
 
@@ -247,6 +285,17 @@ Hold: None / Owner decision / Scope / Verification / CI / Review / Deployment / 
 Merge-ready means the exact candidate passed local evidence, required CI,
 independent review, conversation resolution, mergeability, and governance. A
 new commit, rebase, amend, or force-push invalidates prior merge authorization.
+Lifecycle must use one of the values listed above. Merge-ready requires a
+recognized positive completed independent-review result and successful
+applicable local commands; negated or mixed failure wording never counts as a
+pass. Tier 1 may omit only `npm test` or `npm run verify` locally with its narrow
+reason recorded, while the full GitHub suite still must pass. An open PR cannot
+claim `Merged` or `Production-confirmed`; those later states require matching
+GitHub lifecycle evidence and the same readiness gates.
+Before asking for Decision 2, post one current readiness receipt that names all
+four required jobs, the independent-review result, conversation resolution,
+base and head SHAs, and mergeability. Do not leave `pending` or `draft` language
+in the receipt used to request merge approval.
 
 ## 5. Merge, deploy, and confirm
 
@@ -271,6 +320,16 @@ candidate SHA
 
 Merged does not mean deployed. Production-confirmed requires both the expected
 artifact and relevant live behavior or byte check.
+
+## Improve the workflow from failures
+
+Treat a process failure as an input to the next governance iteration. Bind it
+to the exact PR and SHA, identify the missed decision or evidence gate, and add
+the narrowest durable correction. Objective failures need an executable
+regression test; judgment failures need a focused review rule. Forward-test the
+repair against the observed failure and one normal lower-risk case. Keep the
+workflow repair separate from the product correction, and do not claim the
+automatic first-turn behavior is proven until a fresh task demonstrates it.
 
 ## Existing-rule mapping
 

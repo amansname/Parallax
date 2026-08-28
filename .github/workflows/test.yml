@@ -2,8 +2,9 @@ name: Parallax quality
 
 on:
   push:
+    branches: [main]
   pull_request:
-    types: [opened, synchronize, reopened, edited]
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: read
@@ -20,6 +21,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ env.CANDIDATE_SHA }}
+          fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
@@ -28,6 +30,12 @@ jobs:
       - run: npm ci
       - run: npm run governance:check
       - run: npm run governance:pr
+      - name: Enforce bot-authored candidate commits
+        if: github.event_name == 'pull_request'
+        env:
+          PARALLAX_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PARALLAX_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/validate-pr-authorship.mjs
 
   unit:
     name: Unit tests
