@@ -3328,6 +3328,79 @@ test('pathDigest damage window: 1973 grinds longer than 1995', () => {
     'stagflation decade stays underwater longer than the 90s boom');
 });
 
+test('pathDigest exposes real portfolio stress and plan-margin metrics from authoritative retirement rows', () => {
+  const rows = [
+    { year: 1, age: 78, phase: 'ret', source: 1973, returnRate: 0.1,
+      startBalance: 1_000, balance: 1_100, withdrawal: 50, wdRate: 5,
+      fundingShortfall: 0, failed: false },
+    { year: 2, age: 79, phase: 'ret', source: 1974, returnRate: -0.1,
+      startBalance: 1_100, balance: 880, withdrawal: 67.1, wdRate: 6.1,
+      fundingShortfall: 0, failed: false },
+    { year: 3, age: 80, phase: 'ret', source: 1975, returnRate: -0.2,
+      startBalance: 880, balance: 660, withdrawal: 52.8, wdRate: 6,
+      fundingShortfall: 0, failed: false },
+    { year: 4, age: 81, phase: 'ret', source: 1976, returnRate: 0.2,
+      startBalance: 660, balance: 770, withdrawal: 77, wdRate: 8,
+      fundingShortfall: 0, failed: false },
+  ];
+  const digest = pathDigest({
+    rows,
+    terminalBalance: 770,
+    cagr: 0,
+    first10Cagr: 0,
+    minBalance: 660,
+    failed: false,
+    depletionAge: null,
+    lifetimeTax: 0,
+  });
+
+  assert.equal(digest.maxRealDrawdownPct, 40);
+  assert.equal(digest.maxRealDrawdownTroughAge, 80);
+  assert.equal(digest.yearsAboveSixPctWdRate, 2, '6.0% is not above the threshold');
+  assert.equal(digest.portfolioUnderwaterYearsMax, 3);
+  assert.equal(digest.realBalanceAtAge80, 660);
+  assert.equal(digest.fundedThroughAge, 81);
+  assert.equal(digest.planEndAge, 81);
+  assert.equal(digest.fundingMarginYears, 10);
+  assert.equal(digest.fundingMarginKind, 'zero-return-runway');
+});
+
+test('pathDigest never fabricates age-80 balance or runway after underfunding', () => {
+  const rows = [
+    { year: 1, age: 78, phase: 'ret', source: 1973, returnRate: 0,
+      startBalance: 100, balance: 100, withdrawal: 5, wdRate: 5,
+      fundingShortfall: 0, failed: false },
+    { year: 2, age: 79, phase: 'ret', source: 1974, returnRate: -1,
+      startBalance: 100, balance: 0, withdrawal: 100, wdRate: 100,
+      fundingShortfall: 10, failed: true },
+    { year: 3, age: 80, phase: 'ret', source: null, returnRate: 0,
+      startBalance: 0, balance: 0, withdrawal: 0, wdRate: 0,
+      fundingShortfall: 0, failed: true },
+    { year: 4, age: 81, phase: 'ret', source: null, returnRate: 0,
+      startBalance: 0, balance: 0, withdrawal: 0, wdRate: 0,
+      fundingShortfall: 0, failed: true },
+  ];
+  const digest = pathDigest({
+    rows,
+    terminalBalance: 0,
+    cagr: -1,
+    first10Cagr: -1,
+    minBalance: 0,
+    failed: true,
+    depletionAge: 79,
+    lifetimeTax: 0,
+  });
+
+  assert.equal(digest.maxRealDrawdownPct, 100);
+  assert.equal(digest.maxRealDrawdownTroughAge, 79);
+  assert.equal(digest.portfolioUnderwaterYearsMax, 1);
+  assert.equal(digest.realBalanceAtAge80, null);
+  assert.equal(digest.fundedThroughAge, 78);
+  assert.equal(digest.planEndAge, 81);
+  assert.equal(digest.fundingMarginYears, -3);
+  assert.equal(digest.fundingMarginKind, 'years-short');
+});
+
 test('returnDollars is the market gain on start-of-year balance', () => {
   const sim = runHistoricalPath(defaultPlan, 1973, 'taxable-first');
   for(const r of sim.rows.filter(x => x.source != null)){

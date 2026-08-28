@@ -33,6 +33,21 @@ function buildRows(selected, { plan, currentYear = 2026 } = {}){
   }));
 }
 
+function cashFlowDigest(overrides = {}){
+  return {
+    maxRealDrawdownPct: 10,
+    maxRealDrawdownTroughAge: 66,
+    yearsAboveSixPctWdRate: 0,
+    portfolioUnderwaterYearsMax: 1,
+    realBalanceAtAge80: null,
+    fundedThroughAge: 66,
+    planEndAge: 66,
+    fundingMarginYears: 10,
+    fundingMarginKind: 'zero-return-runway',
+    ...overrides,
+  };
+}
+
 test('Typical Cash Flow compares every scenario on the baseline p50 market index', () => {
   const baselineTypical = simulation(7, 700_000);
   const baselineOther = simulation(3, 300_000);
@@ -301,15 +316,22 @@ test('historical Cash Flow attaches the comparison contract to the same ledger r
   };
   const cases = [{
     summary: { outcome: 'survives', endingBalance: 650_000 },
+    digest: cashFlowDigest({ maxRealDrawdownPct: 12 }),
     rows: [{
       year: 2, age: 66, phase: 'ret', source: 1974, startBalance: 690_000,
       balance: 650_000, fundingShortfall: 0, failed: false, wdRate: 4.2, taxes: 0,
     }],
     expectedOutcome: 'survives',
-    expectedMetric: 'ending-portfolio',
-    expectedDelta: 50_000,
+    expectedMetric: 'max-real-drawdown',
+    expectedDelta: 2,
   }, {
     summary: { outcome: 'underfunded' },
+    digest: cashFlowDigest({
+      maxRealDrawdownPct: 100,
+      fundedThroughAge: 65,
+      fundingMarginYears: -1,
+      fundingMarginKind: 'years-short',
+    }),
     rows: [{
       year: 1, age: 65, phase: 'ret', source: 1973, startBalance: 90_000,
       balance: 50_000, fundingShortfall: 0, failed: false, wdRate: 6, taxes: 0,
@@ -319,8 +341,8 @@ test('historical Cash Flow attaches the comparison contract to the same ledger r
       people: { client: { age: 66, alive: true }, spouse: null },
     }],
     expectedOutcome: 'underfunded',
-    expectedMetric: 'portfolio-at-underfunding',
-    expectedDelta: -650_000,
+    expectedMetric: 'max-real-drawdown',
+    expectedDelta: 90,
   }];
 
   for(const entry of cases){
@@ -329,6 +351,7 @@ test('historical Cash Flow attaches the comparison contract to the same ledger r
       pathId: 'historical-1973',
       simulation: { rows: entry.rows },
       summary: entry.summary,
+      digest: entry.digest,
       taxScope: 'MODELED_FEDERAL_LINE_24',
     };
     const controller = createCashFlowController({
@@ -336,6 +359,7 @@ test('historical Cash Flow attaches the comparison contract to the same ledger r
       scenarioInputsByResult: new WeakMap([[scenario.res, { plan, overrides: {} }]]),
       selection: { id: 'historical-1973' },
       historicalCache: { get: () => historical },
+      digest: () => cashFlowDigest(),
       buildRows,
     });
 

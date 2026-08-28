@@ -3256,6 +3256,7 @@ try {
         sourceYear: row.dataset.sourceYear === '' ? null : Number(row.dataset.sourceYear),
         startBalance: Number(row.dataset.startBalance),
         endingBalance: Number(row.dataset.endingBalance),
+        withdrawal: Number(row.dataset.withdrawal),
         wdRate: Number(row.dataset.wdRate),
         shortfall: Number(row.dataset.fundingShortfall),
       }))
@@ -3336,6 +3337,7 @@ try {
             sourceYear: row.dataset.sourceYear === '' ? null : Number(row.dataset.sourceYear),
             startBalance: Number(row.dataset.startBalance),
             endingBalance: Number(row.dataset.endingBalance),
+            withdrawal: Number(row.dataset.withdrawal),
             wdRate: Number(row.dataset.wdRate),
             shortfall: Number(row.dataset.fundingShortfall),
             endingText: row.querySelector('.cf-cell--ending')?.textContent.trim() || '',
@@ -3369,6 +3371,14 @@ try {
               thisPath: metric.dataset.thisPath === '' ? null : Number(metric.dataset.thisPath),
               typicalPath: metric.dataset.typicalPath === '' ? null : Number(metric.dataset.typicalPath),
               delta: metric.dataset.delta === '' ? null : Number(metric.dataset.delta),
+              format: metric.dataset.format || '',
+              thisPathAge: metric.dataset.thisPathAge === undefined ? null : Number(metric.dataset.thisPathAge),
+              typicalPathAge: metric.dataset.typicalPathAge === undefined ? null : Number(metric.dataset.typicalPathAge),
+              thisPathMargin: metric.dataset.thisPathMargin === undefined ? null : Number(metric.dataset.thisPathMargin),
+              typicalPathMargin: metric.dataset.typicalPathMargin === undefined ? null : Number(metric.dataset.typicalPathMargin),
+              thisPathMarginKind: metric.dataset.thisPathMarginKind || '',
+              typicalPathMarginKind: metric.dataset.typicalPathMarginKind || '',
+              planEndAge: metric.dataset.planEndAge === undefined ? null : Number(metric.dataset.planEndAge),
               planYear: metric.dataset.planYear === '' || metric.dataset.planYear === undefined
                 ? null
                 : Number(metric.dataset.planYear),
@@ -3410,87 +3420,144 @@ try {
         if(lastAccumulation && Math.abs(lastAccumulation.endingBalance - firstRetirement.startBalance) > 0.01) throw new Error(`${mode} has a retirement balance jump: ${JSON.stringify({ lastAccumulation, firstRetirement })}`);
         const shortfallRows = historicalPath.retirementRows.filter(row => row.shortfall > 0.01);
         const lastRetirement = historicalPath.retirementRows.at(-1);
-        if(historicalPath.summary?.outcome === 'underfunded'){
-          const firstUnderfunded = shortfallRows[0] || null;
-          const early = historicalPath.retirementRows.slice(0, 10)
-            .filter(row => row !== firstUnderfunded && row.shortfall <= 0.01 && row.wdRate > 0);
-          const pressureRow = early.reduce((highest, row) => (
-            !highest || row.wdRate > highest.wdRate
-              || (row.wdRate === highest.wdRate && row.planYear < highest.planYear)
-              ? row
-              : highest
-          ), null);
-          const pressureMetric = historicalPath.metrics.find(metric => metric.id === 'early-withdrawal-pressure');
-          const portfolioMetric = historicalPath.metrics.find(metric => metric.id === 'portfolio-at-underfunding');
-          const ageMetric = historicalPath.metrics.find(metric => metric.id === 'first-underfunded-age');
-          const typicalPressure = typicalRowsByPlanYear.find(row => row.planYear === pressureMetric?.planYear);
-          const typicalBoundary = typicalRowsByPlanYear.find(row => row.planYear === firstUnderfunded?.planYear);
-          if(shortfallRows.length !== 1
-            || firstUnderfunded !== lastRetirement
-            || !pressureRow
-            || JSON.stringify(historicalPath.metrics.map(metric => metric.id)) !== JSON.stringify([
-              'early-withdrawal-pressure', 'portfolio-at-underfunding', 'first-underfunded-age',
-            ])
-            || pressureMetric.planYear !== pressureRow.planYear
-            || Math.abs(pressureMetric.thisPath - pressureRow.wdRate) > 0.01
-            || !typicalPressure
-            || Math.abs(pressureMetric.typicalPath - typicalPressure.wdRate) > 0.01
-            || Math.abs(pressureMetric.delta - (pressureRow.wdRate - typicalPressure.wdRate)) > 0.01
-            || portfolioMetric.planYear !== firstUnderfunded.planYear
-            || Math.abs(portfolioMetric.thisPath - firstUnderfunded.startBalance) > 0.01
-            || !typicalBoundary
-            || Math.abs(portfolioMetric.typicalPath - typicalBoundary.startBalance) > 0.01
-            || Math.abs(portfolioMetric.delta - (firstUnderfunded.startBalance - typicalBoundary.startBalance)) > 0.01
-            || !Number.isFinite(ageMetric.thisPath)
-            || ageMetric.planYear !== firstUnderfunded.planYear
-            || !/\$\d+(?:\.\d+)?(?:K|M)|\$0/.test(portfolioMetric.values[0] || '')
-            || /\$0\.\d+M/.test(portfolioMetric.values[0] || '')
-            || historicalPath.statusGlyph !== '!'
-            || !/is-underfunded/.test(historicalPath.statusClass)
-            || historicalPath.statusColor !== historicalPath.expectedStatusColor
-            || !/Underfunded/i.test(lastRetirement.endingText)){
-            throw new Error(`${mode} underfunded UI contract is incomplete: ${JSON.stringify(historicalPath)}`);
+        if(!['underfunded', 'survives'].includes(historicalPath.summary?.outcome)){
+          throw new Error(`${mode} has an unknown historical outcome: ${JSON.stringify(historicalPath.summary)}`);
+        }
+        const expectedMetricIds = [
+          'max-real-drawdown',
+          'years-above-6-wd-rate',
+          'underwater-duration',
+          'balance-at-age-80',
+          'funded-through-margin',
+        ];
+        if(JSON.stringify(historicalPath.metrics.map(metric => metric.id)) !== JSON.stringify(expectedMetricIds)
+            || historicalPath.metrics.some(metric => /Median withdrawal|Ending portfolio|Early withdrawal|First underfunded/i.test(metric.label))){
+          throw new Error(`${mode} historical metric inventory drifted: ${JSON.stringify(historicalPath.metrics)}`);
+        }
+        const portfolioFacts = rows => {
+          const retirement = rows.filter(row => row.phase === 'retirement' && row.sourceYear !== null);
+          const startingBalance = retirement[0]?.startBalance;
+          let peak = startingBalance;
+          let maxDrawdown = 0;
+          let troughAge = null;
+          let underwater = 0;
+          let underwaterMax = 0;
+          for(const row of retirement){
+            if(row.endingBalance > peak) peak = row.endingBalance;
+            const drawdown = peak > 0 ? ((peak - row.endingBalance) / peak) * 100 : 0;
+            if(drawdown > maxDrawdown){
+              maxDrawdown = drawdown;
+              troughAge = row.age;
+            }
+            if(row.endingBalance < startingBalance - 0.01){
+              underwater += 1;
+              underwaterMax = Math.max(underwaterMax, underwater);
+            }else{
+              underwater = 0;
+            }
           }
-        }else if(historicalPath.summary?.outcome === 'survives'){
-          const median = values => {
-            const ordered = [...values].sort((a, b) => a - b);
-            const middle = Math.floor(ordered.length / 2);
-            return ordered.length % 2
-              ? ordered[middle]
-              : (ordered[middle - 1] + ordered[middle]) / 2;
+          const age80 = rows.filter(row => row.sourceYear !== null && row.age === 80);
+          return {
+            retirement,
+            maxDrawdown,
+            troughAge,
+            yearsAboveSix: retirement.filter(row => row.wdRate > 6).length,
+            underwaterMax,
+            age80Balance: age80.length === 1 ? age80[0].endingBalance : null,
           };
-          const historicalRates = historicalPath.retirementRows
-            .filter(row => row.shortfall <= 0.01 && row.wdRate > 0)
-            .map(row => row.wdRate);
-          const typicalRates = typicalRowsByPlanYear
-            .filter(row => row.phase === 'retirement' && row.sourceYear !== null && row.shortfall <= 0.01 && row.wdRate > 0)
-            .map(row => row.wdRate);
-          const medianMetric = historicalPath.metrics.find(metric => metric.id === 'median-withdrawal-rate');
-          const endingMetric = historicalPath.metrics.find(metric => metric.id === 'ending-portfolio');
-          const typicalEnding = typicalRowsByPlanYear.at(-1);
-          if(shortfallRows.length !== 0
-            || !historicalRates.length
-            || !typicalRates.length
-            || JSON.stringify(historicalPath.metrics.map(metric => metric.id)) !== JSON.stringify([
-              'median-withdrawal-rate', 'ending-portfolio',
-            ])
-            || Math.abs(medianMetric.thisPath - median(historicalRates)) > 0.01
-            || Math.abs(medianMetric.typicalPath - median(typicalRates)) > 0.01
-            || Math.abs(medianMetric.delta - (median(historicalRates) - median(typicalRates))) > 0.01
-            || Math.abs(endingMetric.thisPath - lastRetirement.endingBalance) > 0.01
-            || !typicalEnding
-            || typicalEnding.sourceYear === null
-            || typicalEnding.shortfall > 0.01
-            || Math.abs(endingMetric.typicalPath - typicalEnding.endingBalance) > 0.01
-            || Math.abs(endingMetric.delta - (lastRetirement.endingBalance - typicalEnding.endingBalance)) > 0.01
+        };
+        const fundingFacts = (facts, planEndAge) => {
+          const firstUnderfunded = facts.retirement.find(row => row.shortfall > 0.01) || null;
+          if(firstUnderfunded){
+            const before = facts.retirement.slice(0, facts.retirement.indexOf(firstUnderfunded));
+            const lastFunded = [...before].reverse().find(row => row.shortfall <= 0.01) || null;
+            const fundedThroughAge = lastFunded?.age ?? firstUnderfunded.age - 1;
+            return {
+              fundedThroughAge,
+              margin: fundedThroughAge - planEndAge,
+              kind: 'years-short',
+            };
+          }
+          const ending = facts.retirement.at(-1);
+          return ending?.withdrawal > 0
+            ? {
+                fundedThroughAge: ending.age,
+                margin: ending.endingBalance / ending.withdrawal,
+                kind: 'zero-return-runway',
+              }
+            : {
+                fundedThroughAge: ending?.age ?? null,
+                margin: null,
+                kind: 'no-portfolio-draw',
+              };
+        };
+        const close = (actual, expected) => Number.isFinite(actual)
+          && Number.isFinite(expected)
+          && Math.abs(actual - expected) <= 0.01;
+        const sameOptional = (actual, expected) => actual === null && expected === null
+          || close(actual, expected);
+        const historicalFacts = portfolioFacts(historicalPath.rows);
+        const typicalFacts = portfolioFacts(typicalRowsByPlanYear);
+        const drawdownMetric = historicalPath.metrics[0];
+        const highWdMetric = historicalPath.metrics[1];
+        const underwaterMetric = historicalPath.metrics[2];
+        const age80Metric = historicalPath.metrics[3];
+        const fundingMetric = historicalPath.metrics[4];
+        const historicalFunding = fundingFacts(historicalFacts, fundingMetric.planEndAge);
+        const typicalFunding = fundingFacts(typicalFacts, fundingMetric.planEndAge);
+        if(!close(drawdownMetric.thisPath, historicalFacts.maxDrawdown)
+            || !close(drawdownMetric.typicalPath, typicalFacts.maxDrawdown)
+            || !close(drawdownMetric.delta, historicalFacts.maxDrawdown - typicalFacts.maxDrawdown)
+            || drawdownMetric.thisPathAge !== historicalFacts.troughAge
+            || drawdownMetric.typicalPathAge !== typicalFacts.troughAge
+            || highWdMetric.thisPath !== historicalFacts.yearsAboveSix
+            || highWdMetric.typicalPath !== typicalFacts.yearsAboveSix
+            || highWdMetric.delta !== historicalFacts.yearsAboveSix - typicalFacts.yearsAboveSix
+            || underwaterMetric.thisPath !== historicalFacts.underwaterMax
+            || underwaterMetric.typicalPath !== typicalFacts.underwaterMax
+            || underwaterMetric.delta !== historicalFacts.underwaterMax - typicalFacts.underwaterMax
+            || !sameOptional(age80Metric.thisPath, historicalFacts.age80Balance)
+            || !sameOptional(age80Metric.typicalPath, typicalFacts.age80Balance)
+            || !sameOptional(
+              age80Metric.delta,
+              historicalFacts.age80Balance !== null && typicalFacts.age80Balance !== null
+                ? historicalFacts.age80Balance - typicalFacts.age80Balance
+                : null
+            )
+            || fundingMetric.thisPath !== historicalFunding.fundedThroughAge
+            || fundingMetric.typicalPath !== typicalFunding.fundedThroughAge
+            || !sameOptional(fundingMetric.thisPathMargin, historicalFunding.margin)
+            || !sameOptional(fundingMetric.typicalPathMargin, typicalFunding.margin)
+            || fundingMetric.thisPathMarginKind !== historicalFunding.kind
+            || fundingMetric.typicalPathMarginKind !== typicalFunding.kind
+            || !sameOptional(
+              fundingMetric.delta,
+              historicalFunding.margin !== null && typicalFunding.margin !== null
+                ? historicalFunding.margin - typicalFunding.margin
+                : null
+            )){
+          throw new Error(`${mode} historical metrics do not reconcile to visible engine rows: ${JSON.stringify({
+            historicalPath,
+            historicalFacts,
+            typicalFacts,
+            historicalFunding,
+            typicalFunding,
+          })}`);
+        }
+        if(historicalPath.summary.outcome === 'underfunded'){
+          if(shortfallRows.length !== 1
+              || shortfallRows[0] !== lastRetirement
+              || historicalPath.statusGlyph !== '!'
+              || !/is-underfunded/.test(historicalPath.statusClass)
+              || historicalPath.statusColor !== historicalPath.expectedStatusColor
+              || !/Underfunded/i.test(lastRetirement.endingText)){
+            throw new Error(`${mode} underfunded outcome boundary is incomplete: ${JSON.stringify(historicalPath)}`);
+          }
+        }else if(shortfallRows.length !== 0
             || historicalPath.statusGlyph !== '✓'
             || !/is-success/.test(historicalPath.statusClass)
-            || historicalPath.statusColor !== historicalPath.expectedStatusColor
-            || historicalPath.metrics.some(metric => /Peak withdrawal/i.test(metric.label))){
-            throw new Error(`${mode} surviving metrics are incomplete: ${JSON.stringify(historicalPath.metrics)}`);
-          }
-        }else{
-          throw new Error(`${mode} has an unknown historical outcome: ${JSON.stringify(historicalPath.summary)}`);
+            || historicalPath.statusColor !== historicalPath.expectedStatusColor){
+          throw new Error(`${mode} surviving outcome boundary is incomplete: ${JSON.stringify(historicalPath)}`);
         }
         await page.screenshot({ path: join(OUT, `04-cashflow-${mode}.png`), fullPage: true });
       }
@@ -3733,10 +3800,10 @@ try {
           simIndex: 7,
           rows: [{
             year: 1, age: 65, phase: 'ret', source: 1995, startBalance: 700000,
-            balance: 650000, fundingShortfall: 0, failed: false, wdRate: 4, taxes: 0,
+            balance: 650000, withdrawal: 28000, fundingShortfall: 0, failed: false, wdRate: 4, taxes: 0,
           }, {
             year: 2, age: 66, phase: 'ret', source: 1996, startBalance: 650000,
-            balance: 600000, fundingShortfall: 0, failed: false, wdRate: 5, taxes: 0,
+            balance: 600000, withdrawal: 32500, fundingShortfall: 0, failed: false, wdRate: 5, taxes: 0,
           }],
         };
         const historicalRows = [{
@@ -3762,6 +3829,17 @@ try {
           pathId: 'historical-1973',
           simulation: { rows: historicalRows },
           summary: { outcome: 'underfunded' },
+          digest: {
+            maxRealDrawdownPct: 100,
+            maxRealDrawdownTroughAge: 66,
+            yearsAboveSixPctWdRate: 1,
+            portfolioUnderwaterYearsMax: 2,
+            realBalanceAtAge80: null,
+            fundedThroughAge: 65,
+            planEndAge: 66,
+            fundingMarginYears: -1,
+            fundingMarginKind: 'years-short',
+          },
           taxScope: 'MODELED_FEDERAL_LINE_24',
         };
         const buildRows = simulation => simulation.rows.map(row => ({
@@ -3795,7 +3873,17 @@ try {
               : null,
           },
           buildRows,
-          digest: () => ({}),
+          digest: () => ({
+            maxRealDrawdownPct: 14.285714285714285,
+            maxRealDrawdownTroughAge: 66,
+            yearsAboveSixPctWdRate: 0,
+            portfolioUnderwaterYearsMax: 2,
+            realBalanceAtAge80: null,
+            fundedThroughAge: 66,
+            planEndAge: 66,
+            fundingMarginYears: 18.46153846153846,
+            fundingMarginKind: 'zero-return-runway',
+          }),
         });
 
         const liveStatus = document.querySelector('#cashflow-path-status');
@@ -3859,7 +3947,8 @@ try {
       });
       if(underfundedMatrixProof.outcome !== 'underfunded'
           || JSON.stringify(underfundedMatrixProof.metrics) !== JSON.stringify([
-            'early-withdrawal-pressure', 'portfolio-at-underfunding', 'first-underfunded-age',
+            'max-real-drawdown', 'years-above-6-wd-rate', 'underwater-duration',
+            'balance-at-age-80', 'funded-through-margin',
           ])
           || underfundedMatrixProof.glyph !== '!'
           || !/is-underfunded/.test(underfundedMatrixProof.statusClass)

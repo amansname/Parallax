@@ -9,7 +9,7 @@ import {
   createHistoricalCashFlowCache,
 } from './buildHistoricalCashFlowResult.js';
 
-function fixture({ taxableBalance = 50_000, annualNeed = 100_000 } = {}){
+function fixture({ taxableBalance = 50_000, annualNeed = 100_000, planEndAge = 70 } = {}){
   const plan = structuredClone(defaultPlan);
   plan.meta = {
     ...plan.meta,
@@ -17,7 +17,7 @@ function fixture({ taxableBalance = 50_000, annualNeed = 100_000 } = {}){
     planningAsOfYear: 2026,
     spendingSchemaVersion: 1,
   };
-  plan.household.primary = { currentAge: 64, retirementAge: 66, planEndAge: 70 };
+  plan.household.primary = { currentAge: 64, retirementAge: 66, planEndAge };
   plan.household.spouse = null;
   plan.portfolio.accounts = {
     taxable: { balance: taxableBalance, basisPct: 0.5 },
@@ -33,7 +33,7 @@ function fixture({ taxableBalance = 50_000, annualNeed = 100_000 } = {}){
     living: 0, housing: 0, debt: 0, healthcare: 0,
     healthcareRealGrowth: 0, extra: [],
   };
-  plan.goals = [{ name: 'Living needs', amount: annualNeed, startAge: 66, endAge: 70 }];
+  plan.goals = [{ name: 'Living needs', amount: annualNeed, startAge: 66, endAge: planEndAge }];
   plan.liabilities = [];
   plan.properties = [];
   plan.ltc = { amount: 0, onsetAge: 99 };
@@ -126,6 +126,14 @@ test('historical Cash Flow stops at and reports the first underfunded retirement
   assert.equal(result.summary.peakWdAge, firstRetirement.age);
   assert.equal(result.summary.peakWdYear, 2028);
   assert.equal('totalModeledShortfall' in result.summary, false);
+  assert.equal(result.digest.maxRealDrawdownPct, 100);
+  assert.equal(result.digest.maxRealDrawdownTroughAge, 66);
+  assert.equal(result.digest.realBalanceAtAge80, null);
+  assert.equal(result.digest.fundedThroughAge, 65);
+  assert.equal(result.digest.planEndAge, 70);
+  assert.equal(result.digest.fundingMarginYears, -5);
+  assert.equal(result.digest.fundingMarginKind, 'years-short');
+  assert.equal(Object.isFrozen(result.digest), true);
   assert.equal(result.taxScope, 'MODELED_FEDERAL_LINE_24');
 });
 
@@ -160,6 +168,31 @@ test('surviving historical Cash Flow reports plan end and peak withdrawal from t
   assert.equal(result.summary.peakWdAge, peakRow.age);
   assert.equal(result.summary.peakWdYear, 2026 + (peakRow.age - 64));
   assert.equal(retirementRows.some(row => row.fundingShortfall > 0.01), false);
+  assert.equal(result.digest.fundedThroughAge, 70);
+  assert.equal(result.digest.planEndAge, 70);
+  assert.ok(result.digest.fundingMarginYears > 0);
+  assert.equal(result.digest.fundingMarginKind, 'zero-return-runway');
+});
+
+test('historical Cash Flow digest binds age-80 balance to the exact selected-path row', () => {
+  const { plan, analysis } = fixture({
+    taxableBalance: 2_000_000,
+    annualNeed: 40_000,
+    planEndAge: 85,
+  });
+  const result = buildHistoricalCashFlowResult({
+    analysis,
+    plan,
+    periodId: 'historical-1973',
+    scenarioId: 'age_80_metric_test',
+  });
+  const age80 = result.rows.find(row => row.age === 80);
+
+  assert.ok(age80);
+  assert.equal(age80.source, 1987);
+  assert.equal(result.digest.realBalanceAtAge80, age80.balance);
+  assert.equal(result.digest.maxRealDrawdownTroughAge >= 66, true);
+  assert.equal(result.digest.planEndAge, 85);
 });
 
 test('approved boundary periods execute with an authoritative outcome boundary', () => {

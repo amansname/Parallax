@@ -27,15 +27,6 @@ function isFullyFundedRetirement(row){
     && row.failed !== true;
 }
 
-function exactRowForPlanYear(rows, planYear, label){
-  if(!Number.isInteger(planYear)) throw new Error(`${label} plan-year index is unavailable`);
-  const matches = rows.filter(row => row?.year === planYear);
-  if(matches.length !== 1 || !isAuthoritative(matches[0])){
-    throw new Error(`${label} exact plan-year row is unavailable`);
-  }
-  return matches[0];
-}
-
 function planEndRow(rows, label){
   const row = rows.at(-1) ?? null;
   if(!isFullyFundedRetirement(row)
@@ -45,35 +36,6 @@ function planEndRow(rows, label){
     throw new Error(`${label} funded plan-end row is unavailable`);
   }
   return row;
-}
-
-function positiveFundedWithdrawalRates(rows, label){
-  const rates = rows
-    .filter(isFullyFundedRetirement)
-    .map(row => row.wdRate)
-    .filter(rate => Number.isFinite(rate) && rate > 0)
-    .sort((a, b) => a - b);
-  if(rates.length === 0) throw new Error(`${label} funded withdrawal rates are unavailable`);
-  return rates;
-}
-
-function median(values){
-  const middle = Math.floor(values.length / 2);
-  return values.length % 2 === 1
-    ? values[middle]
-    : (values[middle - 1] + values[middle]) / 2;
-}
-
-function olderLivingAge(row){
-  const people = row?.people;
-  if(!people?.client) throw new Error('first-underfunded household ages are unavailable');
-  const modeled = [people.client, people.spouse].filter(person => person !== null && person !== undefined);
-  if(modeled.some(person => !Number.isFinite(person.age) || typeof person.alive !== 'boolean')){
-    throw new Error('first-underfunded household ages are incomplete');
-  }
-  const livingAges = modeled.filter(person => person.alive).map(person => person.age);
-  if(livingAges.length === 0) throw new Error('first-underfunded living household age is unavailable');
-  return Math.max(...livingAges);
 }
 
 function livingPlanEndAge(row){
@@ -137,124 +99,196 @@ function typicalHeader(typicalSimulation){
   });
 }
 
-function successfulHistoricalHeader(historicalResult, typicalSimulation){
-  const historicalRows = rowsFor(historicalResult?.simulation, 'Historical');
-  const typicalRows = rowsFor(typicalSimulation, 'Typical');
-  const historicalEnding = planEndRow(historicalRows, 'Historical');
-  const typicalEnding = planEndRow(typicalRows, 'Typical');
-  if(!Number.isFinite(historicalResult?.summary?.endingBalance)
-      || Math.abs(historicalResult.summary.endingBalance - historicalEnding.balance) > 0.01){
-    throw new Error('Historical ending portfolio does not match its plan-end row');
+function finiteMetric(digest, key, label, { integer = false, min = 0, max = Infinity } = {}){
+  const value = digest?.[key];
+  if(!Number.isFinite(value)
+      || (integer && !Number.isInteger(value))
+      || value < min
+      || value > max){
+    throw new Error(`${label} is unavailable`);
   }
+  return value;
+}
 
-  const historicalMedian = median(positiveFundedWithdrawalRates(historicalRows, 'Historical'));
-  const typicalMedian = median(positiveFundedWithdrawalRates(typicalRows, 'Typical'));
-  return deepFreeze({
-    kind: 'historical',
-    outcome: 'survives',
-    rows: [
-      {
-        id: 'median-withdrawal-rate',
-        label: 'Median withdrawal rate',
-        format: 'percent',
-        thisPath: historicalMedian,
-        typicalPath: typicalMedian,
-        delta: historicalMedian - typicalMedian,
-      },
-      {
-        id: 'ending-portfolio',
-        label: 'Ending portfolio',
-        format: 'money',
-        thisPath: historicalEnding.balance,
-        typicalPath: typicalEnding.balance,
-        delta: historicalEnding.balance - typicalEnding.balance,
-      },
-    ],
+function optionalFiniteMetric(digest, key, label, options = {}){
+  if(digest?.[key] === null) return null;
+  return finiteMetric(digest, key, label, options);
+}
+
+function drawdownTroughAge(digest, drawdown, label){
+  if(drawdown === 0 && digest?.maxRealDrawdownTroughAge === null) return null;
+  return finiteMetric(digest, 'maxRealDrawdownTroughAge', `${label} drawdown trough age`, {
+    integer: true,
+    min: 0,
   });
 }
 
-function underfundedHistoricalHeader(historicalResult, typicalSimulation){
-  const historicalRows = rowsFor(historicalResult?.simulation, 'Historical');
-  const typicalRows = rowsFor(typicalSimulation, 'Typical');
-  const retirementRows = historicalRows.filter(row => isAuthoritative(row) && isRetirement(row));
-  const underfundedRows = retirementRows.filter(row => (
-    Number.isFinite(row.fundingShortfall) && row.fundingShortfall > 0.01
-  ));
-  if(underfundedRows.length !== 1 || underfundedRows[0] !== retirementRows.at(-1)){
-    throw new Error('Historical first-underfunded row is unavailable');
+function fundingFacts(digest, label){
+  const fundedThroughAge = finiteMetric(digest, 'fundedThroughAge', `${label} funded-through age`, {
+    integer: true,
+    min: 0,
+  });
+  const planEndAge = finiteMetric(digest, 'planEndAge', `${label} plan-end age`, {
+    integer: true,
+    min: 0,
+  });
+  const marginKind = digest?.fundingMarginKind;
+  if(!['zero-return-runway', 'years-short', 'no-portfolio-draw'].includes(marginKind)){
+    throw new Error(`${label} funding-margin kind is unavailable`);
   }
-  const firstUnderfunded = underfundedRows[0];
-  const firstUnderfundedAge = olderLivingAge(firstUnderfunded);
-  const firstUnderfundedPlanYear = firstUnderfunded.year;
-  if(!Number.isInteger(firstUnderfundedPlanYear)){
-    throw new Error('Historical first-underfunded plan-year index is unavailable');
+  const marginYears = optionalFiniteMetric(
+    digest,
+    'fundingMarginYears',
+    `${label} funding margin`,
+    { min: marginKind === 'years-short' ? -Infinity : 0 }
+  );
+  if(marginKind === 'years-short' && !(marginYears <= 0)){
+    throw new Error(`${label} years-short margin is invalid`);
+  }
+  if(marginKind === 'no-portfolio-draw' && marginYears !== null){
+    throw new Error(`${label} no-draw funding margin is invalid`);
+  }
+  if(marginKind === 'zero-return-runway' && marginYears === null){
+    throw new Error(`${label} zero-return runway is unavailable`);
+  }
+  return { fundedThroughAge, planEndAge, marginYears, marginKind };
+}
+
+function historicalHeader(historicalResult, typicalDigest){
+  const historicalDigest = historicalResult?.digest;
+  if(!historicalDigest || typeof historicalDigest !== 'object'){
+    throw new Error('Historical path digest is unavailable');
+  }
+  if(!typicalDigest || typeof typicalDigest !== 'object'){
+    throw new Error('Typical path digest is unavailable');
+  }
+  const outcome = historicalResult?.summary?.outcome;
+  if(!['survives', 'underfunded'].includes(outcome)){
+    throw new Error('Historical outcome is unavailable');
   }
 
-  const pressureRows = retirementRows.slice(0, 10)
-    .filter(row => row !== firstUnderfunded)
-    .filter(isFullyFundedRetirement)
-    .filter(row => Number.isInteger(row.year) && Number.isFinite(row.wdRate) && row.wdRate > 0);
-  if(pressureRows.length === 0){
-    throw new Error('Historical early withdrawal pressure is unavailable');
-  }
-  const pressureRow = pressureRows.reduce((highest, row) => {
-    if(!highest || row.wdRate > highest.wdRate) return row;
-    if(row.wdRate === highest.wdRate && row.year < highest.year) return row;
-    return highest;
-  }, null);
-  const typicalPressureRow = exactRowForPlanYear(
-    typicalRows,
-    pressureRow.year,
-    'Typical early-pressure'
+  const historicalDrawdown = finiteMetric(
+    historicalDigest,
+    'maxRealDrawdownPct',
+    'Historical max real drawdown',
+    { min: 0, max: 100 }
   );
-  if(!isFullyFundedRetirement(typicalPressureRow) || !Number.isFinite(typicalPressureRow.wdRate)){
-    throw new Error('Typical early-pressure row is unavailable');
-  }
-
-  const typicalBoundaryRow = exactRowForPlanYear(
-    typicalRows,
-    firstUnderfundedPlanYear,
-    'Typical first-underfunded comparison'
+  const typicalDrawdown = finiteMetric(
+    typicalDigest,
+    'maxRealDrawdownPct',
+    'Typical max real drawdown',
+    { min: 0, max: 100 }
   );
-  if(!isRetirement(typicalBoundaryRow)
-      || !Number.isFinite(firstUnderfunded.startBalance) || firstUnderfunded.startBalance < 0
-      || !Number.isFinite(typicalBoundaryRow.startBalance) || typicalBoundaryRow.startBalance < 0){
-    throw new Error('first-underfunded opening portfolio comparison is unavailable');
+  const historicalAge80 = optionalFiniteMetric(
+    historicalDigest,
+    'realBalanceAtAge80',
+    'Historical real balance at age 80',
+    { min: 0 }
+  );
+  const typicalAge80 = optionalFiniteMetric(
+    typicalDigest,
+    'realBalanceAtAge80',
+    'Typical real balance at age 80',
+    { min: 0 }
+  );
+  const historicalFunding = fundingFacts(historicalDigest, 'Historical');
+  const typicalFunding = fundingFacts(typicalDigest, 'Typical');
+  if(historicalFunding.planEndAge !== typicalFunding.planEndAge){
+    throw new Error('Historical and Typical plan-end ages do not match');
   }
 
   return deepFreeze({
     kind: 'historical',
-    outcome: 'underfunded',
-    firstUnderfundedPlanYear,
+    outcome,
     rows: [
       {
-        id: 'early-withdrawal-pressure',
-        label: 'Early withdrawal pressure',
-        format: 'percent',
-        thisPath: pressureRow.wdRate,
-        typicalPath: typicalPressureRow.wdRate,
-        delta: pressureRow.wdRate - typicalPressureRow.wdRate,
-        planYear: pressureRow.year,
+        id: 'max-real-drawdown',
+        label: 'Max real drawdown',
+        format: 'drawdown',
+        thisPath: historicalDrawdown,
+        typicalPath: typicalDrawdown,
+        delta: historicalDrawdown - typicalDrawdown,
+        thisPathAge: drawdownTroughAge(historicalDigest, historicalDrawdown, 'Historical'),
+        typicalPathAge: drawdownTroughAge(typicalDigest, typicalDrawdown, 'Typical'),
       },
       {
-        id: 'portfolio-at-underfunding',
-        label: `Portfolio at age ${firstUnderfundedAge}`,
+        id: 'years-above-6-wd-rate',
+        label: 'Years above 6% WD rate',
+        format: 'years',
+        thisPath: finiteMetric(
+          historicalDigest,
+          'yearsAboveSixPctWdRate',
+          'Historical years above 6% withdrawal rate',
+          { integer: true, min: 0 }
+        ),
+        typicalPath: finiteMetric(
+          typicalDigest,
+          'yearsAboveSixPctWdRate',
+          'Typical years above 6% withdrawal rate',
+          { integer: true, min: 0 }
+        ),
+      },
+      {
+        id: 'underwater-duration',
+        label: 'Underwater duration',
+        format: 'years',
+        thisPath: finiteMetric(
+          historicalDigest,
+          'portfolioUnderwaterYearsMax',
+          'Historical underwater duration',
+          { integer: true, min: 0 }
+        ),
+        typicalPath: finiteMetric(
+          typicalDigest,
+          'portfolioUnderwaterYearsMax',
+          'Typical underwater duration',
+          { integer: true, min: 0 }
+        ),
+      },
+      {
+        id: 'balance-at-age-80',
+        label: 'Real balance at age 80',
         format: 'money',
-        thisPath: firstUnderfunded.startBalance,
-        typicalPath: typicalBoundaryRow.startBalance,
-        delta: firstUnderfunded.startBalance - typicalBoundaryRow.startBalance,
-        planYear: firstUnderfundedPlanYear,
+        thisPath: historicalAge80,
+        typicalPath: typicalAge80,
+        thisPathUnavailable: historicalAge80 === null
+          ? (historicalFunding.marginKind === 'years-short'
+              && historicalFunding.fundedThroughAge < 80
+            ? 'Underfunded before 80'
+            : 'Not modeled')
+          : null,
+        typicalPathUnavailable: typicalAge80 === null
+          ? (typicalFunding.marginKind === 'years-short'
+              && typicalFunding.fundedThroughAge < 80
+            ? 'Underfunded before 80'
+            : 'Not modeled')
+          : null,
+        delta: historicalAge80 !== null && typicalAge80 !== null
+          ? historicalAge80 - typicalAge80
+          : null,
       },
       {
-        id: 'first-underfunded-age',
-        label: 'First underfunded age',
-        format: 'age',
-        thisPath: firstUnderfundedAge,
-        typicalPath: null,
-        delta: null,
-        planYear: firstUnderfundedPlanYear,
+        id: 'funded-through-margin',
+        label: 'Funded through · margin',
+        description: 'If funded through plan end, margin is zero-return years at the final modeled portfolio draw; otherwise it is years short of plan end.',
+        format: 'funding',
+        thisPath: historicalFunding.fundedThroughAge,
+        typicalPath: typicalFunding.fundedThroughAge,
+        delta: historicalFunding.marginYears !== null && typicalFunding.marginYears !== null
+          ? historicalFunding.marginYears - typicalFunding.marginYears
+          : null,
+        thisPathMargin: historicalFunding.marginYears,
+        typicalPathMargin: typicalFunding.marginYears,
+        thisPathMarginKind: historicalFunding.marginKind,
+        typicalPathMarginKind: typicalFunding.marginKind,
+        planEndAge: historicalFunding.planEndAge,
       },
-    ],
+    ].map(row => {
+      if(row.delta === undefined && Number.isFinite(row.thisPath) && Number.isFinite(row.typicalPath)){
+        return { ...row, delta: row.thisPath - row.typicalPath };
+      }
+      return row;
+    }),
   });
 }
 
@@ -264,13 +298,7 @@ export function buildCashFlowHeaderMetrics({
   typicalDigest,
 }){
   if(!historicalResult){
-    return typicalHeader(typicalSimulation, typicalDigest);
+    return typicalHeader(typicalSimulation);
   }
-  if(historicalResult?.summary?.outcome === 'survives'){
-    return successfulHistoricalHeader(historicalResult, typicalSimulation);
-  }
-  if(historicalResult?.summary?.outcome === 'underfunded'){
-    return underfundedHistoricalHeader(historicalResult, typicalSimulation);
-  }
-  throw new Error('Historical outcome is unavailable');
+  return historicalHeader(historicalResult, typicalDigest);
 }
