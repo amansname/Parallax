@@ -32,8 +32,10 @@ export function createHouseholdWizardController({
   isStorageBlocked,
   renderBlockedRecoverySurfaces,
   syncRecoveryControls,
+  canDeleteHousehold = () => false,
   onSwitchHousehold,
   onNewHousehold,
+  onDeleteHousehold = () => {},
 }){
   let stepId = 'family';
   let renderRevision = 0;
@@ -108,6 +110,12 @@ export function createHouseholdWizardController({
       return `<option value="${escHtml(id)}" ${id === activeId ? 'selected' : ''}>${escHtml(name)}</option>`;
     }).join('');
     selector.value = activeId || '';
+    const deleteButton = $('#hh-delete');
+    if(deleteButton){
+      const enabled = Boolean(activeId && canDeleteHousehold(activeId));
+      deleteButton.disabled = !enabled;
+      deleteButton.setAttribute('aria-disabled', enabled ? 'false' : 'true');
+    }
   }
 
   function updateSidebar(plan){
@@ -247,6 +255,8 @@ export function createHouseholdWizardController({
     if(switcher) switcher.addEventListener('change', event => onSwitchHousehold(event.target.value));
     const newButton = $('#hh-new');
     if(newButton) newButton.addEventListener('click', () => onNewHousehold());
+    const deleteButton = $('#hh-delete');
+    if(deleteButton) deleteButton.addEventListener('click', () => onDeleteHousehold(getActiveHouseholdId()));
     updateHouseholdControls();
   }
 
