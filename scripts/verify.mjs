@@ -2035,6 +2035,87 @@ try {
   });
 
   await step('scenarios: allocation labels and both spouses ages persist through reload', async () => {
+    const legacySeed = await page.evaluate(householdId => {
+      const readAge = key => Number(document.querySelector(
+        `#scn-view .cmp-step-btn[data-scn-id="1"][data-lever-key="${key}"]`,
+      )?.closest('.cmp-lev-row')?.querySelector('.cmp-lev-val')?.textContent.trim());
+      const retainedLevers = {
+        retireAge: readAge('retireAge'),
+        spouseRetireAge: readAge('spouseRetireAge'),
+        ssAge: readAge('ssAge'),
+        spouseSsAge: readAge('spouseSsAge'),
+        allocationPresetId: document.querySelector(
+          '#scn-view .cmp-lev-select[data-scn-id="1"][data-lever-key="allocationPresetId"]',
+        )?.value || 'current',
+      };
+      const key = `parallax.scenarios.${householdId}.v1`;
+      const raw = JSON.stringify([
+        { name:'Baseline', base:true, lev:{ ...retainedLevers } },
+        { name:'Legacy twin', base:false, lev:{ ...retainedLevers } },
+        { name:'Legacy sale bytes', base:false, lev:{ ...retainedLevers, sellAge:70 } },
+      ]);
+      localStorage.setItem(key, raw);
+      return { key, raw, retainedLevers };
+    }, withdrawalPlannerFixtureHouseholdId);
+
+    await stableReload({ waitUntil: 'networkidle2', timeout: 20000 });
+    await waitForUnselectedWizard(page);
+    await page.evaluate(({ key }) => {
+      const originalSetItem = Storage.prototype.setItem;
+      window.__legacyScenarioOriginalSetItem = originalSetItem;
+      window.__legacyScenarioAttemptedBytes = null;
+      Storage.prototype.setItem = function(storageKey, value){
+        if(this === localStorage && storageKey === key){
+          window.__legacyScenarioAttemptedBytes = value;
+          return;
+        }
+        return originalSetItem.call(this, storageKey, value);
+      };
+    }, legacySeed);
+    await stableClick('.htab[data-page="household"]');
+    await selectHouseholdVisible(page, withdrawalPlannerFixtureHouseholdId);
+    await stableClick('button[data-page="scenarios"]');
+    await page.waitForSelector('#scn-view .compare', { visible: true, timeout: 30000 });
+    await page.waitForFunction(() => {
+      const probabilities = [...document.querySelectorAll('#scn-view .scol__prob')]
+        .map(element => element.textContent.trim());
+      return probabilities.length === 3 && probabilities.every(value => value && value !== '—%');
+    }, { timeout: 30000 });
+    const legacyRead = await page.evaluate(({ key, raw }) => {
+      const probabilities = [...document.querySelectorAll('#scn-view .scol__prob')]
+        .map(element => element.textContent.trim());
+      const medians = [...document.querySelectorAll('#scn-view .scol__median b')]
+        .map(element => element.textContent.trim());
+      return {
+        sourceBytesUnchanged: localStorage.getItem(key) === raw,
+        attemptedBytes: window.__legacyScenarioAttemptedBytes,
+        scenarioCount: document.querySelectorAll('#scn-view .scol__name').length,
+        removedDecisionControlCount: document.querySelectorAll(
+          '#scn-view [data-lever-key="sellAge"], #scn-view [data-key="sellAge"]',
+        ).length,
+        removedDecisionLabelCount: [...document.querySelectorAll('#scn-view .lever__name')]
+          .filter(element => /^Sell\s/i.test(element.textContent.trim())).length,
+        probabilities,
+        medians,
+      };
+    }, legacySeed);
+    const attemptedLegacyLevers = JSON.parse(legacyRead.attemptedBytes || 'null')?.[2]?.lev;
+    if(!legacyRead.sourceBytesUnchanged
+        || !legacyRead.attemptedBytes
+        || Object.prototype.hasOwnProperty.call(attemptedLegacyLevers || {}, 'sellAge')
+        || legacyRead.scenarioCount !== 3
+        || legacyRead.removedDecisionControlCount !== 0
+        || legacyRead.removedDecisionLabelCount !== 0
+        || legacyRead.probabilities[1] !== legacyRead.probabilities[2]
+        || legacyRead.medians[1] !== legacyRead.medians[2]){
+      throw new Error(`legacy sellAge bytes still affect Scenarios: ${JSON.stringify(legacyRead)}`);
+    }
+    await page.evaluate(() => {
+      Storage.prototype.setItem = window.__legacyScenarioOriginalSetItem;
+      delete window.__legacyScenarioOriginalSetItem;
+      delete window.__legacyScenarioAttemptedBytes;
+    });
+
     const before = await page.evaluate(householdId => {
       const scenarioCount = document.querySelectorAll('#scn-view .scol__name').length;
       const leverNames = [...document.querySelectorAll('#scn-view .lever__name')]
@@ -2042,6 +2123,25 @@ try {
       const select = document.querySelector(
         '#scn-view .cmp-lev-select[data-scn-id="1"][data-lever-key="allocationPresetId"]',
       );
+      const bodyFontSize = getComputedStyle(document.documentElement)
+        .getPropertyValue('--fs-body').trim();
+      const bodyFontWeight = getComputedStyle(document.documentElement)
+        .getPropertyValue('--fw-body').trim();
+      const bodyLineHeight = getComputedStyle(document.documentElement)
+        .getPropertyValue('--lh-body').trim();
+      const bodyLetterSpacing = getComputedStyle(document.documentElement)
+        .getPropertyValue('--ls-body').trim();
+      const editorTypography = [...document.querySelectorAll(
+        '#scn-view .cmp-lev-val, #scn-view .cmp-lev-in, #scn-view .cmp-lev-select, #scn-view .cmp-goal-in',
+      )].map(element => {
+        const style = getComputedStyle(element);
+        return {
+          fontSize: style.fontSize,
+          fontWeight: style.fontWeight,
+          lineHeight: style.lineHeight,
+          letterSpacing: style.letterSpacing,
+        };
+      });
       const ageValues = {};
       for(const key of ['retireAge', 'spouseRetireAge', 'ssAge', 'spouseSsAge']){
         const value = document.querySelector(
@@ -2059,6 +2159,14 @@ try {
         allocationCount: document.querySelectorAll(
           '#scn-view .cmp-lev-select[data-lever-key="allocationPresetId"]',
         ).length,
+        removedDecisionControlCount: document.querySelectorAll(
+          '#scn-view [data-lever-key="sellAge"], #scn-view [data-key="sellAge"]',
+        ).length,
+        bodyFontSize,
+        bodyFontWeight,
+        bodyLineHeight,
+        bodyLetterSpacing,
+        editorTypography,
         ageValues,
         ageControlCounts: Object.fromEntries(
           ['retireAge', 'spouseRetireAge', 'ssAge', 'spouseSsAge'].map(key => [
@@ -2082,6 +2190,17 @@ try {
         || before.allocationCount !== before.scenarioCount
         || JSON.stringify(before.allocationLabels) !== JSON.stringify(expectedAllocationLabels)
         || expectedLeverNames.some(name => !before.leverNames.includes(name))
+        || before.leverNames.some(name => /^Sell\s/i.test(name))
+        || before.removedDecisionControlCount !== 0
+        || before.editorTypography.length === 0
+        || before.editorTypography.some(role => (
+          role.fontSize !== before.bodyFontSize
+          || role.fontWeight !== before.bodyFontWeight
+          || role.lineHeight !== `${Number.parseFloat(before.bodyFontSize) * Number.parseFloat(before.bodyLineHeight)}px`
+          || (Number.parseFloat(before.bodyLetterSpacing) === 0
+            ? !['normal', '0px'].includes(role.letterSpacing)
+            : role.letterSpacing !== before.bodyLetterSpacing)
+        ))
         || Object.values(before.ageValues).some(value => !Number.isInteger(value))
         || Object.values(before.ageControlCounts).some(count => count !== before.scenarioCount * 2)
         || before.overflow > 2){
@@ -2089,6 +2208,32 @@ try {
     }
 
     const targetAllocation = before.allocationValue === 'aggressive' ? 'defensive' : 'aggressive';
+    await page.select(
+      '#scn-view .cmp-lev-select[data-scn-id="2"][data-lever-key="allocationPresetId"]',
+      targetAllocation,
+    );
+    await page.waitForFunction(target => (
+      document.querySelector(
+        '#scn-view .cmp-lev-select[data-scn-id="2"][data-lever-key="allocationPresetId"]',
+      )?.value === target
+      && /Plan updated|Partial run/i.test(document.querySelector('#status')?.textContent || '')
+    ), { timeout: 30000 }, targetAllocation);
+
+    const rewrittenLegacy = await page.evaluate(({ key, retainedLevers }) => {
+      const saved = JSON.parse(localStorage.getItem(key) || 'null');
+      const levers = saved?.[2]?.lev;
+      return {
+        sellAgePresent: Object.prototype.hasOwnProperty.call(levers || {}, 'sellAge'),
+        retained: Object.fromEntries(Object.keys(retainedLevers).map(key => [key, levers?.[key]])),
+      };
+    }, legacySeed);
+    if(rewrittenLegacy.sellAgePresent
+        || Object.entries(legacySeed.retainedLevers)
+          .some(([key, value]) => key !== 'allocationPresetId' && rewrittenLegacy.retained[key] !== value)
+        || rewrittenLegacy.retained.allocationPresetId !== targetAllocation){
+      throw new Error(`ordinary scenario edit did not safely rewrite legacy bytes: ${JSON.stringify(rewrittenLegacy)}`);
+    }
+
     await page.select(
       '#scn-view .cmp-lev-select[data-scn-id="1"][data-lever-key="allocationPresetId"]',
       targetAllocation,
@@ -2127,6 +2272,7 @@ try {
       const saved = raw ? JSON.parse(raw) : null;
       const levers = saved?.[1]?.lev;
       return levers?.allocationPresetId === allocation
+        && !Object.prototype.hasOwnProperty.call(levers || {}, 'sellAge')
         && Object.entries(ages).every(([key, value]) => levers?.[key] === value);
     }, { timeout: 10000 }, {
       householdId: withdrawalPlannerFixtureHouseholdId,
@@ -2199,6 +2345,56 @@ try {
         document.querySelector('#scn-view [data-goals-toggle]')?.getAttribute('aria-expanded') === 'true'
       ), { timeout: 10000 });
     }
+    await page.click('#scn-seg-focus');
+    await page.waitForSelector('#scn-view .focus', { visible: true, timeout: 10000 });
+    const focusContract = await page.evaluate(() => {
+      const bodyFontSize = getComputedStyle(document.documentElement)
+        .getPropertyValue('--fs-body').trim();
+      const bodyFontWeight = getComputedStyle(document.documentElement)
+        .getPropertyValue('--fw-body').trim();
+      const bodyLineHeight = getComputedStyle(document.documentElement)
+        .getPropertyValue('--lh-body').trim();
+      const bodyLetterSpacing = getComputedStyle(document.documentElement)
+        .getPropertyValue('--ls-body').trim();
+      const editorTypography = [...document.querySelectorAll(
+        '#scn-view .assum__value, #scn-view .assum__select',
+      )].map(element => {
+        const style = getComputedStyle(element);
+        return {
+          fontSize: style.fontSize,
+          fontWeight: style.fontWeight,
+          lineHeight: style.lineHeight,
+          letterSpacing: style.letterSpacing,
+        };
+      });
+      return {
+        bodyFontSize,
+        bodyFontWeight,
+        bodyLineHeight,
+        bodyLetterSpacing,
+        editorTypography,
+        removedDecisionControlCount: document.querySelectorAll(
+          '#scn-view [data-lever-key="sellAge"], #scn-view [data-key="sellAge"]',
+        ).length,
+        removedDecisionLabelCount: [...document.querySelectorAll('#scn-view .assum__label')]
+          .filter(element => /^Sell\s/i.test(element.textContent.trim())).length,
+      };
+    });
+    if(focusContract.removedDecisionControlCount !== 0
+        || focusContract.removedDecisionLabelCount !== 0
+        || focusContract.editorTypography.length === 0
+        || focusContract.editorTypography.some(role => (
+          role.fontSize !== focusContract.bodyFontSize
+          || role.fontWeight !== focusContract.bodyFontWeight
+          || role.lineHeight !== `${Number.parseFloat(focusContract.bodyFontSize) * Number.parseFloat(focusContract.bodyLineHeight)}px`
+          || (Number.parseFloat(focusContract.bodyLetterSpacing) === 0
+            ? !['normal', '0px'].includes(role.letterSpacing)
+            : role.letterSpacing !== focusContract.bodyLetterSpacing)
+        ))){
+      throw new Error(`scenario Focus controls violate the removed-decision/type contract: ${JSON.stringify(focusContract)}`);
+    }
+    await page.click('#scn-seg-compare');
+    await page.waitForSelector('#scn-view .compare', { visible: true, timeout: 10000 });
   });
 
   await step('scenarios: retirement-relative goal ages resolve and round-trip', async () => {
