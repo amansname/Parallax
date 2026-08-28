@@ -178,6 +178,16 @@ function formatCashFlowHeaderPercent(value, { delta = false } = {}) {
     return prefix + absolute + ' pts';
   }
 
+function formatCashFlowHeaderYears(value, { delta = false } = {}) {
+    if (!Number.isFinite(value)) return '—';
+    const absolute = Math.abs(value);
+    const amount = Number.isInteger(absolute) ? String(absolute) : absolute.toFixed(1);
+    const unit = absolute === 1 ? ' yr' : ' yrs';
+    if (!delta) return amount + unit;
+    const prefix = value < 0 ? '\u2212' : (value > 0 ? '+' : '');
+    return prefix + amount + unit;
+  }
+
 export function federalWarningMessage(warning) {
     if (typeof warning === 'string') return warning;
     if (warning && typeof warning.message === 'string') return warning.message;
@@ -263,7 +273,9 @@ export function renderCashflow(scn, allScns, {
     const comparisonValue = (metric, key) => {
       const value = metric[key];
       if(value === null || value === undefined){
-        return key === 'delta' ? '—' : '';
+        return key === 'delta'
+          ? '—'
+          : esc(metric[key + 'Unavailable'] ?? 'Not modeled');
       }
       if(metric.format === 'money'){
         return formatCashFlowHeaderMoney(value, { signed: key === 'delta' });
@@ -271,20 +283,37 @@ export function renderCashflow(scn, allScns, {
       if(metric.format === 'percent'){
         return formatCashFlowHeaderPercent(value, { delta: key === 'delta' });
       }
+      if(metric.format === 'drawdown'){
+        if(key === 'delta') return formatCashFlowHeaderPercent(value, { delta: true });
+        const age = metric[key + 'Age'];
+        if(value === 0) return '0.0% · no trough';
+        return '\u2212' + formatCashFlowHeaderPercent(value)
+          + (Number.isFinite(age) ? ' · age ' + esc(age) : '');
+      }
+      if(metric.format === 'years'){
+        return formatCashFlowHeaderYears(value, { delta: key === 'delta' });
+      }
+      if(metric.format === 'funding'){
+        if(key === 'delta') return formatCashFlowHeaderYears(value, { delta: true });
+        const margin = metric[key + 'Margin'];
+        const marginKind = metric[key + 'MarginKind'];
+        if(marginKind === 'no-portfolio-draw') return 'Age ' + esc(value) + ' · no draw';
+        return 'Age ' + esc(value) + ' · ' + formatCashFlowHeaderYears(margin, { delta: true });
+      }
       return esc(value);
     };
     const comparisonTone = (metric, key) => {
       if(key === 'thisPath' && historicalUnderfunded
-          && ['early-withdrawal-pressure', 'first-underfunded-age'].includes(metric.id)){
+          && metric.id === 'funded-through-margin'){
         return ' cf-comparison__value--negative';
       }
       if(key !== 'delta' || !Number.isFinite(metric.delta)) return '';
-      if(metric.id === 'early-withdrawal-pressure'){
+      if(['max-real-drawdown', 'years-above-6-wd-rate', 'underwater-duration'].includes(metric.id)){
         return metric.delta > 0
           ? ' cf-comparison__value--negative'
           : metric.delta < 0 ? ' cf-comparison__value--positive' : '';
       }
-      if(['ending-portfolio', 'portfolio-at-underfunding'].includes(metric.id)){
+      if(['balance-at-age-80', 'funded-through-margin'].includes(metric.id)){
         return metric.delta > 0
           ? ' cf-comparison__value--positive'
           : metric.delta < 0 ? ' cf-comparison__value--negative' : '';
@@ -296,8 +325,17 @@ export function renderCashflow(scn, allScns, {
         ' data-this-path="' + esc(metric.thisPath ?? '') + '"' +
         ' data-typical-path="' + esc(metric.typicalPath ?? '') + '"' +
         ' data-delta="' + esc(metric.delta ?? '') + '"' +
+        ' data-format="' + esc(metric.format ?? '') + '"' +
+        (Number.isFinite(metric.thisPathAge) ? ' data-this-path-age="' + metric.thisPathAge + '"' : '') +
+        (Number.isFinite(metric.typicalPathAge) ? ' data-typical-path-age="' + metric.typicalPathAge + '"' : '') +
+        (Number.isFinite(metric.thisPathMargin) ? ' data-this-path-margin="' + metric.thisPathMargin + '"' : '') +
+        (Number.isFinite(metric.typicalPathMargin) ? ' data-typical-path-margin="' + metric.typicalPathMargin + '"' : '') +
+        (metric.thisPathMarginKind ? ' data-this-path-margin-kind="' + esc(metric.thisPathMarginKind) + '"' : '') +
+        (metric.typicalPathMarginKind ? ' data-typical-path-margin-kind="' + esc(metric.typicalPathMarginKind) + '"' : '') +
+        (Number.isFinite(metric.planEndAge) ? ' data-plan-end-age="' + metric.planEndAge + '"' : '') +
         (Number.isInteger(metric.planYear) ? ' data-plan-year="' + metric.planYear + '"' : '') + '>' +
-        '<div class="cf-comparison__label" role="rowheader">' + esc(metric.label) + '</div>' +
+        '<div class="cf-comparison__label" role="rowheader"' +
+          (metric.description ? ' title="' + esc(metric.description) + '"' : '') + '>' + esc(metric.label) + '</div>' +
         '<div class="cf-comparison__value cf-comparison__value--this' + comparisonTone(metric, 'thisPath') + '" role="cell">' + comparisonValue(metric, 'thisPath') + '</div>' +
         '<div class="cf-comparison__value" role="cell">' + comparisonValue(metric, 'typicalPath') + '</div>' +
         '<div class="cf-comparison__value' + comparisonTone(metric, 'delta') + '" role="cell">' + comparisonValue(metric, 'delta') + '</div>' +
@@ -321,7 +359,7 @@ export function renderCashflow(scn, allScns, {
       && !selected.error
       && headerMetrics?.kind === 'historical'
       && ['underfunded', 'survives'].includes(headerMetrics.outcome)
-      && headerMetrics.rows?.length === (historicalUnderfunded ? 3 : 2);
+      && headerMetrics.rows?.length === 5;
     const summaryStrip = selected?.kind === 'historical'
       ? (hasHistoricalSummary ? historicalSummaryStrip : '')
       : (!selected?.error ? typicalSummaryStrip : '');
@@ -364,7 +402,7 @@ export function renderCashflow(scn, allScns, {
         ? '<span class="cf-row__mark-dot cf-row__mark-dot--ret"></span>'
         : (isRmdStart ? '<span class="cf-row__mark-dot cf-row__mark-dot--rmd"></span>' : '');
       return (
-        '<div class="cf-row cf-grid" data-age="' + esc(r.age) + '" data-phase="' + (r.accum ? 'accum' : 'retirement') + '" data-source-year="' + esc(r.sourceYear ?? '') + '" data-start-balance="' + r.startPort + '" data-ending-balance="' + r.ending + '" data-wd-rate="' + r.wdRate + '" data-funding-shortfall="' + r.fundingShortfall + '">' +
+        '<div class="cf-row cf-grid" data-age="' + esc(r.age) + '" data-phase="' + (r.accum ? 'accum' : 'retirement') + '" data-source-year="' + esc(r.sourceYear ?? '') + '" data-start-balance="' + r.startPort + '" data-ending-balance="' + r.ending + '" data-withdrawal="' + r.draw + '" data-wd-rate="' + r.wdRate + '" data-funding-shortfall="' + r.fundingShortfall + '">' +
           '<span class="cf-row__year">' +
             '<span class="cf-row__mark" aria-hidden="true">' + yearMark + '</span>' +
             esc(r.year) +

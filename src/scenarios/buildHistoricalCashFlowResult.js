@@ -199,14 +199,14 @@ export function buildHistoricalCashFlowResult({
     ...accumulationRows,
     ...retirementRows,
   ]);
-  const digest = pathDigest(historical, retirementParams);
+  const retirementDigest = pathDigest(historical, retirementParams);
   const previousFundedRow = historical.failed
     ? realHistoricalRows.at(-2) ?? null
     : realHistoricalRows.at(-1);
   const endingRow = historical.failed ? null : realHistoricalRows.at(-1);
-  const peakRow = digest.peakWdAge == null
+  const peakRow = retirementDigest.peakWdAge == null
     ? null
-    : realHistoricalRows.find(row => row.age === digest.peakWdAge) ?? null;
+    : realHistoricalRows.find(row => row.age === retirementDigest.peakWdAge) ?? null;
   const summary = Object.freeze({
     outcome: historical.failed ? 'underfunded' : 'survives',
     failed: Boolean(historical.failed),
@@ -223,14 +223,15 @@ export function buildHistoricalCashFlowResult({
     endingBalance: endingRow?.balance ?? null,
     endingAge: endingRow?.age ?? null,
     endingYear: calendarYearForRetirementRow(endingRow, retirementBaseYear),
-    peakWdRate: digest.peakWdRate,
-    peakWdAge: digest.peakWdAge,
+    peakWdRate: retirementDigest.peakWdRate,
+    peakWdAge: retirementDigest.peakWdAge,
     peakWdYear: calendarYearForRetirementRow(peakRow, retirementBaseYear),
   });
   const simulation = Object.freeze({
     ...historical,
     rows,
   });
+  const digest = Object.freeze(pathDigest(simulation, params));
 
   return Object.freeze({
     kind: 'historical',
@@ -239,6 +240,7 @@ export function buildHistoricalCashFlowResult({
     simulation,
     rows,
     summary,
+    digest,
     accumulationYears,
     retirementBaseYear,
     taxScope: 'MODELED_FEDERAL_LINE_24',

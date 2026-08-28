@@ -4212,6 +4212,95 @@ function pathDigest(sim, params){
     else cur = 0;
   }
 
+  // Real-portfolio stress — balances in the Projection Engine are already in
+  // today's dollars. These aggregates deliberately use portfolio values, not
+  // the return-only damage window above: withdrawals and taxes are part of the
+  // path the household actually experiences.
+  const portfolioStartingRealBalance = Number.isFinite(retRows[0]?.startBalance)
+    && retRows[0].startBalance >= 0
+    ? retRows[0].startBalance
+    : null;
+  let maxRealDrawdownPct = null;
+  let maxRealDrawdownTroughAge = null;
+  let portfolioUnderwaterYearsMax = null;
+  if(portfolioStartingRealBalance !== null){
+    let runningPeak = portfolioStartingRealBalance;
+    let maxDrawdown = 0;
+    let underwaterYears = 0;
+    portfolioUnderwaterYearsMax = 0;
+    for(const r of retRows){
+      if(!Number.isFinite(r.balance) || r.balance < 0) continue;
+      if(r.balance > runningPeak) runningPeak = r.balance;
+      const drawdown = runningPeak > 0
+        ? ((runningPeak - r.balance) / runningPeak) * 100
+        : 0;
+      if(drawdown > maxDrawdown){
+        maxDrawdown = drawdown;
+        maxRealDrawdownTroughAge = Number.isFinite(r.age) ? r.age : null;
+      }
+      if(r.balance < portfolioStartingRealBalance - 0.01){
+        underwaterYears += 1;
+        if(underwaterYears > portfolioUnderwaterYearsMax){
+          portfolioUnderwaterYearsMax = underwaterYears;
+        }
+      }else{
+        underwaterYears = 0;
+      }
+    }
+    maxRealDrawdownPct = maxDrawdown;
+  }
+
+  const yearsAboveSixPctWdRate = retRows.filter(
+    r => Number.isFinite(r.wdRate) && r.wdRate > 6
+  ).length;
+  const age80Rows = real.filter(r => r.age === 80 && Number.isFinite(r.balance) && r.balance >= 0);
+  const realBalanceAtAge80 = age80Rows.length === 1 ? age80Rows[0].balance : null;
+
+  // Funding margin converts a surviving terminal dollar figure into a
+  // conservative, zero-return runway at the final modeled gross portfolio
+  // draw. Failed paths instead report the exact number of plan years missed.
+  // A zero final draw is not treated as infinite runway.
+  const resolvedPlanEndAges = [
+    params?.people?.client?.planEndAgeOnPrimaryTimeline,
+    params?.people?.spouse?.planEndAgeOnPrimaryTimeline,
+  ].filter(Number.isFinite);
+  const planEndAge = resolvedPlanEndAges.length > 0
+    ? Math.max(...resolvedPlanEndAges)
+    : (Number.isFinite(rows.at(-1)?.age) ? rows.at(-1).age : null);
+  const firstUnderfundedRow = retRows.find(r => (
+    (Number.isFinite(r.fundingShortfall) && r.fundingShortfall > 0.01)
+      || r.failed === true
+  )) ?? null;
+  const fullyFundedRetirementRows = retRows.filter(r => (
+    Number.isFinite(r.fundingShortfall)
+      && r.fundingShortfall <= 0.01
+      && r.failed !== true
+      && Number.isFinite(r.age)
+  ));
+  const lastFundedRetirementRow = fullyFundedRetirementRows.at(-1) ?? null;
+  const fundedThroughAge = Number.isFinite(lastFundedRetirementRow?.age)
+    ? lastFundedRetirementRow.age
+    : (Number.isFinite(firstUnderfundedRow?.age) ? firstUnderfundedRow.age - 1 : null);
+  let fundingMarginYears = null;
+  let fundingMarginKind = 'unavailable';
+  if(firstUnderfundedRow){
+    if(Number.isFinite(fundedThroughAge) && Number.isFinite(planEndAge)){
+      fundingMarginYears = fundedThroughAge - planEndAge;
+    }
+    fundingMarginKind = 'years-short';
+  }else{
+    const finalRetirementRow = retRows.at(-1) ?? null;
+    if(Number.isFinite(finalRetirementRow?.withdrawal) && finalRetirementRow.withdrawal > 0
+        && Number.isFinite(finalRetirementRow.balance) && finalRetirementRow.balance >= 0){
+      fundingMarginYears = finalRetirementRow.balance / finalRetirementRow.withdrawal;
+      fundingMarginKind = 'zero-return-runway';
+    }else if(finalRetirementRow
+        && Number.isFinite(finalRetirementRow?.withdrawal)
+        && finalRetirementRow.withdrawal === 0){
+      fundingMarginKind = 'no-portfolio-draw';
+    }
+  }
+
   // Taxes by source. Row taxBySource covers SS / other income / funding
   // withdrawals; forced-RMD tax is inside row.taxes but not the breakdown, so
   // traditional is taken as the residual — RMD tax lands where it belongs.
@@ -4265,6 +4354,16 @@ function pathDigest(sim, params){
     earlyWindowYears: early.length,
     negEarlyYears,
     underwaterSpellMax,
+    portfolioStartingRealBalance,
+    maxRealDrawdownPct,
+    maxRealDrawdownTroughAge,
+    yearsAboveSixPctWdRate,
+    portfolioUnderwaterYearsMax,
+    realBalanceAtAge80,
+    fundedThroughAge,
+    planEndAge,
+    fundingMarginYears,
+    fundingMarginKind,
     lifetimeTax: sim.lifetimeTax,
     avgTax: retRows.length ? taxTotal / retRows.length : 0,
     taxSourceTotals, taxSourceShares, dominantTaxSource, dominantTaxShare,

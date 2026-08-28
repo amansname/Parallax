@@ -1158,7 +1158,7 @@
 .page[data-page="scenarios"] .cf-comparison__head,
 .page[data-page="scenarios"] .cf-comparison__row {
   display: grid;
-  grid-template-columns: auto 104px 104px 104px;
+  grid-template-columns: auto 132px 132px 112px;
   gap: 0 var(--sp-3);
   align-items: baseline;
 }
