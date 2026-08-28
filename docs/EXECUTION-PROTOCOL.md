@@ -127,6 +127,15 @@ unrelated changes to manufacture a clean state.
 
 ## 5. Tool capability contract
 
+For an authorized end-to-end delivery, capability discovery is a precondition
+to implementation. Before the first write, prove that the current environment
+can reach the required terminal state: clean repository isolation, governed
+verification (including the browser when required by the selected tier),
+commit, authenticated push, draft-PR publication, review request, and check
+monitoring. For a narrower authorization, prove only the capabilities needed
+for its stated endpoint. A late discovery that a required capability is
+unavailable is an environment-selection failure, not a normal handoff point.
+
 Before relying on an unfamiliar tool, plugin, browser wrapper, or object:
 
 1. Read its current documentation, skill instructions, or callable schema.
@@ -138,6 +147,12 @@ Before relying on an unfamiliar tool, plugin, browser wrapper, or object:
 An unsupported call is a signal to stop and inspect the interface. Do not
 continue by trying plausible method names. Native library documentation does
 not prove that a sandbox wrapper exposes the same API.
+
+Do not transfer governed repository work through a generic apply operation
+until the destination repository, base SHA, branch/worktree, and dirty paths
+are verified. A session identifier does not transfer Git history. Prefer a
+remote branch or fetchable commit; otherwise rebuild the accepted narrow change
+from its evidence in a clean current-base worktree.
 
 ## 6. Mutation contract
 
