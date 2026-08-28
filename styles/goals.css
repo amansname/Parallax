@@ -503,6 +503,35 @@
   box-shadow: none;
 }
 
+.gh-period-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-2);
+}
+
+.gh-period-head .gh-field-label { margin-bottom: 0; }
+
+.gh-period-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.gh-period-mode button {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: var(--fs-eyebrow);
+  line-height: var(--lh-eyebrow);
+  cursor: pointer;
+}
+
+.gh-period-mode button.is-selected { color: var(--acc); }
+
 /* Each timing preset shows its complete label. The reference ellipsises these,
    but production labels are longer and the browser verifier asserts that none
    of the four is clipped, so the control wraps and grows instead. */
@@ -545,6 +574,26 @@
 
 .gh-range-inputs > span { white-space: nowrap; }
 
+.gh-timing-owner,
+.gh-timing-person {
+  max-width: 88px;
+  height: var(--h-compact);
+  flex: 1 1 72px;
+  overflow: hidden;
+  color: var(--body);
+  font-size: var(--fs-caption);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gh-timing-owner {
+  min-width: 0;
+  padding: 0 var(--sp-2);
+  border: var(--bw) solid var(--rule);
+  border-radius: var(--r-ctl);
+  background: transparent;
+}
+
 .gh-age-input {
   width: 52px; /* geometry: two digits */
   height: var(--h-compact);
@@ -557,6 +606,8 @@
   font-variant-numeric: tabular-nums;
   text-align: center;
 }
+
+.gh-age-input.gh-year-input { width: 62px; }
 
 .gh-age-input:focus { border-color: var(--acc); outline: 0; }
 

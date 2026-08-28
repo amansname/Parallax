@@ -20,6 +20,44 @@ const LEGACY_CATEGORY_MAP = Object.freeze({
 
 export const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
+function timingBirthYear(person, currentYear){
+  const birthDateYear = Number(String(person?.birthDate || '').slice(0, 4));
+  if(Number.isFinite(birthDateYear) && birthDateYear > 1900) return birthDateYear;
+  const savedBirthYear = Number(person?.birthYear);
+  if(Number.isFinite(savedBirthYear) && savedBirthYear > 1900) return savedBirthYear;
+  const currentAge = Number(person?.currentAge);
+  return Math.round(currentYear - (Number.isFinite(currentAge) ? currentAge : 62));
+}
+
+export function resolveGoalTimingLens(plan, options = {}){
+  const currentYear = Number.isFinite(+options.currentYear)
+    ? Math.round(+options.currentYear)
+    : new Date().getFullYear();
+  const primary = plan?.household?.primary || {};
+  const spouse = plan?.household?.spouse || null;
+  const owner = options.owner === 'spouse' && spouse ? 'spouse' : 'primary';
+  return {
+    mode: options.mode === 'year' ? 'year' : 'age',
+    owner,
+    currentYear,
+    primaryBirthYear: timingBirthYear(primary, currentYear),
+    ownerBirthYear: timingBirthYear(owner === 'spouse' ? spouse : primary, currentYear),
+  };
+}
+
+export function goalAgeToPeriodValue(canonicalAge, plan, options = {}){
+  const lens = resolveGoalTimingLens(plan, options);
+  const calendarYear = lens.primaryBirthYear + Math.round(+canonicalAge || 0);
+  return lens.mode === 'year' ? calendarYear : calendarYear - lens.ownerBirthYear;
+}
+
+export function goalPeriodValueToAge(value, plan, options = {}){
+  const lens = resolveGoalTimingLens(plan, options);
+  const entered = Math.round(+value || 0);
+  const calendarYear = lens.mode === 'year' ? entered : lens.ownerBirthYear + entered;
+  return calendarYear - lens.primaryBirthYear;
+}
+
 export function resolveGoalSpan(plan){
   const household = plan?.household || {};
   const primary = household.primary || {};

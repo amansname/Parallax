@@ -6,19 +6,52 @@ import {
   duplicateGoal,
   ensureGoalMetadata,
   formatGoalAmount,
+  goalAgeToPeriodValue,
   goalDisplayAmount,
   goalHasFutureWorkingYears,
   goalPct,
+  goalPeriodValueToAge,
   normalizeGoalCategory,
   resolveEffectiveGoal,
   resolveScenarioHouseholdRetirementAge,
   resolveGoalSpan,
+  resolveGoalTimingLens,
   setGoalDisplayAmount,
   setGoalKind,
   setGoalPer,
   setGoalRange,
   shiftGoal,
 } from './horizonModel.js';
+
+test('goal timing lens converts canonical ages through client, co-client, and calendar-year views', () => {
+  const plan = {
+    household: {
+      primary: { birthYear: 1961, currentAge: 65 },
+      spouse: { birthYear: 1963, currentAge: 63 },
+    },
+  };
+
+  assert.deepEqual(
+    resolveGoalTimingLens(plan, { mode:'age', owner:'spouse', currentYear:2026 }),
+    {
+      mode:'age', owner:'spouse', currentYear:2026,
+      primaryBirthYear:1961, ownerBirthYear:1963,
+    },
+  );
+  assert.equal(goalAgeToPeriodValue(67, plan, { mode:'age', owner:'primary', currentYear:2026 }), 67);
+  assert.equal(goalAgeToPeriodValue(67, plan, { mode:'age', owner:'spouse', currentYear:2026 }), 65);
+  assert.equal(goalAgeToPeriodValue(67, plan, { mode:'year', owner:'spouse', currentYear:2026 }), 2028);
+  assert.equal(goalPeriodValueToAge(70, plan, { mode:'age', owner:'spouse', currentYear:2026 }), 72);
+  assert.equal(goalPeriodValueToAge(2030, plan, { mode:'year', owner:'spouse', currentYear:2026 }), 69);
+});
+
+test('goal timing lens falls back to current ages and cannot select an absent co-client', () => {
+  const plan = { household: { primary: { currentAge:65 } } };
+  const lens = resolveGoalTimingLens(plan, { mode:'age', owner:'spouse', currentYear:2026 });
+  assert.equal(lens.owner, 'primary');
+  assert.equal(goalAgeToPeriodValue(70, plan, { mode:'year', currentYear:2026 }), 2031);
+  assert.equal(goalPeriodValueToAge(2031, plan, { mode:'year', currentYear:2026 }), 70);
+});
 
 test('resolveGoalSpan uses the later spouse retirement on the primary timeline', () => {
   const plan={ household:{ primary:{ currentAge:64, retirementAge:66, planEndAge:95 }, spouse:{ currentAge:63, retirementAge:68 } } };
