@@ -303,7 +303,7 @@ async function waitForCashFlowPath(page, {
       const select = selectors[0];
       const root = roots[0];
       const firstRetirement = root.querySelector('.cf-row[data-phase="retirement"]');
-      const summary = root.querySelector('.cf-summary--historical');
+      const summary = root.querySelector('[data-cash-path-metrics]');
       return select.value === want.pathId
         && root.dataset.cashPathId === want.pathId
         && (!want.kind || root.dataset.cashPathKind === want.kind)
@@ -328,7 +328,7 @@ async function waitForCashFlowPath(page, {
         rootPathKind: root?.dataset.cashPathKind ?? null,
         firstRetirementSourceYear: root
           ?.querySelector('.cf-row[data-phase="retirement"]')?.dataset.sourceYear ?? null,
-        summaryOutcome: root?.querySelector('.cf-summary--historical')?.dataset.outcome ?? null,
+        summaryOutcome: root?.querySelector('[data-cash-path-metrics]')?.dataset.outcome ?? null,
         regenerateCount: document.querySelectorAll('#cashflow-path-regenerate').length,
         status: document.querySelector('#status')?.textContent.trim() ?? null,
       };
@@ -3328,7 +3328,7 @@ try {
           const th = document.querySelector('#scn-view .cf-table__head .cf-th[data-tax-source]');
           const disclosure = document.querySelector('#scn-view [data-tax-disclosure]');
           const root = document.querySelector('#scn-view .cf');
-          const summary = document.querySelector('#scn-view .cf-summary--historical');
+          const summary = document.querySelector('#scn-view [data-cash-path-metrics]');
           const rows = [...document.querySelectorAll('#scn-view .cf-row')].map((row, index) => ({
             planYear: index + 1,
             age: Number(row.dataset.age),
@@ -3345,11 +3345,41 @@ try {
           const retirementRows = rows.filter(row => row.phase === 'retirement');
           const status = document.querySelector('#cashflow-path-status');
           const summaryOutcome = summary?.dataset.outcome || '';
-          const probe = document.createElement('span');
-          probe.style.color = summaryOutcome === 'survives' ? 'var(--pos)' : 'var(--neg)';
-          document.body.appendChild(probe);
-          const expectedStatusColor = getComputedStyle(probe).color;
-          probe.remove();
+          const tokenColor = token => {
+            const probe = document.createElement('span');
+            probe.style.color = `var(${token})`;
+            document.body.appendChild(probe);
+            const color = getComputedStyle(probe).color;
+            probe.remove();
+            return color;
+          };
+          const expectedStatusColor = tokenColor(summaryOutcome === 'survives' ? '--pos' : '--neg');
+          const expectedAccentColor = tokenColor('--acc');
+          const expectedNegativeColor = tokenColor('--neg');
+          const expectedMutedColor = tokenColor('--muted');
+          const expectedBodyColor = tokenColor('--body');
+          const expectedInkColor = tokenColor('--ink');
+          const rail = summary;
+          const panelBody = document.querySelector('#scn-view .cf-panel__body');
+          const reference = rail?.querySelector('[data-cash-path-reference]');
+          const referenceTitle = rail?.querySelector('.cf-path-rail__reference-title');
+          const referenceLabel = rail?.querySelector('.cf-path-rail__reference-label');
+          const referenceValue = rail?.querySelector('.cf-path-rail__reference-value');
+          const selectedMetric = rail?.querySelector('.cf-path-rail__metric');
+          const metricName = selectedMetric?.querySelector('.cf-path-rail__metric-name');
+          const figure = selectedMetric?.querySelector('.cf-path-rail__figure');
+          const verdict = selectedMetric?.querySelector('.cf-path-rail__verdict');
+          const firstColumnLabel = document.querySelector('#scn-view .cf-table__head .cf-th');
+          const styles = element => element ? getComputedStyle(element) : null;
+          const railStyle = styles(rail);
+          const referenceStyle = styles(reference);
+          const titleStyle = styles(referenceTitle);
+          const referenceLabelStyle = styles(referenceLabel);
+          const referenceValueStyle = styles(referenceValue);
+          const selectedMetricStyle = styles(selectedMetric);
+          const metricNameStyle = styles(metricName);
+          const figureStyle = styles(figure);
+          const verdictStyle = styles(verdict);
           return {
             mode: document.querySelector('#cashflow-path-mode')?.value || '',
             rootMode: root?.dataset.cashPathId || '',
@@ -3364,10 +3394,18 @@ try {
               state: disclosure.dataset.taxState || '',
             } : null,
             stats: [...document.querySelectorAll('#scn-view .cf-stat__label')].map(label => label.textContent.trim()),
+            reference: [...document.querySelectorAll('#scn-view [data-path-reference-metric]')].map(metric => ({
+              id: metric.dataset.pathReferenceMetric || '',
+              label: metric.querySelector('.cf-path-rail__reference-label')?.textContent.trim() || '',
+              value: metric.querySelector('.cf-path-rail__reference-value')?.textContent.trim() || '',
+            })),
             metrics: [...document.querySelectorAll('#scn-view [data-historical-metric]')].map(metric => ({
               id: metric.dataset.historicalMetric || '',
-              label: metric.querySelector('.cf-comparison__label')?.textContent.trim() || '',
-              values: [...metric.querySelectorAll('.cf-comparison__value')].map(value => value.textContent.trim()),
+              label: metric.querySelector('.cf-path-rail__metric-name')?.textContent.trim() || '',
+              figure: metric.querySelector('.cf-path-rail__figure')?.textContent.trim() || '',
+              verdict: metric.querySelector('.cf-path-rail__verdict')?.textContent.trim() || '',
+              verdictTone: metric.dataset.verdictTone || '',
+              verdictColor: getComputedStyle(metric.querySelector('.cf-path-rail__verdict')).color,
               thisPath: metric.dataset.thisPath === '' ? null : Number(metric.dataset.thisPath),
               typicalPath: metric.dataset.typicalPath === '' ? null : Number(metric.dataset.typicalPath),
               delta: metric.dataset.delta === '' ? null : Number(metric.dataset.delta),
@@ -3383,6 +3421,85 @@ try {
                 ? null
                 : Number(metric.dataset.planYear),
             })),
+            railLayout: rail && panelBody ? {
+              gridDisplay: getComputedStyle(panelBody).display,
+              gridTemplateColumns: getComputedStyle(panelBody).gridTemplateColumns,
+              railWidth: rail.getBoundingClientRect().width,
+              railDisplay: railStyle.display,
+              railDirection: railStyle.flexDirection,
+              railGap: railStyle.gap,
+              railPadding: railStyle.padding,
+              railBorderLeftWidth: railStyle.borderLeftWidth,
+              railBorderLeftStyle: railStyle.borderLeftStyle,
+              railBackground: railStyle.backgroundColor,
+              railRadius: railStyle.borderRadius,
+              baselineDelta: referenceTitle && firstColumnLabel
+                ? Math.abs(referenceTitle.getBoundingClientRect().top - firstColumnLabel.getBoundingClientRect().top)
+                : null,
+              reference: {
+                display: referenceStyle?.display || '',
+                direction: referenceStyle?.flexDirection || '',
+                gap: referenceStyle?.gap || '',
+                padding: referenceStyle?.padding || '',
+                borderBottomWidth: referenceStyle?.borderBottomWidth || '',
+                borderBottomStyle: referenceStyle?.borderBottomStyle || '',
+                background: referenceStyle?.backgroundColor || '',
+                radius: referenceStyle?.borderRadius || '',
+              },
+              title: {
+                text: referenceTitle?.textContent.trim() || '',
+                fontSize: titleStyle?.fontSize || '',
+                fontWeight: titleStyle?.fontWeight || '',
+                letterSpacing: titleStyle?.letterSpacing || '',
+                color: titleStyle?.color || '',
+                textShadow: titleStyle?.textShadow || '',
+                textTransform: titleStyle?.textTransform || '',
+              },
+              referenceLabel: {
+                fontSize: referenceLabelStyle?.fontSize || '',
+                lineHeight: referenceLabelStyle?.lineHeight || '',
+                color: referenceLabelStyle?.color || '',
+              },
+              referenceValue: {
+                fontSize: referenceValueStyle?.fontSize || '',
+                color: referenceValueStyle?.color || '',
+                whiteSpace: referenceValueStyle?.whiteSpace || '',
+              },
+              metric: {
+                display: selectedMetricStyle?.display || '',
+                direction: selectedMetricStyle?.flexDirection || '',
+                gap: selectedMetricStyle?.gap || '',
+                nameFontSize: metricNameStyle?.fontSize || '',
+                nameLineHeight: metricNameStyle?.lineHeight || '',
+                nameColor: metricNameStyle?.color || '',
+                figureFontSize: figureStyle?.fontSize || '',
+                figureFontWeight: figureStyle?.fontWeight || '',
+                figureColor: figureStyle?.color || '',
+                figureWhiteSpace: figureStyle?.whiteSpace || '',
+                verdictFontSize: verdictStyle?.fontSize || '',
+              },
+              dividerMetrics: [...rail.querySelectorAll('.cf-path-rail__metric')].slice(1).map(metric => {
+                const style = getComputedStyle(metric);
+                return {
+                  paddingTop: style.paddingTop,
+                  borderTopWidth: style.borderTopWidth,
+                  borderTopStyle: style.borderTopStyle,
+                };
+              }),
+              directChildBackgrounds: [...rail.children].map(child => getComputedStyle(child).backgroundColor),
+              directChildRadii: [...rail.children].map(child => getComputedStyle(child).borderRadius),
+              accentColor: expectedAccentColor,
+              negativeColor: expectedNegativeColor,
+              mutedColor: expectedMutedColor,
+              bodyColor: expectedBodyColor,
+              inkColor: expectedInkColor,
+              figureColors: [...rail.querySelectorAll('.cf-path-rail__figure')].map(item => getComputedStyle(item).color),
+              verdictColors: [...rail.querySelectorAll('.cf-path-rail__verdict')].map(item => getComputedStyle(item).color),
+              oldSummaryCount: document.querySelectorAll('#scn-view .cf-summary--historical, #scn-view .cf-comparison').length,
+              extraHeadingCount: rail.querySelectorAll('h1,h2,h3,h4,h5,h6').length,
+              extraQualifierCopy: /(?:·\s*age|no trough|WD rate|margin)/i.test(rail.textContent || ''),
+              deltaPillCount: rail.querySelectorAll('[class*="pill"], [data-computed-delta]').length,
+            } : null,
             probability: /Probability of success/i.test(summary?.textContent || ''),
             removedCopy: /All figures in today's dollars|One historical sequence, not a probability/i.test(root?.textContent || ''),
             statusGlyph: document.querySelector('#cashflow-path-status')?.textContent.trim() || '',
@@ -3425,14 +3542,91 @@ try {
         }
         const expectedMetricIds = [
           'max-real-drawdown',
-          'years-above-6-wd-rate',
           'underwater-duration',
           'balance-at-age-80',
           'funded-through-margin',
         ];
+        const expectedMetricLabels = [
+          'Deepest dip in savings',
+          'Years below starting balance',
+          'Savings left at age 80',
+          'Money lasts through',
+        ];
         if(JSON.stringify(historicalPath.metrics.map(metric => metric.id)) !== JSON.stringify(expectedMetricIds)
+            || JSON.stringify(historicalPath.reference.map(metric => metric.id)) !== JSON.stringify(expectedMetricIds)
+            || JSON.stringify(historicalPath.metrics.map(metric => metric.label)) !== JSON.stringify(expectedMetricLabels)
+            || JSON.stringify(historicalPath.reference.map(metric => metric.label)) !== JSON.stringify(expectedMetricLabels)
             || historicalPath.metrics.some(metric => /Median withdrawal|Ending portfolio|Early withdrawal|First underfunded/i.test(metric.label))){
           throw new Error(`${mode} historical metric inventory drifted: ${JSON.stringify(historicalPath.metrics)}`);
+        }
+        const layout = historicalPath.railLayout;
+        if(!layout
+            || layout.gridDisplay !== 'grid'
+            || !layout.gridTemplateColumns.endsWith(' 280px')
+            || Math.abs(layout.railWidth - 280) > 0.01
+            || layout.railDisplay !== 'flex'
+            || layout.railDirection !== 'column'
+            || layout.railGap !== '16px'
+            || layout.railPadding !== '20px 24px 24px'
+            || layout.railBorderLeftWidth !== '1px'
+            || layout.railBorderLeftStyle !== 'solid'
+            || layout.railBackground !== 'rgba(0, 0, 0, 0)'
+            || layout.railRadius !== '0px'
+            || !(layout.baselineDelta <= 1)
+            || layout.reference.display !== 'flex'
+            || layout.reference.direction !== 'column'
+            || layout.reference.gap !== '6px'
+            || layout.reference.padding !== '0px 0px 16px'
+            || layout.reference.borderBottomWidth !== '1px'
+            || layout.reference.borderBottomStyle !== 'solid'
+            || layout.reference.background !== 'rgba(0, 0, 0, 0)'
+            || layout.reference.radius !== '0px'
+            || layout.title.text !== 'Typical path'
+            || layout.title.fontSize !== '12px'
+            || layout.title.fontWeight !== '600'
+            || layout.title.letterSpacing !== '0.48px'
+            || layout.title.color !== layout.accentColor
+            || !/10px/.test(layout.title.textShadow)
+            || layout.title.textTransform !== 'none'
+            || layout.referenceLabel.fontSize !== '13px'
+            || layout.referenceLabel.color !== layout.bodyColor
+            || layout.referenceValue.fontSize !== '15px'
+            || layout.referenceValue.color !== layout.bodyColor
+            || layout.referenceValue.whiteSpace !== 'nowrap'
+            || layout.metric.display !== 'flex'
+            || layout.metric.direction !== 'column'
+            || layout.metric.gap !== '5px'
+            || layout.metric.nameFontSize !== '12px'
+            || layout.metric.nameColor !== layout.bodyColor
+            || layout.metric.figureFontSize !== '24px'
+            || layout.metric.figureFontWeight !== '300'
+            || layout.metric.figureColor !== layout.inkColor
+            || layout.metric.figureWhiteSpace !== 'nowrap'
+            || layout.metric.verdictFontSize !== '12px'
+            || layout.dividerMetrics.length !== 3
+            || layout.dividerMetrics.some(metric => (
+              metric.paddingTop !== '16px'
+              || metric.borderTopWidth !== '1px'
+              || metric.borderTopStyle !== 'solid'
+            ))
+            || layout.directChildBackgrounds.some(color => color !== 'rgba(0, 0, 0, 0)')
+            || layout.directChildRadii.some(radius => radius !== '0px')
+            || layout.figureColors.some(color => color === layout.accentColor)
+            || layout.verdictColors.some(color => ![layout.negativeColor, layout.mutedColor].includes(color))
+            || layout.oldSummaryCount !== 0
+            || layout.extraHeadingCount !== 0
+            || layout.extraQualifierCopy
+            || layout.deltaPillCount !== 0){
+          throw new Error(`${mode} path-metrics rail visual contract drifted: ${JSON.stringify(layout)}`);
+        }
+        if(historicalPath.metrics.some(metric => (
+          metric.verdictTone === 'negative'
+            ? metric.verdictColor !== layout.negativeColor
+            : metric.verdictTone === 'muted'
+              ? metric.verdictColor !== layout.mutedColor
+              : true
+        ))){
+          throw new Error(`${mode} path-metrics verdict tones drifted: ${JSON.stringify(historicalPath.metrics)}`);
         }
         const portfolioFacts = rows => {
           const retirement = rows.filter(row => row.phase === 'retirement' && row.sourceYear !== null);
@@ -3499,10 +3693,9 @@ try {
         const historicalFacts = portfolioFacts(historicalPath.rows);
         const typicalFacts = portfolioFacts(typicalRowsByPlanYear);
         const drawdownMetric = historicalPath.metrics[0];
-        const highWdMetric = historicalPath.metrics[1];
-        const underwaterMetric = historicalPath.metrics[2];
-        const age80Metric = historicalPath.metrics[3];
-        const fundingMetric = historicalPath.metrics[4];
+        const underwaterMetric = historicalPath.metrics[1];
+        const age80Metric = historicalPath.metrics[2];
+        const fundingMetric = historicalPath.metrics[3];
         const historicalFunding = fundingFacts(historicalFacts, fundingMetric.planEndAge);
         const typicalFunding = fundingFacts(typicalFacts, fundingMetric.planEndAge);
         if(!close(drawdownMetric.thisPath, historicalFacts.maxDrawdown)
@@ -3510,9 +3703,6 @@ try {
             || !close(drawdownMetric.delta, historicalFacts.maxDrawdown - typicalFacts.maxDrawdown)
             || drawdownMetric.thisPathAge !== historicalFacts.troughAge
             || drawdownMetric.typicalPathAge !== typicalFacts.troughAge
-            || highWdMetric.thisPath !== historicalFacts.yearsAboveSix
-            || highWdMetric.typicalPath !== typicalFacts.yearsAboveSix
-            || highWdMetric.delta !== historicalFacts.yearsAboveSix - typicalFacts.yearsAboveSix
             || underwaterMetric.thisPath !== historicalFacts.underwaterMax
             || underwaterMetric.typicalPath !== typicalFacts.underwaterMax
             || underwaterMetric.delta !== historicalFacts.underwaterMax - typicalFacts.underwaterMax
@@ -3542,6 +3732,90 @@ try {
             typicalFacts,
             historicalFunding,
             typicalFunding,
+          })}`);
+        }
+        const visibleMoney = (value, unavailable = 'Not modeled') => {
+          if(!Number.isFinite(value)) return unavailable;
+          const absolute = Math.abs(value);
+          if(absolute >= 1_000_000){
+            return '$' + (absolute / 1_000_000).toFixed(2).replace(/\.?0+$/, '') + 'M';
+          }
+          if(absolute >= 1_000){
+            return '$' + Math.min(999, Math.round(absolute / 1_000)) + 'K';
+          }
+          return '$' + Math.round(absolute).toLocaleString('en-US');
+        };
+        const visibleYears = value => {
+          const absolute = Math.abs(value);
+          const amount = Number.isInteger(absolute) ? String(absolute) : absolute.toFixed(1);
+          return amount + (absolute === 1 ? ' yr' : ' yrs');
+        };
+        const displayedDrawdownDelta = Number((
+          Number(historicalFacts.maxDrawdown.toFixed(1))
+          - Number(typicalFacts.maxDrawdown.toFixed(1))
+        ).toFixed(1));
+        const balanceDelta = historicalFacts.age80Balance !== null && typicalFacts.age80Balance !== null
+          ? historicalFacts.age80Balance - typicalFacts.age80Balance
+          : null;
+        const displayedBalanceDelta = Number.isFinite(balanceDelta)
+          ? visibleMoney(Math.abs(balanceDelta))
+          : null;
+        const expectedReferenceValues = [
+          '\u2212' + Math.abs(typicalFacts.maxDrawdown).toFixed(1) + '%',
+          visibleYears(typicalFacts.underwaterMax),
+          visibleMoney(
+            typicalFacts.age80Balance,
+            typicalFunding.kind === 'years-short' && typicalFunding.fundedThroughAge < 80
+              ? 'Underfunded before 80'
+              : 'Not modeled'
+          ),
+          'Age ' + typicalFunding.fundedThroughAge,
+        ];
+        const expectedSelectedValues = [
+          '\u2212' + Math.abs(historicalFacts.maxDrawdown).toFixed(1) + '%',
+          visibleYears(historicalFacts.underwaterMax),
+          visibleMoney(
+            historicalFacts.age80Balance,
+            historicalFunding.kind === 'years-short' && historicalFunding.fundedThroughAge < 80
+              ? 'Underfunded before 80'
+              : 'Not modeled'
+          ),
+          'Age ' + historicalFunding.fundedThroughAge,
+        ];
+        const expectedVerdicts = [
+          displayedDrawdownDelta > 0
+            ? `Dips ${displayedDrawdownDelta.toFixed(1)} pts further`
+            : displayedDrawdownDelta < 0
+              ? `Dips ${Math.abs(displayedDrawdownDelta).toFixed(1)} pts less`
+              : 'Dips just as far',
+          historicalFacts.underwaterMax > typicalFacts.underwaterMax
+            ? `Recovers ${visibleYears(historicalFacts.underwaterMax - typicalFacts.underwaterMax)} later`
+            : historicalFacts.underwaterMax < typicalFacts.underwaterMax
+              ? `Recovers ${visibleYears(historicalFacts.underwaterMax - typicalFacts.underwaterMax)} sooner`
+              : 'Recovers just as quickly',
+          displayedBalanceDelta === null
+            ? 'Comparison unavailable'
+            : displayedBalanceDelta === '$0'
+              ? 'Same amount left'
+              : balanceDelta < 0
+                ? `${displayedBalanceDelta} less`
+                : `${displayedBalanceDelta} more`,
+          historicalFunding.fundedThroughAge < typicalFunding.fundedThroughAge
+            ? `Lasts ${visibleYears(typicalFunding.fundedThroughAge - historicalFunding.fundedThroughAge)} less`
+            : historicalFunding.fundedThroughAge > typicalFunding.fundedThroughAge
+              ? `Lasts ${visibleYears(historicalFunding.fundedThroughAge - typicalFunding.fundedThroughAge)} longer`
+              : 'Lasts just as long',
+        ];
+        if(JSON.stringify(historicalPath.reference.map(metric => metric.value)) !== JSON.stringify(expectedReferenceValues)
+            || JSON.stringify(historicalPath.metrics.map(metric => metric.figure)) !== JSON.stringify(expectedSelectedValues)
+            || JSON.stringify(historicalPath.metrics.map(metric => metric.verdict)) !== JSON.stringify(expectedVerdicts)){
+          throw new Error(`${mode} visible path-metrics inventory does not reconcile to authoritative rows: ${JSON.stringify({
+            actualReferenceValues: historicalPath.reference.map(metric => metric.value),
+            expectedReferenceValues,
+            actualSelectedValues: historicalPath.metrics.map(metric => metric.figure),
+            expectedSelectedValues,
+            actualVerdicts: historicalPath.metrics.map(metric => metric.verdict),
+            expectedVerdicts,
           })}`);
         }
         if(historicalPath.summary.outcome === 'underfunded'){
@@ -3923,7 +4197,7 @@ try {
             fmtMoney: value => '$' + Math.round(value).toLocaleString('en-US'),
             cfCols: ['Year', 'Age', 'Income', 'RMD', 'Essential', 'Goals', 'Tax', 'Draw', 'Return', 'WD Rate', 'Ending'],
           });
-          const summary = host.querySelector('.cf-summary--historical');
+          const summary = host.querySelector('[data-cash-path-metrics]');
           const probe = document.createElement('span');
           probe.style.color = 'var(--neg)';
           scenarioPage.appendChild(probe);
@@ -3947,7 +4221,7 @@ try {
       });
       if(underfundedMatrixProof.outcome !== 'underfunded'
           || JSON.stringify(underfundedMatrixProof.metrics) !== JSON.stringify([
-            'max-real-drawdown', 'years-above-6-wd-rate', 'underwater-duration',
+            'max-real-drawdown', 'underwater-duration',
             'balance-at-age-80', 'funded-through-margin',
           ])
           || underfundedMatrixProof.glyph !== '!'
@@ -3985,7 +4259,7 @@ try {
       });
       reloadExpected = await page.evaluate(() => {
         const root = document.querySelector('#scn-view .cf');
-        const summary = document.querySelector('#scn-view .cf-summary--historical');
+        const summary = document.querySelector('#scn-view [data-cash-path-metrics]');
         const rows = [...document.querySelectorAll('#scn-view .cf-row')].map((row, index) => ({
           planYear: index + 1,
           age: Number(row.dataset.age),
@@ -4004,8 +4278,9 @@ try {
           rows: retirementRows,
           metrics: [...document.querySelectorAll('#scn-view [data-historical-metric]')].map(metric => ({
             id: metric.dataset.historicalMetric || '',
-            label: metric.querySelector('.cf-comparison__label')?.textContent.trim() || '',
-            values: [...metric.querySelectorAll('.cf-comparison__value')].map(value => value.textContent.trim()),
+            label: metric.querySelector('.cf-path-rail__metric-name')?.textContent.trim() || '',
+            figure: metric.querySelector('.cf-path-rail__figure')?.textContent.trim() || '',
+            verdict: metric.querySelector('.cf-path-rail__verdict')?.textContent.trim() || '',
             thisPath: metric.dataset.thisPath === '' ? null : Number(metric.dataset.thisPath),
             typicalPath: metric.dataset.typicalPath === '' ? null : Number(metric.dataset.typicalPath),
             delta: metric.dataset.delta === '' ? null : Number(metric.dataset.delta),
@@ -4041,7 +4316,7 @@ try {
       });
       const reloadedHistorical = await page.evaluate(() => {
         const root = document.querySelector('#scn-view .cf');
-        const summary = document.querySelector('#scn-view .cf-summary--historical');
+        const summary = document.querySelector('#scn-view [data-cash-path-metrics]');
         const rows = [...document.querySelectorAll('#scn-view .cf-row')].map((row, index) => ({
           planYear: index + 1,
           age: Number(row.dataset.age),
@@ -4060,8 +4335,9 @@ try {
             sourceYear: retirementRows[0]?.sourceYear ?? null,
             metrics: [...document.querySelectorAll('#scn-view [data-historical-metric]')].map(metric => ({
               id: metric.dataset.historicalMetric || '',
-              label: metric.querySelector('.cf-comparison__label')?.textContent.trim() || '',
-              values: [...metric.querySelectorAll('.cf-comparison__value')].map(value => value.textContent.trim()),
+              label: metric.querySelector('.cf-path-rail__metric-name')?.textContent.trim() || '',
+              figure: metric.querySelector('.cf-path-rail__figure')?.textContent.trim() || '',
+              verdict: metric.querySelector('.cf-path-rail__verdict')?.textContent.trim() || '',
               thisPath: metric.dataset.thisPath === '' ? null : Number(metric.dataset.thisPath),
               typicalPath: metric.dataset.typicalPath === '' ? null : Number(metric.dataset.typicalPath),
               delta: metric.dataset.delta === '' ? null : Number(metric.dataset.delta),

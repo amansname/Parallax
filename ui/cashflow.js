@@ -188,6 +188,115 @@ function formatCashFlowHeaderYears(value, { delta = false } = {}) {
     return prefix + amount + unit;
   }
 
+const CASH_FLOW_PATH_RAIL_METRICS = Object.freeze([
+  Object.freeze({ id: 'max-real-drawdown', label: 'Deepest dip in savings' }),
+  Object.freeze({ id: 'underwater-duration', label: 'Years below starting balance' }),
+  Object.freeze({ id: 'balance-at-age-80', label: 'Savings left at age 80' }),
+  Object.freeze({ id: 'funded-through-margin', label: 'Money lasts through' }),
+]);
+
+function pathRailValue(metric, key) {
+    const value = metric[key];
+    if (value === null || value === undefined) {
+      return metric[key + 'Unavailable'] ?? 'Not modeled';
+    }
+    if (metric.id === 'max-real-drawdown') return '\u2212' + formatCashFlowHeaderPercent(value);
+    if (metric.id === 'underwater-duration') return formatCashFlowHeaderYears(value);
+    if (metric.id === 'balance-at-age-80') return formatCashFlowHeaderMoney(value);
+    if (metric.id === 'funded-through-margin') return 'Age ' + value;
+    return String(value);
+  }
+
+function pathRailVerdict(metric) {
+    const delta = metric.delta;
+    if (metric.id === 'max-real-drawdown') {
+      if (!Number.isFinite(metric.thisPath) || !Number.isFinite(metric.typicalPath)) {
+        return { phrase: 'Comparison unavailable', tone: 'muted' };
+      }
+      const displayedDelta = Number((
+        Number(metric.thisPath.toFixed(1)) - Number(metric.typicalPath.toFixed(1))
+      ).toFixed(1));
+      if (displayedDelta > 0) return { phrase: 'Dips ' + displayedDelta.toFixed(1) + ' pts further', tone: 'negative' };
+      if (displayedDelta < 0) return { phrase: 'Dips ' + Math.abs(displayedDelta).toFixed(1) + ' pts less', tone: 'muted' };
+      return { phrase: 'Dips just as far', tone: 'muted' };
+    }
+    if (metric.id === 'underwater-duration') {
+      if (!Number.isFinite(delta)) return { phrase: 'Comparison unavailable', tone: 'muted' };
+      if (delta > 0) return { phrase: 'Recovers ' + formatCashFlowHeaderYears(delta) + ' later', tone: 'negative' };
+      if (delta < 0) return { phrase: 'Recovers ' + formatCashFlowHeaderYears(delta) + ' sooner', tone: 'muted' };
+      return { phrase: 'Recovers just as quickly', tone: 'muted' };
+    }
+    if (metric.id === 'balance-at-age-80') {
+      if (!Number.isFinite(delta)) return { phrase: 'Comparison unavailable', tone: 'muted' };
+      const displayedDelta = formatCashFlowHeaderMoney(Math.abs(delta));
+      if (displayedDelta === '$0') return { phrase: 'Same amount left', tone: 'muted' };
+      if (delta < 0) return { phrase: displayedDelta + ' less', tone: 'negative' };
+      if (delta > 0) return { phrase: displayedDelta + ' more', tone: 'muted' };
+      return { phrase: 'Same amount left', tone: 'muted' };
+    }
+    const thisPath = metric.thisPath;
+    const typicalPath = metric.typicalPath;
+    if (!Number.isFinite(thisPath) || !Number.isFinite(typicalPath)) {
+      return { phrase: 'Comparison unavailable', tone: 'muted' };
+    }
+    if (thisPath < typicalPath) {
+      return { phrase: 'Lasts ' + formatCashFlowHeaderYears(typicalPath - thisPath) + ' less', tone: 'negative' };
+    }
+    if (thisPath > typicalPath) {
+      return { phrase: 'Lasts ' + formatCashFlowHeaderYears(thisPath - typicalPath) + ' longer', tone: 'muted' };
+    }
+    return { phrase: 'Lasts just as long', tone: 'muted' };
+  }
+
+function historicalPathRail(headerMetrics, esc) {
+    const rowsById = new Map((headerMetrics?.rows ?? []).map(metric => [metric.id, metric]));
+    const metrics = CASH_FLOW_PATH_RAIL_METRICS.map(({ id, label }) => ({
+      ...rowsById.get(id),
+      id,
+      label,
+    }));
+    if (metrics.some(metric => !rowsById.has(metric.id))) return '';
+
+    const typicalRows = metrics.map(metric => (
+      '<div class="cf-path-rail__reference-row" data-path-reference-metric="' + esc(metric.id) + '">' +
+        '<span class="cf-path-rail__reference-label">' + esc(metric.label) + '</span>' +
+        '<span class="cf-path-rail__reference-value">' + esc(pathRailValue(metric, 'typicalPath')) + '</span>' +
+      '</div>'
+    )).join('');
+    const selectedRows = metrics.map(metric => {
+      const verdict = pathRailVerdict(metric);
+      return (
+        '<div class="cf-path-rail__metric" data-historical-metric="' + esc(metric.id) + '"' +
+          ' data-this-path="' + esc(metric.thisPath ?? '') + '"' +
+          ' data-typical-path="' + esc(metric.typicalPath ?? '') + '"' +
+          ' data-delta="' + esc(metric.delta ?? '') + '"' +
+          ' data-format="' + esc(metric.format ?? '') + '"' +
+          (Number.isFinite(metric.thisPathAge) ? ' data-this-path-age="' + metric.thisPathAge + '"' : '') +
+          (Number.isFinite(metric.typicalPathAge) ? ' data-typical-path-age="' + metric.typicalPathAge + '"' : '') +
+          (Number.isFinite(metric.thisPathMargin) ? ' data-this-path-margin="' + metric.thisPathMargin + '"' : '') +
+          (Number.isFinite(metric.typicalPathMargin) ? ' data-typical-path-margin="' + metric.typicalPathMargin + '"' : '') +
+          (metric.thisPathMarginKind ? ' data-this-path-margin-kind="' + esc(metric.thisPathMarginKind) + '"' : '') +
+          (metric.typicalPathMarginKind ? ' data-typical-path-margin-kind="' + esc(metric.typicalPathMarginKind) + '"' : '') +
+          (Number.isFinite(metric.planEndAge) ? ' data-plan-end-age="' + metric.planEndAge + '"' : '') +
+          ' data-verdict-tone="' + verdict.tone + '">' +
+          '<div class="cf-path-rail__metric-name">' + esc(metric.label) + '</div>' +
+          '<div class="cf-path-rail__figure">' + esc(pathRailValue(metric, 'thisPath')) + '</div>' +
+          '<div class="cf-path-rail__verdict cf-path-rail__verdict--' + verdict.tone + '">' + esc(verdict.phrase) + '</div>' +
+        '</div>'
+      );
+    }).join('');
+
+    return (
+      '<aside class="cf-path-rail" data-cash-path-metrics data-outcome="' + esc(headerMetrics.outcome) + '" aria-label="Selected path metrics compared with Typical path">' +
+        '<div class="cf-path-rail__reference" data-cash-path-reference>' +
+          '<div class="cf-path-rail__reference-title">Typical path</div>' +
+          typicalRows +
+        '</div>' +
+        selectedRows +
+      '</aside>'
+    );
+  }
+
 export function federalWarningMessage(warning) {
     if (typeof warning === 'string') return warning;
     if (warning && typeof warning.message === 'string') return warning.message;
@@ -270,99 +379,15 @@ export function renderCashflow(scn, allScns, {
     ) : '';
 
     const historicalUnderfunded = headerMetrics?.outcome === 'underfunded';
-    const comparisonValue = (metric, key) => {
-      const value = metric[key];
-      if(value === null || value === undefined){
-        return key === 'delta'
-          ? '—'
-          : esc(metric[key + 'Unavailable'] ?? 'Not modeled');
-      }
-      if(metric.format === 'money'){
-        return formatCashFlowHeaderMoney(value, { signed: key === 'delta' });
-      }
-      if(metric.format === 'percent'){
-        return formatCashFlowHeaderPercent(value, { delta: key === 'delta' });
-      }
-      if(metric.format === 'drawdown'){
-        if(key === 'delta') return formatCashFlowHeaderPercent(value, { delta: true });
-        const age = metric[key + 'Age'];
-        if(value === 0) return '0.0% · no trough';
-        return '\u2212' + formatCashFlowHeaderPercent(value)
-          + (Number.isFinite(age) ? ' · age ' + esc(age) : '');
-      }
-      if(metric.format === 'years'){
-        return formatCashFlowHeaderYears(value, { delta: key === 'delta' });
-      }
-      if(metric.format === 'funding'){
-        if(key === 'delta') return formatCashFlowHeaderYears(value, { delta: true });
-        const margin = metric[key + 'Margin'];
-        const marginKind = metric[key + 'MarginKind'];
-        if(marginKind === 'no-portfolio-draw') return 'Age ' + esc(value) + ' · no draw';
-        return 'Age ' + esc(value) + ' · ' + formatCashFlowHeaderYears(margin, { delta: true });
-      }
-      return esc(value);
-    };
-    const comparisonTone = (metric, key) => {
-      if(key === 'thisPath' && historicalUnderfunded
-          && metric.id === 'funded-through-margin'){
-        return ' cf-comparison__value--negative';
-      }
-      if(key !== 'delta' || !Number.isFinite(metric.delta)) return '';
-      if(['max-real-drawdown', 'years-above-6-wd-rate', 'underwater-duration'].includes(metric.id)){
-        return metric.delta > 0
-          ? ' cf-comparison__value--negative'
-          : metric.delta < 0 ? ' cf-comparison__value--positive' : '';
-      }
-      if(['balance-at-age-80', 'funded-through-margin'].includes(metric.id)){
-        return metric.delta > 0
-          ? ' cf-comparison__value--positive'
-          : metric.delta < 0 ? ' cf-comparison__value--negative' : '';
-      }
-      return '';
-    };
-    const historicalMetrics = (headerMetrics?.rows ?? []).map(metric => (
-      '<div class="cf-comparison__row" role="row" data-historical-metric="' + esc(metric.id) + '"' +
-        ' data-this-path="' + esc(metric.thisPath ?? '') + '"' +
-        ' data-typical-path="' + esc(metric.typicalPath ?? '') + '"' +
-        ' data-delta="' + esc(metric.delta ?? '') + '"' +
-        ' data-format="' + esc(metric.format ?? '') + '"' +
-        (Number.isFinite(metric.thisPathAge) ? ' data-this-path-age="' + metric.thisPathAge + '"' : '') +
-        (Number.isFinite(metric.typicalPathAge) ? ' data-typical-path-age="' + metric.typicalPathAge + '"' : '') +
-        (Number.isFinite(metric.thisPathMargin) ? ' data-this-path-margin="' + metric.thisPathMargin + '"' : '') +
-        (Number.isFinite(metric.typicalPathMargin) ? ' data-typical-path-margin="' + metric.typicalPathMargin + '"' : '') +
-        (metric.thisPathMarginKind ? ' data-this-path-margin-kind="' + esc(metric.thisPathMarginKind) + '"' : '') +
-        (metric.typicalPathMarginKind ? ' data-typical-path-margin-kind="' + esc(metric.typicalPathMarginKind) + '"' : '') +
-        (Number.isFinite(metric.planEndAge) ? ' data-plan-end-age="' + metric.planEndAge + '"' : '') +
-        (Number.isInteger(metric.planYear) ? ' data-plan-year="' + metric.planYear + '"' : '') + '>' +
-        '<div class="cf-comparison__label" role="rowheader"' +
-          (metric.description ? ' title="' + esc(metric.description) + '"' : '') + '>' + esc(metric.label) + '</div>' +
-        '<div class="cf-comparison__value cf-comparison__value--this' + comparisonTone(metric, 'thisPath') + '" role="cell">' + comparisonValue(metric, 'thisPath') + '</div>' +
-        '<div class="cf-comparison__value" role="cell">' + comparisonValue(metric, 'typicalPath') + '</div>' +
-        '<div class="cf-comparison__value' + comparisonTone(metric, 'delta') + '" role="cell">' + comparisonValue(metric, 'delta') + '</div>' +
-      '</div>'
-    )).join('');
-    const historicalSummaryStrip = (
-      '<div class="cf-summary cf-summary--historical" data-cash-header-kind="historical"' +
-        ' data-outcome="' + esc(headerMetrics?.outcome ?? '') + '">' +
-        '<div class="cf-comparison" role="table" aria-label="Historical path comparison">' +
-          '<div class="cf-comparison__head" role="row">' +
-            '<span role="columnheader" aria-label="Metric"></span>' +
-            '<span role="columnheader">This path</span>' +
-            '<span role="columnheader">Typical path</span>' +
-            '<span role="columnheader">Delta</span>' +
-          '</div>' +
-          historicalMetrics +
-        '</div>' +
-      '</div>'
-    );
     const hasHistoricalSummary = selected?.kind === 'historical'
       && !selected.error
       && headerMetrics?.kind === 'historical'
       && ['underfunded', 'survives'].includes(headerMetrics.outcome)
       && headerMetrics.rows?.length === 5;
     const summaryStrip = selected?.kind === 'historical'
-      ? (hasHistoricalSummary ? historicalSummaryStrip : '')
+      ? ''
       : (!selected?.error ? typicalSummaryStrip : '');
+    const pathMetricsRail = hasHistoricalSummary ? historicalPathRail(headerMetrics, esc) : '';
 
     const taxDisclosureContent = federalAttachFailed
       ? '<div class="cf-tax-fallback" data-tax-fallback role="status">Federal tax detail isn\'t available for this run. The Tax column uses engine estimates.</div>'
@@ -459,9 +484,12 @@ export function renderCashflow(scn, allScns, {
         '<div class="cf-panel">' +
           summaryStrip +
           taxDisclosure +
-          '<div class="cf-table">' +
-            '<div class="cf-table__head cf-grid">' + headCells + '</div>' +
-            (empty || phases) +
+          '<div class="cf-panel__body' + (pathMetricsRail ? ' cf-panel__body--with-rail' : '') + '">' +
+            '<div class="cf-table">' +
+              '<div class="cf-table__head cf-grid">' + headCells + '</div>' +
+              (empty || phases) +
+            '</div>' +
+            pathMetricsRail +
           '</div>' +
         '</div>' +
       '</div>'
