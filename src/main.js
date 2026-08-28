@@ -43,6 +43,11 @@ import {
 } from './scenarios/buildRetirementEntryPlan.js';
 import { createCashFlowController } from './scenarios/createCashFlowController.js';
 import { HISTORICAL_PERIODS } from './scenarios/historicalPeriods.js';
+import {
+  SCENARIO_ALLOCATION_OPTIONS,
+  applyScenarioPlanInputs,
+  resolveCurrentScenarioAllocation,
+} from './scenarios/scenarioPlanInputs.js';
 import { installDesignSystemPrimitives } from '../ui/designSystemPrimitives.js';
 import {
   scenarios, sharedPaths, plansDirty, baseSnapshot,
@@ -285,7 +290,6 @@ function bootstrapHouseholds(){
 const MAX_SCENARIOS=5;
 /* The three scenario columns. Each holds lever values + its last engine result.
    lever values are the ACTUAL planning values (age, $, etc.), not slider ticks. */
-const RISK_LABELS={1:'30 / 70',2:'45 / 55',3:'60 / 40',4:'75 / 25',5:'90 / 10'};
 // Essentials is a pre-loaded goal now, not a plan.expenses field. One reader so
 // the Scenarios lever, the Summary metric and the wizard cannot drift apart.
 function essentialsGoalAmount(p){
@@ -294,11 +298,17 @@ function essentialsGoalAmount(p){
 }
 
 function defaultLevers(){
+  const spouse = plan.household.spouse;
   const L={
     retireAge:  plan.household.primary.retirementAge,
     ssAge:      plan.income.socialSecurity.primary.claimAge,
+    ...(spouse ? {
+      spouseRetireAge: spouse.retirementAge,
+      spouseSsAge: plan.income.socialSecurity.spouse.claimAge,
+    } : {}),
     spend:      essentialsGoalAmount(plan),
     eventAmt:   0, eventAge: 70,
+    allocationPresetId: resolveCurrentScenarioAllocation(plan),
     risk:       plan.portfolio.riskProfile,
     savings:    plan.savings.annual,
     // pensionAge tracks retirement by DEFAULT (most people switch on a pension
@@ -474,7 +484,8 @@ function defaultScenarios(){
   ];
   // Scenario B contrast. Pre-retirement: "retire 2 years later" (the core lever
   // when testing a feasible retirement date). Already retired: that
-  // lever is inert, so contrast on allocation instead (de-risk one notch).
+  // lever is inert, so retain the legacy risk marker without rewriting the
+  // household's account-level model until the advisor chooses one explicitly.
   if(hhAlreadyRetired()){
     s[1].lev.risk = Math.max(1, ((plan.portfolio && plan.portfolio.riskProfile) || 3) - 1);
   } else {
@@ -514,12 +525,6 @@ function hhAlreadyRetired(){
 /* Map a scenario's levers -> engine override object. */
 function leversToOverrides(L){
   const ov={};
-  const baseRetire = plan.household.primary.retirementAge;
-  const baseSs     = plan.income.socialSecurity.primary.claimAge;
-  // Retirement age is inert once the household is already retired — never emit a
-  // retire delay in that case (a positive delay would wrongly re-open accumulation).
-  if(!hhAlreadyRetired() && L.retireAge !== baseRetire) ov.retireDelay = L.retireAge - baseRetire;
-  if(L.ssAge !== baseSs)         ov.ssDelayYears = L.ssAge - baseSs;
   // Essentials is an absolute dollar figure, so the scenario sets it directly
   // rather than as a percentage swing off the base. A percentage would also
   // drag every other discretionary goal along with it, which is not what an
@@ -561,13 +566,14 @@ function leversToOverrides(L){
   }
   return ov;
 }
-/* Risk lever changes the profile -> needs a plan clone, not an override.
+/* Person ages and the allocation model belong on the scenario plan clone so
+   the Projection Engine receives each person's exact facts and the selected
+   account-level asset model without a second UI-side calculation authority.
    A gift/education goal injects a time-limited recurring outflow (a liability
    with start/end age). colaPct = inflation so it stays real-constant — the
    advisor enters today's dollars. No-op for normal scenarios (no giftAmt). */
 function planForScenario(L){
-  const p=JSON.parse(JSON.stringify(plan));
-  p.portfolio.riskProfile = L.risk;
+  const p=applyScenarioPlanInputs(plan, L);
   // Per-scenario goal overrides (Compare-editable): amount / startAge / endAge keyed
   // by the goal's index in the base inventory. Applied to the CLONE only, so the base
   // plan.goals (Goals-page source of truth) and every other scenario are untouched.
@@ -626,13 +632,17 @@ uiState.baseSnapshot=defaultLevers();   // base lever values; used to preserve d
 function reseedScenarios({ markDirty = true } = {}){
   if(markDirty ? !guardPlanMutation() : !guardHouseholdStorageMutation()) return;
   const nb=defaultLevers();
-  const LINKED=['retireAge','ssAge','spend','savings','pensionAge'];   // base-linked levers
+  const LINKED=['retireAge','spouseRetireAge','ssAge','spouseSsAge','spend','savings','pensionAge'];
   scenarios.forEach(s=>{
     Object.keys(nb).forEach(k=>{
       if(s.base){ s.lev[k]=nb[k]; return; }   // baseline always mirrors the base
       if(!LINKED.includes(k)) return;         // allocation / one-time event stay as set
-      const cfg=LEVCFG.find(c=>c.key===k);
-      const priorDelta = s.lev[k]-baseSnapshot[k];
+      const cfg=leverConfigs().find(c=>c.key===k);
+      const priorValue = Number(s.lev[k]);
+      const priorBase = Number(baseSnapshot[k]);
+      const priorDelta = Number.isFinite(priorValue) && Number.isFinite(priorBase)
+        ? priorValue-priorBase
+        : 0;
       let v=nb[k]+priorDelta;  // new base + this scenario's delta
       // A scenario with no delta must remain identical to its baseline even
       // when the baseline sits outside an interactive control's range.
@@ -903,7 +913,7 @@ function pensionAges(){
   return Object.keys(m).map(Number).filter(n=>!isNaN(n)).sort((a,b)=>a-b);
 }
 // Effective slider range for a lever. Pension is dynamic; everything else is
-// the static min/max declared in LEVCFG.
+// the min/max declared by the current household's lever configuration.
 function levRange(cfg){
   if(cfg.key==='pensionAge'){
     const a=pensionAges();
@@ -919,9 +929,17 @@ function levRange(cfg){
 }
 
 /* ── lever display config (label, formatter, slider range→value & back) ── */
-const LEVCFG=[
-  {key:'retireAge', name:'Retirement Age', min:55,max:72,step:1, fmt:v=>[v,'']},
-  {key:'ssAge',     name:'SS Start Age',   min:62,max:70,step:1, fmt:v=>[v,'']},
+function leverConfigs(){
+  const hasSpouse = Boolean(plan.household.spouse);
+  const configs=[
+  {key:'retireAge', name:hasSpouse ? 'Client 1 Retirement' : 'Retirement Age', min:55,max:72,step:1, fmt:v=>[v,'']},
+  ...(hasSpouse ? [
+    {key:'spouseRetireAge', name:'Client 2 Retirement', min:55,max:72,step:1, fmt:v=>[v,'']},
+  ] : []),
+  {key:'ssAge',     name:hasSpouse ? 'Client 1 SS Age' : 'SS Start Age', min:62,max:70,step:1, fmt:v=>[v,'']},
+  ...(hasSpouse ? [
+    {key:'spouseSsAge', name:'Client 2 SS Age', min:62,max:70,step:1, fmt:v=>[v,'']},
+  ] : []),
   // All dollar levers render full digits with comma grouping — no abbreviations.
   // The advisor wants to see the exact number they're proposing, not a rounded
   // shorthand. Step values stay round so the slider snaps cleanly.
@@ -931,7 +949,11 @@ const LEVCFG=[
   // One-time event carries BOTH an amount and an age; edit:'event' renders the
   // two type-in boxes (amount + age) alongside the amount slider.
   {key:'eventAmt',  name:'One-Time Event', min:0,max:500000,step:5000, edit:'event', fmt:(v,L)=>['$'+(v||0).toLocaleString('en-US'),'@ '+L.eventAge]},
-  {key:'risk',      name:'Allocation',     min:1,max:5,step:1, fmt:v=>[RISK_LABELS[v],'']},
+  {
+    key:'allocationPresetId', name:'Allocation', control:'select',
+    options:SCENARIO_ALLOCATION_OPTIONS,
+    fmt:v=>[(SCENARIO_ALLOCATION_OPTIONS.find(option=>option.value===v)||{}).label||'Unavailable',''],
+  },
   {key:'savings',   name:'Savings / yr',   min:0,max:200000,step:1000, edit:'money', fmt:v=>['$'+v.toLocaleString('en-US'),'/yr']},
   // Pension snaps between the ages that actually have entered amounts (62, 65).
   // Label shows the dollar value the engine will pay for that age — if no entry
@@ -946,17 +968,19 @@ const LEVCFG=[
     const m=(plan.income.pension && plan.income.pension.benefitByAge) || {};
     const amt=m[v]; return (amt && amt>0) ? ['$'+amt.toLocaleString('en-US'),'@ '+v] : ['__needs__', v];
   }},
-];
+  ];
 // Earmarked-asset sale lever — only shown when there's a property to sell. A
 // discrete stepper: "Keep" (off) → a sale age. Net proceeds (value − mortgage −
 // commission − cap-gains) flow into the portfolio via the assetSale override, so
 // you can stand a "sell at 72" column next to a "keep" Baseline. (See engine.js.)
 if(plan.properties && plan.properties.length && plan.properties[0]){
-  LEVCFG.push({
+  configs.push({
     key:'sellAge', name:'Sell '+(plan.properties[0].name||'asset'),
     min:0, max:120, step:1,                              // real range is dynamic (levRange)
     fmt:v => (v <= plan.household.primary.currentAge-1) ? ['Keep',''] : ['age '+v,'']
   });
+}
+  return configs;
 }
 
 let running=false;
@@ -1453,22 +1477,24 @@ $('#cashflow-path-mode').onchange=e=>{
     // Pension is removed from the Scenarios lever rows (per product ruling). The
     // engine still honors pension data from the plan; it is just not an editable
     // Scenarios lever. The one-time event row only appears when an event is set.
-    // Retirement age drops out once the household is already retired — it is no
-    // longer a lever we can pull (the retirement decision is behind them).
-    const retired = hhAlreadyRetired();
-    return LEVCFG.map((c) => c.key).filter((k) =>
+    // Each person's retirement input drops out once that person's retirement
+    // decision is already behind them. The other spouse can remain editable.
+    const client = plan.household.primary;
+    const spouse = plan.household.spouse;
+    return leverConfigs().map((c) => c.key).filter((k) =>
       k !== 'pensionAge'
       && (k !== 'eventAmt' || anyEvent)
-      && (k !== 'retireAge' || !retired));
+      && (k !== 'retireAge' || client.currentAge < client.retirementAge)
+      && (k !== 'spouseRetireAge' || (spouse && spouse.currentAge < spouse.retirementAge)));
   }
   function leverDeltaText(cfg, lev, baseLev) {
     if (!baseLev || lev === baseLev || cfg.key === 'sellAge') return null;
+    if (cfg.control === 'select') return lev[cfg.key] === baseLev[cfg.key] ? null : 'Changed';
     const d = (lev[cfg.key] || 0) - (baseLev[cfg.key] || 0);
     if (!d) return null;
     const sign = d > 0 ? '+' : '−', a = Math.abs(d);
     if (cfg.key === 'spend')   return sign + '$' + Math.round(a / 12).toLocaleString('en-US') + '/mo';
     if (cfg.key === 'savings' || cfg.key === 'eventAmt') return sign + '$' + a.toLocaleString('en-US');
-    if (cfg.key === 'risk')    return sign + a + ' lvl';
     return sign + a + ' yr';
   }
   // Derive the prefilled input string for a dollar lever (no $ or unit).
@@ -1481,11 +1507,14 @@ $('#cashflow-path-mode').onchange=e=>{
   function leversFor(s) {
     const base = (scenarios.find((x) => x.base) || {}).lev;
     return activeLeverKeys().map((k) => {
-      const cfg = LEVCFG.find((c) => c.key === k); if (!cfg) return null;
+      const cfg = leverConfigs().find((c) => c.key === k); if (!cfg) return null;
       const fv = cfg.fmt(s.lev[k], s.lev), val = fv[0], unit = fv[1];
       const value = (val === '__needs__') ? ('— @ ' + unit) : (val + (unit ? (' ' + unit) : ''));
       return {
         key: k, label: cfg.name, value: value, delta: leverDeltaText(cfg, s.lev, base),
+        controlType: cfg.control || null,
+        selectedValue: cfg.control === 'select' ? s.lev[k] : null,
+        options: cfg.control === 'select' ? cfg.options : null,
         editType: cfg.edit || null,
         inputVal: editInputVal(cfg, s.lev),
         unitStr: unit || '',
@@ -1510,16 +1539,25 @@ $('#cashflow-path-mode').onchange=e=>{
     const baseScn = scenarios.find((x) => x.base);
     const baseOvMap = (baseScn && baseScn.lev && baseScn.lev.goalOv) || {};
     const planRetirementAge = plan.household.primary.retirementAge;
+    const planSpouseRetirementAge = plan.household.spouse?.retirementAge;
     const planGoalSpan = resolveGoalSpan(plan);
     const scenarioRetirementAge = Number.isFinite(s?.lev?.retireAge) ? s.lev.retireAge : planRetirementAge;
     const baselineRetirementAge = Number.isFinite(baseScn?.lev?.retireAge) ? baseScn.lev.retireAge : planRetirementAge;
+    const scenarioSpouseRetirementAge = Number.isFinite(s?.lev?.spouseRetireAge)
+      ? s.lev.spouseRetireAge
+      : planSpouseRetirementAge;
+    const baselineSpouseRetirementAge = Number.isFinite(baseScn?.lev?.spouseRetireAge)
+      ? baseScn.lev.spouseRetireAge
+      : planSpouseRetirementAge;
     const scenarioHouseholdRetirementAge = resolveScenarioHouseholdRetirementAge(
       plan,
       scenarioRetirementAge,
+      scenarioSpouseRetirementAge,
     );
     const baselineHouseholdRetirementAge = resolveScenarioHouseholdRetirementAge(
       plan,
       baselineRetirementAge,
+      baselineSpouseRetirementAge,
     );
     return goalRowsBase().map(({ g, i }) => {
       const e = effGoal(g, ovMap[i], scenarioHouseholdRetirementAge);
@@ -1569,11 +1607,11 @@ $('#cashflow-path-mode').onchange=e=>{
     runAll();
   }
 
-  // Lever step: reuses the EXISTING production mutation (LEVCFG/levRange/syncPension)
-  // and immediately refreshes the saved scenario results.
+  // Lever step: reuses the existing production mutation and immediately
+  // refreshes the saved scenario results.
   function stepFocusLever(ci, key, dir) {
     if(!guardPlanMutation()) return;
-    const cfg = LEVCFG.find((c) => c.key === key); if (!cfg) return;
+    const cfg = leverConfigs().find((c) => c.key === key); if (!cfg || cfg.control) return;
     const sc = scenarios[ci]; if (!sc || !sc.lev) return;
     const r = levRange(cfg), L = sc.lev;
     L[key] = Math.max(r.min, Math.min(r.max, (L[key] != null ? L[key] : r.min) + dir * r.step));
@@ -1594,7 +1632,7 @@ $('#cashflow-path-mode').onchange=e=>{
     if (edit === 'monthly') {
       L.spend = Math.round(raw * 12);
     } else if (edit === 'money') {
-      const cfg = LEVCFG.find((c) => c.key === inp.dataset.key);
+      const cfg = leverConfigs().find((c) => c.key === inp.dataset.key);
       const r = cfg ? levRange(cfg) : null;
       const v = Math.round(raw);
       L[inp.dataset.key] = r ? Math.max(r.min, Math.min(r.max, v)) : v;
@@ -1605,6 +1643,22 @@ $('#cashflow-path-mode').onchange=e=>{
       const a = Math.round(raw);
       if (isFinite(a)) L.eventAge = Math.max(lo, Math.min(hi, a));
     }
+    saveAndRunScenarioEdit();
+  }
+  function commitScenarioSelect(select) {
+    if(!guardPlanMutation()){ syncScenariosView(); return; }
+    const ci = (select.dataset.scnId != null && select.dataset.scnId !== '')
+      ? parseInt(select.dataset.scnId, 10)
+      : parseInt(state.focusedId, 10);
+    const cfg = leverConfigs().find(candidate => (
+      candidate.key === select.dataset.leverKey && candidate.control === 'select'
+    ));
+    const sc = scenarios[ci];
+    if(!cfg || !sc?.lev || !cfg.options.some(option => option.value === select.value)){
+      syncScenariosView();
+      return;
+    }
+    sc.lev[cfg.key] = select.value;
     saveAndRunScenarioEdit();
   }
   // Commit a typed per-scenario GOAL override (amount / startAge / endAge / onceAge).
@@ -1619,7 +1673,14 @@ $('#cashflow-path-mode').onchange=e=>{
     const sc = scenarios[ci]; if (!sc || !sc.lev) return;
     const base = (Array.isArray(plan.goals) ? plan.goals : [])[idx]; if (!base) return;
     const retirementAge = Number.isFinite(sc.lev.retireAge) ? sc.lev.retireAge : plan.household.primary.retirementAge;
-    const householdRetirementAge = resolveScenarioHouseholdRetirementAge(plan, retirementAge);
+    const spouseRetirementAge = Number.isFinite(sc.lev.spouseRetireAge)
+      ? sc.lev.spouseRetireAge
+      : plan.household.spouse?.retirementAge;
+    const householdRetirementAge = resolveScenarioHouseholdRetirementAge(
+      plan,
+      retirementAge,
+      spouseRetirementAge,
+    );
     const resolvedBase = effGoal(base, null, householdRetirementAge);
     const raw = parseFloat(String(inp.value).replace(/[^0-9.]/g, ''));
     if (!isFinite(raw) || raw < 0) return;
@@ -1779,13 +1840,16 @@ $('#cashflow-path-mode').onchange=e=>{
     if (retStart) retStart.addEventListener('click', () => { state.cashFromRetirement = !state.cashFromRetirement; syncScenariosView(); });
     // Always-visible +/- buttons in Compare (discrete levers) and Focus (all levers).
     // data-lever-key + data-dir + optional data-scn-id → stepFocusLever.
-    view.querySelectorAll('[data-lever-key]').forEach((el) => {
+    view.querySelectorAll('button[data-lever-key][data-dir]').forEach((el) => {
       el.addEventListener('click', () => {
         const ci = (el.dataset.scnId != null && el.dataset.scnId !== '')
           ? parseInt(el.dataset.scnId, 10) : parseInt(state.focusedId, 10);
         stepFocusLever(ci, el.dataset.leverKey, +el.dataset.dir);
         syncScenariosView();
       });
+    });
+    view.querySelectorAll('select[data-lever-key]').forEach((select) => {
+      select.addEventListener('change', () => commitScenarioSelect(select));
     });
     // Type-in inputs for dollar levers in Compare view.
     view.querySelectorAll('.cmp-lev-in').forEach((inp) => {
