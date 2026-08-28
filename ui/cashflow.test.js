@@ -3,6 +3,7 @@ import { test } from 'node:test';
 
 import {
   buildPathRows,
+  buildSimulationRows,
   formatCashFlowHeaderMoney,
   renderCashflow,
 } from './cashflow.js';
@@ -46,6 +47,26 @@ test('Cash Flow consumes the engine funding shortfall contract', () => {
 
   assert.equal(row.fundingShortfall, 5_000);
   assert.equal(row.shortfall, true);
+});
+
+test('Cash Flow displays gross required RMD when an ordinary IRA withdrawal already satisfies it', () => {
+  const simulation = { rows: [{
+    age: 73,
+    phase: 'ret',
+    withdrawal: 80_000,
+    accountBreakdown: { traditional: 80_000 },
+    rmdRequired: 30_000,
+    rmd: 0,
+    taxes: 15_000,
+    balance: 620_000,
+    fundingShortfall: 0,
+  }] };
+
+  const [row] = buildSimulationRows(simulation, { plan, currentYear: 2026 });
+
+  assert.equal(row.rmd, 30_000);
+  assert.equal(row.draw, 80_000);
+  assert.equal(row.tax, 15_000);
 });
 
 test('Cash Flow visibly labels the engine-owned annual shortfall for Typical', () => {

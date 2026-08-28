@@ -37,7 +37,7 @@ export function buildSimulationRows(sim, { plan, currentYear }) {
         accum: r.phase === 'accum',
         ret: (r.source != null && r.returnRate != null) ? r.returnRate : null,   // engine's applied return; null on failed filler rows
         income: (r.socialSecurity || 0) + (r.pension || 0) + (r.otherIncome || 0),
-        rmd: r.rmd || 0,
+        rmd: r.rmdRequired || 0,
         essential: r.expenses || 0,
         goals: r.goals || 0,
         tax: r.taxes || 0,
