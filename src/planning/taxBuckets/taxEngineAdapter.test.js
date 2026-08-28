@@ -1045,7 +1045,51 @@ test('Withdrawal Planner fails closed when the current Tax baseline is unsupport
   assert.equal(Object.hasOwn(attribution, 'byBucket'), false);
 });
 
-test('live evaluation and attribution reject incomplete and DOB-only current Tax records', async () => {
+test('live evaluation uses saved Tax facts without a completion click', async () => {
+  const subject = createCurrentTaxPlannerSubject(
+    'hh_saved_current_tax_without_completion_click',
+    { wages: 50_000, capitalGain: 0 },
+  );
+  subject.incomeTax.current1040.incomeSourcesComplete = false;
+  const before = structuredClone(subject);
+  const facts = await householdIncome(subject, 2026, { baseYear: 2026 });
+  const zeroLevers = {
+    realizedGain: 0, deferredWithdrawal: 0, rothConversion: 0,
+    rothWithdrawal: 0, qcd: 0,
+  };
+
+  const baseline = await evaluateYear({
+    plan: subject, taxYear: 2026, facts, levers: zeroLevers,
+  });
+  const selected = await evaluateYear({
+    plan: subject,
+    taxYear: 2026,
+    facts,
+    levers: { ...zeroLevers, rothConversion: 500 },
+  });
+  const attribution = await attributeSleeves({
+    plan: subject,
+    taxYear: 2026,
+    facts,
+    levers: { ...zeroLevers, deferredWithdrawal: 500 },
+  });
+
+  assert.equal(baseline.code, undefined);
+  assert.equal(selected.code, undefined);
+  assert.equal(attribution.code, undefined);
+  assert.equal(baseline.federalTaxInputSource, 'current-tax-baseline');
+  assert.equal(selected.federalTaxInputSource, 'current-tax-baseline');
+  assert.equal(attribution.federalTaxInputSource, 'current-tax-baseline');
+  assert.ok(Number.isFinite(baseline.modeledFederalIncomeTax.selected));
+  assert.ok(
+    selected.modeledFederalIncomeTax.selected
+      > baseline.modeledFederalIncomeTax.selected,
+  );
+  assert.ok(Number.isFinite(attribution.byBucket.traditional));
+  assert.deepEqual(subject, before);
+});
+
+test('live evaluation uses contract-safe defaults for incomplete and DOB-only Tax records', async () => {
   const incomplete = createCurrentTaxPlannerSubject(
     'hh_saved_current_tax_incomplete',
   );
@@ -1080,22 +1124,12 @@ test('live evaluation and attribution reject incomplete and DOB-only current Tax
       plan: subject, taxYear: 2026, facts, levers,
     });
 
-    assert.strictEqual(
-      result.code,
-      'WITHDRAWAL_CURRENT_TAX_BASELINE_UNAVAILABLE',
-    );
-    assert.ok(result.inputIssues.some(issue => (
-      issue.code === 'CURRENT_1040_INCOME_SOURCES_INCOMPLETE'
-    )));
-    assert.strictEqual(
-      attribution.code,
-      'WITHDRAWAL_CURRENT_TAX_BASELINE_UNAVAILABLE',
-    );
-    assert.ok(attribution.inputIssues.some(issue => (
-      issue.code === 'CURRENT_1040_INCOME_SOURCES_INCOMPLETE'
-    )));
-    assert.strictEqual(Object.hasOwn(result, 'modeledFederalIncomeTax'), false);
-    assert.strictEqual(Object.hasOwn(attribution, 'byBucket'), false);
+    assert.strictEqual(result.code, undefined);
+    assert.strictEqual(attribution.code, undefined);
+    assert.ok(Number.isFinite(result.modeledFederalIncomeTax.selected));
+    assert.ok(Number.isFinite(attribution.byBucket.taxable));
+    assert.ok(Number.isFinite(attribution.byBucket.traditional));
+    assert.ok(Number.isFinite(attribution.byBucket.roth));
     assert.deepEqual(subject, before);
   }
 });
@@ -2169,7 +2203,7 @@ test('planning income keeps wages, interest, dividends, pension, and taxable oth
   assert.strictEqual(result.totals.qualifiedIncome, 10_000);
 });
 
-test('incomplete current Tax Social Security fails closed while the projected seam preserves typed income', async () => {
+test('available current Tax Social Security and projected facts preserve typed income', async () => {
   const subject = structuredClone(plan);
   subject.meta.filingStatus = 'single';
   subject.household.primary = { currentAge: 65, retirementAge: 65, planEndAge: 65 };
@@ -2237,10 +2271,10 @@ test('incomplete current Tax Social Security fails closed while the projected se
   assert.strictEqual(facts.socialSecurityBenefits, 30_000);
   assert.strictEqual(facts.otherIncome, 0);
   assert.strictEqual(facts.taxableOtherIncome, 0);
-  assert.strictEqual(live.code, 'WITHDRAWAL_CURRENT_TAX_BASELINE_UNAVAILABLE');
-  assert.ok(live.inputIssues.some(issue => (
-    issue.code === 'CURRENT_1040_INCOME_SOURCES_INCOMPLETE'
-  )));
+  assert.strictEqual(live.code, undefined);
+  assert.strictEqual(live.totals.ordinaryIncome, 0);
+  assert.strictEqual(live.totals.agi, 0);
+  assert.strictEqual(live.modeledFederalIncomeTax.selected, 0);
   assert.strictEqual(result.totals.ordinaryIncome, 0);
   assert.strictEqual(result.totals.agi, 0);
   assert.strictEqual(result.modeledFederalIncomeTax.selected, 0);

@@ -843,7 +843,7 @@ function buildCurrentWithdrawalPlannerFederalTaxInputsWithDependencies({
   portfolio,
 }) {
   const currentBaseline = currentTaxBaseline
-    .buildCurrentAnnualFederalTaxBaseline(plan);
+    .buildAvailableCurrentAnnualFederalTaxBaseline(plan);
   if (!currentBaseline.input) {
     throw plannerInputError(
       'WITHDRAWAL_CURRENT_TAX_BASELINE_UNAVAILABLE',

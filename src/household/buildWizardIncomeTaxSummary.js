@@ -110,3 +110,41 @@ export function buildCurrentAnnualFederalTaxBaseline(plan){
     issues: Object.freeze(issues.map(issue => Object.freeze({ ...issue }))),
   });
 }
+
+/**
+ * Build a current-year Tax baseline from the facts already saved on the plan.
+ * Completion runs only on a clone so contract-safe zero defaults can be used
+ * without turning a prior Continue click into a Planner prerequisite.
+ */
+export function buildAvailableCurrentAnnualFederalTaxBaseline(plan){
+  const savedBaseline = buildCurrentAnnualFederalTaxBaseline(plan);
+  if(savedBaseline.input
+      || plan?.incomeTax?.current1040?.incomeSourcesComplete === true){
+    return savedBaseline;
+  }
+  const calculationPlan = buildWizardTaxPlan(plan);
+  try{
+    confirmWizardTaxInputs(calculationPlan);
+  }catch(error){
+    const code = error?.code || 'CURRENT_1040_BASELINE_NOT_READY';
+    const message = error?.message || 'Saved current-return tax facts are not ready';
+    const issue = Object.freeze({
+      code,
+      ...(error?.field ? { path: `incomeTax.current1040.${error.field}` } : {}),
+      message,
+    });
+    return Object.freeze({
+      status: 'needs_facts',
+      sourceMode: 'current-tax-baseline',
+      input: null,
+      summary: Object.freeze({
+        status: 'needs_facts',
+        sourceMode: 'canonical-v1',
+        message,
+        reasonCodes: Object.freeze([code]),
+      }),
+      issues: Object.freeze([issue]),
+    });
+  }
+  return buildCurrentAnnualFederalTaxBaseline(calculationPlan);
+}

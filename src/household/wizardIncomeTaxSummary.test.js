@@ -8,6 +8,7 @@ import { createBlankTaxProfiles } from './factEnvelope.js';
 import { HOUSEHOLD_RECORD_SCHEMA_VERSION } from './householdRecordSchema.js';
 import { createEmptyNetWorthRecords } from './netWorthRecords.js';
 import {
+  buildAvailableCurrentAnnualFederalTaxBaseline,
   buildCurrentAnnualFederalTaxBaseline,
   buildWizardIncomeTaxSummary,
 } from './buildWizardIncomeTaxSummary.js';
@@ -187,6 +188,38 @@ test('authoritative baseline rejects a saved unconfirmed return without material
   assert.ok(baseline.issues.some(issue => (
     issue.code === 'CURRENT_1040_INCOME_SOURCES_INCOMPLETE'
   )));
+  assert.deepEqual(saved, snapshot);
+});
+
+test('available baseline uses saved Tax facts without mutating or requiring completion', () => {
+  const saved = blankWizardPlan();
+  ensureWizardCurrent1040(saved);
+  saved.incomeTax.current1040.income.wages = 125000;
+  const snapshot = structuredClone(saved);
+
+  const baseline = buildAvailableCurrentAnnualFederalTaxBaseline(saved);
+
+  assert.equal(baseline.status, 'ready');
+  assert.equal(baseline.input.income.wages, 125000);
+  assert.equal(typeof baseline.summary.federalTaxLiability, 'number');
+  assert.deepEqual(saved, snapshot);
+});
+
+test('available baseline preserves invalid saved-fact diagnostics internally', () => {
+  const saved = blankWizardPlan();
+  ensureWizardCurrent1040(saved);
+  saved.incomeTax.current1040.income.wages = -1;
+  const snapshot = structuredClone(saved);
+
+  const baseline = buildAvailableCurrentAnnualFederalTaxBaseline(saved);
+
+  assert.equal(baseline.status, 'needs_facts');
+  assert.equal(baseline.input, null);
+  assert.notEqual(
+    baseline.issues[0].code,
+    'CURRENT_1040_INCOME_SOURCES_INCOMPLETE',
+  );
+  assert.match(baseline.issues[0].path, /income\.wages/);
   assert.deepEqual(saved, snapshot);
 });
 

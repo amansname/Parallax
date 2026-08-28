@@ -793,7 +793,7 @@ try {
     }
   });
 
-  await step('Tax wizard: Wages flow through to Withdrawal Planner tax dollars', async () => {
+  await step('Tax wizard: saved Wages reach Withdrawal Planner without Continue', async () => {
     await page.setViewport({ width:1440, height:900, deviceScaleFactor:1 });
     const blankPlanner = await plannerDiagnosticState();
     await stableClick('.htab[data-page="tax-buckets"]');
@@ -864,28 +864,6 @@ try {
       throw new Error(`Tax wizard did not commit Wages through change/blur: ${JSON.stringify({ committedWages })}`);
     }
 
-    const beforeTaxCompletion = await page.$eval(
-      '[data-hh-wizard-root]',
-      root => Number(root.dataset.renderRevision || -1),
-    );
-    await stableClick('#hh-wiz-footer [data-hh-action="step-next"]');
-    await waitForWizard(page, {
-      step: 'summary',
-      afterRevision: beforeTaxCompletion,
-    });
-    const completionState = await page.evaluate(() => {
-      const active = localStorage.getItem('parallax.activeHouseholdId');
-      const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
-      const current1040 = db?.[active]?.incomeTax?.current1040;
-      return {
-        active,
-        incomeSourcesComplete: current1040?.incomeSourcesComplete === true,
-      };
-    });
-    if(!completionState.active || !completionState.incomeSourcesComplete){
-      throw new Error(`Visible Tax completion did not confirm saved facts: ${JSON.stringify(completionState)}`);
-    }
-
     const beforePlanner = await plannerDiagnosticState();
     await stableClick('.htab[data-page="tax-buckets"]');
     await waitForPlannerState({
@@ -894,7 +872,7 @@ try {
       ordinaryTax: '$3,820',
       federalTax: '$3,820',
       resultCode: null,
-      incomeSourcesComplete: true,
+      incomeSourcesComplete: false,
     });
     const planner = await page.evaluate(() => ({
       wages: document.querySelector('[data-taw-fact-wages]')?.textContent.trim() ?? null,
@@ -974,7 +952,7 @@ try {
         await waitForWizard(page, { afterRevision: before });
       }
     };
-    const assertFixtureTaxPersistence = async stage => {
+    const assertFixtureTaxAutosave = async stage => {
       const persisted = await page.evaluate(householdId => {
         const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
         const current = db?.[householdId]?.incomeTax?.current1040;
@@ -988,9 +966,10 @@ try {
         };
       }, fixture.householdId);
       if(persisted.activeHouseholdId !== persisted.requestedHouseholdId
-          || !persisted.incomeSourcesComplete){
+          || persisted.incomeSourcesComplete
+          || persisted.activeIncomeSourcesComplete){
         throw new Error(
-          `Funded fixture Tax baseline drifted ${stage}: ${JSON.stringify(persisted)}`,
+          `Funded fixture Tax autosave drifted ${stage}: ${JSON.stringify(persisted)}`,
         );
       }
     };
@@ -1043,13 +1022,7 @@ try {
       '[data-hh-wizard-screen="tax"] [data-tax-field="income.wages.client"]',
       fixture.tax.wages,
     );
-    const beforeTaxCompletion = await currentRevision();
-    await stableClick('#hh-wiz-footer [data-hh-action="step-next"]');
-    await waitForWizard(page, {
-      step: 'summary',
-      afterRevision: beforeTaxCompletion,
-    });
-    await assertFixtureTaxPersistence('after visible Tax completion');
+    await assertFixtureTaxAutosave('after visible Tax entry');
 
     await openNetWorthCategory(page, 'investment');
     for(const account of fixture.accounts){
@@ -1076,7 +1049,7 @@ try {
       await stableClick('[data-hh-action="net-worth-save-entry"]');
       await waitForWizard(page, { step: 'net-worth', afterRevision: before });
     }
-    await assertFixtureTaxPersistence('after account entry');
+    await assertFixtureTaxAutosave('after account entry');
     await stableClick('[data-net-worth-overlay] [data-hh-action="net-worth-close-panel"]');
 
     await stableClick('.htab[data-sub-target="goals"]');
@@ -1091,13 +1064,13 @@ try {
     await page.waitForFunction(expected => (
       document.querySelector('.gh-amount-input')?.value === expected.toLocaleString('en-US')
     ), { timeout:8000 }, fixture.goals.essentialsAnnual);
-    await assertFixtureTaxPersistence('after Goals edit');
+    await assertFixtureTaxAutosave('after Goals edit');
 
     await stableReload({ waitUntil: 'networkidle2', timeout: 20000 });
     await waitForUnselectedWizard(page);
     await page.select('#hh-switch', fixture.householdId);
     await waitForWizard(page, { householdId: fixture.householdId });
-    await assertFixtureTaxPersistence('after reload');
+    await assertFixtureTaxAutosave('after reload');
   });
 
   await step('Tax Buckets: production household loads with funded limits and live tax output', async () => {
@@ -1110,7 +1083,7 @@ try {
       ordinaryTax: '$3,820',
       federalTax: '$3,820',
       resultCode: null,
-      incomeSourcesComplete: true,
+      incomeSourcesComplete: false,
     });
     const planner = await page.evaluate(() => ({
       active: document.querySelector('.page.on')?.dataset.page || '',
