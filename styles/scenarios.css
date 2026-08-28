@@ -349,6 +349,8 @@
   color: var(--ink);
   font-size: var(--fs-body);
   font-weight: var(--fw-body);
+  line-height: var(--lh-body);
+  letter-spacing: var(--ls-body);
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
@@ -396,6 +398,8 @@
   color: var(--ink);
   font-size: var(--fs-body);
   font-weight: var(--fw-body);
+  line-height: var(--lh-body);
+  letter-spacing: var(--ls-body);
   text-align: right;
   -moz-appearance: textfield;
   font-variant-numeric: tabular-nums;
@@ -432,6 +436,8 @@
   color: var(--ink);
   font-size: var(--fs-body);
   font-weight: var(--fw-body);
+  line-height: var(--lh-body);
+  letter-spacing: var(--ls-body);
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
@@ -449,6 +455,8 @@
   font-family: var(--f);
   font-size: var(--fs-body);
   font-weight: var(--fw-body);
+  line-height: var(--lh-body);
+  letter-spacing: var(--ls-body);
 }
 
 .page[data-page="scenarios"] .cmp-lev-select:hover,
@@ -646,6 +654,8 @@
   color: var(--ink);
   font-size: var(--fs-body);
   font-weight: var(--fw-body);
+  line-height: var(--lh-body);
+  letter-spacing: var(--ls-body);
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
