@@ -49,6 +49,7 @@ const REQUIRED_CI_JOBS = [
 ];
 const REQUIRED_PR_AUTHOR = 'parallax-pr-author-amans[bot]';
 const REQUIRED_PR_REVIEWER = 't66wwpvthy-prog';
+const COMPLETED_REVIEW_STATES = new Set(['APPROVED', 'CHANGES_REQUESTED', 'COMMENTED']);
 const COMPLETION_SENTENCES = [
   'Every original request or reported symptom is accounted for as fixed, delivered, deferred, or separately scoped.',
   'The visible UI contract names the exact allowed result and explicitly absent or unchanged behavior.',
@@ -363,7 +364,7 @@ export function validatePullRequestEvent(event, { completedReviews = [] } = {}){
   );
   const completedExactHeadReviewers = new Set(
     completedReviews
-      .filter(review => review?.state !== 'DISMISSED'
+      .filter(review => COMPLETED_REVIEW_STATES.has(review?.state)
         && review?.commit_id === event.pull_request?.head?.sha)
       .map(review => review?.user?.login),
   );

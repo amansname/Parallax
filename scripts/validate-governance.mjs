@@ -131,6 +131,7 @@ requireText('scripts/validate-pr-authorship.mjs', [
 requireText('scripts/validate-pr-body.mjs', [
   "const REQUIRED_PR_AUTHOR = 'parallax-pr-author-amans[bot]';",
   "const REQUIRED_PR_REVIEWER = 't66wwpvthy-prog';",
+  "const COMPLETED_REVIEW_STATES = new Set(['APPROVED', 'CHANGES_REQUESTED', 'COMMENTED']);",
   'pull request must request or have a completed exact-head review by ${REQUIRED_PR_REVIEWER}',
   'GitHub reviews API returned ${response.status}',
 ]);

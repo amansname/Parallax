@@ -240,7 +240,7 @@ acceptable way to bring it current.
 
 PR-event governance also rejects a pull request unless its live author is
 `parallax-pr-author-amans[bot]` and `t66wwpvthy-prog` is either still requested
-or has completed a non-dismissed review on the exact head SHA. The bot must
+or has submitted a completed review on the exact head SHA. The bot must
 request the human owner before the final PR evidence validation can pass.
 
 Prepare the complete truthful PR body before publication. Feature branches do

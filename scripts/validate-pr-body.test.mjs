@@ -190,6 +190,9 @@ test('accepts only a current, completed owner review after the request clears', 
   assert.match(validatePullRequestEvent(event, {
     completedReviews: [{ ...currentApproval, state: 'DISMISSED' }],
   }).failures.join('\n'), /completed exact-head review/);
+  assert.match(validatePullRequestEvent(event, {
+    completedReviews: [{ ...currentApproval, state: 'PENDING' }],
+  }).failures.join('\n'), /completed exact-head review/);
 });
 
 test('rejects a human-authored or human-committed candidate commit', () => {
