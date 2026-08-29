@@ -165,14 +165,31 @@ test('rejects a human-authored PR so the owner remains the independent reviewer'
   assert.match(validatePullRequestEvent(event).failures.join('\n'), /must be authored by parallax-pr-author-amans\[bot\]/);
 });
 
-test('rejects a PR that does not request the human owner as reviewer', () => {
+test('rejects a PR without the human owner requested or completed on the exact head', () => {
   const missingReviewer = validEvent();
   missingReviewer.pull_request.requested_reviewers = [];
-  assert.match(validatePullRequestEvent(missingReviewer).failures.join('\n'), /must request t66wwpvthy-prog as the human reviewer/);
+  assert.match(validatePullRequestEvent(missingReviewer).failures.join('\n'), /must request or have a completed exact-head review by t66wwpvthy-prog/);
 
   const wrongReviewer = validEvent();
   wrongReviewer.pull_request.requested_reviewers = [{ login: 'parallax-pr-author-amans[bot]' }];
-  assert.match(validatePullRequestEvent(wrongReviewer).failures.join('\n'), /must request t66wwpvthy-prog as the human reviewer/);
+  assert.match(validatePullRequestEvent(wrongReviewer).failures.join('\n'), /must request or have a completed exact-head review by t66wwpvthy-prog/);
+});
+
+test('accepts only a current, completed owner review after the request clears', () => {
+  const event = validEvent();
+  event.pull_request.requested_reviewers = [];
+  const currentApproval = {
+    user: { login: 't66wwpvthy-prog' },
+    state: 'APPROVED',
+    commit_id: HEAD_SHA,
+  };
+  assert.deepEqual(validatePullRequestEvent(event, { completedReviews: [currentApproval] }).failures, []);
+  assert.match(validatePullRequestEvent(event, {
+    completedReviews: [{ ...currentApproval, commit_id: BASE_SHA }],
+  }).failures.join('\n'), /completed exact-head review/);
+  assert.match(validatePullRequestEvent(event, {
+    completedReviews: [{ ...currentApproval, state: 'DISMISSED' }],
+  }).failures.join('\n'), /completed exact-head review/);
 });
 
 test('rejects a human-authored or human-committed candidate commit', () => {

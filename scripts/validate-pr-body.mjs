@@ -345,7 +345,7 @@ export function validatePullRequestBody(body, expectedShas = {}){
   return failures;
 }
 
-export function validatePullRequestEvent(event){
+export function validatePullRequestEvent(event, { completedReviews = [] } = {}){
   if(event?.action === undefined || event?.pull_request === undefined){
     return { skipped: true, failures: [] };
   }
@@ -361,8 +361,15 @@ export function validatePullRequestEvent(event){
   const requestedReviewers = new Set(
     (event.pull_request?.requested_reviewers || []).map(reviewer => reviewer?.login),
   );
-  if(!requestedReviewers.has(REQUIRED_PR_REVIEWER)){
-    failures.push(`pull request must request ${REQUIRED_PR_REVIEWER} as the human reviewer`);
+  const completedExactHeadReviewers = new Set(
+    completedReviews
+      .filter(review => review?.state !== 'DISMISSED'
+        && review?.commit_id === event.pull_request?.head?.sha)
+      .map(review => review?.user?.login),
+  );
+  if(!requestedReviewers.has(REQUIRED_PR_REVIEWER)
+    && !completedExactHeadReviewers.has(REQUIRED_PR_REVIEWER)){
+    failures.push(`pull request must request or have a completed exact-head review by ${REQUIRED_PR_REVIEWER}`);
   }
   return {
     skipped: false,
@@ -370,7 +377,26 @@ export function validatePullRequestEvent(event){
   };
 }
 
-function run(){
+async function fetchPullRequestReviews(event){
+  const repository = process.env.GITHUB_REPOSITORY;
+  const pullNumber = event?.number || event?.pull_request?.number;
+  if(!repository || !pullNumber) return [];
+
+  const apiUrl = process.env.GITHUB_API_URL || 'https://api.github.com';
+  const response = await fetch(`${apiUrl}/repos/${repository}/pulls/${pullNumber}/reviews?per_page=100`, {
+    headers: {
+      Accept: 'application/vnd.github+json',
+      'User-Agent': 'Parallax-Governance',
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+  });
+  if(!response.ok){
+    throw new Error(`GitHub reviews API returned ${response.status}`);
+  }
+  return response.json();
+}
+
+async function run(){
   if(process.env.GITHUB_EVENT_NAME !== 'pull_request'){
     console.log('PR evidence validation skipped outside a pull_request event.');
     return;
@@ -380,7 +406,10 @@ function run(){
     process.exit(1);
   }
   const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
-  const result = validatePullRequestEvent(event);
+  const hasRequiredPendingReviewer = (event.pull_request?.requested_reviewers || [])
+    .some(reviewer => reviewer?.login === REQUIRED_PR_REVIEWER);
+  const completedReviews = hasRequiredPendingReviewer ? [] : await fetchPullRequestReviews(event);
+  const result = validatePullRequestEvent(event, { completedReviews });
   if(result.failures.length){
     console.error('PR evidence validation failed:');
     for(const failure of result.failures) console.error(`- ${failure}`);
@@ -390,4 +419,9 @@ function run(){
 }
 
 const invokedPath = process.argv[1] ? resolve(process.argv[1]) : '';
-if(invokedPath === fileURLToPath(import.meta.url)) run();
+if(invokedPath === fileURLToPath(import.meta.url)){
+  run().catch(error => {
+    console.error(`PR evidence validation failed: ${error.message}`);
+    process.exit(1);
+  });
+}
