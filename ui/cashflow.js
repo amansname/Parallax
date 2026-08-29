@@ -189,63 +189,74 @@ function formatCashFlowHeaderYears(value, { delta = false } = {}) {
   }
 
 const CASH_FLOW_PATH_RAIL_METRICS = Object.freeze([
-  Object.freeze({ id: 'max-real-drawdown', label: 'Deepest dip in savings' }),
-  Object.freeze({ id: 'underwater-duration', label: 'Years below starting balance' }),
+  Object.freeze({ id: 'max-real-drawdown', label: 'Max Drawdown' }),
+  Object.freeze({ id: 'recovery-period', label: 'Recovery period' }),
   Object.freeze({ id: 'balance-at-age-80', label: 'Savings left at age 80' }),
   Object.freeze({ id: 'funded-through-margin', label: 'Money lasts through' }),
 ]);
 
 function pathRailValue(metric, key) {
     const value = metric[key];
+    if (metric.id === 'recovery-period') {
+      const statusKey = key === 'thisPath'
+        ? 'thisPathRecoveryStatus'
+        : 'typicalPathRecoveryStatus';
+      if (metric[statusKey] === 'never') return 'Never';
+      return formatCashFlowHeaderYears(value);
+    }
     if (value === null || value === undefined) {
       return metric[key + 'Unavailable'] ?? 'Not modeled';
     }
     if (metric.id === 'max-real-drawdown') return '\u2212' + formatCashFlowHeaderPercent(value);
-    if (metric.id === 'underwater-duration') return formatCashFlowHeaderYears(value);
     if (metric.id === 'balance-at-age-80') return formatCashFlowHeaderMoney(value);
     if (metric.id === 'funded-through-margin') return 'Age ' + value;
     return String(value);
   }
 
-function pathRailVerdict(metric) {
+function pathRailDelta(metric) {
     const delta = metric.delta;
     if (metric.id === 'max-real-drawdown') {
       if (!Number.isFinite(metric.thisPath) || !Number.isFinite(metric.typicalPath)) {
-        return { phrase: 'Comparison unavailable', tone: 'muted' };
+        return { text: '', tone: 'muted' };
       }
       const displayedDelta = Number((
-        Number(metric.thisPath.toFixed(1)) - Number(metric.typicalPath.toFixed(1))
+        Number(metric.typicalPath.toFixed(1)) - Number(metric.thisPath.toFixed(1))
       ).toFixed(1));
-      if (displayedDelta > 0) return { phrase: 'Dips ' + displayedDelta.toFixed(1) + ' pts further', tone: 'negative' };
-      if (displayedDelta < 0) return { phrase: 'Dips ' + Math.abs(displayedDelta).toFixed(1) + ' pts less', tone: 'muted' };
-      return { phrase: 'Dips just as far', tone: 'muted' };
+      if (displayedDelta === 0) return { text: 'Same', tone: 'muted' };
+      return {
+        text: formatCashFlowHeaderPercent(displayedDelta, { delta: true }),
+        tone: displayedDelta < 0 ? 'negative' : 'muted',
+      };
     }
-    if (metric.id === 'underwater-duration') {
-      if (!Number.isFinite(delta)) return { phrase: 'Comparison unavailable', tone: 'muted' };
-      if (delta > 0) return { phrase: 'Recovers ' + formatCashFlowHeaderYears(delta) + ' later', tone: 'negative' };
-      if (delta < 0) return { phrase: 'Recovers ' + formatCashFlowHeaderYears(delta) + ' sooner', tone: 'muted' };
-      return { phrase: 'Recovers just as quickly', tone: 'muted' };
+    if (metric.id === 'recovery-period') {
+      const thisNever = metric.thisPathRecoveryStatus === 'never';
+      const typicalNever = metric.typicalPathRecoveryStatus === 'never';
+      if (thisNever && typicalNever) return { text: 'Same', tone: 'muted' };
+      if (thisNever || typicalNever) {
+        return { text: '', tone: thisNever ? 'negative' : 'muted' };
+      }
+      if (!Number.isFinite(delta)) return { text: '', tone: 'muted' };
+      if (delta === 0) return { text: 'Same', tone: 'muted' };
+      return {
+        text: formatCashFlowHeaderYears(delta, { delta: true }),
+        tone: delta > 0 ? 'negative' : 'muted',
+      };
     }
     if (metric.id === 'balance-at-age-80') {
-      if (!Number.isFinite(delta)) return { phrase: 'Comparison unavailable', tone: 'muted' };
-      const displayedDelta = formatCashFlowHeaderMoney(Math.abs(delta));
-      if (displayedDelta === '$0') return { phrase: 'Same amount left', tone: 'muted' };
-      if (delta < 0) return { phrase: displayedDelta + ' less', tone: 'negative' };
-      if (delta > 0) return { phrase: displayedDelta + ' more', tone: 'muted' };
-      return { phrase: 'Same amount left', tone: 'muted' };
+      if (!Number.isFinite(delta)) return { text: '', tone: 'muted' };
+      const magnitude = formatCashFlowHeaderMoney(Math.abs(delta));
+      if (magnitude === '$0') return { text: 'Same', tone: 'muted' };
+      return {
+        text: (delta < 0 ? '\u2212' : '+') + magnitude,
+        tone: delta < 0 ? 'negative' : 'muted',
+      };
     }
-    const thisPath = metric.thisPath;
-    const typicalPath = metric.typicalPath;
-    if (!Number.isFinite(thisPath) || !Number.isFinite(typicalPath)) {
-      return { phrase: 'Comparison unavailable', tone: 'muted' };
-    }
-    if (thisPath < typicalPath) {
-      return { phrase: 'Lasts ' + formatCashFlowHeaderYears(typicalPath - thisPath) + ' less', tone: 'negative' };
-    }
-    if (thisPath > typicalPath) {
-      return { phrase: 'Lasts ' + formatCashFlowHeaderYears(thisPath - typicalPath) + ' longer', tone: 'muted' };
-    }
-    return { phrase: 'Lasts just as long', tone: 'muted' };
+    if (!Number.isFinite(delta)) return { text: '', tone: 'muted' };
+    if (delta === 0) return { text: 'Same', tone: 'muted' };
+    return {
+      text: formatCashFlowHeaderYears(delta, { delta: true }),
+      tone: delta < 0 ? 'negative' : 'muted',
+    };
   }
 
 function historicalPathRail(headerMetrics, esc) {
@@ -264,7 +275,7 @@ function historicalPathRail(headerMetrics, esc) {
       '</div>'
     )).join('');
     const selectedRows = metrics.map(metric => {
-      const verdict = pathRailVerdict(metric);
+      const delta = pathRailDelta(metric);
       return (
         '<div class="cf-path-rail__metric" data-historical-metric="' + esc(metric.id) + '"' +
           ' data-this-path="' + esc(metric.thisPath ?? '') + '"' +
@@ -273,15 +284,18 @@ function historicalPathRail(headerMetrics, esc) {
           ' data-format="' + esc(metric.format ?? '') + '"' +
           (Number.isFinite(metric.thisPathAge) ? ' data-this-path-age="' + metric.thisPathAge + '"' : '') +
           (Number.isFinite(metric.typicalPathAge) ? ' data-typical-path-age="' + metric.typicalPathAge + '"' : '') +
+          (metric.thisPathRecoveryStatus ? ' data-this-path-recovery-status="' + esc(metric.thisPathRecoveryStatus) + '"' : '') +
+          (metric.typicalPathRecoveryStatus ? ' data-typical-path-recovery-status="' + esc(metric.typicalPathRecoveryStatus) + '"' : '') +
           (Number.isFinite(metric.thisPathMargin) ? ' data-this-path-margin="' + metric.thisPathMargin + '"' : '') +
           (Number.isFinite(metric.typicalPathMargin) ? ' data-typical-path-margin="' + metric.typicalPathMargin + '"' : '') +
+          (Number.isFinite(metric.marginDelta) ? ' data-margin-delta="' + metric.marginDelta + '"' : '') +
           (metric.thisPathMarginKind ? ' data-this-path-margin-kind="' + esc(metric.thisPathMarginKind) + '"' : '') +
           (metric.typicalPathMarginKind ? ' data-typical-path-margin-kind="' + esc(metric.typicalPathMarginKind) + '"' : '') +
           (Number.isFinite(metric.planEndAge) ? ' data-plan-end-age="' + metric.planEndAge + '"' : '') +
-          ' data-verdict-tone="' + verdict.tone + '">' +
+          ' data-delta-tone="' + delta.tone + '">' +
           '<div class="cf-path-rail__metric-name">' + esc(metric.label) + '</div>' +
           '<div class="cf-path-rail__figure">' + esc(pathRailValue(metric, 'thisPath')) + '</div>' +
-          '<div class="cf-path-rail__verdict cf-path-rail__verdict--' + verdict.tone + '">' + esc(verdict.phrase) + '</div>' +
+          '<div class="cf-path-rail__delta cf-path-rail__delta--' + delta.tone + '">' + esc(delta.text) + '</div>' +
         '</div>'
       );
     }).join('');
@@ -292,7 +306,7 @@ function historicalPathRail(headerMetrics, esc) {
           '<div class="cf-path-rail__reference-title">Typical path</div>' +
           typicalRows +
         '</div>' +
-        selectedRows +
+        '<div class="cf-path-rail__selected" data-cash-path-selected>' + selectedRows + '</div>' +
       '</aside>'
     );
   }

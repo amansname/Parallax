@@ -3358,6 +3358,8 @@ test('pathDigest exposes real portfolio stress and plan-margin metrics from auth
   assert.equal(digest.maxRealDrawdownTroughAge, 80);
   assert.equal(digest.yearsAboveSixPctWdRate, 2, '6.0% is not above the threshold');
   assert.equal(digest.portfolioUnderwaterYearsMax, 3);
+  assert.equal(digest.portfolioRecoveryPeriodStatus, 'never');
+  assert.equal(digest.portfolioRecoveryPeriodYears, null);
   assert.equal(digest.realBalanceAtAge80, 660);
   assert.equal(digest.fundedThroughAge, 81);
   assert.equal(digest.planEndAge, 81);
@@ -3394,11 +3396,55 @@ test('pathDigest never fabricates age-80 balance or runway after underfunding', 
   assert.equal(digest.maxRealDrawdownPct, 100);
   assert.equal(digest.maxRealDrawdownTroughAge, 79);
   assert.equal(digest.portfolioUnderwaterYearsMax, 1);
+  assert.equal(digest.portfolioRecoveryPeriodStatus, 'never');
+  assert.equal(digest.portfolioRecoveryPeriodYears, null);
   assert.equal(digest.realBalanceAtAge80, null);
   assert.equal(digest.fundedThroughAge, 78);
   assert.equal(digest.planEndAge, 81);
   assert.equal(digest.fundingMarginYears, -3);
   assert.equal(digest.fundingMarginKind, 'years-short');
+});
+
+test('pathDigest recovery period distinguishes no dip, recovered spells, and an open final spell', () => {
+  const digestFor = balances => {
+    const rows = balances.map((balance, index) => ({
+      year: index + 1,
+      age: 65 + index,
+      phase: 'ret',
+      source: 1995 + index,
+      returnRate: 0,
+      startBalance: index === 0 ? 1_000 : balances[index - 1],
+      balance,
+      withdrawal: 10,
+      wdRate: 1,
+      fundingShortfall: 0,
+      failed: false,
+    }));
+    return pathDigest({
+      rows,
+      terminalBalance: balances.at(-1),
+      cagr: 0,
+      first10Cagr: 0,
+      minBalance: Math.min(...balances),
+      failed: false,
+      depletionAge: null,
+      lifetimeTax: 0,
+    });
+  };
+
+  const noDip = digestFor([1_050, 1_000, 1_100]);
+  assert.equal(noDip.portfolioRecoveryPeriodStatus, 'no-dip');
+  assert.equal(noDip.portfolioRecoveryPeriodYears, 0);
+
+  const recovered = digestFor([900, 850, 1_000, 950, 1_010]);
+  assert.equal(recovered.portfolioRecoveryPeriodStatus, 'recovered');
+  assert.equal(recovered.portfolioRecoveryPeriodYears, 2);
+  assert.equal(recovered.portfolioUnderwaterYearsMax, 2);
+
+  const openFinalSpell = digestFor([900, 1_000, 950]);
+  assert.equal(openFinalSpell.portfolioRecoveryPeriodStatus, 'never');
+  assert.equal(openFinalSpell.portfolioRecoveryPeriodYears, null);
+  assert.equal(openFinalSpell.portfolioUnderwaterYearsMax, 1);
 });
 
 test('returnDollars is the market gain on start-of-year balance', () => {
