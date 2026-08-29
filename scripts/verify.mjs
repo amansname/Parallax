@@ -3353,12 +3353,32 @@ try {
             probe.remove();
             return color;
           };
+          const normalizedStyle = (property, value) => {
+            const probe = document.createElement('span');
+            probe.style[property] = value;
+            document.body.appendChild(probe);
+            const normalized = getComputedStyle(probe)[property];
+            probe.remove();
+            return normalized;
+          };
           const expectedStatusColor = tokenColor(summaryOutcome === 'survives' ? '--pos' : '--neg');
           const expectedAccentColor = tokenColor('--acc');
           const expectedNegativeColor = tokenColor('--neg');
           const expectedMutedColor = tokenColor('--muted');
           const expectedBodyColor = tokenColor('--body');
           const expectedInkColor = tokenColor('--ink');
+          const expectedTitleTextShadow = normalizedStyle(
+            'textShadow',
+            '0 0 10px rgba(177, 132, 92, .35)'
+          );
+          const expectedSelectedBackgroundImage = normalizedStyle(
+            'backgroundImage',
+            'radial-gradient(130% 70% at 50% 0%, rgba(177, 132, 92, .055), rgba(177, 132, 92, 0) 72%)'
+          );
+          const expectedSelectedBoxShadow = normalizedStyle(
+            'boxShadow',
+            '0 0 22px rgba(177, 132, 92, .05), inset 0 0 0 1px rgba(177, 132, 92, .07)'
+          );
           const rail = summary;
           const panelBody = document.querySelector('#scn-view .cf-panel__body');
           const reference = rail?.querySelector('[data-cash-path-reference]');
@@ -3463,6 +3483,7 @@ try {
                 textShadow: titleStyle?.textShadow || '',
                 textTransform: titleStyle?.textTransform || '',
                 marginBottom: titleStyle?.marginBottom || '',
+                expectedTextShadow: expectedTitleTextShadow,
               },
               referenceLabel: {
                 fontSize: referenceLabelStyle?.fontSize || '',
@@ -3486,6 +3507,8 @@ try {
                 backgroundColor: selectedGroupStyle?.backgroundColor || '',
                 boxShadow: selectedGroupStyle?.boxShadow || '',
                 width: selectedGroup?.getBoundingClientRect().width ?? null,
+                expectedBackgroundImage: expectedSelectedBackgroundImage,
+                expectedBoxShadow: expectedSelectedBoxShadow,
               },
               metric: {
                 display: selectedMetricStyle?.display || '',
@@ -3614,7 +3637,7 @@ try {
             || layout.title.fontWeight !== '600'
             || layout.title.letterSpacing !== '0.48px'
             || layout.title.color !== layout.accentColor
-            || !/10px/.test(layout.title.textShadow)
+            || layout.title.textShadow !== layout.title.expectedTextShadow
             || layout.title.textTransform !== 'none'
             || layout.title.marginBottom !== '2px'
             || layout.referenceLabel.fontSize !== '13px'
@@ -3630,10 +3653,8 @@ try {
             || layout.selected.padding !== '14px 12px'
             || layout.selected.radius !== '10px'
             || layout.selected.backgroundColor !== 'rgba(0, 0, 0, 0)'
-            || !/radial-gradient/.test(layout.selected.backgroundImage)
-            || !/0\.055/.test(layout.selected.backgroundImage)
-            || !/22px/.test(layout.selected.boxShadow)
-            || !/inset/.test(layout.selected.boxShadow)
+            || layout.selected.backgroundImage !== layout.selected.expectedBackgroundImage
+            || layout.selected.boxShadow !== layout.selected.expectedBoxShadow
             || Math.abs(layout.reference.width - layout.selected.width) > 1
             || layout.metric.display !== 'flex'
             || layout.metric.direction !== 'column'
@@ -4273,28 +4294,66 @@ try {
             probStr: '0',
             median: '$0',
           };
-          host.innerHTML = renderCashflow(display, [display], {
-            cashFlowResult: () => selected,
-            pathRows: () => [],
-            cashSummary: () => ({}),
-            cashFromRetirement: false,
-            isTypicalPath: () => false,
-            typicalPathFederalTax: () => null,
-            pathFederalTax: () => null,
-            wdColor: () => 'inherit',
-            num: value => String(value),
-            esc: value => String(value),
-            fmtMoney: value => '$' + Math.round(value).toLocaleString('en-US'),
-            cfCols: ['Year', 'Age', 'Income', 'RMD', 'Essential', 'Goals', 'Tax', 'Draw', 'Return', 'WD Rate', 'Ending'],
-          });
+          const renderSelected = result => {
+            host.innerHTML = renderCashflow(display, [display], {
+              cashFlowResult: () => result,
+              pathRows: () => [],
+              cashSummary: () => ({}),
+              cashFromRetirement: false,
+              isTypicalPath: () => false,
+              typicalPathFederalTax: () => null,
+              pathFederalTax: () => null,
+              wdColor: () => 'inherit',
+              num: value => String(value),
+              esc: value => String(value),
+              fmtMoney: value => '$' + Math.round(value).toLocaleString('en-US'),
+              cfCols: ['Year', 'Age', 'Income', 'RMD', 'Essential', 'Goals', 'Tax', 'Draw', 'Return', 'WD Rate', 'Ending'],
+            });
+          };
+          const readRecovery = () => {
+            const recovery = host.querySelector('[data-historical-metric="recovery-period"]');
+            const recoveryReference = host.querySelector('[data-path-reference-metric="recovery-period"]');
+            const delta = recovery?.querySelector('.cf-path-rail__delta');
+            return {
+              reference: recoveryReference?.querySelector('.cf-path-rail__reference-value')?.textContent.trim() || '',
+              figure: recovery?.querySelector('.cf-path-rail__figure')?.textContent.trim() || '',
+              delta: delta?.textContent.trim() || '',
+              tone: recovery?.dataset.deltaTone || '',
+              referenceFontSize: recoveryReference
+                ? getComputedStyle(recoveryReference.querySelector('.cf-path-rail__reference-value')).fontSize
+                : '',
+              figureFontSize: recovery
+                ? getComputedStyle(recovery.querySelector('.cf-path-rail__figure')).fontSize
+                : '',
+              deltaMinHeight: delta ? getComputedStyle(delta).minHeight : '',
+              deltaHeight: delta?.getBoundingClientRect().height ?? 0,
+            };
+          };
+          renderSelected(selected);
           const summary = host.querySelector('[data-cash-path-metrics]');
           const probe = document.createElement('span');
           probe.style.color = 'var(--neg)';
           scenarioPage.appendChild(probe);
           const expectedColor = getComputedStyle(probe).color;
           probe.remove();
-          const recovery = host.querySelector('[data-historical-metric="recovery-period"]');
-          const recoveryReference = host.querySelector('[data-path-reference-metric="recovery-period"]');
+          const recovery = readRecovery();
+          renderSelected({
+            ...selected,
+            headerMetrics: {
+              ...selected.headerMetrics,
+              rows: selected.headerMetrics.rows.map(metric => metric.id === 'recovery-period'
+                ? {
+                    ...metric,
+                    thisPath: 0,
+                    typicalPath: null,
+                    delta: null,
+                    thisPathRecoveryStatus: 'no-dip',
+                    typicalPathRecoveryStatus: 'never',
+                  }
+                : metric),
+            },
+          });
+          const reverseRecovery = readRecovery();
           return {
             outcome: summary?.dataset.outcome || '',
             metrics: [...host.querySelectorAll('[data-historical-metric]')]
@@ -4303,18 +4362,8 @@ try {
             statusClass: status.className,
             statusColor: getComputedStyle(status).color,
             expectedColor,
-            recovery: {
-              reference: recoveryReference?.querySelector('.cf-path-rail__reference-value')?.textContent.trim() || '',
-              figure: recovery?.querySelector('.cf-path-rail__figure')?.textContent.trim() || '',
-              delta: recovery?.querySelector('.cf-path-rail__delta')?.textContent.trim() || '',
-              tone: recovery?.dataset.deltaTone || '',
-              referenceFontSize: recoveryReference
-                ? getComputedStyle(recoveryReference.querySelector('.cf-path-rail__reference-value')).fontSize
-                : '',
-              figureFontSize: recovery
-                ? getComputedStyle(recovery.querySelector('.cf-path-rail__figure')).fontSize
-                : '',
-            },
+            recovery,
+            reverseRecovery,
           };
         }finally{
           host.remove();
@@ -4334,6 +4383,16 @@ try {
           || underfundedMatrixProof.recovery.tone !== 'negative'
           || underfundedMatrixProof.recovery.referenceFontSize !== '15px'
           || underfundedMatrixProof.recovery.figureFontSize !== '24px'
+          || underfundedMatrixProof.recovery.deltaMinHeight !== '12px'
+          || underfundedMatrixProof.recovery.deltaHeight < 12
+          || underfundedMatrixProof.reverseRecovery.reference !== 'Never'
+          || underfundedMatrixProof.reverseRecovery.figure !== '0 yrs'
+          || underfundedMatrixProof.reverseRecovery.delta !== ''
+          || underfundedMatrixProof.reverseRecovery.tone !== 'muted'
+          || underfundedMatrixProof.reverseRecovery.referenceFontSize !== '15px'
+          || underfundedMatrixProof.reverseRecovery.figureFontSize !== '24px'
+          || underfundedMatrixProof.reverseRecovery.deltaMinHeight !== '12px'
+          || underfundedMatrixProof.reverseRecovery.deltaHeight < 12
           || underfundedMatrixProof.glyph !== '!'
           || !/is-underfunded/.test(underfundedMatrixProof.statusClass)
           || underfundedMatrixProof.statusColor !== underfundedMatrixProof.expectedColor){
