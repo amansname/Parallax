@@ -128,6 +128,12 @@ requireText('scripts/validate-pr-authorship.mjs', [
   'must use the Parallax bot as Git committer',
 ]);
 
+requireText('scripts/validate-pr-body.mjs', [
+  "const REQUIRED_PR_AUTHOR = 'parallax-pr-author-amans[bot]';",
+  "const REQUIRED_PR_REVIEWER = 't66wwpvthy-prog';",
+  'pull request must request ${REQUIRED_PR_REVIEWER} as the human reviewer',
+]);
+
 requireText('docs/GITHUB_SETTINGS.md', [
   '`Governance safeguards`',
   '`Unit tests`',
@@ -138,6 +144,9 @@ requireText('docs/GITHUB_SETTINGS.md', [
   'Build and deployment > Source',
   'GitHub Actions',
   'Verify every live byte',
+  'Require exactly one approving review',
+  'Disable the extra approval for changes not attributed to a user',
+  '`t66wwpvthy-prog` is the',
 ]);
 
 requireText('docs/DEPLOYMENT-INTEGRITY.md', [

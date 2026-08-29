@@ -48,6 +48,7 @@ const REQUIRED_CI_JOBS = [
   'Full browser verification',
 ];
 const REQUIRED_PR_AUTHOR = 'parallax-pr-author-amans[bot]';
+const REQUIRED_PR_REVIEWER = 't66wwpvthy-prog';
 const COMPLETION_SENTENCES = [
   'Every original request or reported symptom is accounted for as fixed, delivered, deferred, or separately scoped.',
   'The visible UI contract names the exact allowed result and explicitly absent or unchanged behavior.',
@@ -356,6 +357,12 @@ export function validatePullRequestEvent(event){
     });
   if(event.pull_request?.user?.login !== REQUIRED_PR_AUTHOR){
     failures.push(`pull request must be authored by ${REQUIRED_PR_AUTHOR}; the human owner reviews it`);
+  }
+  const requestedReviewers = new Set(
+    (event.pull_request?.requested_reviewers || []).map(reviewer => reviewer?.login),
+  );
+  if(!requestedReviewers.has(REQUIRED_PR_REVIEWER)){
+    failures.push(`pull request must request ${REQUIRED_PR_REVIEWER} as the human reviewer`);
   }
   return {
     skipped: false,

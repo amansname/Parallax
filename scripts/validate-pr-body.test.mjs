@@ -93,6 +93,7 @@ function validEvent(body = validBody()){
       base: { sha: BASE_SHA },
       head: { sha: HEAD_SHA },
       user: { login: 'parallax-pr-author-amans[bot]' },
+      requested_reviewers: [{ login: 't66wwpvthy-prog' }],
       state: 'open',
       merged: false,
     },
@@ -162,6 +163,16 @@ test('rejects a human-authored PR so the owner remains the independent reviewer'
   const event = validEvent();
   event.pull_request.user.login = 't66wwpvthy-prog';
   assert.match(validatePullRequestEvent(event).failures.join('\n'), /must be authored by parallax-pr-author-amans\[bot\]/);
+});
+
+test('rejects a PR that does not request the human owner as reviewer', () => {
+  const missingReviewer = validEvent();
+  missingReviewer.pull_request.requested_reviewers = [];
+  assert.match(validatePullRequestEvent(missingReviewer).failures.join('\n'), /must request t66wwpvthy-prog as the human reviewer/);
+
+  const wrongReviewer = validEvent();
+  wrongReviewer.pull_request.requested_reviewers = [{ login: 'parallax-pr-author-amans[bot]' }];
+  assert.match(validatePullRequestEvent(wrongReviewer).failures.join('\n'), /must request t66wwpvthy-prog as the human reviewer/);
 });
 
 test('rejects a human-authored or human-committed candidate commit', () => {

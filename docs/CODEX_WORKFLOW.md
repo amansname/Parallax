@@ -238,6 +238,11 @@ base-to-candidate range and rejects any Git author or committer other than the
 Parallax bot. Updating the branch through the human GitHub identity is not an
 acceptable way to bring it current.
 
+PR-event governance also rejects a pull request unless its live author is
+`parallax-pr-author-amans[bot]` and its requested reviewers include
+`t66wwpvthy-prog`. The bot must request the human owner before the final PR
+evidence validation can pass.
+
 Prepare the complete truthful PR body before publication. Feature branches do
 not need a second full `push` run in addition to the pull-request run. After the
 PR is open, use comments for progress and the final readiness receipt; edit the
