@@ -7,6 +7,9 @@ the repository. Follow the full lifecycle in
 [docs/CODEX_WORKFLOW.md](docs/CODEX_WORKFLOW.md) and the independent-review
 procedure in [docs/CODE_REVIEW.md](docs/CODE_REVIEW.md).
 
+For every Parallax task, start the workflow on the first response and show its
+compact Scope receipt. Do not wait for the user to invoke it or select a tier.
+
 ## Repository map and boundaries
 
 Parallax is a static ES-module application with no build step or backend.
@@ -64,6 +67,8 @@ they must never serve mutable worktree files.
 - Begin read-only. Before editing, record the repository root, worktree,
   branch, base and current commit SHAs, remotes, and dirty paths. Preserve user
   work. Use one feature or fix per branch, isolated worktree, and pull request.
+- Delivery PRs and their commits use `parallax-pr-author-amans[bot]`; request
+  `t66wwpvthy-prog` as the human reviewer before calling the draft ready.
 - Reproduce every reported symptom through its actual visible-input and saved-
   state path before editing. Record the exact command, fixture kind (clean or
   persisted/legacy), and observed failure.
@@ -80,6 +85,10 @@ they must never serve mutable worktree files.
 - Browser defects require live-browser assertions of the user-visible outcome.
   Control values, labels, element existence, slider maxima, and screenshots do
   not prove that dependent financial outputs changed.
+- Visible UI changes require an exact allowed inventory plus explicit absences.
+  When configuration becomes state-dependent or an old conditional can become
+  reachable, test complete ordered outputs for every affected state; a subset
+  or presence-only assertion is insufficient.
 - Persisted-state and migration regressions load anonymized state exactly as
   saved. A migration test must not delete or reseed the state under test. Keep
   clean-state and legacy-state fixtures separate.

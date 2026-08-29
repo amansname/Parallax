@@ -12,6 +12,7 @@ Configure a branch protection rule or repository ruleset targeting `main`:
 2. Require these exact status-check names:
    - `Governance safeguards`
    - `Unit tests`
+   - `Build deployable site artifact`
    - `Full browser verification`
 3. Require branches to be current before merge when GitHub offers the option
    for the selected required checks.
@@ -20,6 +21,12 @@ Configure a branch protection rule or repository ruleset targeting `main`:
    retain GitHub's audit trail.
 5. Do not treat a GitHub Pages, Vercel, or other deployment check as a substitute
    for any required check above.
+6. Require exactly one approving review, dismiss stale approvals on a new
+   reviewable push, and require approval of the most recent reviewable push.
+7. Disable the extra approval for changes not attributed to a user. Parallax
+   delivery PRs are intentionally App-authored, and `t66wwpvthy-prog` is the
+   single required human reviewer; enabling that extra rule would require a
+   second distinct reviewer.
 
 After the governance workflow first runs, select the check contexts produced by
 the `Parallax quality` workflow rather than creating similarly named external
