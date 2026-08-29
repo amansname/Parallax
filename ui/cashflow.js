@@ -259,7 +259,7 @@ function pathRailDelta(metric) {
     };
   }
 
-function historicalPathRail(headerMetrics, esc) {
+function historicalPathRail(headerMetrics, period, esc) {
     const rowsById = new Map((headerMetrics?.rows ?? []).map(metric => [metric.id, metric]));
     const metrics = CASH_FLOW_PATH_RAIL_METRICS.map(({ id, label }) => ({
       ...rowsById.get(id),
@@ -299,6 +299,17 @@ function historicalPathRail(headerMetrics, esc) {
         '</div>'
       );
     }).join('');
+    const selectedPeriod = Number.isInteger(period?.startYear)
+      && typeof period?.name === 'string'
+      && period.name.trim()
+      && typeof period?.id === 'string'
+      ? (
+          '<div class="cf-path-rail__selected-period" data-cash-path-selected-period="' + esc(period.id) + '">' +
+            '<span class="cf-path-rail__selected-period-year">' + esc(period.startYear) + '</span> · ' +
+            '<span class="cf-path-rail__selected-period-name">' + esc(period.name.trim()) + '</span>' +
+          '</div>'
+        )
+      : '';
 
     return (
       '<aside class="cf-path-rail" data-cash-path-metrics data-outcome="' + esc(headerMetrics.outcome) + '" aria-label="Selected path metrics compared with Typical path">' +
@@ -306,7 +317,7 @@ function historicalPathRail(headerMetrics, esc) {
           '<div class="cf-path-rail__reference-title">Typical path</div>' +
           typicalRows +
         '</div>' +
-        '<div class="cf-path-rail__selected" data-cash-path-selected>' + selectedRows + '</div>' +
+        '<div class="cf-path-rail__selected" data-cash-path-selected>' + selectedPeriod + selectedRows + '</div>' +
       '</aside>'
     );
   }
@@ -401,7 +412,9 @@ export function renderCashflow(scn, allScns, {
     const summaryStrip = selected?.kind === 'historical'
       ? ''
       : (!selected?.error ? typicalSummaryStrip : '');
-    const pathMetricsRail = hasHistoricalSummary ? historicalPathRail(headerMetrics, esc) : '';
+    const pathMetricsRail = hasHistoricalSummary
+      ? historicalPathRail(headerMetrics, selected?.period, esc)
+      : '';
 
     const taxDisclosureContent = federalAttachFailed
       ? '<div class="cf-tax-fallback" data-tax-fallback role="status">Federal tax detail isn\'t available for this run. The Tax column uses engine estimates.</div>'

@@ -193,6 +193,12 @@ test('underfunded historical Cash Flow keeps the path rail traceable to engine m
     cashFlowResult: () => ({
       kind: 'historical',
       pathId: 'historical-1973',
+      period: {
+        id: 'historical-1973',
+        startYear: 1973,
+        name: 'Stagflation',
+        label: '1973 · Stagflation',
+      },
       rows: [row],
       summary: {
         outcome: 'underfunded',
@@ -256,6 +262,12 @@ test('underfunded historical Cash Flow keeps the path rail traceable to engine m
   assert.match(html, /data-outcome="underfunded"/);
   assert.match(html, /class="cf-path-rail" data-cash-path-metrics/);
   assert.match(html, /aria-label="Selected path metrics compared with Typical path"/);
+  assert.match(html, /data-cash-path-selected-period="historical-1973"/);
+  assert.match(html, /cf-path-rail__selected-period-year">1973<\/span> · <span class="cf-path-rail__selected-period-name">Stagflation<\/span>/);
+  assert.ok(
+    html.indexOf('data-cash-path-selected-period="historical-1973"')
+      < html.indexOf('data-historical-metric="max-real-drawdown"')
+  );
   assert.equal((html.match(/data-path-reference-metric=/g) || []).length, 4);
   assert.equal((html.match(/data-historical-metric=/g) || []).length, 4);
   assert.match(html, /Typical path/);
@@ -294,7 +306,13 @@ test('surviving historical Cash Flow renders the Option 3a reference fixture in 
   const html = renderCashflow(scenario, [scenario], {
     cashFlowResult: () => ({
       kind: 'historical',
-      pathId: 'historical-1973',
+      pathId: 'historical-1966',
+      period: {
+        id: 'historical-1966',
+        startYear: 1966,
+        name: 'Lost Decade',
+        label: '1966 · Lost Decade',
+      },
       rows: [row],
       summary: {
         outcome: 'survives',
@@ -354,6 +372,12 @@ test('surviving historical Cash Flow renders the Option 3a reference fixture in 
   });
 
   assert.match(html, /data-outcome="survives"/);
+  assert.match(html, /data-cash-path-selected-period="historical-1966"/);
+  assert.match(html, /cf-path-rail__selected-period-year">1966<\/span> · <span class="cf-path-rail__selected-period-name">Lost Decade<\/span>/);
+  assert.ok(
+    html.indexOf('data-cash-path-selected-period="historical-1966"')
+      < html.indexOf('data-historical-metric="max-real-drawdown"')
+  );
   assert.equal((html.match(/data-path-reference-metric=/g) || []).length, 4);
   assert.equal((html.match(/data-historical-metric=/g) || []).length, 4);
   const labels = [...html.matchAll(/class="cf-path-rail__(?:reference-label|metric-name)">([^<]+)/g)]
@@ -410,7 +434,14 @@ test('surviving historical Cash Flow renders the Option 3a reference fixture in 
   ];
   const renderMetricRows = rows => renderCashflow(scenario, [scenario], {
     cashFlowResult: () => ({
-      kind: 'historical', pathId: 'historical-1973', rows: [row],
+      kind: 'historical', pathId: 'historical-1966',
+      period: {
+        id: 'historical-1966',
+        startYear: 1966,
+        name: 'Lost Decade',
+        label: '1966 · Lost Decade',
+      },
+      rows: [row],
       summary: { outcome: 'survives' },
       headerMetrics: { kind: 'historical', outcome: 'survives', rows },
       taxScope: 'MODELED_FEDERAL_LINE_24',
