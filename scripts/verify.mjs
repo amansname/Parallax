@@ -3365,10 +3365,11 @@ try {
           const referenceTitle = rail?.querySelector('.cf-path-rail__reference-title');
           const referenceLabel = rail?.querySelector('.cf-path-rail__reference-label');
           const referenceValue = rail?.querySelector('.cf-path-rail__reference-value');
+          const selectedGroup = rail?.querySelector('[data-cash-path-selected]');
           const selectedMetric = rail?.querySelector('.cf-path-rail__metric');
           const metricName = selectedMetric?.querySelector('.cf-path-rail__metric-name');
           const figure = selectedMetric?.querySelector('.cf-path-rail__figure');
-          const verdict = selectedMetric?.querySelector('.cf-path-rail__verdict');
+          const delta = selectedMetric?.querySelector('.cf-path-rail__delta');
           const firstColumnLabel = document.querySelector('#scn-view .cf-table__head .cf-th');
           const styles = element => element ? getComputedStyle(element) : null;
           const railStyle = styles(rail);
@@ -3376,10 +3377,11 @@ try {
           const titleStyle = styles(referenceTitle);
           const referenceLabelStyle = styles(referenceLabel);
           const referenceValueStyle = styles(referenceValue);
+          const selectedGroupStyle = styles(selectedGroup);
           const selectedMetricStyle = styles(selectedMetric);
           const metricNameStyle = styles(metricName);
           const figureStyle = styles(figure);
-          const verdictStyle = styles(verdict);
+          const deltaStyle = styles(delta);
           return {
             mode: document.querySelector('#cashflow-path-mode')?.value || '',
             rootMode: root?.dataset.cashPathId || '',
@@ -3403,17 +3405,20 @@ try {
               id: metric.dataset.historicalMetric || '',
               label: metric.querySelector('.cf-path-rail__metric-name')?.textContent.trim() || '',
               figure: metric.querySelector('.cf-path-rail__figure')?.textContent.trim() || '',
-              verdict: metric.querySelector('.cf-path-rail__verdict')?.textContent.trim() || '',
-              verdictTone: metric.dataset.verdictTone || '',
-              verdictColor: getComputedStyle(metric.querySelector('.cf-path-rail__verdict')).color,
+              deltaText: metric.querySelector('.cf-path-rail__delta')?.textContent.trim() || '',
+              deltaTone: metric.dataset.deltaTone || '',
+              deltaColor: getComputedStyle(metric.querySelector('.cf-path-rail__delta')).color,
               thisPath: metric.dataset.thisPath === '' ? null : Number(metric.dataset.thisPath),
               typicalPath: metric.dataset.typicalPath === '' ? null : Number(metric.dataset.typicalPath),
               delta: metric.dataset.delta === '' ? null : Number(metric.dataset.delta),
               format: metric.dataset.format || '',
               thisPathAge: metric.dataset.thisPathAge === undefined ? null : Number(metric.dataset.thisPathAge),
               typicalPathAge: metric.dataset.typicalPathAge === undefined ? null : Number(metric.dataset.typicalPathAge),
+              thisPathRecoveryStatus: metric.dataset.thisPathRecoveryStatus || '',
+              typicalPathRecoveryStatus: metric.dataset.typicalPathRecoveryStatus || '',
               thisPathMargin: metric.dataset.thisPathMargin === undefined ? null : Number(metric.dataset.thisPathMargin),
               typicalPathMargin: metric.dataset.typicalPathMargin === undefined ? null : Number(metric.dataset.typicalPathMargin),
+              marginDelta: metric.dataset.marginDelta === undefined ? null : Number(metric.dataset.marginDelta),
               thisPathMarginKind: metric.dataset.thisPathMarginKind || '',
               typicalPathMarginKind: metric.dataset.typicalPathMarginKind || '',
               planEndAge: metric.dataset.planEndAge === undefined ? null : Number(metric.dataset.planEndAge),
@@ -3427,6 +3432,7 @@ try {
               railWidth: rail.getBoundingClientRect().width,
               railDisplay: railStyle.display,
               railDirection: railStyle.flexDirection,
+              railAlignItems: railStyle.alignItems,
               railGap: railStyle.gap,
               railPadding: railStyle.padding,
               railBorderLeftWidth: railStyle.borderLeftWidth,
@@ -3439,7 +3445,9 @@ try {
               reference: {
                 display: referenceStyle?.display || '',
                 direction: referenceStyle?.flexDirection || '',
+                alignItems: referenceStyle?.alignItems || '',
                 gap: referenceStyle?.gap || '',
+                width: reference?.getBoundingClientRect().width ?? null,
                 padding: referenceStyle?.padding || '',
                 borderBottomWidth: referenceStyle?.borderBottomWidth || '',
                 borderBottomStyle: referenceStyle?.borderBottomStyle || '',
@@ -3454,6 +3462,7 @@ try {
                 color: titleStyle?.color || '',
                 textShadow: titleStyle?.textShadow || '',
                 textTransform: titleStyle?.textTransform || '',
+                marginBottom: titleStyle?.marginBottom || '',
               },
               referenceLabel: {
                 fontSize: referenceLabelStyle?.fontSize || '',
@@ -3465,9 +3474,25 @@ try {
                 color: referenceValueStyle?.color || '',
                 whiteSpace: referenceValueStyle?.whiteSpace || '',
               },
+              selected: {
+                count: rail.querySelectorAll('[data-cash-path-selected]').length,
+                display: selectedGroupStyle?.display || '',
+                direction: selectedGroupStyle?.flexDirection || '',
+                alignItems: selectedGroupStyle?.alignItems || '',
+                gap: selectedGroupStyle?.gap || '',
+                padding: selectedGroupStyle?.padding || '',
+                radius: selectedGroupStyle?.borderRadius || '',
+                backgroundImage: selectedGroupStyle?.backgroundImage || '',
+                backgroundColor: selectedGroupStyle?.backgroundColor || '',
+                boxShadow: selectedGroupStyle?.boxShadow || '',
+                width: selectedGroup?.getBoundingClientRect().width ?? null,
+              },
               metric: {
                 display: selectedMetricStyle?.display || '',
                 direction: selectedMetricStyle?.flexDirection || '',
+                alignItems: selectedMetricStyle?.alignItems || '',
+                textAlign: selectedMetricStyle?.textAlign || '',
+                width: selectedMetric?.getBoundingClientRect().width ?? null,
                 gap: selectedMetricStyle?.gap || '',
                 nameFontSize: metricNameStyle?.fontSize || '',
                 nameLineHeight: metricNameStyle?.lineHeight || '',
@@ -3476,7 +3501,7 @@ try {
                 figureFontWeight: figureStyle?.fontWeight || '',
                 figureColor: figureStyle?.color || '',
                 figureWhiteSpace: figureStyle?.whiteSpace || '',
-                verdictFontSize: verdictStyle?.fontSize || '',
+                deltaFontSize: deltaStyle?.fontSize || '',
               },
               dividerMetrics: [...rail.querySelectorAll('.cf-path-rail__metric')].slice(1).map(metric => {
                 const style = getComputedStyle(metric);
@@ -3494,7 +3519,8 @@ try {
               bodyColor: expectedBodyColor,
               inkColor: expectedInkColor,
               figureColors: [...rail.querySelectorAll('.cf-path-rail__figure')].map(item => getComputedStyle(item).color),
-              verdictColors: [...rail.querySelectorAll('.cf-path-rail__verdict')].map(item => getComputedStyle(item).color),
+              deltaColors: [...rail.querySelectorAll('.cf-path-rail__delta')].map(item => getComputedStyle(item).color),
+              sentenceDeltaCopy: /(?:Dips|Recovers|less|more|Lasts just|Comparison unavailable)/i.test(rail.textContent || ''),
               oldSummaryCount: document.querySelectorAll('#scn-view .cf-summary--historical, #scn-view .cf-comparison').length,
               extraHeadingCount: rail.querySelectorAll('h1,h2,h3,h4,h5,h6').length,
               extraQualifierCopy: /(?:·\s*age|no trough|WD rate|margin)/i.test(rail.textContent || ''),
@@ -3542,13 +3568,13 @@ try {
         }
         const expectedMetricIds = [
           'max-real-drawdown',
-          'underwater-duration',
+          'recovery-period',
           'balance-at-age-80',
           'funded-through-margin',
         ];
         const expectedMetricLabels = [
-          'Deepest dip in savings',
-          'Years below starting balance',
+          'Max Drawdown',
+          'Recovery period',
           'Savings left at age 80',
           'Money lasts through',
         ];
@@ -3566,6 +3592,7 @@ try {
             || Math.abs(layout.railWidth - 280) > 0.01
             || layout.railDisplay !== 'flex'
             || layout.railDirection !== 'column'
+            || layout.railAlignItems !== 'center'
             || layout.railGap !== '16px'
             || layout.railPadding !== '20px 24px 24px'
             || layout.railBorderLeftWidth !== '1px'
@@ -3575,10 +3602,11 @@ try {
             || !(layout.baselineDelta <= 1)
             || layout.reference.display !== 'flex'
             || layout.reference.direction !== 'column'
+            || layout.reference.alignItems !== 'center'
             || layout.reference.gap !== '6px'
-            || layout.reference.padding !== '0px 0px 16px'
-            || layout.reference.borderBottomWidth !== '1px'
-            || layout.reference.borderBottomStyle !== 'solid'
+            || layout.reference.padding !== '0px 0px 4px'
+            || layout.reference.borderBottomWidth !== '0px'
+            || layout.reference.borderBottomStyle !== 'none'
             || layout.reference.background !== 'rgba(0, 0, 0, 0)'
             || layout.reference.radius !== '0px'
             || layout.title.text !== 'Typical path'
@@ -3588,13 +3616,29 @@ try {
             || layout.title.color !== layout.accentColor
             || !/10px/.test(layout.title.textShadow)
             || layout.title.textTransform !== 'none'
+            || layout.title.marginBottom !== '2px'
             || layout.referenceLabel.fontSize !== '13px'
             || layout.referenceLabel.color !== layout.bodyColor
             || layout.referenceValue.fontSize !== '15px'
             || layout.referenceValue.color !== layout.bodyColor
             || layout.referenceValue.whiteSpace !== 'nowrap'
+            || layout.selected.count !== 1
+            || layout.selected.display !== 'flex'
+            || layout.selected.direction !== 'column'
+            || layout.selected.alignItems !== 'center'
+            || layout.selected.gap !== '16px'
+            || layout.selected.padding !== '14px 12px'
+            || layout.selected.radius !== '10px'
+            || layout.selected.backgroundColor !== 'rgba(0, 0, 0, 0)'
+            || !/radial-gradient/.test(layout.selected.backgroundImage)
+            || !/0\.055/.test(layout.selected.backgroundImage)
+            || !/22px/.test(layout.selected.boxShadow)
+            || !/inset/.test(layout.selected.boxShadow)
+            || Math.abs(layout.reference.width - layout.selected.width) > 1
             || layout.metric.display !== 'flex'
             || layout.metric.direction !== 'column'
+            || layout.metric.alignItems !== 'center'
+            || layout.metric.textAlign !== 'center'
             || layout.metric.gap !== '5px'
             || layout.metric.nameFontSize !== '12px'
             || layout.metric.nameColor !== layout.bodyColor
@@ -3602,7 +3646,7 @@ try {
             || layout.metric.figureFontWeight !== '300'
             || layout.metric.figureColor !== layout.inkColor
             || layout.metric.figureWhiteSpace !== 'nowrap'
-            || layout.metric.verdictFontSize !== '12px'
+            || layout.metric.deltaFontSize !== '12px'
             || layout.dividerMetrics.length !== 3
             || layout.dividerMetrics.some(metric => (
               metric.paddingTop !== '16px'
@@ -3610,9 +3654,10 @@ try {
               || metric.borderTopStyle !== 'solid'
             ))
             || layout.directChildBackgrounds.some(color => color !== 'rgba(0, 0, 0, 0)')
-            || layout.directChildRadii.some(radius => radius !== '0px')
+            || JSON.stringify(layout.directChildRadii) !== JSON.stringify(['0px', '10px'])
             || layout.figureColors.some(color => color === layout.accentColor)
-            || layout.verdictColors.some(color => ![layout.negativeColor, layout.mutedColor].includes(color))
+            || layout.deltaColors.some(color => ![layout.negativeColor, layout.mutedColor].includes(color))
+            || layout.sentenceDeltaCopy
             || layout.oldSummaryCount !== 0
             || layout.extraHeadingCount !== 0
             || layout.extraQualifierCopy
@@ -3620,13 +3665,13 @@ try {
           throw new Error(`${mode} path-metrics rail visual contract drifted: ${JSON.stringify(layout)}`);
         }
         if(historicalPath.metrics.some(metric => (
-          metric.verdictTone === 'negative'
-            ? metric.verdictColor !== layout.negativeColor
-            : metric.verdictTone === 'muted'
-              ? metric.verdictColor !== layout.mutedColor
+          metric.deltaTone === 'negative'
+            ? metric.deltaColor !== layout.negativeColor
+            : metric.deltaTone === 'muted'
+              ? metric.deltaColor !== layout.mutedColor
               : true
         ))){
-          throw new Error(`${mode} path-metrics verdict tones drifted: ${JSON.stringify(historicalPath.metrics)}`);
+          throw new Error(`${mode} path-metrics delta tones drifted: ${JSON.stringify(historicalPath.metrics)}`);
         }
         const portfolioFacts = rows => {
           const retirement = rows.filter(row => row.phase === 'retirement' && row.sourceYear !== null);
@@ -3636,6 +3681,8 @@ try {
           let troughAge = null;
           let underwater = 0;
           let underwaterMax = 0;
+          let longestClosedUnderwater = 0;
+          let dippedBelowStart = false;
           for(const row of retirement){
             if(row.endingBalance > peak) peak = row.endingBalance;
             const drawdown = peak > 0 ? ((peak - row.endingBalance) / peak) * 100 : 0;
@@ -3644,12 +3691,24 @@ try {
               troughAge = row.age;
             }
             if(row.endingBalance < startingBalance - 0.01){
+              dippedBelowStart = true;
               underwater += 1;
               underwaterMax = Math.max(underwaterMax, underwater);
             }else{
+              longestClosedUnderwater = Math.max(longestClosedUnderwater, underwater);
               underwater = 0;
             }
           }
+          const recoveryStatus = !dippedBelowStart
+            ? 'no-dip'
+            : underwater > 0
+              ? 'never'
+              : 'recovered';
+          const recoveryYears = recoveryStatus === 'no-dip'
+            ? 0
+            : recoveryStatus === 'recovered'
+              ? longestClosedUnderwater
+              : null;
           const age80 = rows.filter(row => row.sourceYear !== null && row.age === 80);
           return {
             retirement,
@@ -3657,6 +3716,8 @@ try {
             troughAge,
             yearsAboveSix: retirement.filter(row => row.wdRate > 6).length,
             underwaterMax,
+            recoveryStatus,
+            recoveryYears,
             age80Balance: age80.length === 1 ? age80[0].endingBalance : null,
           };
         };
@@ -3693,19 +3754,28 @@ try {
         const historicalFacts = portfolioFacts(historicalPath.rows);
         const typicalFacts = portfolioFacts(typicalRowsByPlanYear);
         const drawdownMetric = historicalPath.metrics[0];
-        const underwaterMetric = historicalPath.metrics[1];
+        const recoveryMetric = historicalPath.metrics[1];
         const age80Metric = historicalPath.metrics[2];
         const fundingMetric = historicalPath.metrics[3];
         const historicalFunding = fundingFacts(historicalFacts, fundingMetric.planEndAge);
         const typicalFunding = fundingFacts(typicalFacts, fundingMetric.planEndAge);
         if(!close(drawdownMetric.thisPath, historicalFacts.maxDrawdown)
             || !close(drawdownMetric.typicalPath, typicalFacts.maxDrawdown)
-            || !close(drawdownMetric.delta, historicalFacts.maxDrawdown - typicalFacts.maxDrawdown)
+            || !close(drawdownMetric.delta, typicalFacts.maxDrawdown - historicalFacts.maxDrawdown)
             || drawdownMetric.thisPathAge !== historicalFacts.troughAge
             || drawdownMetric.typicalPathAge !== typicalFacts.troughAge
-            || underwaterMetric.thisPath !== historicalFacts.underwaterMax
-            || underwaterMetric.typicalPath !== typicalFacts.underwaterMax
-            || underwaterMetric.delta !== historicalFacts.underwaterMax - typicalFacts.underwaterMax
+            || recoveryMetric.thisPath !== historicalFacts.recoveryYears
+            || recoveryMetric.typicalPath !== typicalFacts.recoveryYears
+            || recoveryMetric.thisPathRecoveryStatus !== historicalFacts.recoveryStatus
+            || recoveryMetric.typicalPathRecoveryStatus !== typicalFacts.recoveryStatus
+            || !sameOptional(
+              recoveryMetric.delta,
+              Number.isFinite(historicalFacts.recoveryYears) && Number.isFinite(typicalFacts.recoveryYears)
+                ? historicalFacts.recoveryYears - typicalFacts.recoveryYears
+                : historicalFacts.recoveryStatus === 'never' && typicalFacts.recoveryStatus === 'never'
+                  ? 0
+                  : null
+            )
             || !sameOptional(age80Metric.thisPath, historicalFacts.age80Balance)
             || !sameOptional(age80Metric.typicalPath, typicalFacts.age80Balance)
             || !sameOptional(
@@ -3720,8 +3790,9 @@ try {
             || !sameOptional(fundingMetric.typicalPathMargin, typicalFunding.margin)
             || fundingMetric.thisPathMarginKind !== historicalFunding.kind
             || fundingMetric.typicalPathMarginKind !== typicalFunding.kind
+            || fundingMetric.delta !== historicalFunding.fundedThroughAge - typicalFunding.fundedThroughAge
             || !sameOptional(
-              fundingMetric.delta,
+              fundingMetric.marginDelta,
               historicalFunding.margin !== null && typicalFunding.margin !== null
                 ? historicalFunding.margin - typicalFunding.margin
                 : null
@@ -3750,9 +3821,15 @@ try {
           const amount = Number.isInteger(absolute) ? String(absolute) : absolute.toFixed(1);
           return amount + (absolute === 1 ? ' yr' : ' yrs');
         };
+        const visibleSignedYears = value => value === 0
+          ? 'Same'
+          : (value < 0 ? '\u2212' : '+') + visibleYears(value);
+        const visibleRecovery = facts => facts.recoveryStatus === 'never'
+          ? 'Never'
+          : visibleYears(facts.recoveryYears);
         const displayedDrawdownDelta = Number((
-          Number(historicalFacts.maxDrawdown.toFixed(1))
-          - Number(typicalFacts.maxDrawdown.toFixed(1))
+          Number(typicalFacts.maxDrawdown.toFixed(1))
+          - Number(historicalFacts.maxDrawdown.toFixed(1))
         ).toFixed(1));
         const balanceDelta = historicalFacts.age80Balance !== null && typicalFacts.age80Balance !== null
           ? historicalFacts.age80Balance - typicalFacts.age80Balance
@@ -3760,9 +3837,14 @@ try {
         const displayedBalanceDelta = Number.isFinite(balanceDelta)
           ? visibleMoney(Math.abs(balanceDelta))
           : null;
+        const recoveryDelta = Number.isFinite(historicalFacts.recoveryYears)
+            && Number.isFinite(typicalFacts.recoveryYears)
+          ? historicalFacts.recoveryYears - typicalFacts.recoveryYears
+          : null;
+        const fundingDelta = historicalFunding.fundedThroughAge - typicalFunding.fundedThroughAge;
         const expectedReferenceValues = [
           '\u2212' + Math.abs(typicalFacts.maxDrawdown).toFixed(1) + '%',
-          visibleYears(typicalFacts.underwaterMax),
+          visibleRecovery(typicalFacts),
           visibleMoney(
             typicalFacts.age80Balance,
             typicalFunding.kind === 'years-short' && typicalFunding.fundedThroughAge < 80
@@ -3773,7 +3855,7 @@ try {
         ];
         const expectedSelectedValues = [
           '\u2212' + Math.abs(historicalFacts.maxDrawdown).toFixed(1) + '%',
-          visibleYears(historicalFacts.underwaterMax),
+          visibleRecovery(historicalFacts),
           visibleMoney(
             historicalFacts.age80Balance,
             historicalFunding.kind === 'years-short' && historicalFunding.fundedThroughAge < 80
@@ -3782,40 +3864,44 @@ try {
           ),
           'Age ' + historicalFunding.fundedThroughAge,
         ];
-        const expectedVerdicts = [
-          displayedDrawdownDelta > 0
-            ? `Dips ${displayedDrawdownDelta.toFixed(1)} pts further`
-            : displayedDrawdownDelta < 0
-              ? `Dips ${Math.abs(displayedDrawdownDelta).toFixed(1)} pts less`
-              : 'Dips just as far',
-          historicalFacts.underwaterMax > typicalFacts.underwaterMax
-            ? `Recovers ${visibleYears(historicalFacts.underwaterMax - typicalFacts.underwaterMax)} later`
-            : historicalFacts.underwaterMax < typicalFacts.underwaterMax
-              ? `Recovers ${visibleYears(historicalFacts.underwaterMax - typicalFacts.underwaterMax)} sooner`
-              : 'Recovers just as quickly',
+        const expectedDeltas = [
+          displayedDrawdownDelta === 0
+            ? 'Same'
+            : (displayedDrawdownDelta < 0 ? '\u2212' : '+')
+              + Math.abs(displayedDrawdownDelta).toFixed(1) + ' pts',
+          historicalFacts.recoveryStatus === 'never' && typicalFacts.recoveryStatus === 'never'
+            ? 'Same'
+            : historicalFacts.recoveryStatus === 'never' || typicalFacts.recoveryStatus === 'never'
+              ? ''
+              : visibleSignedYears(recoveryDelta),
           displayedBalanceDelta === null
-            ? 'Comparison unavailable'
+            ? ''
             : displayedBalanceDelta === '$0'
-              ? 'Same amount left'
-              : balanceDelta < 0
-                ? `${displayedBalanceDelta} less`
-                : `${displayedBalanceDelta} more`,
-          historicalFunding.fundedThroughAge < typicalFunding.fundedThroughAge
-            ? `Lasts ${visibleYears(typicalFunding.fundedThroughAge - historicalFunding.fundedThroughAge)} less`
-            : historicalFunding.fundedThroughAge > typicalFunding.fundedThroughAge
-              ? `Lasts ${visibleYears(historicalFunding.fundedThroughAge - typicalFunding.fundedThroughAge)} longer`
-              : 'Lasts just as long',
+              ? 'Same'
+              : (balanceDelta < 0 ? '\u2212' : '+') + displayedBalanceDelta,
+          visibleSignedYears(fundingDelta),
+        ];
+        const expectedDeltaTones = [
+          displayedDrawdownDelta < 0 ? 'negative' : 'muted',
+          historicalFacts.recoveryStatus === 'never' && typicalFacts.recoveryStatus !== 'never'
+            ? 'negative'
+            : recoveryDelta > 0 ? 'negative' : 'muted',
+          balanceDelta < 0 ? 'negative' : 'muted',
+          fundingDelta < 0 ? 'negative' : 'muted',
         ];
         if(JSON.stringify(historicalPath.reference.map(metric => metric.value)) !== JSON.stringify(expectedReferenceValues)
             || JSON.stringify(historicalPath.metrics.map(metric => metric.figure)) !== JSON.stringify(expectedSelectedValues)
-            || JSON.stringify(historicalPath.metrics.map(metric => metric.verdict)) !== JSON.stringify(expectedVerdicts)){
+            || JSON.stringify(historicalPath.metrics.map(metric => metric.deltaText)) !== JSON.stringify(expectedDeltas)
+            || JSON.stringify(historicalPath.metrics.map(metric => metric.deltaTone)) !== JSON.stringify(expectedDeltaTones)){
           throw new Error(`${mode} visible path-metrics inventory does not reconcile to authoritative rows: ${JSON.stringify({
             actualReferenceValues: historicalPath.reference.map(metric => metric.value),
             expectedReferenceValues,
             actualSelectedValues: historicalPath.metrics.map(metric => metric.figure),
             expectedSelectedValues,
-            actualVerdicts: historicalPath.metrics.map(metric => metric.verdict),
-            expectedVerdicts,
+            actualDeltas: historicalPath.metrics.map(metric => metric.deltaText),
+            expectedDeltas,
+            actualDeltaTones: historicalPath.metrics.map(metric => metric.deltaTone),
+            expectedDeltaTones,
           })}`);
         }
         if(historicalPath.summary.outcome === 'underfunded'){
@@ -4077,7 +4163,7 @@ try {
             balance: 650000, withdrawal: 28000, fundingShortfall: 0, failed: false, wdRate: 4, taxes: 0,
           }, {
             year: 2, age: 66, phase: 'ret', source: 1996, startBalance: 650000,
-            balance: 600000, withdrawal: 32500, fundingShortfall: 0, failed: false, wdRate: 5, taxes: 0,
+            balance: 700000, withdrawal: 32500, fundingShortfall: 0, failed: false, wdRate: 5, taxes: 0,
           }],
         };
         const historicalRows = [{
@@ -4108,6 +4194,8 @@ try {
             maxRealDrawdownTroughAge: 66,
             yearsAboveSixPctWdRate: 1,
             portfolioUnderwaterYearsMax: 2,
+            portfolioRecoveryPeriodStatus: 'never',
+            portfolioRecoveryPeriodYears: null,
             realBalanceAtAge80: null,
             fundedThroughAge: 65,
             planEndAge: 66,
@@ -4148,10 +4236,12 @@ try {
           },
           buildRows,
           digest: () => ({
-            maxRealDrawdownPct: 14.285714285714285,
-            maxRealDrawdownTroughAge: 66,
+            maxRealDrawdownPct: 7.142857142857143,
+            maxRealDrawdownTroughAge: 65,
             yearsAboveSixPctWdRate: 0,
-            portfolioUnderwaterYearsMax: 2,
+            portfolioUnderwaterYearsMax: 1,
+            portfolioRecoveryPeriodStatus: 'recovered',
+            portfolioRecoveryPeriodYears: 1,
             realBalanceAtAge80: null,
             fundedThroughAge: 66,
             planEndAge: 66,
@@ -4203,6 +4293,8 @@ try {
           scenarioPage.appendChild(probe);
           const expectedColor = getComputedStyle(probe).color;
           probe.remove();
+          const recovery = host.querySelector('[data-historical-metric="recovery-period"]');
+          const recoveryReference = host.querySelector('[data-path-reference-metric="recovery-period"]');
           return {
             outcome: summary?.dataset.outcome || '',
             metrics: [...host.querySelectorAll('[data-historical-metric]')]
@@ -4211,6 +4303,18 @@ try {
             statusClass: status.className,
             statusColor: getComputedStyle(status).color,
             expectedColor,
+            recovery: {
+              reference: recoveryReference?.querySelector('.cf-path-rail__reference-value')?.textContent.trim() || '',
+              figure: recovery?.querySelector('.cf-path-rail__figure')?.textContent.trim() || '',
+              delta: recovery?.querySelector('.cf-path-rail__delta')?.textContent.trim() || '',
+              tone: recovery?.dataset.deltaTone || '',
+              referenceFontSize: recoveryReference
+                ? getComputedStyle(recoveryReference.querySelector('.cf-path-rail__reference-value')).fontSize
+                : '',
+              figureFontSize: recovery
+                ? getComputedStyle(recovery.querySelector('.cf-path-rail__figure')).fontSize
+                : '',
+            },
           };
         }finally{
           host.remove();
@@ -4221,9 +4325,15 @@ try {
       });
       if(underfundedMatrixProof.outcome !== 'underfunded'
           || JSON.stringify(underfundedMatrixProof.metrics) !== JSON.stringify([
-            'max-real-drawdown', 'underwater-duration',
+            'max-real-drawdown', 'recovery-period',
             'balance-at-age-80', 'funded-through-margin',
           ])
+          || underfundedMatrixProof.recovery.reference !== '1 yr'
+          || underfundedMatrixProof.recovery.figure !== 'Never'
+          || underfundedMatrixProof.recovery.delta !== ''
+          || underfundedMatrixProof.recovery.tone !== 'negative'
+          || underfundedMatrixProof.recovery.referenceFontSize !== '15px'
+          || underfundedMatrixProof.recovery.figureFontSize !== '24px'
           || underfundedMatrixProof.glyph !== '!'
           || !/is-underfunded/.test(underfundedMatrixProof.statusClass)
           || underfundedMatrixProof.statusColor !== underfundedMatrixProof.expectedColor){
@@ -4280,7 +4390,7 @@ try {
             id: metric.dataset.historicalMetric || '',
             label: metric.querySelector('.cf-path-rail__metric-name')?.textContent.trim() || '',
             figure: metric.querySelector('.cf-path-rail__figure')?.textContent.trim() || '',
-            verdict: metric.querySelector('.cf-path-rail__verdict')?.textContent.trim() || '',
+            deltaText: metric.querySelector('.cf-path-rail__delta')?.textContent.trim() || '',
             thisPath: metric.dataset.thisPath === '' ? null : Number(metric.dataset.thisPath),
             typicalPath: metric.dataset.typicalPath === '' ? null : Number(metric.dataset.typicalPath),
             delta: metric.dataset.delta === '' ? null : Number(metric.dataset.delta),
@@ -4337,7 +4447,7 @@ try {
               id: metric.dataset.historicalMetric || '',
               label: metric.querySelector('.cf-path-rail__metric-name')?.textContent.trim() || '',
               figure: metric.querySelector('.cf-path-rail__figure')?.textContent.trim() || '',
-              verdict: metric.querySelector('.cf-path-rail__verdict')?.textContent.trim() || '',
+              deltaText: metric.querySelector('.cf-path-rail__delta')?.textContent.trim() || '',
               thisPath: metric.dataset.thisPath === '' ? null : Number(metric.dataset.thisPath),
               typicalPath: metric.dataset.typicalPath === '' ? null : Number(metric.dataset.typicalPath),
               delta: metric.dataset.delta === '' ? null : Number(metric.dataset.delta),

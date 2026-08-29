@@ -128,6 +128,8 @@ test('historical Cash Flow stops at and reports the first underfunded retirement
   assert.equal('totalModeledShortfall' in result.summary, false);
   assert.equal(result.digest.maxRealDrawdownPct, 100);
   assert.equal(result.digest.maxRealDrawdownTroughAge, 66);
+  assert.equal(result.digest.portfolioRecoveryPeriodStatus, 'never');
+  assert.equal(result.digest.portfolioRecoveryPeriodYears, null);
   assert.equal(result.digest.realBalanceAtAge80, null);
   assert.equal(result.digest.fundedThroughAge, 65);
   assert.equal(result.digest.planEndAge, 70);

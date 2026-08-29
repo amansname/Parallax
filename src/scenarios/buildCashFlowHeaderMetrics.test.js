@@ -35,6 +35,8 @@ function digest(overrides = {}){
     maxRealDrawdownTroughAge: 74,
     yearsAboveSixPctWdRate: 1,
     portfolioUnderwaterYearsMax: 3,
+    portfolioRecoveryPeriodStatus: 'recovered',
+    portfolioRecoveryPeriodYears: 3,
     realBalanceAtAge80: 1_600_000,
     fundedThroughAge: 95,
     planEndAge: 95,
@@ -136,6 +138,8 @@ test('Historical header exposes the fixed five-metric comparison in decision ord
       maxRealDrawdownTroughAge: 72,
       yearsAboveSixPctWdRate: 4,
       portfolioUnderwaterYearsMax: 9,
+      portfolioRecoveryPeriodStatus: 'recovered',
+      portfolioRecoveryPeriodYears: 9,
       realBalanceAtAge80: 800_000,
       fundingMarginYears: 5.5,
     })),
@@ -145,7 +149,7 @@ test('Historical header exposes the fixed five-metric comparison in decision ord
   assert.deepEqual(metrics.rows.map(metric => metric.id), [
     'max-real-drawdown',
     'years-above-6-wd-rate',
-    'underwater-duration',
+    'recovery-period',
     'balance-at-age-80',
     'funded-through-margin',
   ]);
@@ -155,7 +159,7 @@ test('Historical header exposes the fixed five-metric comparison in decision ord
     format: 'drawdown',
     thisPath: 41.2,
     typicalPath: 18.4,
-    delta: 22.800000000000004,
+    delta: -22.800000000000004,
     thisPathAge: 72,
     typicalPathAge: 74,
   });
@@ -168,11 +172,13 @@ test('Historical header exposes the fixed five-metric comparison in decision ord
     delta: 3,
   });
   assert.deepEqual(metrics.rows[2], {
-    id: 'underwater-duration',
-    label: 'Underwater duration',
-    format: 'years',
+    id: 'recovery-period',
+    label: 'Recovery period',
+    format: 'recovery',
     thisPath: 9,
     typicalPath: 3,
+    thisPathRecoveryStatus: 'recovered',
+    typicalPathRecoveryStatus: 'recovered',
     delta: 6,
   });
   assert.deepEqual(metrics.rows[3], {
@@ -192,7 +198,8 @@ test('Historical header exposes the fixed five-metric comparison in decision ord
     format: 'funding',
     thisPath: 95,
     typicalPath: 95,
-    delta: -6.5,
+    delta: 0,
+    marginDelta: -6.5,
     thisPathMargin: 5.5,
     typicalPathMargin: 12,
     thisPathMarginKind: 'zero-return-runway',
@@ -211,6 +218,8 @@ test('underfunded Historical keeps all five metrics and expresses funding margin
       maxRealDrawdownTroughAge: 86,
       yearsAboveSixPctWdRate: 7,
       portfolioUnderwaterYearsMax: 10,
+      portfolioRecoveryPeriodStatus: 'never',
+      portfolioRecoveryPeriodYears: null,
       realBalanceAtAge80: 200_000,
       fundedThroughAge: 85,
       fundingMarginYears: -10,
@@ -221,6 +230,16 @@ test('underfunded Historical keeps all five metrics and expresses funding margin
 
   assert.equal(metrics.outcome, 'underfunded');
   assert.equal(metrics.rows.length, 5);
+  assert.deepEqual(metrics.rows[2], {
+    id: 'recovery-period',
+    label: 'Recovery period',
+    format: 'recovery',
+    thisPath: null,
+    typicalPath: 3,
+    thisPathRecoveryStatus: 'never',
+    typicalPathRecoveryStatus: 'recovered',
+    delta: null,
+  });
   assert.deepEqual(metrics.rows[4], {
     id: 'funded-through-margin',
     label: 'Funded through · margin',
@@ -228,13 +247,53 @@ test('underfunded Historical keeps all five metrics and expresses funding margin
     format: 'funding',
     thisPath: 85,
     typicalPath: 95,
-    delta: -22,
+    delta: -10,
+    marginDelta: -22,
     thisPathMargin: -10,
     typicalPathMargin: 12,
     thisPathMarginKind: 'years-short',
     typicalPathMarginKind: 'zero-return-runway',
     planEndAge: 95,
   });
+});
+
+test('Historical recovery comparison preserves no-dip and both-never engine states', () => {
+  const noDip = buildCashFlowHeaderMetrics({
+    historicalResult: historicalResult('survives', digest({
+      portfolioUnderwaterYearsMax: 0,
+      portfolioRecoveryPeriodStatus: 'no-dip',
+      portfolioRecoveryPeriodYears: 0,
+    })),
+    typicalDigest: digest(),
+  }).rows.find(metric => metric.id === 'recovery-period');
+
+  assert.deepEqual(noDip, {
+    id: 'recovery-period',
+    label: 'Recovery period',
+    format: 'recovery',
+    thisPath: 0,
+    typicalPath: 3,
+    thisPathRecoveryStatus: 'no-dip',
+    typicalPathRecoveryStatus: 'recovered',
+    delta: -3,
+  });
+
+  const bothNever = buildCashFlowHeaderMetrics({
+    historicalResult: historicalResult('survives', digest({
+      portfolioRecoveryPeriodStatus: 'never',
+      portfolioRecoveryPeriodYears: null,
+    })),
+    typicalDigest: digest({
+      portfolioRecoveryPeriodStatus: 'never',
+      portfolioRecoveryPeriodYears: null,
+    }),
+  }).rows.find(metric => metric.id === 'recovery-period');
+
+  assert.equal(bothNever.thisPath, null);
+  assert.equal(bothNever.typicalPath, null);
+  assert.equal(bothNever.thisPathRecoveryStatus, 'never');
+  assert.equal(bothNever.typicalPathRecoveryStatus, 'never');
+  assert.equal(bothNever.delta, 0);
 });
 
 test('Historical age-80 balance fails closed per metric after earlier underfunding', () => {
@@ -273,7 +332,8 @@ test('Historical no-draw plan end does not invent infinite funding cushion', () 
   const funding = metrics.rows.find(metric => metric.id === 'funded-through-margin');
   assert.equal(funding.thisPathMargin, null);
   assert.equal(funding.thisPathMarginKind, 'no-portfolio-draw');
-  assert.equal(funding.delta, null);
+  assert.equal(funding.delta, 0);
+  assert.equal(funding.marginDelta, null);
 });
 
 test('Historical header fails closed when engine digest evidence is absent', () => {

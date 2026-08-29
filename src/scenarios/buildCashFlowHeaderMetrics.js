@@ -123,6 +123,26 @@ function drawdownTroughAge(digest, drawdown, label){
   });
 }
 
+function recoveryFacts(digest, label){
+  const status = digest?.portfolioRecoveryPeriodStatus;
+  const years = digest?.portfolioRecoveryPeriodYears;
+  if(status === 'never'){
+    if(years !== null) throw new Error(`${label} unrecovered period is invalid`);
+    return { status, years: null };
+  }
+  if(status === 'no-dip'){
+    if(years !== 0) throw new Error(`${label} no-dip recovery period is invalid`);
+    return { status, years: 0 };
+  }
+  if(status === 'recovered'){
+    if(!Number.isInteger(years) || years < 1){
+      throw new Error(`${label} recovered period is unavailable`);
+    }
+    return { status, years };
+  }
+  throw new Error(`${label} recovery-period status is unavailable`);
+}
+
 function fundingFacts(digest, label){
   const fundedThroughAge = finiteMetric(digest, 'fundedThroughAge', `${label} funded-through age`, {
     integer: true,
@@ -179,6 +199,8 @@ function historicalHeader(historicalResult, typicalDigest){
     'Typical max real drawdown',
     { min: 0, max: 100 }
   );
+  const historicalRecovery = recoveryFacts(historicalDigest, 'Historical');
+  const typicalRecovery = recoveryFacts(typicalDigest, 'Typical');
   const historicalAge80 = optionalFiniteMetric(
     historicalDigest,
     'realBalanceAtAge80',
@@ -207,7 +229,7 @@ function historicalHeader(historicalResult, typicalDigest){
         format: 'drawdown',
         thisPath: historicalDrawdown,
         typicalPath: typicalDrawdown,
-        delta: historicalDrawdown - typicalDrawdown,
+        delta: typicalDrawdown - historicalDrawdown,
         thisPathAge: drawdownTroughAge(historicalDigest, historicalDrawdown, 'Historical'),
         typicalPathAge: drawdownTroughAge(typicalDigest, typicalDrawdown, 'Typical'),
       },
@@ -229,21 +251,18 @@ function historicalHeader(historicalResult, typicalDigest){
         ),
       },
       {
-        id: 'underwater-duration',
-        label: 'Underwater duration',
-        format: 'years',
-        thisPath: finiteMetric(
-          historicalDigest,
-          'portfolioUnderwaterYearsMax',
-          'Historical underwater duration',
-          { integer: true, min: 0 }
-        ),
-        typicalPath: finiteMetric(
-          typicalDigest,
-          'portfolioUnderwaterYearsMax',
-          'Typical underwater duration',
-          { integer: true, min: 0 }
-        ),
+        id: 'recovery-period',
+        label: 'Recovery period',
+        format: 'recovery',
+        thisPath: historicalRecovery.years,
+        typicalPath: typicalRecovery.years,
+        thisPathRecoveryStatus: historicalRecovery.status,
+        typicalPathRecoveryStatus: typicalRecovery.status,
+        delta: Number.isFinite(historicalRecovery.years) && Number.isFinite(typicalRecovery.years)
+          ? historicalRecovery.years - typicalRecovery.years
+          : historicalRecovery.status === 'never' && typicalRecovery.status === 'never'
+            ? 0
+            : null,
       },
       {
         id: 'balance-at-age-80',
@@ -274,7 +293,8 @@ function historicalHeader(historicalResult, typicalDigest){
         format: 'funding',
         thisPath: historicalFunding.fundedThroughAge,
         typicalPath: typicalFunding.fundedThroughAge,
-        delta: historicalFunding.marginYears !== null && typicalFunding.marginYears !== null
+        delta: historicalFunding.fundedThroughAge - typicalFunding.fundedThroughAge,
+        marginDelta: historicalFunding.marginYears !== null && typicalFunding.marginYears !== null
           ? historicalFunding.marginYears - typicalFunding.marginYears
           : null,
         thisPathMargin: historicalFunding.marginYears,

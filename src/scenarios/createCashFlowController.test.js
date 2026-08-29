@@ -39,6 +39,8 @@ function cashFlowDigest(overrides = {}){
     maxRealDrawdownTroughAge: 66,
     yearsAboveSixPctWdRate: 0,
     portfolioUnderwaterYearsMax: 1,
+    portfolioRecoveryPeriodStatus: 'recovered',
+    portfolioRecoveryPeriodYears: 1,
     realBalanceAtAge80: null,
     fundedThroughAge: 66,
     planEndAge: 66,
@@ -323,7 +325,7 @@ test('historical Cash Flow attaches the comparison contract to the same ledger r
     }],
     expectedOutcome: 'survives',
     expectedMetric: 'max-real-drawdown',
-    expectedDelta: 2,
+    expectedDelta: -2,
   }, {
     summary: { outcome: 'underfunded' },
     digest: cashFlowDigest({
@@ -342,7 +344,7 @@ test('historical Cash Flow attaches the comparison contract to the same ledger r
     }],
     expectedOutcome: 'underfunded',
     expectedMetric: 'max-real-drawdown',
-    expectedDelta: 90,
+    expectedDelta: -90,
   }];
 
   for(const entry of cases){

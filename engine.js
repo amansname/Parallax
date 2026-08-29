@@ -4223,10 +4223,14 @@ function pathDigest(sim, params){
   let maxRealDrawdownPct = null;
   let maxRealDrawdownTroughAge = null;
   let portfolioUnderwaterYearsMax = null;
+  let portfolioRecoveryPeriodStatus = null;
+  let portfolioRecoveryPeriodYears = null;
   if(portfolioStartingRealBalance !== null){
     let runningPeak = portfolioStartingRealBalance;
     let maxDrawdown = 0;
     let underwaterYears = 0;
+    let longestClosedUnderwaterYears = 0;
+    let dippedBelowStart = false;
     portfolioUnderwaterYearsMax = 0;
     for(const r of retRows){
       if(!Number.isFinite(r.balance) || r.balance < 0) continue;
@@ -4239,15 +4243,28 @@ function pathDigest(sim, params){
         maxRealDrawdownTroughAge = Number.isFinite(r.age) ? r.age : null;
       }
       if(r.balance < portfolioStartingRealBalance - 0.01){
+        dippedBelowStart = true;
         underwaterYears += 1;
         if(underwaterYears > portfolioUnderwaterYearsMax){
           portfolioUnderwaterYearsMax = underwaterYears;
         }
       }else{
+        if(underwaterYears > longestClosedUnderwaterYears){
+          longestClosedUnderwaterYears = underwaterYears;
+        }
         underwaterYears = 0;
       }
     }
     maxRealDrawdownPct = maxDrawdown;
+    if(!dippedBelowStart){
+      portfolioRecoveryPeriodStatus = 'no-dip';
+      portfolioRecoveryPeriodYears = 0;
+    }else if(underwaterYears > 0){
+      portfolioRecoveryPeriodStatus = 'never';
+    }else{
+      portfolioRecoveryPeriodStatus = 'recovered';
+      portfolioRecoveryPeriodYears = longestClosedUnderwaterYears;
+    }
   }
 
   const yearsAboveSixPctWdRate = retRows.filter(
@@ -4359,6 +4376,8 @@ function pathDigest(sim, params){
     maxRealDrawdownTroughAge,
     yearsAboveSixPctWdRate,
     portfolioUnderwaterYearsMax,
+    portfolioRecoveryPeriodStatus,
+    portfolioRecoveryPeriodYears,
     realBalanceAtAge80,
     fundedThroughAge,
     planEndAge,
