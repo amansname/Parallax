@@ -1254,6 +1254,23 @@
   box-shadow: 0 0 22px rgba(177, 132, 92, .05), inset 0 0 0 1px rgba(177, 132, 92, .07);
 }
 
+.page[data-page="scenarios"] .cf-path-rail__selected-period {
+  width: 100%;
+  padding: 0 0 12px;
+  border-bottom: 1px solid var(--rule-f);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: .01em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.page[data-page="scenarios"] .cf-path-rail__selected-period-name {
+  color: var(--acc);
+}
+
 .page[data-page="scenarios"] .cf-path-rail__metric {
   width: 100%;
   display: flex;
