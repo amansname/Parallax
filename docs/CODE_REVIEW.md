@@ -11,6 +11,8 @@ CI, branch protection, or the acceptance matrix in
 - The authoring session cannot self-certify. Before a PR is considered
   merge-ready, request a separate `/review` against `main` or post
   `@codex review` on the pull request.
+- Confirm the PR is authored by `parallax-pr-author-amans[bot]` and the human
+  owner is the requested or completed reviewer, never the PR author.
 - The initial review is read-only. Do not edit, commit, or resolve findings in
   the review pass. Apply authorized fixes afterward, then request re-review.
 - Deployment availability is not behavioral correctness evidence.
@@ -21,11 +23,13 @@ The reviewer must read:
 
 1. the original issue or user report and every reported symptom;
 2. the PR description and exact scope exclusions;
-3. every acceptance-matrix row;
+3. every acceptance-ledger row and disposition;
 4. the base and branch SHAs;
 5. fail-before/pass-after evidence and exact commands;
 6. clean, persisted-current, and persisted-legacy fixture provenance; and
-7. relevant `AGENTS.md`, architecture, product, workflow, and execution rules.
+7. the exact visible UI inventory and explicit absences when rendered output
+   changes; and
+8. relevant `AGENTS.md`, architecture, product, workflow, and execution rules.
 
 If an input is missing, report the evidence gap; do not infer it is satisfied.
 
@@ -33,9 +37,11 @@ If an input is missing, report the evidence gap; do not infer it is satisfied.
 
 ### 1. Reproduce the claim boundary
 
-Map each PR claim to a reported symptom and acceptance row. A test-only change
-cannot be accepted as a product fix. A screenshot supplements but never replaces
-an assertion of output or state.
+Map each original request and reported symptom to an acceptance-ledger row and
+an explicit disposition. Reject a new finding or adjacent fix that silently
+replaces unresolved assigned work. A test-only change cannot be accepted as a
+product fix. A screenshot supplements but never replaces an assertion of
+output or state.
 
 ### 2. Trace the responsible path
 
@@ -44,6 +50,12 @@ Confirm the production diff touches the path capable of causing the symptom.
 Inspect important untouched files when their absence is suspicious, including
 shared adapters, controllers, persistence boundaries, renderers, and engine
 inputs.
+
+When static configuration becomes state-dependent, or a change can make an old
+conditional reachable, enumerate the full output in every affected state and
+inspect the provenance of newly reachable branches. Reject subset-only tests
+that prove requested controls are present without proving unexpected controls
+are absent.
 
 ### 3. Inspect financial and failure semantics
 
@@ -74,6 +86,10 @@ financial-outcome assertions. Control values, labels, element existence, slider
 maxima, and screenshots alone are insufficient. Expected-value or fixture
 changes need a documented product-contract reason.
 
+For visible UI changes, compare the exact ordered DOM inventory and explicit
+absences, then inspect governed-view screenshots and computed typography,
+spacing, and containment against the named canonical component or tokens.
+
 Check fixtures and logs for names, addresses, email addresses, phone numbers,
 Social Security numbers, employer names, account numbers, secrets, or other
 identifying data. Sanitization must remove identity without removing the
@@ -84,7 +100,10 @@ reported state condition.
 Compare exact command outputs with required CI. No required failure may be
 hidden, suppressed, or labeled irrelevant to claim completion. GitHub Pages or
 another deployment proves reachability only. Confirm the PR checkbox and status
-language match the evidence.
+language match the evidence. The readiness receipt must name all four required
+jobs and the actual independent-review result; reject stale `pending` or `draft`
+claims when Merge-ready is requested. A failed, blocked, or findings-remaining
+review is not a completed positive review.
 
 ## Findings format
 

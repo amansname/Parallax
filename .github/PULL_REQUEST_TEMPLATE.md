@@ -1,85 +1,88 @@
-## Problem and user-visible impact
+## Scope and risk
 
-<!-- Quote or link every reported symptom. Explain the financial or data impact. -->
-
-## Exact reproduction
-
+- Change type: <!-- Defect / Feature / Test / Documentation / Governance -->
+- Risk tier: <!-- Tier 1 - Fast / Tier 2 - Standard / Tier 3 - Protected -->
 - Base commit SHA:
 - Branch commit SHA:
-- Fixture: <!-- clean / persisted-current / persisted-legacy and exact path -->
-- Browser origin and route:
-- Exact steps and observed output:
+- Original request:
+- Outcome:
+- Included:
+- Non-goals:
+- Authority and protected boundaries:
 
-## Root cause
+## Acceptance ledger
 
-<!-- Identify the responsible production path. A failing test is not the root cause. -->
+<!-- Keep every original request and reported symptom visible until it is fixed,
+delivered, deferred, or separately scoped. Do not silently replace the task. -->
 
-## Acceptance matrix
-
-| Reported symptom | Exact reproduction | Pre-fix failure | Production change | Regression assertion | Post-fix proof |
+| Original request or reported symptom | Disposition | Base or starting-state proof | Production change | Regression assertion | Candidate proof |
 |---|---|---|---|---|---|
 | | | | | | |
 
-## Production code changed
+## Defect evidence
 
-<!-- List production files and why each is required. Write "None — test/governance-only" when true. -->
+<!-- For a defect, provide all four labeled items below. For other work write
+"Not a defect —" and identify the starting-state evidence in the ledger. -->
 
-## Tests added or changed
+- Exact reproduction:
+- Root cause:
+- Fail-before:
+- Pass-after:
 
-<!-- List each test/fixture and the product contract it protects. -->
+## Changes and tests
 
-## Fail-before evidence
+- Production files:
+- Tests and fixtures:
 
-<!-- Exact base SHA, command, exit/result, and failure for the reported reason. -->
+## Visible UI contract
 
-## Pass-after evidence
+<!-- If Yes, name the complete allowed result—not only requested elements that
+must be present. Assert unrequested rows/controls are absent and compare the
+rendered result with canonical typography/layout at governed viewports. -->
 
-<!-- Exact branch SHA, command, exit/result, and asserted user-visible output. -->
+- Visible UI changed: <!-- Yes / No -->
+- Reason: <!-- Required when No -->
+- Exact visible inventory:
+- Explicitly absent or unchanged:
+- Canonical visual reference and viewports:
+- Rendered or browser proof:
 
-## Persisted-state and migration impact
+## Protected-contract evidence
 
-<!-- State exact saved fixture, schema/scenario versions, migration behavior, and source-byte preservation. -->
+<!-- Tier 3: record the applicable financial, tax, persistence, migration,
+security, deployment, governance, or cross-authority invariants. Lower tiers
+may write "Not applicable —" with the reason. -->
 
-## Financial invariants checked
-
-<!-- List every applicable invariant from docs/CODEX_WORKFLOW.md and its evidence. -->
-
-## Exact commands and results
+## Verification
 
 ```text
 npm run governance:check  # actual result
-npm test                  # actual counts and result
-npm run verify            # actual result or exact first failure
+npm test                  # actual result, or not run locally with Tier 1 reason
+npm run verify            # actual result, or not run locally with Tier 1 reason
 git diff --check          # actual result
 ```
 
-## Required CI status
+## Delivery status
 
 - [ ] Governance safeguards
 - [ ] Unit tests
+- [ ] Build deployable site artifact
 - [ ] Full browser verification
-
-## Known failures and proof gaps
-
-<!-- Include pre-existing failures, unverified behavior, unavailable environments, and why each remains. -->
-
-## Scope exclusions
-
-<!-- List related defects, refactors, copy changes, deployments, or cleanup not included. -->
-
-## Independent review status
-
-- Review method: <!-- separate /review against main or @codex review -->
+- Known failures and proof gaps:
+- Review method:
 - Reviewer/result link:
-- Findings and re-review status:
+- Review status:
+- Lifecycle: <!-- Draft-ready / Merge-ready -->
+- Hold: <!-- CI / Review / Owner decision / another exact hold -->
 
 ## Rollback considerations
 
-<!-- State rollback steps, saved-data risk, and whether schema or fixture changes are reversible. -->
+<!-- State rollback steps, saved-data risk, and reversibility. -->
 
 ## Truthful completion gate
 
-- [ ] Every behavior described as fixed was reproduced on the base branch and directly verified on this branch.
+- [ ] Every original request or reported symptom is accounted for as fixed, delivered, deferred, or separately scoped.
+- [ ] The visible UI contract names the exact allowed result and explicitly absent or unchanged behavior.
+- [ ] The evidence and status describe the current base and candidate, with no stale completion claim.
 
-Do not describe this PR as “fixed,” “complete,” or “merge-ready” when the
-checkbox above cannot truthfully be checked or any required check is failing.
+Draft-ready may truthfully retain pending CI or review. Merge-ready may not.

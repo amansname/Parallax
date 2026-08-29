@@ -90,11 +90,17 @@ requireText('docs/CODEX_WORKFLOW.md', [
   '**Tier 1 - Fast**',
   '**Tier 2 - Standard**',
   '**Tier 3 - Protected**',
-  '| Reported symptom | Exact reproduction | Pre-fix failure | Production change | Regression assertion | Post-fix proof |',
+  '| Original request or reported symptom | Disposition | Base or starting-state proof | Production change | Regression assertion | Candidate proof |',
+  'it must never silently replace the task that the owner actually assigned.',
+  'Regression tests must compare',
+  'the exact ordered result, not merely prove that requested elements are present.',
+  '## Improve the workflow from failures',
   'A test-only PR may improve coverage but cannot close a product-behavior issue.',
   'prove only the capabilities required to reach its explicitly authorized',
   '**Apply changes** handoff for governed Parallax candidates',
   'Run one authoritative clean-candidate verifier when',
+  'parallax-pr-author-amans[bot]',
+  'request `t66wwpvthy-prog` as the human reviewer',
   'branch-caused required-gate failure',
   'monitor the pull-request run as authoritative',
   'Moving a withdrawal lever changes the expected tax or financial column',
@@ -106,20 +112,43 @@ requireText('docs/CODEX_WORKFLOW.md', [
 requireText('docs/CODE_REVIEW.md', [
   'Review the complete branch against current `main`',
   'The authoring session cannot self-certify.',
+  'parallax-pr-author-amans[bot]',
   'The initial review is read-only.',
   'Inspect important untouched files when their absence is suspicious',
+  'Reject subset-only tests',
+  'exact ordered DOM inventory and explicit',
   'If no findings are found, say so explicitly',
+  'A failed, blocked, or findings-remaining',
+]);
+
+requireText('scripts/validate-pr-authorship.mjs', [
+  'validateCandidateCommitRecords',
+  'PARALLAX_BASE_SHA and PARALLAX_HEAD_SHA must be full commit SHAs',
+  'must use the Parallax bot as Git author',
+  'must use the Parallax bot as Git committer',
+]);
+
+requireText('scripts/validate-pr-body.mjs', [
+  "const REQUIRED_PR_AUTHOR = 'parallax-pr-author-amans[bot]';",
+  "const REQUIRED_PR_REVIEWER = 't66wwpvthy-prog';",
+  "const COMPLETED_REVIEW_STATES = new Set(['APPROVED', 'CHANGES_REQUESTED', 'COMMENTED']);",
+  'pull request must request or have a completed exact-head review by ${REQUIRED_PR_REVIEWER}',
+  'GitHub reviews API returned ${response.status}',
 ]);
 
 requireText('docs/GITHUB_SETTINGS.md', [
   '`Governance safeguards`',
   '`Unit tests`',
+  '`Build deployable site artifact`',
   '`Full browser verification`',
   '`@codex review`',
   'This document does not claim they are currently active.',
   'Build and deployment > Source',
   'GitHub Actions',
   'Verify every live byte',
+  'Require exactly one approving review',
+  'Disable the extra approval for changes not attributed to a user',
+  '`t66wwpvthy-prog` is the',
 ]);
 
 requireText('docs/DEPLOYMENT-INTEGRITY.md', [
@@ -141,26 +170,29 @@ requireText('docs/templates/CODEX_BUG_FIX_PROMPT.md', [
 ]);
 
 const prTemplate = requireText('.github/PULL_REQUEST_TEMPLATE.md', [
-  '## Problem and user-visible impact',
-  '## Exact reproduction',
-  '## Root cause',
-  '## Acceptance matrix',
-  '## Production code changed',
-  '## Tests added or changed',
-  '## Fail-before evidence',
-  '## Pass-after evidence',
-  '## Persisted-state and migration impact',
-  '## Financial invariants checked',
-  '## Exact commands and results',
-  '## Required CI status',
-  '## Known failures and proof gaps',
-  '## Scope exclusions',
-  '## Independent review status',
+  '## Scope and risk',
+  '## Acceptance ledger',
+  '## Defect evidence',
+  '## Changes and tests',
+  '## Visible UI contract',
+  '## Protected-contract evidence',
+  '## Verification',
+  '## Delivery status',
   '## Rollback considerations',
-  '- [ ] Every behavior described as fixed was reproduced on the base branch and directly verified on this branch.',
+  '## Truthful completion gate',
+  '- [ ] Build deployable site artifact',
+  '- [ ] Every original request or reported symptom is accounted for as fixed, delivered, deferred, or separately scoped.',
+  '- [ ] The visible UI contract names the exact allowed result and explicitly absent or unchanged behavior.',
+  '- [ ] The evidence and status describe the current base and candidate, with no stale completion claim.',
 ]);
-if((prTemplate.match(/Every behavior described as fixed was reproduced/g) || []).length !== 1){
-  failures.push('.github/PULL_REQUEST_TEMPLATE.md must contain the completion checkbox exactly once');
+for(const completionText of [
+  'Every original request or reported symptom is accounted for as fixed, delivered, deferred, or separately scoped.',
+  'The visible UI contract names the exact allowed result and explicitly absent or unchanged behavior.',
+  'The evidence and status describe the current base and candidate, with no stale completion claim.',
+]){
+  if((prTemplate.match(new RegExp(completionText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) || []).length !== 1){
+    failures.push(`.github/PULL_REQUEST_TEMPLATE.md must contain the completion checkbox exactly once: ${completionText}`);
+  }
 }
 
 const packageJson = JSON.parse(read('package.json') || '{}');
@@ -212,6 +244,11 @@ const workflow = requireText('.github/workflows/test.yml', [
   'name: Full browser verification',
   'run: npm run governance:check',
   'run: npm run governance:pr',
+  'name: Enforce bot-authored candidate commits',
+  'fetch-depth: 0',
+  'PARALLAX_BASE_SHA: ${{ github.event.pull_request.base.sha }}',
+  'PARALLAX_HEAD_SHA: ${{ github.event.pull_request.head.sha }}',
+  'run: node scripts/validate-pr-authorship.mjs',
   'run: npm test',
   'run: npm run verify',
   'name: Build deployable site artifact',
@@ -223,15 +260,52 @@ const workflow = requireText('.github/workflows/test.yml', [
   'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a',
 ]);
 const workflowConfig = parseDocument(workflow).toJS();
-const requiredPullRequestTypes = ['opened', 'synchronize', 'reopened', 'edited'];
+const requiredPullRequestTypes = ['opened', 'synchronize', 'reopened'];
 const configuredPullRequestTypes = workflowConfig?.on?.pull_request?.types;
 if(!Array.isArray(configuredPullRequestTypes)
+  || configuredPullRequestTypes.length !== requiredPullRequestTypes.length
   || requiredPullRequestTypes.some(type => !configuredPullRequestTypes.includes(type))){
-  failures.push('.github/workflows/test.yml must rerun pull_request governance for opened, synchronize, reopened, and edited events');
+  failures.push('.github/workflows/test.yml must run the full pull_request campaign only for opened, synchronize, and reopened events');
+}
+const configuredPushBranches = workflowConfig?.on?.push?.branches;
+if(!Array.isArray(configuredPushBranches)
+  || configuredPushBranches.length !== 1
+  || configuredPushBranches[0] !== 'main'){
+  failures.push('.github/workflows/test.yml must run push quality only on main; feature branches use the pull_request run');
 }
 for(const forbidden of ['continue-on-error', '|| true', '&& true']){
   if(workflow.includes(forbidden)){
     failures.push(`required workflow must not contain ${forbidden}`);
+  }
+}
+
+const prEvidenceWorkflow = requireText('.github/workflows/pr-evidence.yml', [
+  'name: Parallax PR evidence',
+  'types: [edited]',
+  "PUPPETEER_SKIP_DOWNLOAD: 'true'",
+  'name: Governance safeguards',
+  'run: npm run governance:check',
+  'run: npm run governance:pr',
+  'name: Enforce bot-authored candidate commits',
+  'fetch-depth: 0',
+  'PARALLAX_BASE_SHA: ${{ github.event.pull_request.base.sha }}',
+  'PARALLAX_HEAD_SHA: ${{ github.event.pull_request.head.sha }}',
+  'run: node scripts/validate-pr-authorship.mjs',
+]);
+const prEvidenceConfig = parseDocument(prEvidenceWorkflow).toJS();
+const evidencePullRequestTypes = prEvidenceConfig?.on?.pull_request?.types;
+if(!Array.isArray(evidencePullRequestTypes)
+  || evidencePullRequestTypes.length !== 1
+  || evidencePullRequestTypes[0] !== 'edited'){
+  failures.push('.github/workflows/pr-evidence.yml must run governance only for edited pull_request events');
+}
+const evidenceJobs = Object.keys(prEvidenceConfig?.jobs || {});
+if(evidenceJobs.length !== 1 || evidenceJobs[0] !== 'governance'){
+  failures.push('.github/workflows/pr-evidence.yml must contain only the governance job');
+}
+for(const forbidden of ['npm test', 'npm run verify', 'npm run site:build', 'npm run site:verify']){
+  if(prEvidenceWorkflow.includes(forbidden)){
+    failures.push(`PR-body edits must not run the full quality command: ${forbidden}`);
   }
 }
 
