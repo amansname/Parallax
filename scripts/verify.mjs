@@ -3312,9 +3312,9 @@ try {
 
       let reloadExpected = null;
       const observedHistoricalOutcomes = new Set();
-      for(const [mode, startYear, expectedOutcome] of [
-        ['historical-1973', 1973, 'survives'],
-        ['historical-1995', 1995, 'survives'],
+      for(const [mode, startYear, periodName, expectedOutcome] of [
+        ['historical-1973', 1973, 'Stagflation', 'survives'],
+        ['historical-1995', 1995, '90s Boom', 'survives'],
       ]){
         await page.select('#cashflow-path-mode', mode);
         await waitForCashFlowPath(page, {
@@ -3386,6 +3386,9 @@ try {
           const referenceLabel = rail?.querySelector('.cf-path-rail__reference-label');
           const referenceValue = rail?.querySelector('.cf-path-rail__reference-value');
           const selectedGroup = rail?.querySelector('[data-cash-path-selected]');
+          const selectedPeriod = rail?.querySelector('[data-cash-path-selected-period]');
+          const selectedPeriodYear = selectedPeriod?.querySelector('.cf-path-rail__selected-period-year');
+          const selectedPeriodName = selectedPeriod?.querySelector('.cf-path-rail__selected-period-name');
           const selectedMetric = rail?.querySelector('.cf-path-rail__metric');
           const metricName = selectedMetric?.querySelector('.cf-path-rail__metric-name');
           const figure = selectedMetric?.querySelector('.cf-path-rail__figure');
@@ -3398,6 +3401,9 @@ try {
           const referenceLabelStyle = styles(referenceLabel);
           const referenceValueStyle = styles(referenceValue);
           const selectedGroupStyle = styles(selectedGroup);
+          const selectedPeriodStyle = styles(selectedPeriod);
+          const selectedPeriodYearStyle = styles(selectedPeriodYear);
+          const selectedPeriodNameStyle = styles(selectedPeriodName);
           const selectedMetricStyle = styles(selectedMetric);
           const metricNameStyle = styles(metricName);
           const figureStyle = styles(figure);
@@ -3507,10 +3513,33 @@ try {
                 backgroundColor: selectedGroupStyle?.backgroundColor || '',
                 boxShadow: selectedGroupStyle?.boxShadow || '',
                 width: selectedGroup?.getBoundingClientRect().width ?? null,
-                expectedBackgroundImage: expectedSelectedBackgroundImage,
-                expectedBoxShadow: expectedSelectedBoxShadow,
-              },
-              metric: {
+              expectedBackgroundImage: expectedSelectedBackgroundImage,
+              expectedBoxShadow: expectedSelectedBoxShadow,
+            },
+            selectedPeriod: {
+              count: rail.querySelectorAll('[data-cash-path-selected-period]').length,
+              id: selectedPeriod?.dataset.cashPathSelectedPeriod || '',
+              text: selectedPeriod?.textContent.trim() || '',
+              year: selectedPeriodYear?.textContent.trim() || '',
+              name: selectedPeriodName?.textContent.trim() || '',
+              childIndex: selectedGroup && selectedPeriod
+                ? [...selectedGroup.children].indexOf(selectedPeriod)
+                : -1,
+              padding: selectedPeriodStyle?.padding || '',
+              borderBottomWidth: selectedPeriodStyle?.borderBottomWidth || '',
+              borderBottomStyle: selectedPeriodStyle?.borderBottomStyle || '',
+              background: selectedPeriodStyle?.backgroundColor || '',
+              radius: selectedPeriodStyle?.borderRadius || '',
+              fontSize: selectedPeriodStyle?.fontSize || '',
+              fontWeight: selectedPeriodStyle?.fontWeight || '',
+              lineHeight: selectedPeriodStyle?.lineHeight || '',
+              letterSpacing: selectedPeriodStyle?.letterSpacing || '',
+              textAlign: selectedPeriodStyle?.textAlign || '',
+              fontVariantNumeric: selectedPeriodStyle?.fontVariantNumeric || '',
+              yearColor: selectedPeriodYearStyle?.color || '',
+              nameColor: selectedPeriodNameStyle?.color || '',
+            },
+            metric: {
                 display: selectedMetricStyle?.display || '',
                 direction: selectedMetricStyle?.flexDirection || '',
                 alignItems: selectedMetricStyle?.alignItems || '',
@@ -3656,6 +3685,25 @@ try {
             || layout.selected.backgroundImage !== layout.selected.expectedBackgroundImage
             || layout.selected.boxShadow !== layout.selected.expectedBoxShadow
             || Math.abs(layout.reference.width - layout.selected.width) > 1
+            || layout.selectedPeriod.count !== 1
+            || layout.selectedPeriod.id !== mode
+            || layout.selectedPeriod.text !== `${startYear} · ${periodName}`
+            || layout.selectedPeriod.year !== String(startYear)
+            || layout.selectedPeriod.name !== periodName
+            || layout.selectedPeriod.childIndex !== 0
+            || layout.selectedPeriod.padding !== '0px 0px 12px'
+            || layout.selectedPeriod.borderBottomWidth !== '1px'
+            || layout.selectedPeriod.borderBottomStyle !== 'solid'
+            || layout.selectedPeriod.background !== 'rgba(0, 0, 0, 0)'
+            || layout.selectedPeriod.radius !== '0px'
+            || layout.selectedPeriod.fontSize !== '13px'
+            || layout.selectedPeriod.fontWeight !== '600'
+            || layout.selectedPeriod.lineHeight !== '17.55px'
+            || layout.selectedPeriod.letterSpacing !== '0.13px'
+            || layout.selectedPeriod.textAlign !== 'center'
+            || layout.selectedPeriod.fontVariantNumeric !== 'tabular-nums'
+            || layout.selectedPeriod.yearColor !== layout.mutedColor
+            || layout.selectedPeriod.nameColor !== layout.accentColor
             || layout.metric.display !== 'flex'
             || layout.metric.direction !== 'column'
             || layout.metric.alignItems !== 'center'
