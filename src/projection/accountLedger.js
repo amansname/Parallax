@@ -9,6 +9,7 @@ import {
   createProjectionReturnCache,
   prepareProjectionAssetAllocation,
 } from './portfolioReturns.js';
+import { readTransientProjectionAccountState } from '../household/transientProjectionAccountState.js';
 
 const BUCKET_KEYS = Object.freeze(['taxable', 'traditional', 'roth']);
 const OWNER_KEYS = Object.freeze(['client', 'spouse', 'unattributed']);
@@ -62,6 +63,7 @@ export function buildProjectionAccountLedger({ plan, accountFold, taxableBasis, 
     ? snapshotLegacyRiskProfileAllocation(plan?.portfolio?.riskProfile)
     : null;
   const modeledIds = new Set(BUCKET_KEYS.flatMap(bucket => accountFold.engineBuckets[bucket].accountIds));
+  const transientState = readTransientProjectionAccountState(plan);
   const accounts = accountFold.accounts
     .filter(account => modeledIds.has(account.id))
     .map(account => ({ ...account }));
@@ -82,7 +84,9 @@ export function buildProjectionAccountLedger({ plan, accountFold, taxableBasis, 
       balance: Number(sleeve.balance) || 0,
       basis: null,
       strategyRulesPending: false,
-      investmentAllocation: sleeve.investmentAllocation ?? legacyAllocation,
+      investmentAllocation: transientState?.investmentAllocationById.get(id)
+        ?? sleeve.investmentAllocation
+        ?? legacyAllocation,
     });
   }
 
@@ -136,6 +140,20 @@ export function cloneProjectionAccountLedger(ledger){
 
 export function accountBalancesById(ledger){
   return Object.fromEntries(ledger.map(account => [account.id, account.balance]));
+}
+
+export function snapshotProjectionAccounts(ledger){
+  return Object.freeze(ledger.map(account => Object.freeze({
+    id: account.id,
+    bucket: account.bucket,
+    owner: account.owner,
+    sourceKind: account.sourceKind,
+    typeId: account.typeId,
+    taxCharacter: account.taxCharacter,
+    balance: account.balance,
+    basis: account.basis,
+    investmentAllocation: account.investmentAllocation,
+  })));
 }
 
 export function aggregateProjectionAccounts(ledger){

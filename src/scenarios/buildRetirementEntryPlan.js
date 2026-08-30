@@ -1,7 +1,7 @@
 import { resolvePortfolioAccounts } from '../household/resolvePortfolioAccounts.js';
 import {
-  registerTransientCalculatedTaxableBasis,
-} from '../household/transientCalculatedTaxableBasis.js';
+  registerTransientProjectionAccountState,
+} from '../household/transientProjectionAccountState.js';
 
 const BUCKET_KEYS = Object.freeze(['taxable', 'traditional', 'roth']);
 const TRADITIONAL_OWNER_KEYS = Object.freeze(['client', 'spouse', 'unattributed']);
@@ -12,357 +12,273 @@ function assertFiniteNonNegative(value, path){
   }
 }
 
-function assertTraditionalOwnerBuckets(byOwner, balance, path){
-  if(!byOwner || typeof byOwner !== 'object' || Array.isArray(byOwner)){
+function assertAccountState(state, path){
+  if(!state || typeof state !== 'object' || Array.isArray(state)){
     throw new Error(`${path} is required`);
   }
-  let total = 0;
-  for(const owner of TRADITIONAL_OWNER_KEYS){
-    assertFiniteNonNegative(byOwner[owner], `${path}.${owner}`);
-    total += byOwner[owner];
+  if(typeof state.id !== 'string' || state.id.length === 0){
+    throw new Error(`${path}.id is required`);
   }
-  if(Math.abs(total - balance) > 0.01){
-    throw new Error(`${path} must reconcile to the Traditional balance`);
+  if(!BUCKET_KEYS.includes(state.bucket)){
+    throw new Error(`${path}.bucket is invalid`);
+  }
+  assertFiniteNonNegative(state.balance, `${path}.balance`);
+  assertFiniteNonNegative(state.basis, `${path}.basis`);
+  if(!state.investmentAllocation
+      || typeof state.investmentAllocation !== 'object'
+      || Array.isArray(state.investmentAllocation)){
+    throw new Error(`${path}.investmentAllocation is required`);
   }
 }
 
-function assertEntryAccounts(
-  accounts,
-  path = 'entryAccounts',
-  { requireTraditionalByOwner = false } = {}
-){
-  if(!accounts || typeof accounts !== 'object' || Array.isArray(accounts)){
-    throw new Error(`${path} is required`);
+function freezeAccountStates(states){
+  const seen = new Set();
+  return Object.freeze(states.map((state, index) => {
+    assertAccountState(state, `accountStates.${index}`);
+    if(seen.has(state.id)) throw new Error(`accountStates contains duplicate ID ${state.id}`);
+    seen.add(state.id);
+    return Object.freeze({
+      id: state.id,
+      bucket: state.bucket,
+      owner: state.owner,
+      sourceKind: state.sourceKind,
+      typeId: state.typeId,
+      taxCharacter: state.taxCharacter,
+      balance: state.balance,
+      basis: state.basis,
+      investmentAllocation: state.investmentAllocation,
+    });
+  }));
+}
+
+function summarizeAccountStates(accountStates){
+  const balances = { taxable: 0, traditional: 0, roth: 0 };
+  const traditionalByOwner = { client: 0, spouse: 0, unattributed: 0 };
+  let taxableBasis = 0;
+  for(const account of accountStates){
+    balances[account.bucket] += account.balance;
+    if(account.bucket === 'taxable') taxableBasis += account.basis;
+    if(account.bucket === 'traditional'){
+      const owner = TRADITIONAL_OWNER_KEYS.includes(account.owner)
+        ? account.owner
+        : 'unattributed';
+      traditionalByOwner[owner] += account.balance;
+    }
   }
-  for(const bucket of BUCKET_KEYS){
-    assertFiniteNonNegative(accounts[bucket]?.balance, `${path}.${bucket}.balance`);
+  return Object.freeze({
+    taxable: Object.freeze({ balance: balances.taxable, basis: taxableBasis }),
+    traditional: Object.freeze({
+      balance: balances.traditional,
+      byOwner: Object.freeze(traditionalByOwner),
+    }),
+    roth: Object.freeze({ balance: balances.roth }),
+    accountStates,
+  });
+}
+
+function exactEntryFromStates(states){
+  if(!Array.isArray(states)){
+    throw new Error('projection account states are required at retirement');
   }
-  assertFiniteNonNegative(accounts.taxable.basis, `${path}.taxable.basis`);
-  if(requireTraditionalByOwner || accounts.traditional.byOwner != null){
-    assertTraditionalOwnerBuckets(
-      accounts.traditional.byOwner,
-      accounts.traditional.balance,
-      `${path}.traditional.byOwner`
-    );
-  }
+  return summarizeAccountStates(freezeAccountStates(states));
 }
 
 function totalBalance(accounts){
   return BUCKET_KEYS.reduce((sum, bucket) => sum + accounts[bucket].balance, 0);
 }
 
-function freezeEntryAccounts(source, includeTraditionalByOwner = false){
-  const traditional = { balance: source.traditional.balance };
-  if(includeTraditionalByOwner){
-    traditional.byOwner = Object.freeze(Object.fromEntries(
-      TRADITIONAL_OWNER_KEYS.map(owner => [owner, source.traditional.byOwner[owner]])
-    ));
+function assertNear(actual, expected, path){
+  if(!Number.isFinite(actual) || Math.abs(actual - expected) > 0.01){
+    throw new Error(`${path} does not reconcile to accountStates`);
   }
-  return Object.freeze({
-    taxable: Object.freeze({
-      balance: source.taxable.balance,
-      basis: source.taxable.basis,
-    }),
-    traditional: Object.freeze(traditional),
-    roth: Object.freeze({ balance: source.roth.balance }),
-  });
+}
+
+function assertEntryReconciliation(entry, aggregate, path){
+  if(!aggregate) return;
+  for(const bucket of BUCKET_KEYS){
+    assertNear(aggregate[bucket], entry[bucket].balance, `${path}.${bucket}`);
+  }
 }
 
 /**
- * Read the unscaled account sleeves and taxable basis at the exact end of the
- * displayed p50 accumulation path. Historical Cash Flow uses this handoff so
- * its first retirement row begins from the ledger's preceding ending state.
+ * Read the exact per-account Projection Engine state at the retirement
+ * boundary. Bucket totals remain derived compatibility views only.
  */
 export function deriveExactRetirementEntryAccounts(
   analysis,
   accumulationYears,
-  fallbackAccounts
+  fallbackAccounts,
+  fallbackAccountStates = null
 ){
   if(!Number.isInteger(accumulationYears) || accumulationYears < 0){
     throw new Error('accumulationYears must be a non-negative integer');
   }
-  assertEntryAccounts(fallbackAccounts, 'fallbackAccounts', {
-    requireTraditionalByOwner: true,
-  });
 
-  let source = fallbackAccounts;
-  if(accumulationYears > 0){
-    const row = analysis?.paths?.p50?.rows?.[accumulationYears - 1];
-    if(!row?.accountBalances){
-      throw new Error('analysis p50 retirement-entry row is required');
-    }
-    source = {
-      taxable: {
-        balance: row.accountBalances.taxable,
-        basis: Number.isFinite(row.taxableEndingBasis)
-          ? row.taxableEndingBasis
-          : (row.accountBalances.taxable === 0 ? 0 : undefined),
-      },
-      traditional: {
-        balance: row.accountBalances.traditional,
-        byOwner: row.traditionalEndingBalancesByOwner,
-      },
-      roth: { balance: row.accountBalances.roth },
-    };
-    assertEntryAccounts(source, 'analysis retirement-entry accounts', {
-      requireTraditionalByOwner: true,
-    });
+  if(accumulationYears === 0){
+    const entry = exactEntryFromStates(fallbackAccountStates);
+    assertEntryReconciliation(entry, {
+      taxable: fallbackAccounts?.taxable?.balance,
+      traditional: fallbackAccounts?.traditional?.balance,
+      roth: fallbackAccounts?.roth?.balance,
+    }, 'fallbackAccounts');
+    return entry;
   }
 
-  return freezeEntryAccounts(source, true);
-}
-
-function preserveTraditionalAccounts(clone, fold, targetBalance){
-  const modeledIds = new Set(fold.engineBuckets.traditional.accountIds);
-  const sources = fold.accounts.filter(account => modeledIds.has(account.id));
-  const fundedSources = sources.filter(account => account.balance > 0);
-  const sourceTotal = fundedSources.reduce((sum, account) => sum + account.balance, 0);
-
-  clone.portfolio.accounts.traditional.balance = 0;
-  for(const source of sources){
-    if(source.sourceKind === 'typed-account'){
-      clone.portfolio.extraAccounts[source.sourceIndex].balance = 0;
-    }
+  const row = analysis?.paths?.p50?.rows?.[accumulationYears - 1];
+  if(!row){
+    throw new Error('analysis p50 retirement-entry row is required');
   }
-
-  if(targetBalance === 0) return;
-  if(sourceTotal <= 0){
-    clone.portfolio.accounts.traditional.balance = targetBalance;
-    return;
-  }
-
-  let assigned = 0;
-  fundedSources.forEach((source, index) => {
-    const balance = index === fundedSources.length - 1
-      ? targetBalance - assigned
-      : targetBalance * source.balance / sourceTotal;
-    assigned += balance;
-    if(source.sourceKind === 'legacy-base'){
-      clone.portfolio.accounts.traditional.balance = balance;
-    }else{
-      clone.portfolio.extraAccounts[source.sourceIndex].balance = balance;
-    }
-  });
-}
-
-function traditionalOwnerForSource(account, hasSpouse, ownerOverrides = null){
-  const override = ownerOverrides?.get(account.id);
-  if(override) return override;
-  if(account.owner === 'client') return 'client';
-  if(account.owner === 'spouse' && hasSpouse) return 'spouse';
-  if(!hasSpouse && account.owner !== 'spouse') return 'client';
-  return 'unattributed';
-}
-
-function setTraditionalSourceBalance(clone, source, balance){
-  if(source.sourceKind === 'legacy-base'){
-    clone.portfolio.accounts.traditional.balance = balance;
-  }else{
-    clone.portfolio.extraAccounts[source.sourceIndex].balance = balance;
-  }
-}
-
-function prepareSpouseRolloverAtRetirement(
-  clone,
-  sources,
-  target,
-  currentAge,
-  retirementAge
-){
-  const ownerOverrides = new Map();
-  const spouse = clone.household.spouse;
-  const primary = clone.household.primary;
-  const retirementAdvance = retirementAge - currentAge;
-  if(!spouse || !Number.isInteger(retirementAdvance) || retirementAdvance <= 0){
-    return ownerOverrides;
-  }
-
-  const spouseStartAge = spouse.currentAge;
-  const spouseRetirementBoundaryAge = spouseStartAge + retirementAdvance;
-  const clientRetirementBoundaryAge = currentAge + retirementAdvance;
-  const spouseDiedDuringAccumulation = Number.isFinite(spouseStartAge)
-    && Number.isFinite(spouse.planEndAge)
-    && spouseStartAge <= spouse.planEndAge
-    && spouseRetirementBoundaryAge > spouse.planEndAge;
-  const clientSurvivesRetirementBoundary = Number.isFinite(primary?.planEndAge)
-    && clientRetirementBoundaryAge <= primary.planEndAge;
-  if(!spouseDiedDuringAccumulation
-      || !clientSurvivesRetirementBoundary
-      || target.byOwner.client <= 0
-      || target.byOwner.spouse !== 0
-      || target.byOwner.unattributed !== 0){
-    return ownerOverrides;
-  }
-
-  const clientSources = sources.filter(source => source.owner === 'client');
-  if(clientSources.length === 0){
-    const rolloverSource = sources.find(source => (
-      source.owner === 'spouse'
-      && source.sourceKind === 'typed-account'
-      && source.taxCharacter === 'traditional_ira'
-      && source.balance > 0
-    ));
-    if(!rolloverSource) return ownerOverrides;
-    ownerOverrides.set(rolloverSource.id, 'client');
-    clone.portfolio.extraAccounts[rolloverSource.sourceIndex].owner = 'client';
-  }
-
-  // This is an ephemeral retirement-boundary plan. The displayed accumulation
-  // path has already modeled the spouse's death and rollover, so carrying the
-  // deceased spouse into the rebased plan would duplicate that lifecycle year.
-  clone.household.spouse = null;
-  if(clone.income?.socialSecurity) clone.income.socialSecurity.spouse = null;
-  clone.meta.filingStatus = 'single';
-  return ownerOverrides;
-}
-
-function preserveTraditionalAccountsByOwner(
-  clone,
-  fold,
-  target,
-  currentAge,
-  retirementAge
-){
-  const modeledIds = new Set(fold.engineBuckets.traditional.accountIds);
-  const sources = fold.accounts.filter(account => modeledIds.has(account.id));
-  const hasSpouse = Boolean(clone.household.spouse);
-  const ownerOverrides = prepareSpouseRolloverAtRetirement(
-    clone,
-    sources,
-    target,
-    currentAge,
-    retirementAge
-  );
-  const sourcesByOwner = Object.fromEntries(
-    TRADITIONAL_OWNER_KEYS.map(owner => [owner, []])
-  );
-
-  for(const source of sources){
-    sourcesByOwner[
-      traditionalOwnerForSource(source, hasSpouse, ownerOverrides)
-    ].push(source);
-  }
+  const entry = exactEntryFromStates(row.accountStates);
+  assertEntryReconciliation(entry, row.accountBalances, 'analysis retirement-entry accounts');
+  assertNear(row.taxableEndingBasis, entry.taxable.basis, 'analysis taxable ending basis');
   for(const owner of TRADITIONAL_OWNER_KEYS){
-    if(target.byOwner[owner] > 0 && sourcesByOwner[owner].length === 0){
-      throw new Error(`entryAccounts.traditional.byOwner.${owner} has no modeled account source`);
-    }
+    assertNear(
+      row.traditionalEndingBalancesByOwner?.[owner],
+      entry.traditional.byOwner[owner],
+      `analysis Traditional ${owner} ending balance`,
+    );
   }
-
-  for(const source of sources) setTraditionalSourceBalance(clone, source, 0);
-  for(const owner of TRADITIONAL_OWNER_KEYS){
-    const ownerSources = sourcesByOwner[owner];
-    const fundedSources = ownerSources.filter(source => source.balance > 0);
-    const sourceTotal = fundedSources.reduce((sum, source) => sum + source.balance, 0);
-    if(sourceTotal <= 0){
-      if(ownerSources.length > 0){
-        setTraditionalSourceBalance(clone, ownerSources[0], target.byOwner[owner]);
-      }
-      continue;
-    }
-    let assigned = 0;
-    fundedSources.forEach((source, index) => {
-      const balance = index === fundedSources.length - 1
-        ? target.byOwner[owner] - assigned
-        : target.byOwner[owner] * source.balance / sourceTotal;
-      assigned += balance;
-      setTraditionalSourceBalance(clone, source, balance);
-    });
-  }
+  return entry;
 }
 
 /**
- * Derive the exact aggregate engine sleeves at the retirement boundary. The
- * representative funded p50 path supplies the accumulation-created account
- * mix and taxable basis; the envelope preserves the existing median entry
- * balance used by Sequencing.
+ * Sequencing retains its median-envelope entry balance while scaling every
+ * account and taxable basis proportionally, preserving identity and mix.
  */
 export function deriveRetirementEntryAccounts(
   analysis,
   accumulationYears,
-  fallbackAccounts
+  fallbackAccounts,
+  fallbackAccountStates = null
 ){
   const source = deriveExactRetirementEntryAccounts(
     analysis,
     accumulationYears,
-    fallbackAccounts
+    fallbackAccounts,
+    fallbackAccountStates,
   );
-
   const sourceTotal = totalBalance(source);
   const envelopeTotal = analysis?.envelope?.[accumulationYears]?.p50;
   const targetTotal = Number.isFinite(envelopeTotal) && envelopeTotal >= 0
     ? envelopeTotal
     : sourceTotal;
-  if(sourceTotal <= 0){
-    if(targetTotal > 0){
-      throw new Error('retirement entry balance has no account source');
-    }
-    return freezeEntryAccounts({
-      taxable: { balance: 0, basis: 0 },
-      traditional: { balance: 0 },
-      roth: { balance: 0 },
+  if(sourceTotal <= 0 && targetTotal > 0){
+    throw new Error('retirement entry balance has no account source');
+  }
+  const factor = sourceTotal > 0 ? targetTotal / sourceTotal : 0;
+  return exactEntryFromStates(source.accountStates.map(account => ({
+    ...account,
+    balance: account.balance * factor,
+    basis: account.basis * factor,
+  })));
+}
+
+function modeledSources(plan, fold){
+  const sources = new Map();
+  const modeledIds = new Set(BUCKET_KEYS.flatMap(
+    bucket => fold.engineBuckets[bucket].accountIds
+  ));
+  const modeledTypedIds = new Set(fold.accounts
+    .filter(account => account.sourceKind === 'typed-account' && modeledIds.has(account.id))
+    .map(account => account.id));
+  for(const [bucket, sleeve] of Object.entries(plan.portfolio.accounts)){
+    const id = sleeve.id || `base-${bucket}`;
+    if(modeledTypedIds.has(id)) continue;
+    sources.set(id, {
+      id,
+      bucket,
+      sourceKind: 'legacy-base',
+      typeId: null,
+      taxCharacter: `legacy_${bucket}`,
+      record: sleeve,
     });
   }
+  for(const account of fold.accounts){
+    if(account.sourceKind !== 'typed-account' || !modeledIds.has(account.id)) continue;
+    if(sources.has(account.id)) throw new Error(`modeled account ID ${account.id} is ambiguous`);
+    sources.set(account.id, {
+      id: account.id,
+      bucket: account.engineBucket,
+      sourceKind: account.sourceKind,
+      typeId: account.typeId,
+      taxCharacter: account.taxCharacter,
+      record: plan.portfolio.extraAccounts[account.sourceIndex],
+    });
+  }
+  return sources;
+}
 
-  const factor = targetTotal / sourceTotal;
-  return Object.freeze({
-    taxable: Object.freeze({
-      balance: source.taxable.balance * factor,
-      basis: source.taxable.basis * factor,
-    }),
-    traditional: Object.freeze({ balance: source.traditional.balance * factor }),
-    roth: Object.freeze({ balance: source.roth.balance * factor }),
-  });
+function removeDeceasedSpouseAtBoundary(clone, accountStates, currentAge, retirementAge){
+  const spouse = clone.household.spouse;
+  const primary = clone.household.primary;
+  const retirementAdvance = retirementAge - currentAge;
+  if(!spouse || !Number.isInteger(retirementAdvance) || retirementAdvance <= 0) return;
+  const spouseBoundaryAge = spouse.currentAge + retirementAdvance;
+  const clientBoundaryAge = currentAge + retirementAdvance;
+  const spouseDied = Number.isFinite(spouse.currentAge)
+    && Number.isFinite(spouse.planEndAge)
+    && spouse.currentAge <= spouse.planEndAge
+    && spouseBoundaryAge > spouse.planEndAge;
+  const clientSurvives = Number.isFinite(primary?.planEndAge)
+    && clientBoundaryAge <= primary.planEndAge;
+  const spouseTraditionalBalance = accountStates
+    .filter(account => account.bucket === 'traditional' && account.owner === 'spouse')
+    .reduce((sum, account) => sum + account.balance, 0);
+  if(!spouseDied || !clientSurvives || spouseTraditionalBalance > 0.01) return;
+  clone.household.spouse = null;
+  if(clone.income?.socialSecurity) clone.income.socialSecurity.spouse = null;
+  clone.meta.filingStatus = 'single';
 }
 
 /**
- * Stand a scenario at retirement with the projected aggregate engine sleeves.
- * Taxable and Roth modeled accounts are collapsed into their legacy engine
- * sleeves only in this ephemeral clone. Traditional balances remain in their
- * modeled source accounts so owner and account-type RMD rules stay available;
- * rules-pending accounts remain untouched and excluded.
+ * Stand a scenario at retirement by rehydrating the exact engine-owned account
+ * ledger. Saved account provenance remains untouched; calculated basis and
+ * scenario allocation stay transient on this ephemeral clone.
  */
 export function buildRetirementEntryPlan(plan, {
   entryAccounts,
   currentAge,
   retirementAge,
 }){
-  assertEntryAccounts(entryAccounts);
   assertFiniteNonNegative(currentAge, 'currentAge');
   assertFiniteNonNegative(retirementAge, 'retirementAge');
+  if(!entryAccounts?.accountStates){
+    throw new Error('entryAccounts.accountStates is required');
+  }
   const fold = resolvePortfolioAccounts(plan);
   const clone = structuredClone(plan);
-  const modeledIds = new Set(BUCKET_KEYS.flatMap(
-    bucket => fold.engineBuckets[bucket].accountIds
-  ));
-
-  clone.portfolio.accounts.taxable.balance = entryAccounts.taxable.balance;
-  clone.portfolio.accounts.taxable.basisPct = entryAccounts.taxable.balance > 0
-    ? entryAccounts.taxable.basis / entryAccounts.taxable.balance
-    : 1;
-  registerTransientCalculatedTaxableBasis(
-    clone,
-    entryAccounts.taxable.basis,
-  );
-  clone.portfolio.accounts.roth.balance = entryAccounts.roth.balance;
-
-  (clone.portfolio.extraAccounts ?? []).forEach((account, index) => {
-    const id = account.id || `extra-${index}`;
-    if(!modeledIds.has(id)) return;
-    account.balance = 0;
-    if(typeof account.basis?.amount === 'number') account.basis.amount = 0;
-  });
-
-  if(entryAccounts.traditional.byOwner){
-    preserveTraditionalAccountsByOwner(
-      clone,
-      fold,
-      entryAccounts.traditional,
-      currentAge,
-      retirementAge
-    );
-  }else{
-    preserveTraditionalAccounts(clone, fold, entryAccounts.traditional.balance);
+  const sources = modeledSources(clone, fold);
+  const states = freezeAccountStates(entryAccounts.accountStates);
+  const stateById = new Map(states.map(state => [state.id, state]));
+  if(stateById.size !== sources.size){
+    throw new Error('retirement account state does not match the modeled account ledger');
   }
+
+  const taxableBasisById = new Map();
+  const investmentAllocationById = new Map();
+  for(const [id, source] of sources){
+    const state = stateById.get(id);
+    if(!state) throw new Error(`retirement account state is missing ${id}`);
+    if(state.bucket !== source.bucket
+        || state.sourceKind !== source.sourceKind
+        || state.typeId !== source.typeId
+        || state.taxCharacter !== source.taxCharacter){
+      throw new Error(`retirement account identity changed for ${id}`);
+    }
+    source.record.balance = state.balance;
+    if(source.sourceKind === 'typed-account'
+        && (state.owner === 'client' || state.owner === 'spouse')){
+      source.record.owner = state.owner;
+    }
+    if(state.bucket === 'taxable') taxableBasisById.set(id, state.basis);
+    investmentAllocationById.set(id, state.investmentAllocation);
+  }
+
+  removeDeceasedSpouseAtBoundary(clone, states, currentAge, retirementAge);
+  registerTransientProjectionAccountState(clone, {
+    taxableBasisById,
+    investmentAllocationById,
+  });
 
   const retirementAdvance = retirementAge - currentAge;
   if(Number.isInteger(clone.meta?.planningAsOfYear)
@@ -372,7 +288,7 @@ export function buildRetirementEntryPlan(plan, {
   clone.household.primary.currentAge = retirementAge;
   clone.household.primary.retirementAge = retirementAge;
   if(clone.household.spouse?.currentAge != null){
-    clone.household.spouse.currentAge += retirementAge - currentAge;
+    clone.household.spouse.currentAge += retirementAdvance;
   }
   return clone;
 }

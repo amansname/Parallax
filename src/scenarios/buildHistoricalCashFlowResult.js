@@ -120,7 +120,8 @@ export function buildHistoricalCashFlowResult({
   const entryAccounts = deriveExactRetirementEntryAccounts(
     analysis,
     accumulationYears,
-    params.accounts
+    params.accounts,
+    params.projectionAccounts,
   );
   const retirementPlan = buildRetirementEntryPlan(plan, {
     entryAccounts,

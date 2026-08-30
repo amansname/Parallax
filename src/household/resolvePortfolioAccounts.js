@@ -5,8 +5,8 @@ import {
   isValidEngineBucket,
 } from './accountTypes.js';
 import {
-  readTransientCalculatedTaxableBasis,
-} from './transientCalculatedTaxableBasis.js';
+  readTransientProjectionAccountState,
+} from './transientProjectionAccountState.js';
 import {
   calculateBalanceWeightedAllocation,
   cloneInvestmentAllocation,
@@ -105,8 +105,7 @@ export function resolvePortfolioAccounts(plan){
   const issues = [];
   const engineBuckets = emptyBuckets();
   const taxBuckets = emptyBuckets();
-  const transientCalculatedTaxableBasis =
-    readTransientCalculatedTaxableBasis(plan);
+  const transientState = readTransientProjectionAccountState(plan);
   const currentAllocationSchema = plan?.meta?.accountSchemaVersion === ACCOUNT_SCHEMA_VERSION;
 
   let baseTotal = 0;
@@ -118,18 +117,23 @@ export function resolvePortfolioAccounts(plan){
     const balance = assertFiniteNonNegative(sleeve.balance, `portfolio.accounts.${bucket}.balance`);
     baseTotal += balance;
     if(balance === 0) continue;
-    const investmentAllocation = cloneAllocation(sleeve.investmentAllocation);
+    const id = sleeve.id || `base-${bucket}`;
+    const storedInvestmentAllocation = cloneAllocation(sleeve.investmentAllocation);
     if(currentAllocationSchema){
       requireCurrentAllocation({
-        allocation: investmentAllocation,
+        allocation: storedInvestmentAllocation,
         balance,
         canonical: null,
         engineBucket: bucket,
         path: `portfolio.accounts.${bucket}`,
       });
     }
+    const investmentAllocation = cloneAllocation(
+      transientState?.investmentAllocationById.get(id)
+        ?? storedInvestmentAllocation
+    );
     const account = freezeAccount({
-      id: sleeve.id || `base-${bucket}`,
+      id,
       sourceKind: 'legacy-base',
       sourceIndex: null,
       typeId: null,
@@ -141,16 +145,17 @@ export function resolvePortfolioAccounts(plan){
       balance,
       valuationDate: null,
       basis: bucket === 'taxable'
-        ? Object.freeze(transientCalculatedTaxableBasis === null
+        ? Object.freeze(transientState?.taxableBasisById.has(id) !== true
           ? {
               amount: balance * 0.5,
               method: 'assumed-50-50',
               status: 'assumed',
             }
           : {
-              amount: transientCalculatedTaxableBasis,
+              amount: transientState.taxableBasisById.get(id),
               method: 'calculated-carried-forward',
               status: 'calculated',
+              calculationOnly: true,
             })
         : null,
       classificationStatus: 'included',
@@ -176,16 +181,20 @@ export function resolvePortfolioAccounts(plan){
       ? getAccountTypeById(raw.typeId)
       : null;
     const engineBucket = isValidEngineBucket(raw.bucket) ? raw.bucket : null;
-    const investmentAllocation = cloneAllocation(raw.investmentAllocation);
+    const storedInvestmentAllocation = cloneAllocation(raw.investmentAllocation);
     if(currentAllocationSchema){
       requireCurrentAllocation({
-        allocation: investmentAllocation,
+        allocation: storedInvestmentAllocation,
         balance,
         canonical,
         engineBucket,
         path: `portfolio.extraAccounts.${index}`,
       });
     }
+    const investmentAllocation = cloneAllocation(
+      transientState?.investmentAllocationById.get(id)
+        ?? storedInvestmentAllocation
+    );
 
     let classificationStatus = 'included';
     let exclusionReason = null;
@@ -220,7 +229,14 @@ export function resolvePortfolioAccounts(plan){
       taxCharacter: canonical?.taxCharacter || 'unsupported',
       balance,
       valuationDate: raw.valuationDate ?? null,
-      basis: cloneBasis(raw.basis),
+      basis: engineBucket === 'taxable' && transientState?.taxableBasisById.has(id)
+        ? Object.freeze({
+            amount: transientState.taxableBasisById.get(id),
+            method: 'calculated-carried-forward',
+            status: 'calculated',
+            calculationOnly: true,
+          })
+        : cloneBasis(raw.basis),
       classificationStatus,
       exclusionReason,
       strategyRulesPending: Boolean(canonical?.strategyRulesPending),

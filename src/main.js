@@ -1253,18 +1253,19 @@ function buildSeqChips(){
     m.on=!m.on; buildSeqChips(); runSeq();
   });
 }
-// Build a "retire-now" clone from the funded p50 path's projected bucket mix
-// and taxable basis, scaled to the engine envelope's median entry balance.
-// Every real market then runs from this one shared, tax-coherent starting point.
+// Build a "retire-now" clone from the funded p50 path's exact account ledger,
+// scaled to the engine envelope's median entry balance. Every real market then
+// runs from this one shared, tax-coherent starting point.
 function retireNowClone(p, ov, curAge, retAge, accumYears, analysis){
   // Reuse the chosen scenario's computed result so Sequencing never re-rolls
   // its market entry state. Fall back only before that scenario has run.
   const result = analysis || runSimulation(p, ov, sharedPaths);
-  const resolvedAccounts = resolveInputs(p, ov).accounts;
+  const resolved = resolveInputs(p, ov);
   const entryAccounts = deriveRetirementEntryAccounts(
     result,
     accumYears,
-    resolvedAccounts
+    resolved.accounts,
+    resolved.projectionAccounts,
   );
   return buildRetirementEntryPlan(p, {
     entryAccounts,

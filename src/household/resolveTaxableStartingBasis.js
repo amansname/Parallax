@@ -202,52 +202,54 @@ export function resolveTaxableStartingBasis(plan, suppliedFold = null){
 
   for(const account of accounts){
     accountIds.push(account.id);
+    if(account.basis?.calculationOnly === true
+        && account.basis.method === 'calculated-carried-forward'){
+      hasCalculatedBasis = true;
+      calculatedCarriedForwardBasis = (calculatedCarriedForwardBasis ?? 0)
+        + account.basis.amount;
+      completeBasis += account.basis.amount;
+      records.push(freezeRecord(
+        account,
+        'calculation',
+        account.basis.amount,
+        'calculated-carried-forward'
+      ));
+      evidence.push(Object.freeze({
+        accountId: account.id,
+        amount: account.basis.amount,
+        method: 'calculated-carried-forward',
+        status: 'calculated',
+        source: 'retirement-entry-calculation',
+        confirmedAt: null,
+        reporting: null,
+      }));
+      continue;
+    }
     if(account.sourceKind === 'legacy-base'){
-      if(account.basis?.method === 'calculated-carried-forward'){
-        hasCalculatedBasis = true;
-        calculatedCarriedForwardBasis = account.basis.amount;
-        completeBasis += account.basis.amount;
-        records.push(freezeRecord(
-          account,
-          'calculation',
-          account.basis.amount,
-          'calculated-carried-forward'
-        ));
-        evidence.push(Object.freeze({
-          accountId: account.id,
-          amount: account.basis.amount,
-          method: 'calculated-carried-forward',
-          status: 'calculated',
-          source: 'retirement-entry-calculation',
-          confirmedAt: null,
-          reporting: null,
-        }));
-      }else{
-        const assumption = freezeApprovedBasisAssumption(account);
-        assumptions.push(assumption);
-        completeBasis += assumption.basisAmount;
-        records.push(freezeRecord(
-          account,
-          'calculation-assumption',
-          assumption.basisAmount,
-          'assumed-50-50'
-        ));
-        evidence.push(Object.freeze({
-          accountId: account.id,
-          amount: assumption.basisAmount,
-          method: 'assumed-50-50',
-          status: 'assumed',
-          source: 'owner-approved-planning-assumption',
-          confirmedAt: null,
-          reporting: null,
-        }));
-        assumptionGaps.push(freezeGap(
-          APPROVED_BASIS_ASSUMPTION_CODE,
-          account,
-          'portfolio.accounts.taxable',
-          'assumption'
-        ));
-      }
+      const assumption = freezeApprovedBasisAssumption(account);
+      assumptions.push(assumption);
+      completeBasis += assumption.basisAmount;
+      records.push(freezeRecord(
+        account,
+        'calculation-assumption',
+        assumption.basisAmount,
+        'assumed-50-50'
+      ));
+      evidence.push(Object.freeze({
+        accountId: account.id,
+        amount: assumption.basisAmount,
+        method: 'assumed-50-50',
+        status: 'assumed',
+        source: 'owner-approved-planning-assumption',
+        confirmedAt: null,
+        reporting: null,
+      }));
+      assumptionGaps.push(freezeGap(
+        APPROVED_BASIS_ASSUMPTION_CODE,
+        account,
+        'portfolio.accounts.taxable',
+        'assumption'
+      ));
       continue;
     }
 

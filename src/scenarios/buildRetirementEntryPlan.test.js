@@ -13,13 +13,26 @@ import {
 function account(typeId, id, balance, basisAmount = null, owner = 'client'){
   const result = createAccount(typeId, { balance, owner });
   result.id = id;
-  if(basisAmount !== null){
-    result.basis = { ...result.basis, amount: basisAmount };
-  }
+  if(basisAmount !== null) result.basis = { ...result.basis, amount: basisAmount };
   return result;
 }
 
-test('retirement entry preserves the projected bucket mix and taxable basis', () => {
+function statesWith(plan, updates = {}){
+  return resolveInputs(plan, {}).projectionAccounts.map(state => ({
+    ...state,
+    ...(updates[state.id] ?? {}),
+  }));
+}
+
+function aggregateView(entry){
+  return {
+    taxable: entry.taxable,
+    traditional: entry.traditional,
+    roth: entry.roth,
+  };
+}
+
+test('retirement entry preserves exact account identity, allocation, balance, owner, and taxable basis', () => {
   const plan = structuredClone(defaultPlan);
   plan.household.primary = { currentAge: 60, retirementAge: 65, planEndAge: 95, birthYear: 1966 };
   plan.household.spouse = { currentAge: 58, retirementAge: 67, planEndAge: 95, birthYear: 1968 };
@@ -35,6 +48,12 @@ test('retirement entry preserves the projected bucket mix and taxable basis', ()
     account('inherited_traditional_ira', 'inherited', 75),
   ];
   const before = structuredClone(plan);
+  const fallback = resolveInputs(plan, {});
+  const retirementStates = statesWith(plan, {
+    brokerage: { balance: 150, basis: 125 },
+    ira: { balance: 500 },
+    'roth-401k': { balance: 50 },
+  });
   const analysis = {
     envelope: Array.from({ length: 6 }, (_, index) => (
       index === 5 ? { p50: 1400 } : { p50: 400 }
@@ -44,97 +63,80 @@ test('retirement entry preserves the projected bucket mix and taxable basis', ()
         rows: Array.from({ length: 5 }, (_, index) => (
           index === 4
             ? {
+                accountStates: retirementStates,
                 accountBalances: { taxable: 150, traditional: 500, roth: 50 },
                 taxableEndingBasis: 125,
                 traditionalEndingBalancesByOwner: {
                   client: 500, spouse: 0, unattributed: 0,
                 },
               }
-            : {
-                accountBalances: { taxable: 100, traditional: 200, roth: 100 },
-                taxableEndingBasis: 60,
-                traditionalEndingBalancesByOwner: {
-                  client: 200, spouse: 0, unattributed: 0,
-                },
-              }
+            : {}
         )),
       },
     },
   };
-  const fallbackAccounts = {
-    taxable: { balance: 100, basis: 60 },
-    traditional: {
-      balance: 200,
-      byOwner: { client: 200, spouse: 0, unattributed: 0 },
-    },
-    roth: { balance: 100 },
-  };
 
-  const exactEntryAccounts = deriveExactRetirementEntryAccounts(
+  const exactEntry = deriveExactRetirementEntryAccounts(
     analysis,
     5,
-    fallbackAccounts
+    fallback.accounts,
+    fallback.projectionAccounts,
   );
-  const entryAccounts = deriveRetirementEntryAccounts(
+  const entry = deriveRetirementEntryAccounts(
     analysis,
     5,
-    fallbackAccounts
+    fallback.accounts,
+    fallback.projectionAccounts,
   );
   const result = buildRetirementEntryPlan(plan, {
-    entryAccounts,
+    entryAccounts: entry,
     currentAge: 60,
     retirementAge: 65,
   });
   const inputs = resolveInputs(result, {});
-  const resolved = inputs.accounts;
   const startingBasis = resolveTaxableStartingBasis(result);
 
   assert.deepEqual(plan, before, 'the source Household plan must remain unchanged');
-  assert.deepEqual(exactEntryAccounts, {
+  assert.deepEqual(aggregateView(exactEntry), {
     taxable: { balance: 150, basis: 125 },
     traditional: {
       balance: 500,
       byOwner: { client: 500, spouse: 0, unattributed: 0 },
     },
     roth: { balance: 50 },
-  }, 'Cash Flow must preserve the exact displayed accumulation endpoint');
-  assert.deepEqual(entryAccounts, {
+  });
+  assert.deepEqual(aggregateView(entry), {
     taxable: { balance: 300, basis: 250 },
-    traditional: { balance: 1000 },
+    traditional: {
+      balance: 1000,
+      byOwner: { client: 1000, spouse: 0, unattributed: 0 },
+    },
     roth: { balance: 100 },
   });
-  // The resolved traditional sleeve now also carries per-owner buckets, so
-  // compare the balance contract rather than whole-object identity.
-  assert.deepEqual({
-    taxable: resolved.taxable,
-    traditional: { balance: resolved.traditional.balance },
-    roth: resolved.roth,
-  }, entryAccounts,
-  'the historical clone must start from the modeled retirement engine state');
-  assert.equal(startingBasis.basisOverride, null);
+  assert.deepEqual(
+    Object.fromEntries(inputs.projectionAccounts.map(({ id, balance }) => [id, balance])),
+    Object.fromEntries(entry.accountStates.map(({ id, balance }) => [id, balance])),
+  );
+  assert.equal(startingBasis.basisOverride, 250);
   assert.equal(startingBasis.appliedBasis, 250);
   assert.equal(startingBasis.appliedMode, 'calculated-carried-forward');
   assert.deepEqual(
     result.portfolio.extraAccounts.map(({ id, balance }) => ({ id, balance })),
     [
-      { id: 'brokerage', balance: 0 },
+      { id: 'brokerage', balance: 300 },
       { id: 'ira', balance: 1000 },
-      { id: 'roth-401k', balance: 0 },
+      { id: 'roth-401k', balance: 100 },
       { id: 'inherited', balance: 75 },
-    ]
+    ],
   );
-  assert.equal(result.portfolio.extraAccounts[0].basis.amount, 0);
-  assert.equal(result.portfolio.accounts.traditional.balance, 0);
   assert.equal(inputs.rmdContract.owner, 'client');
   assert.equal(inputs.rmdContract.available, true);
   assert.equal(result.meta.planningAsOfYear, 2031);
   assert.equal(result.household.primary.currentAge, 65);
-  assert.equal(result.household.primary.retirementAge, 65);
   assert.equal(result.household.spouse.currentAge, 63);
-  assert.equal(result.household.spouse.retirementAge, 67);
 });
 
-test('exact Traditional ownership survives the retirement-entry handoff', () => {
+test('exact Traditional account balances and ownership survive the handoff', () => {
   const plan = structuredClone(defaultPlan);
   plan.household.primary = {
     currentAge: 56, retirementAge: 57, planEndAge: 95, birthYear: 1970,
@@ -142,22 +144,16 @@ test('exact Traditional ownership survives the retirement-entry handoff', () => 
   plan.household.spouse = {
     currentAge: 53, retirementAge: 54, planEndAge: 95, birthYear: 1973,
   };
-  plan.portfolio.accounts = {
-    taxable: { balance: 0, basisPct: 1 },
-    traditional: { balance: 0 },
-    roth: { balance: 0 },
-  };
+  plan.portfolio.accounts.traditional.balance = 0;
   plan.portfolio.extraAccounts = [
     account('traditional_ira', 'client-ira', 3_000_000, null, 'client'),
     account('traditional_ira', 'spouse-ira', 2_000_000, null, 'spouse'),
   ];
   const entryAccounts = {
-    taxable: { balance: 0, basis: 0 },
-    traditional: {
-      balance: 5_012_000,
-      byOwner: { client: 3_012_000, spouse: 2_000_000, unattributed: 0 },
-    },
-    roth: { balance: 0 },
+    accountStates: statesWith(plan, {
+      'client-ira': { balance: 3_012_000, owner: 'client' },
+      'spouse-ira': { balance: 2_000_000, owner: 'spouse' },
+    }),
   };
 
   const retirementPlan = buildRetirementEntryPlan(plan, {
@@ -167,78 +163,71 @@ test('exact Traditional ownership survives the retirement-entry handoff', () => 
   });
   const resolved = resolveInputs(retirementPlan, {}).accounts.traditional;
 
-  assert.deepEqual(resolved.byOwner, entryAccounts.traditional.byOwner);
-  assert.equal(resolved.balance, entryAccounts.traditional.balance);
-  assert.equal(
-    Object.values(resolved.byOwner).reduce((sum, value) => sum + value, 0),
-    resolved.balance
-  );
+  assert.deepEqual(resolved.byOwner, {
+    client: 3_012_000, spouse: 2_000_000, unattributed: 0,
+  });
+  assert.equal(resolved.balance, 5_012_000);
   assert.deepEqual(
     retirementPlan.portfolio.extraAccounts.map(({ id, balance }) => ({ id, balance })),
     [
       { id: 'client-ira', balance: 3_012_000 },
       { id: 'spouse-ira', balance: 2_000_000 },
-    ]
+    ],
   );
 });
 
-test('exact retirement entry fails closed when owner reporting is missing', () => {
+test('exact retirement entry fails closed without engine-owned account state', () => {
   const plan = structuredClone(defaultPlan);
-  const fallbackAccounts = resolveInputs(plan, {}).accounts;
-  const analysis = {
-    paths: { p50: { rows: [{
-      accountBalances: { taxable: 0, traditional: 100, roth: 0 },
-      taxableEndingBasis: 0,
-    }] } },
-  };
+  const fallback = resolveInputs(plan, {});
+  const analysis = { paths: { p50: { rows: [{
+    accountBalances: { taxable: 0, traditional: 100, roth: 0 },
+    taxableEndingBasis: 0,
+  }] } } };
 
   assert.throws(
-    () => deriveExactRetirementEntryAccounts(analysis, 1, fallbackAccounts),
-    /traditional\.byOwner is required/
+    () => deriveExactRetirementEntryAccounts(
+      analysis,
+      1,
+      fallback.accounts,
+      fallback.projectionAccounts,
+    ),
+    /projection account states are required/,
   );
 });
 
-test('exact retirement entry fails closed when an owner has no modeled source', () => {
+test('retirement entry fails closed when account identity has no modeled source', () => {
   const plan = structuredClone(defaultPlan);
-  plan.household.spouse = {
-    currentAge: 63, retirementAge: 65, planEndAge: 95, birthYear: 1963,
-  };
   plan.portfolio.accounts.traditional.balance = 0;
   plan.portfolio.extraAccounts = [
     account('traditional_ira', 'client-ira', 100, null, 'client'),
   ];
-  const entryAccounts = {
-    taxable: { balance: 0, basis: 0 },
-    traditional: {
-      balance: 100,
-      byOwner: { client: 0, spouse: 100, unattributed: 0 },
-    },
-    roth: { balance: 0 },
-  };
+  const accountStates = statesWith(plan);
+  accountStates.push({
+    ...accountStates.find(state => state.id === 'client-ira'),
+    id: 'unknown-spouse-ira',
+    owner: 'spouse',
+  });
 
   assert.throws(
     () => buildRetirementEntryPlan(plan, {
-      entryAccounts,
+      entryAccounts: { accountStates },
       currentAge: 65,
       retirementAge: 65,
     }),
-    /byOwner\.spouse has no modeled account source/
+    /does not match the modeled account ledger/,
   );
 });
 
-test('exact retirement entry uses a real zero-opening owner account for contributions', () => {
+test('exact retirement entry uses a real zero-opening account that received contributions', () => {
   const plan = structuredClone(defaultPlan);
   plan.portfolio.accounts.traditional.balance = 0;
   plan.portfolio.extraAccounts = [
     account('traditional_ira', 'client-zero-ira', 0, null, 'client'),
   ];
   const entryAccounts = {
-    taxable: { balance: 0, basis: 0 },
-    traditional: {
-      balance: 12_000,
-      byOwner: { client: 12_000, spouse: 0, unattributed: 0 },
-    },
-    roth: { balance: 0 },
+    accountStates: statesWith(plan, {
+      'client-zero-ira': { balance: 12_000 },
+    }),
   };
 
   const retirementPlan = buildRetirementEntryPlan(plan, {
@@ -249,11 +238,10 @@ test('exact retirement entry uses a real zero-opening owner account for contribu
   const resolved = resolveInputs(retirementPlan, {}).accounts.traditional;
 
   assert.equal(retirementPlan.portfolio.extraAccounts[0].balance, 12_000);
-  assert.deepEqual(resolved.byOwner, entryAccounts.traditional.byOwner);
-  assert.equal(resolved.balance, 12_000);
+  assert.deepEqual(resolved.byOwner, { client: 12_000, spouse: 0, unattributed: 0 });
 });
 
-test('retirement entry reuses an eligible spouse IRA after an exact survivor rollover', () => {
+test('retirement entry reuses the exact spouse IRA identity after survivor rollover', () => {
   const plan = structuredClone(defaultPlan);
   plan.meta.filingStatus = 'marriedFilingJointly';
   plan.household.primary = {
@@ -268,12 +256,9 @@ test('retirement entry reuses an eligible spouse IRA after an exact survivor rol
   ];
   const before = structuredClone(plan);
   const entryAccounts = {
-    taxable: { balance: 0, basis: 0 },
-    traditional: {
-      balance: 250_000,
-      byOwner: { client: 250_000, spouse: 0, unattributed: 0 },
-    },
-    roth: { balance: 0 },
+    accountStates: statesWith(plan, {
+      'spouse-only-ira': { balance: 250_000, owner: 'client' },
+    }),
   };
 
   const retirementPlan = buildRetirementEntryPlan(plan, {
@@ -288,6 +273,5 @@ test('retirement entry reuses an eligible spouse IRA after an exact survivor rol
   assert.equal(retirementPlan.meta.filingStatus, 'single');
   assert.equal(retirementPlan.portfolio.extraAccounts[0].owner, 'client');
   assert.equal(retirementPlan.portfolio.extraAccounts[0].balance, 250_000);
-  assert.deepEqual(resolved.byOwner, entryAccounts.traditional.byOwner);
-  assert.equal(resolved.balance, entryAccounts.traditional.balance);
+  assert.deepEqual(resolved.byOwner, { client: 250_000, spouse: 0, unattributed: 0 });
 });

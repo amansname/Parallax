@@ -1,9 +1,12 @@
-import { getAccountTypeById } from '../household/accountTypes.js';
+import { ACCOUNT_SCHEMA_VERSION, getAccountTypeById } from '../household/accountTypes.js';
 import {
   ASSET_ALLOCATION_PRESETS,
   identifyInvestmentAllocation,
   snapshotPresetAllocation,
 } from '../household/investmentAllocation.js';
+import {
+  registerTransientProjectionAccountState,
+} from '../household/transientProjectionAccountState.js';
 
 const CURRENT_ALLOCATION_ID = 'current';
 const presetIds = new Set(ASSET_ALLOCATION_PRESETS.map(preset => preset.id));
@@ -21,7 +24,7 @@ export const SCENARIO_ALLOCATION_OPTIONS = Object.freeze([
 
 function currentAllocationRecords(plan){
   const baseAccounts = Object.values(plan?.portfolio?.accounts || {})
-    .filter(Boolean);
+    .filter(account => account && account.balance > 0);
   const typedAccounts = (Array.isArray(plan?.portfolio?.extraAccounts)
     ? plan.portfolio.extraAccounts
     : [])
@@ -88,24 +91,31 @@ function applyAllocationPreset(plan, presetId){
     throw new RangeError(`Unknown scenario allocation model: ${presetId}`);
   }
   const allocation = snapshotPresetAllocation(presetId);
-  Object.values(plan.portfolio.accounts || {}).forEach(account => {
+  const investmentAllocationById = new Map();
+  Object.entries(plan.portfolio.accounts || {}).forEach(([bucket, account]) => {
     if(account && account.investmentAllocation?.source !== 'cash-only'){
-      account.investmentAllocation = allocation;
+      investmentAllocationById.set(account.id || `base-${bucket}`, allocation);
     }
   });
   (Array.isArray(plan.portfolio.extraAccounts) ? plan.portfolio.extraAccounts : [])
-    .forEach(account => {
+    .forEach((account, index) => {
       if(getAccountTypeById(account?.typeId)?.investmentAllocationEligible === true){
-        account.investmentAllocation = allocation;
+        investmentAllocationById.set(account.id || `extra-${index}`, allocation);
       }
     });
-  plan.portfolio.riskProfile = legacyRiskProfileByPresetId.get(presetId);
+  registerTransientProjectionAccountState(plan, { investmentAllocationById });
+  if(plan?.meta?.accountSchemaVersion !== ACCOUNT_SCHEMA_VERSION){
+    plan.portfolio.riskProfile = legacyRiskProfileByPresetId.get(presetId);
+  }
 }
 
 export function applyScenarioPlanInputs(plan, levers){
   const scenarioPlan = JSON.parse(JSON.stringify(plan));
   applyPersonAges(scenarioPlan, levers);
-  if(Number.isInteger(levers.risk) && levers.risk >= 1 && levers.risk <= 6){
+  if(scenarioPlan?.meta?.accountSchemaVersion !== ACCOUNT_SCHEMA_VERSION
+      && Number.isInteger(levers.risk)
+      && levers.risk >= 1
+      && levers.risk <= 6){
     scenarioPlan.portfolio.riskProfile = levers.risk;
   }
   applyAllocationPreset(

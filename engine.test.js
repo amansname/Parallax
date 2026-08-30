@@ -1151,6 +1151,7 @@ test('default Monte Carlo is identical to the explicit shortcut tax policy', () 
     'accountReturns',
     'householdEffectiveAllocation',
     'accountBalancesById',
+    'accountStates',
     'accountContributionsById',
     'accountWithdrawalsById',
   ]);

@@ -4,10 +4,23 @@ import assert from 'node:assert/strict';
 import { defaultPlan, resolveInputs, runSimulation } from '../../engine.js';
 import { flatAssetReturnRow } from '../../test/fixtures/assetReturnRows.js';
 import { createAccount } from '../household/createAccount.js';
+import { ACCOUNT_SCHEMA_VERSION } from '../household/accountTypes.js';
+import {
+  ASSET_ALLOCATION_PRESETS,
+  resolveCashOnlyAllocation,
+  snapshotLegacyRiskProfileAllocation,
+  snapshotPresetAllocation,
+} from '../household/investmentAllocation.js';
+import { applyScenarioPlanInputs } from './scenarioPlanInputs.js';
+import { HISTORICAL_PERIODS } from './historicalPeriods.js';
 import {
   buildHistoricalCashFlowResult,
   createHistoricalCashFlowCache,
 } from './buildHistoricalCashFlowResult.js';
+import {
+  buildRetirementEntryPlan,
+  deriveRetirementEntryAccounts,
+} from './buildRetirementEntryPlan.js';
 
 function fixture({ taxableBalance = 50_000, annualNeed = 100_000, planEndAge = 70 } = {}){
   const plan = structuredClone(defaultPlan);
@@ -96,6 +109,201 @@ function spouseRolloverFixture(){
   const analysis = runSimulation(plan, {}, [returnPath]);
   return { plan, analysis };
 }
+
+function currentAccountScenarioFixture(allocationPresetId = 'defensive'){
+  const plan = structuredClone(defaultPlan);
+  plan.meta = {
+    ...plan.meta,
+    accountSchemaVersion: ACCOUNT_SCHEMA_VERSION,
+    filingStatus: 'single',
+    planningAsOfYear: 2026,
+    spendingSchemaVersion: 1,
+  };
+  plan.household.primary = { currentAge: 64, retirementAge: 66, planEndAge: 72 };
+  plan.household.spouse = null;
+  const legacyAllocation = snapshotLegacyRiskProfileAllocation(3);
+  plan.portfolio.accounts = {
+    taxable: { id: 'base-taxable', balance: 0, basisPct: 1, investmentAllocation: legacyAllocation },
+    traditional: { id: 'base-traditional', balance: 0, investmentAllocation: legacyAllocation },
+    roth: { id: 'base-roth', balance: 0, investmentAllocation: legacyAllocation },
+  };
+  const brokerage = createAccount('brokerage_taxable', {
+    balance: 300_000,
+    owner: 'client',
+    investmentAllocation: snapshotPresetAllocation('balanced'),
+  });
+  brokerage.id = 'client-brokerage';
+  brokerage.basis = { ...brokerage.basis, amount: 180_000 };
+  const traditional = createAccount('traditional_ira', {
+    balance: 400_000,
+    owner: 'client',
+    investmentAllocation: snapshotPresetAllocation('balanced'),
+  });
+  traditional.id = 'client-ira';
+  const roth = createAccount('roth_ira', {
+    balance: 200_000,
+    owner: 'client',
+    investmentAllocation: snapshotPresetAllocation('balanced'),
+  });
+  roth.id = 'client-roth';
+  const checking = createAccount('checking', {
+    balance: 25_000,
+    owner: 'client',
+  });
+  checking.id = 'client-checking';
+  plan.portfolio.extraAccounts = [brokerage, traditional, roth, checking];
+  plan.savings = { ...plan.savings, annual: 0 };
+  plan.income.socialSecurity = { primary: { pia: 0, claimAge: 70 }, spouse: null };
+  plan.income.pension = { benefitByAge: {}, base: 0, startAge: 99, colaPct: 0 };
+  plan.income.other = [];
+  plan.expenses = {
+    living: 0, housing: 0, debt: 0, healthcare: 0,
+    healthcareRealGrowth: 0, extra: [],
+  };
+  plan.goals = [];
+  plan.liabilities = [];
+  plan.properties = [];
+  plan.ltc = { amount: 0, onsetAge: 99 };
+  return applyScenarioPlanInputs(plan, {
+    retireAge: 66,
+    ssAge: 70,
+    allocationPresetId,
+  });
+}
+
+test('current-schema account identities and scenario allocation survive the historical handoff', () => {
+  const plan = currentAccountScenarioFixture();
+  const params = resolveInputs(plan, {});
+  const returnPath = Array.from(
+    { length: params.horizonYears },
+    (_, index) => flatAssetReturnRow(1995 + index),
+  );
+  const analysis = runSimulation(plan, {}, [returnPath]);
+
+  const result = buildHistoricalCashFlowResult({
+    analysis,
+    plan,
+    periodId: 'historical-1929',
+    scenarioId: 'current_account_handoff',
+  });
+  const lastAccumulation = result.rows[result.accumulationYears - 1];
+  const firstRetirement = result.rows[result.accumulationYears];
+  const expectedIds = [
+    'base-taxable',
+    'base-traditional',
+    'base-roth',
+    'client-brokerage',
+    'client-ira',
+    'client-roth',
+    'client-checking',
+  ];
+
+  assert.deepEqual(Object.keys(lastAccumulation.accountBalancesById).sort(), expectedIds.sort());
+  assert.deepEqual(Object.keys(firstRetirement.accountReturns).sort(), expectedIds.sort());
+  assert.equal(firstRetirement.taxableStartingBasis, lastAccumulation.taxableEndingBasis);
+  for(const id of expectedIds.filter(id => id !== 'client-checking')){
+    assert.deepEqual(
+      firstRetirement.accountReturns[id].requestedWeights,
+      snapshotPresetAllocation('defensive').weights,
+    );
+  }
+  assert.deepEqual(
+    firstRetirement.accountReturns['client-checking'].requestedWeights,
+    resolveCashOnlyAllocation().weights,
+  );
+});
+
+test('every allocation preset remains authoritative across Typical and all Historical paths', () => {
+  for(const preset of ASSET_ALLOCATION_PRESETS){
+    const plan = currentAccountScenarioFixture(preset.id);
+    const params = resolveInputs(plan, {});
+    const returnPath = Array.from(
+      { length: params.horizonYears },
+      (_, index) => flatAssetReturnRow(1995 + index),
+    );
+    const analysis = runSimulation(plan, {}, [returnPath]);
+    const accumulationYears = params.retirementAge - params.currentAge;
+    const typicalRetirement = analysis.paths.p50.rows[accumulationYears];
+    const expectedInvestmentIds = [
+      'base-taxable',
+      'base-traditional',
+      'base-roth',
+      'client-brokerage',
+      'client-ira',
+      'client-roth',
+    ];
+    for(const id of expectedInvestmentIds){
+      assert.deepEqual(
+        typicalRetirement.accountReturns[id].requestedWeights,
+        snapshotPresetAllocation(preset.id).weights,
+        `Typical ${preset.id} allocation for ${id}`,
+      );
+    }
+    assert.deepEqual(
+      typicalRetirement.accountReturns['client-checking'].requestedWeights,
+      resolveCashOnlyAllocation().weights,
+      `Typical ${preset.id} cash allocation`,
+    );
+
+    const sequencingEntry = deriveRetirementEntryAccounts(
+      analysis,
+      accumulationYears,
+      params.accounts,
+      params.projectionAccounts,
+    );
+    const sequencingPlan = buildRetirementEntryPlan(plan, {
+      entryAccounts: sequencingEntry,
+      currentAge: params.currentAge,
+      retirementAge: params.retirementAge,
+    });
+    const sequencingInputs = resolveInputs(sequencingPlan, {});
+    const sequencingById = new Map(
+      sequencingInputs.projectionAccounts.map(accountRecord => [accountRecord.id, accountRecord]),
+    );
+    assert.deepEqual([...sequencingById.keys()].sort(), [
+      ...expectedInvestmentIds,
+      'client-checking',
+    ].sort());
+    for(const id of expectedInvestmentIds){
+      assert.deepEqual(
+        sequencingById.get(id).investmentAllocation.weights,
+        snapshotPresetAllocation(preset.id).weights,
+        `Sequencing ${preset.id} allocation for ${id}`,
+      );
+    }
+    assert.deepEqual(
+      sequencingById.get('client-checking').investmentAllocation.weights,
+      resolveCashOnlyAllocation().weights,
+      `Sequencing ${preset.id} cash allocation`,
+    );
+    assert.ok(Math.abs(
+      sequencingInputs.projectionAccounts.reduce((sum, accountRecord) => sum + accountRecord.balance, 0)
+        - analysis.envelope[accumulationYears].p50
+    ) <= 0.01, `Sequencing ${preset.id} balance must match the p50 entry envelope`);
+
+    for(const period of HISTORICAL_PERIODS){
+      const result = buildHistoricalCashFlowResult({
+        analysis,
+        plan,
+        periodId: period.id,
+        scenarioId: `allocation_matrix_${preset.id}_${period.startYear}`,
+      });
+      const firstRetirement = result.rows[result.accumulationYears];
+      for(const id of expectedInvestmentIds){
+        assert.deepEqual(
+          firstRetirement.accountReturns[id].requestedWeights,
+          snapshotPresetAllocation(preset.id).weights,
+          `${period.id} ${preset.id} allocation for ${id}`,
+        );
+      }
+      assert.deepEqual(
+        firstRetirement.accountReturns['client-checking'].requestedWeights,
+        resolveCashOnlyAllocation().weights,
+        `${period.id} ${preset.id} cash allocation`,
+      );
+    }
+  }
+});
 
 test('historical Cash Flow stops at and reports the first underfunded retirement year', () => {
   const { plan, analysis } = fixture();
