@@ -48,6 +48,12 @@ export function deltaVsBaseline(scn, baseline) {
     return (scn.prob - baseline.prob);   // presentation subtraction, not a re-simulation
   }
 
+function formatProbabilityDelta(delta, negativeMarker = '−') {
+  if (delta == null) return '';
+  const marker = delta > 0 ? '+' : (delta < 0 ? negativeMarker : '');
+  return marker + Math.abs(delta).toFixed(1) + ' pts';
+}
+
 function leverOptions(lever, esc){
   return (Array.isArray(lever.options) ? lever.options : []).map(option => (
     '<option value="' + esc(option.value) + '"'
@@ -65,7 +71,7 @@ export function renderCompare(scns, baseline, { plan, planEndAge, goalsExpandedS
       const tag = s.isBaseline
         ? '<div class="scol__tag"><span class="tag-ref">Reference</span></div>'
         : (d != null
-            ? '<div class="scol__tag"><span class="tag-delta">' + downTri + Math.abs(d).toFixed(1) + ' pts</span></div>'
+            ? '<div class="scol__tag"><span class="tag-delta">' + formatProbabilityDelta(d, downTri) + '</span></div>'
             : '');
       return (
         '<div class="scol">' +
@@ -279,7 +285,7 @@ export function renderFocus(scns, baseline, focusedId, showRange, {
       const tag = active
         ? '<span class="rail-card__tag rail-card__tag--focus">In focus</span>'
         : (s.isBaseline ? '<span class="rail-card__tag">Reference</span>'
-            : '<span class="rail-card__tag rail-card__tag--delta">' + (d != null ? '−' + Math.abs(d).toFixed(1) + ' pts' : '') + '</span>');
+            : '<span class="rail-card__tag rail-card__tag--delta">' + formatProbabilityDelta(d) + '</span>');
       return (
         '<button class="rail-card ' + (active ? 'is-active' : '') + '" type="button" data-pick="' + esc(s.id) + '" aria-pressed="' + (active ? 'true' : 'false') + '" style="--tone:' + s.tone + ';">' +
           '<div class="rail-card__head"><div class="rail-card__title"><span class="rail-card__dot"></span><span class="rail-card__name">' + esc(s.name) + '</span></div>' + tag + '</div>' +
