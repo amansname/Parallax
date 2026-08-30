@@ -159,12 +159,18 @@ accepted corrections.
 
 ## 3. Verify
 
-Every tier must ultimately pass all four `Parallax quality` jobs:
+Every tier must ultimately pass all four required GitHub gates:
 
-- Governance safeguards
+- Governance safeguards (`Parallax PR evidence`)
 - Unit tests
 - Build deployable site artifact
 - Full browser verification
+
+The reviewer-dependent Governance safeguards gate runs only in the lightweight
+PR-evidence workflow. The Unit tests, deployable artifact, and Full browser
+verification jobs form the full `Parallax quality` campaign. This separation
+prevents the immutable `opened` event from testing a reviewer request that can
+only be created after the pull request exists.
 
 Tier 1 scales only the additional local campaign. GitHub still runs the full
 required suite.
@@ -233,10 +239,30 @@ candidate SHAs, scope, evidence, commands, results, failures or gaps, rollback,
 and independent-review status. The human owner must not author the PR they are
 required to review.
 
-The Governance safeguards job inspects every commit in the current
+The lightweight Governance safeguards job inspects every commit in the current
 base-to-candidate range and rejects any Git author or committer other than the
-Parallax bot. Updating the branch through the human GitHub identity is not an
-acceptable way to bring it current.
+Parallax bot. The final PR-facing ref update must be pushed by the bot; a
+human-authored or human-committed change is not an acceptable way to bring the
+branch current.
+
+When a verified candidate changes `.github/workflows/` and GitHub rejects the
+App introducing those files because it lacks the special workflows permission,
+use the established two-stage identity bridge instead of changing App,
+repository, or account permissions:
+
+1. Push the exact verified bot-authored and bot-committed candidate through the
+   established repository credential. This transports the existing commit; it
+   must not rewrite its author, committer, tree, or message.
+2. Immediately create a tree-identical empty bot-authored identity commit and
+   push that final commit through `parallax-pr-author-amans[bot]`. Use an
+   exact-SHA refspec and lease protection when replacing an existing remote ref.
+3. Only after the bot identity commit is the remote head may the bot create or
+   update the draft PR and request the human review.
+
+Verify the bridge SHA, final SHA, tree equality, complete candidate-range
+authorship, remote head, PR author, and requested reviewer. The bridge is a
+bounded transport exception for workflow files; it never permits human commit
+metadata, a human-authored PR, a human final pusher, or a permission workaround.
 
 PR-event governance also rejects a pull request unless its live author is
 `parallax-pr-author-amans[bot]` and `t66wwpvthy-prog` is either still requested
@@ -251,6 +277,14 @@ governance validation through the lightweight `Parallax PR evidence` workflow.
 It must not rerun unit, artifact, or browser jobs for an unchanged candidate
 SHA. The full `Parallax quality` campaign runs only when the PR opens, reopens,
 or receives a new candidate commit.
+
+Opening a PR starts the full campaign but does not run reviewer-dependent
+governance against the immutable opened-event snapshot.
+Requesting `t66wwpvthy-prog` emits `review_requested` and starts the lightweight
+required Governance safeguards gate. That same lightweight gate reruns on a
+review-request removal, body edit, candidate synchronization, or reopen so
+authorship, exact-head evidence, and the current reviewer state stay coupled
+without another browser campaign.
 
 Request one independent review against current `main`. The authoring session
 cannot self-certify.
