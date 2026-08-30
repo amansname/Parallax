@@ -91,6 +91,7 @@ export function runMonteCarloWithFederalFunding(
   const federalAnalysis = runSimulation(plan, overrides, returnPaths, {
     taxPolicy,
     fundTaxPolicyDelta: true,
+    accountDiagnosticsSimIndices: options.accountDiagnosticsSimIndices,
   });
   // The projection stopped on an unresolvable input. Pass the structured reason
   // straight through — there is nothing to fund and no percentage to report.
@@ -131,6 +132,7 @@ export function runFederalFundingSimulation(
   const federalAnalysis = runSimulation(plan, overrides, returnPaths, {
     taxPolicy,
     fundTaxPolicyDelta: true,
+    accountDiagnosticsSimIndices: options.accountDiagnosticsSimIndices,
   });
   // The projection stopped on an unresolvable input. Pass the structured reason
   // straight through — there is nothing to fund and no percentage to report.

@@ -1152,10 +1152,12 @@ function runAll(){
         try{
           const p=planForScenario(s.lev);
           const ov=leversToOverrides(s.lev);
+          const sharedTypicalIndex = scenarios.find(candidate => candidate.base)?.res?.paths?.p50?.simIndex;
           const taxOptions = {
             baseTaxYear,
             scenarioId: s.name,
             filingStatus: p.meta?.filingStatus,
+            accountDiagnosticsSimIndices: !s.base && Number.isInteger(sharedTypicalIndex) ? [sharedTypicalIndex] : [],
           };
           // One converged federal run now supplies probability, paths, taxes,
           // withdrawals, and balances together. A failed convergence is a

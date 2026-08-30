@@ -508,7 +508,7 @@ function generateReturnPath(horizonYears){
 
 function attachSelectedAccountDiagnostics(analysis, inputs, options){
   const detailedByIndex = new Map();
-  for(const [pathKey, compact] of Object.entries(analysis.paths)){
+  function materialize(compact){
     const index = compact.simIndex;
     let detailed = detailedByIndex.get(index);
     if(!detailed){
@@ -521,7 +521,15 @@ function attachSelectedAccountDiagnostics(analysis, inputs, options){
       detailedByIndex.set(index, detailed);
       analysis.sims[index] = detailed;
     }
-    analysis.paths[pathKey] = detailed;
+    return detailed;
+  }
+  for(const [pathKey, compact] of Object.entries(analysis.paths)){
+    analysis.paths[pathKey] = materialize(compact);
+  }
+  // Cash Flow compares alternatives on Baseline's selected market path, which
+  // need not be one of the alternative's own percentile selections.
+  for(const index of options.accountDiagnosticsSimIndices ?? []){
+    materialize(analysis.sims[index]);
   }
   return analysis;
 }
@@ -549,6 +557,11 @@ function runSimulation(plan, overrides = {}, returnPaths = null, options = {}){
   // exactly those paths so identical inputs + identical paths are reproducible.
   // (Silently generating random fill paths for missing indices broke that.)
   const iterations = returnPaths !== null ? returnPaths.length : inputs.iterations;
+  if(options.accountDiagnosticsSimIndices !== undefined
+      && (!Array.isArray(options.accountDiagnosticsSimIndices)
+        || options.accountDiagnosticsSimIndices.some(index => !Number.isInteger(index) || index < 0 || index >= iterations))){
+    throw new RangeError('accountDiagnosticsSimIndices must contain valid simulation indices');
+  }
   for(let s = 0; s < iterations; s++){
     const returnPath = returnPaths
       ? returnPaths[s]

@@ -44,12 +44,13 @@ function entryFromStates(states){
 }
 
 /** Carry the engine's exact per-account endpoint, not reconstructed bucket shares. */
-export function deriveExactRetirementEntryAccounts(analysis, accumulationYears, fallbackAccounts, fallbackStates){
+export function deriveExactRetirementEntryAccounts(analysis, accumulationYears, fallbackAccounts, fallbackStates,
+  accumulationSimulation = analysis?.paths?.p50){
   if(!Number.isInteger(accumulationYears) || accumulationYears < 0){
     throw new Error('accumulationYears must be a non-negative integer');
   }
-  const row = accumulationYears > 0 ? analysis?.paths?.p50?.rows?.[accumulationYears - 1] : null;
-  if(accumulationYears > 0 && !row) throw new Error('analysis p50 retirement-entry row is required');
+  const row = accumulationYears > 0 ? accumulationSimulation?.rows?.[accumulationYears - 1] : null;
+  if(accumulationYears > 0 && !row) throw new Error('selected simulation retirement-entry row is required');
   const entry = entryFromStates(row ? row.accountStates : fallbackStates);
   for(const bucket of BUCKETS){
     near(row ? row.accountBalances?.[bucket] : fallbackAccounts?.[bucket]?.balance,

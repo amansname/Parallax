@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { defaultPlan, resolveInputs } from '../../engine.js';
+import { defaultPlan, generateReturnPath, resetSeed, resolveInputs } from '../../engine.js';
 import { runFederalFundingSimulation } from '../planning/tax/runMonteCarloWithFederalFunding.js';
 import { createAccount } from '../household/createAccount.js';
 import { ACCOUNT_SCHEMA_VERSION } from '../household/accountTypes.js';
@@ -190,4 +190,44 @@ test('historical entry rejects missing, duplicate, or mismatched account state i
   assert.throws(() => build({ ...entry, accountStates: entry.accountStates.map(state => (
     state.id === 'brokerage' ? { ...state, owner: 'spouse' } : state
   )) }), /owner changed/);
+});
+
+test('working alternate historical paths retain the same baseline-selected Typical accumulation', () => {
+  const source = household({ working: true });
+  const horizon = resolveInputs(source, {}).horizonYears;
+  resetSeed(42);
+  const paths = Array.from({ length: 31 }, () => generateReturnPath(horizon));
+  const basePlan = applyScenarioPlanInputs(source, { retireAge: 67, ssAge: 70, allocationPresetId: 'current' });
+  const alternatePlan = applyScenarioPlanInputs(source, { retireAge: 69, ssAge: 70, allocationPresetId: 'defensive' });
+  const taxOptions = { baseTaxYear: 2026, filingStatus: 'single' };
+  const baselineAnalysis = runFederalFundingSimulation(basePlan, {}, paths, taxOptions);
+  const sharedIndex = baselineAnalysis.paths.p50.simIndex;
+  const alternateAnalysis = runFederalFundingSimulation(alternatePlan, {}, paths, {
+    ...taxOptions, accountDiagnosticsSimIndices: [sharedIndex],
+  });
+  assert.notEqual(alternateAnalysis.paths.p50.simIndex, sharedIndex, 'fixture must expose different p50 identities');
+  const scenarios = [
+    { name: 'Baseline', base: true, res: baselineAnalysis },
+    { name: 'Defensive', base: false, res: alternateAnalysis },
+  ];
+  const errors = [];
+  const controller = createCashFlowController({
+    getScenarios: () => scenarios,
+    scenarioInputsByResult: new WeakMap([
+      [baselineAnalysis, { plan: basePlan, overrides: {} }],
+      [alternateAnalysis, { plan: alternatePlan, overrides: {} }],
+    ]),
+    selection: { id: 'typical' }, buildRows: simulation => simulation.rows,
+    onError: (...args) => errors.push(args.at(-1).message), onHeaderDiagnostic: () => {},
+  });
+  const typical = controller.resultForScenario(scenarios[1]);
+  for(const period of HISTORICAL_PERIODS){
+    controller.setPathId(period.id);
+    const historical = controller.resultForScenario(scenarios[1]);
+    assert.equal(historical.error, undefined, errors.at(-1));
+    assert.deepEqual(historical.rows.slice(0, 5), typical.rows.slice(0, 5), period.id);
+    assert.deepEqual(historical.rows[5].accountStartingBalances, typical.rows[4].accountBalances);
+    assert.equal(historical.rows[5].taxableStartingBasis, typical.rows[4].taxableEndingBasis);
+  }
+  assert.ok(typical.rows[4].accountStates, 'shared Typical selection retains exact account state');
 });

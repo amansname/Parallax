@@ -4203,4 +4203,20 @@ test('Monte Carlo keeps internal trials compact and selected paths fully traceab
     failed: row.failed,
   }));
   assert.deepStrictEqual(numericCore(selected), numericCore(direct));
+
+  const additionalIndex = analysis.sims.find(sim => !selectedIndexes.has(sim.simIndex)).simIndex;
+  const withSharedTypical = runSimulation(p, {}, bundle, {
+    accountDiagnosticsSimIndices: [additionalIndex, additionalIndex],
+  });
+  for(const sim of withSharedTypical.sims){
+    assert.deepEqual(numericCore(sim), numericCore(analysis.sims[sim.simIndex]));
+    assert.equal(Boolean(sim.rows[0].accountStates),
+      selectedIndexes.has(sim.simIndex) || sim.simIndex === additionalIndex);
+  }
+  assert.deepEqual(withSharedTypical.envelope, analysis.envelope);
+  assert.equal(withSharedTypical.successRate, analysis.successRate);
+  for(const indices of [null, '1', [-1], [bundle.length], [1.5]]){
+    assert.throws(() => runSimulation(p, {}, bundle, { accountDiagnosticsSimIndices: indices }),
+      /accountDiagnosticsSimIndices/);
+  }
 });

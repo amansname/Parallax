@@ -6,6 +6,32 @@ delivery. Commit-bound browser/command receipts and current delivery status
 belong in the PR evidence; the earlier results below are not a claim that those
 later gates have already passed.
 
+## Browser-discovered correction before publication
+
+The first frozen candidate was `2e67dea51043bd7d2eeefb695a852dac2df8605c`.
+It passed 873 unit tests plus 24 tax pretests and the full browser verifier.
+Native-browser acceptance also covered all nine historical periods and Typical,
+all six allocation overrides, the already-retired boundary, Net Worth allocation
+propagation, and Sequencing reconciliation. It then exposed a second defect in
+the working-household alternate-plan case: Typical selected Baseline's p50
+market index while historical accumulation selected the alternate's own p50.
+Changing path therefore changed the already-displayed working years.
+
+The correction carries the same selected simulation from the controller into
+the historical builder/cache. The engine retains detailed account snapshots for
+that one additionally selected market index; all other internal trials stay
+compact. The production federal runner forwards this explicit selection.
+Probability, envelope, asset-return, tax, and withdrawal formulas are unchanged.
+
+A deterministic 31-path test (seed 42, current-mix Baseline versus Defensive with
+later retirement) reproduces differing p50 identities and failed before this
+correction with different accumulation balances/returns. It now requires exact
+Typical-prefix equality and matching retirement opening balances/basis for all
+nine historical periods. The engine compact-trial test also checks numerical
+parity, only-requested diagnostic expansion, and invalid-index rejection.
+This concrete failure invalidates the first candidate's completion evidence;
+the final PR receipt must name and verify the corrected commit.
+
 ## Scope and identity
 
 - Date: 2026-08-30.
