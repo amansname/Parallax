@@ -3117,6 +3117,25 @@ try {
 
     await page.click('button[data-page="scenarios"]');
     await page.waitForSelector('#scn-view .compare', { visible: true, timeout: 30000 });
+    await page.evaluate(() => {
+      const status = document.querySelector('#status');
+      const tracker = {
+        observed: [],
+        sawRunning: false,
+        observer: null,
+      };
+      const record = () => {
+        const value = status?.textContent.trim() || '';
+        if(tracker.observed.at(-1) !== value) tracker.observed.push(value);
+        if(/Running/i.test(value)) tracker.sawRunning = true;
+      };
+      tracker.observer = new MutationObserver(record);
+      if(status){
+        tracker.observer.observe(status, { childList: true, characterData: true, subtree: true });
+      }
+      record();
+      globalThis.__parallaxVerifyDefensiveScenarioTracker = tracker;
+    });
     await page.select(
       '#scn-view .cmp-lev-select[data-scn-id="1"][data-lever-key="allocationPresetId"]',
       'defensive',
@@ -3125,9 +3144,15 @@ try {
       const saved = JSON.parse(
         localStorage.getItem(`parallax.scenarios.${householdId}.v1`) || 'null',
       );
+      const tracker = globalThis.__parallaxVerifyDefensiveScenarioTracker;
       return saved?.[1]?.lev?.allocationPresetId === 'defensive'
+        && tracker?.sawRunning === true
         && /Plan updated|Partial run/i.test(document.querySelector('#status')?.textContent || '');
     }, { timeout: 30000 }, withdrawalPlannerFixtureHouseholdId);
+    await page.evaluate(() => {
+      globalThis.__parallaxVerifyDefensiveScenarioTracker?.observer?.disconnect();
+      delete globalThis.__parallaxVerifyDefensiveScenarioTracker;
+    });
     await setCashFlow(page, true);
     await waitCashRows(page, 10);
     const EXPECT = ['Year', 'Age', 'Income', 'RMD', 'Essential', 'Goals', 'Tax', 'Draw', 'Return', 'WD Rate', 'Ending'];
