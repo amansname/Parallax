@@ -103,6 +103,8 @@ requireText('docs/CODEX_WORKFLOW.md', [
   'request `t66wwpvthy-prog` as the human reviewer',
   'branch-caused required-gate failure',
   'monitor the pull-request run as authoritative',
+  'The reviewer-dependent Governance safeguards gate runs only in the lightweight',
+  'Requesting `t66wwpvthy-prog` emits `review_requested`',
   'Moving a withdrawal lever changes the expected tax or financial column',
   'Goals Essentials plus documented overrides reconcile to Cash Flow Essentials',
   'Income and expense outputs trace to distinct engine inputs',
@@ -149,6 +151,8 @@ requireText('docs/GITHUB_SETTINGS.md', [
   'Require exactly one approving review',
   'Disable the extra approval for changes not attributed to a user',
   '`t66wwpvthy-prog` is the',
+  'select `Governance safeguards` from',
+  '`Parallax PR evidence`',
 ]);
 
 requireText('docs/DEPLOYMENT-INTEGRITY.md', [
@@ -197,7 +201,7 @@ for(const completionText of [
 
 const packageJson = JSON.parse(read('package.json') || '{}');
 const expectedScripts = {
-  'governance:check': 'node --test .claude/hooks/protect-ui-scope.test.mjs scripts/validate-pr-body.test.mjs scripts/site-integrity.test.mjs && node scripts/validate-governance.mjs',
+  'governance:check': 'node --test .claude/hooks/protect-ui-scope.test.mjs scripts/validate-pr-body.test.mjs scripts/workflow-routing.test.mjs scripts/site-integrity.test.mjs && node scripts/validate-governance.mjs',
   'governance:pr': 'node scripts/validate-pr-body.mjs',
   verify: 'node scripts/verify.mjs',
   preview: 'node scripts/preview.mjs',
@@ -239,16 +243,8 @@ if(!workflowFiles.length){
 
 const workflow = requireText('.github/workflows/test.yml', [
   'name: Parallax quality',
-  'name: Governance safeguards',
   'name: Unit tests',
   'name: Full browser verification',
-  'run: npm run governance:check',
-  'run: npm run governance:pr',
-  'name: Enforce bot-authored candidate commits',
-  'fetch-depth: 0',
-  'PARALLAX_BASE_SHA: ${{ github.event.pull_request.base.sha }}',
-  'PARALLAX_HEAD_SHA: ${{ github.event.pull_request.head.sha }}',
-  'run: node scripts/validate-pr-authorship.mjs',
   'run: npm test',
   'run: npm run verify',
   'name: Build deployable site artifact',
@@ -273,6 +269,16 @@ if(!Array.isArray(configuredPushBranches)
   || configuredPushBranches[0] !== 'main'){
   failures.push('.github/workflows/test.yml must run push quality only on main; feature branches use the pull_request run');
 }
+const qualityJobs = Object.keys(workflowConfig?.jobs || {}).sort();
+if(qualityJobs.length !== 3
+  || ['artifact', 'browser', 'unit'].some(job => !qualityJobs.includes(job))){
+  failures.push('.github/workflows/test.yml must contain only unit, artifact, and browser jobs; reviewer governance belongs to PR evidence');
+}
+for(const forbidden of ['npm run governance:check', 'npm run governance:pr', 'validate-pr-authorship.mjs']){
+  if(workflow.includes(forbidden)){
+    failures.push(`the full quality campaign must not run reviewer governance from an opened-event snapshot: ${forbidden}`);
+  }
+}
 for(const forbidden of ['continue-on-error', '|| true', '&& true']){
   if(workflow.includes(forbidden)){
     failures.push(`required workflow must not contain ${forbidden}`);
@@ -281,7 +287,7 @@ for(const forbidden of ['continue-on-error', '|| true', '&& true']){
 
 const prEvidenceWorkflow = requireText('.github/workflows/pr-evidence.yml', [
   'name: Parallax PR evidence',
-  'types: [edited]',
+  'types: [edited, review_requested, review_request_removed, synchronize, reopened]',
   "PUPPETEER_SKIP_DOWNLOAD: 'true'",
   'name: Governance safeguards',
   'run: npm run governance:check',
@@ -295,9 +301,10 @@ const prEvidenceWorkflow = requireText('.github/workflows/pr-evidence.yml', [
 const prEvidenceConfig = parseDocument(prEvidenceWorkflow).toJS();
 const evidencePullRequestTypes = prEvidenceConfig?.on?.pull_request?.types;
 if(!Array.isArray(evidencePullRequestTypes)
-  || evidencePullRequestTypes.length !== 1
-  || evidencePullRequestTypes[0] !== 'edited'){
-  failures.push('.github/workflows/pr-evidence.yml must run governance only for edited pull_request events');
+  || evidencePullRequestTypes.length !== 5
+  || ['edited', 'review_requested', 'review_request_removed', 'synchronize', 'reopened']
+    .some(type => !evidencePullRequestTypes.includes(type))){
+  failures.push('.github/workflows/pr-evidence.yml must own edited, review_requested, review_request_removed, synchronize, and reopened governance events');
 }
 const evidenceJobs = Object.keys(prEvidenceConfig?.jobs || {});
 if(evidenceJobs.length !== 1 || evidenceJobs[0] !== 'governance'){

@@ -28,9 +28,9 @@ Configure a branch protection rule or repository ruleset targeting `main`:
    single required human reviewer; enabling that extra rule would require a
    second distinct reviewer.
 
-After the governance workflow first runs, select the check contexts produced by
-the `Parallax quality` workflow rather than creating similarly named external
-statuses.
+After the workflows first run, select `Governance safeguards` from
+`Parallax PR evidence`; select the unit, artifact, and browser contexts from
+`Parallax quality`. Do not create similarly named external statuses.
 
 ## Codex code review
 

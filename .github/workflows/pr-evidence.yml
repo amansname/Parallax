@@ -2,7 +2,7 @@ name: Parallax PR evidence
 
 on:
   pull_request:
-    types: [edited]
+    types: [edited, review_requested, review_request_removed, synchronize, reopened]
 
 permissions:
   contents: read
