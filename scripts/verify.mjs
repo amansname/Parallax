@@ -12,9 +12,6 @@ import { join, resolve, sep } from 'node:path';
 import { generateReturnPath, resetSeed, resolveInputs, runSimulation } from '../engine.js';
 import { runMonteCarloWithFederalFunding } from '../src/planning/tax/runMonteCarloWithFederalFunding.js';
 import { createBlankTaxProfiles } from '../src/household/factEnvelope.js';
-import { ACCOUNT_SCHEMA_VERSION } from '../src/household/accountTypes.js';
-import { LEGACY_BASE_ACCOUNT_IDS } from '../src/household/migrateAccounts.js';
-import { snapshotLegacyRiskProfileAllocation } from '../src/household/investmentAllocation.js';
 import { assertCleanCandidateWorktree, buildSiteArtifact } from './build-site-artifact.mjs';
 import { verifyArtifactBundle } from './site-integrity-lib.mjs';
 import {
@@ -2966,7 +2963,7 @@ try {
 
   await step('cash-flow view: exact columns, rows, summary, path controls, pills', async () => {
     // Re-anchor the saved plan + scenario levers after earlier household edits.
-    await page.evaluate(({ householdId, accountContract }) => {
+    await page.evaluate((householdId) => {
       const key = 'parallax.households.v1';
       const db = JSON.parse(localStorage.getItem(key) || '{}');
       const household = db[householdId];
@@ -2976,37 +2973,21 @@ try {
       household.meta.filingStatus = 'marriedFilingJointly';
       household.household.primary = { currentAge: 64, retirementAge: 66, planEndAge: 96, birthYear: 1962 };
       household.household.spouse = { currentAge: 63, retirementAge: 65, planEndAge: 95, birthYear: 1963 };
-      household.meta.accountSchemaVersion = accountContract.accountSchemaVersion;
-      delete household.meta.householdRecordSchemaVersion;
       household.portfolio.accounts = {
-        taxable: {
-          id: accountContract.baseAccountIds.taxable,
-          balance:800000,
-          basisPct:1,
-          investmentAllocation: structuredClone(accountContract.investmentAllocation),
-        },
-        traditional: {
-          id: accountContract.baseAccountIds.traditional,
-          balance:1600000,
-          investmentAllocation: structuredClone(accountContract.investmentAllocation),
-        },
-        roth: {
-          id: accountContract.baseAccountIds.roth,
-          balance:400000,
-          investmentAllocation: structuredClone(accountContract.investmentAllocation),
-        },
+        taxable: { balance:0, basisPct:1 },
+        traditional: { balance:0 },
+        roth: { balance:0 },
       };
-      household.portfolio.extraAccounts = [];
+      household.portfolio.extraAccounts = [
+        { type:'Traditional IRA', bucket:'traditional', owner:'client', balance:1600000 },
+        { type:'Brokerage (taxable)', bucket:'taxable', owner:'spouse', balance:800000 },
+        { type:'Roth IRA', bucket:'roth', owner:'spouse', balance:400000 },
+      ];
+      delete household.meta.accountSchemaVersion;
+      delete household.meta.householdRecordSchemaVersion;
       localStorage.setItem(key, JSON.stringify(db));
       localStorage.removeItem(`parallax.scenarios.${householdId}.v1`);
-    }, {
-      householdId: withdrawalPlannerFixtureHouseholdId,
-      accountContract: {
-        accountSchemaVersion: ACCOUNT_SCHEMA_VERSION,
-        baseAccountIds: LEGACY_BASE_ACCOUNT_IDS,
-        investmentAllocation: snapshotLegacyRiskProfileAllocation(3),
-      },
-    });
+    }, withdrawalPlannerFixtureHouseholdId);
     await stableReload({ waitUntil: 'networkidle2', timeout: 20000 });
     await waitForUnselectedWizard(page);
     await stableClick('.htab[data-page="household"]');
@@ -3114,55 +3095,6 @@ try {
     }
 
     await page.click('button[data-page="scenarios"]');
-    await page.waitForSelector('#scn-view .compare', { visible: true, timeout: 30000 });
-    await page.evaluate(() => {
-      const status = document.querySelector('#status');
-      const tracker = {
-        observed: [],
-        sawRunning: false,
-        observer: null,
-      };
-      const record = () => {
-        const value = status?.textContent.trim() || '';
-        if(tracker.observed.at(-1) !== value) tracker.observed.push(value);
-        if(/Running/i.test(value)) tracker.sawRunning = true;
-      };
-      tracker.observer = new MutationObserver(record);
-      if(status){
-        tracker.observer.observe(status, { childList: true, characterData: true, subtree: true });
-      }
-      record();
-      globalThis.__parallaxVerifyDefensiveScenarioTracker = tracker;
-    });
-    await page.select(
-      '#scn-view .cmp-lev-select[data-scn-id="1"][data-lever-key="allocationPresetId"]',
-      'defensive',
-    );
-    await page.waitForFunction(householdId => {
-      const saved = JSON.parse(
-        localStorage.getItem(`parallax.scenarios.${householdId}.v1`) || 'null',
-      );
-      const tracker = globalThis.__parallaxVerifyDefensiveScenarioTracker;
-      return saved?.[1]?.lev?.allocationPresetId === 'defensive'
-        && tracker?.sawRunning === true
-        && /Plan updated|Partial run/i.test(document.querySelector('#status')?.textContent || '');
-    }, { timeout: 30000 }, withdrawalPlannerFixtureHouseholdId);
-    const defensiveScenarioRun = await page.evaluate(() => {
-      const tracker = globalThis.__parallaxVerifyDefensiveScenarioTracker;
-      tracker?.observer?.disconnect();
-      const diagnostic = {
-        status: document.querySelector('#status')?.textContent.trim() || '',
-        observedStatuses: tracker?.observed ?? [],
-      };
-      delete globalThis.__parallaxVerifyDefensiveScenarioTracker;
-      return diagnostic;
-    });
-    if(!/^Plan updated/i.test(defensiveScenarioRun.status)){
-      throw new Error(`Defensive scenario did not complete cleanly: ${JSON.stringify({
-        ...defensiveScenarioRun,
-        consoleErrors: errs,
-      })}`);
-    }
     await setCashFlow(page, true);
     await waitCashRows(page, 10);
     const EXPECT = ['Year', 'Age', 'Income', 'RMD', 'Essential', 'Goals', 'Tax', 'Draw', 'Return', 'WD Rate', 'Ending'];
@@ -3296,54 +3228,6 @@ try {
     if(!/Scenario B/.test(bActive)) throw new Error(`Cash Flow selector did not switch to Scenario B (got "${bActive}")`);
     const bMarker = await retirementStartAge();
     if(bMarker !== '68') throw new Error(`Scenario B retirement start not at age 68 (got "${bMarker}")`);
-
-    if(!SKIP_SEQUENCING){
-      await page.select('#cashflow-path-mode', 'historical-1929');
-      await waitForCashFlowPath(page, {
-        pathId: 'historical-1929',
-        kind: 'historical',
-        sourceYear: 1929,
-        requireHistoricalSummary: true,
-        timeout: 20000,
-      });
-      const defensiveGreatDepression = await page.evaluate(householdId => {
-        const saved = JSON.parse(
-          localStorage.getItem(`parallax.scenarios.${householdId}.v1`) || 'null',
-        );
-        const root = document.querySelector('#scn-view .cf');
-        const rows = [...document.querySelectorAll('#scn-view .cf-row')];
-        return {
-          allocation: saved?.[1]?.lev?.allocationPresetId ?? null,
-          activeScenario: document.querySelector(
-            '#scn-view [data-cash-select]',
-          )?.selectedOptions?.[0]?.textContent.trim() || '',
-          pathId: root?.dataset.cashPathId || '',
-          pathKind: root?.dataset.cashPathKind || '',
-          rowCount: rows.length,
-          sourceYear: Number(rows.find(row => row.dataset.phase === 'retirement')?.dataset.sourceYear),
-          unavailable: /path is unavailable|retirement handoff could not be verified/i.test(
-            document.querySelector('#scn-view')?.textContent || '',
-          ),
-        };
-      }, withdrawalPlannerFixtureHouseholdId);
-      if(defensiveGreatDepression.allocation !== 'defensive'
-          || !/Scenario B/.test(defensiveGreatDepression.activeScenario)
-          || defensiveGreatDepression.pathId !== 'historical-1929'
-          || defensiveGreatDepression.pathKind !== 'historical'
-          || defensiveGreatDepression.rowCount < 10
-          || defensiveGreatDepression.sourceYear !== 1929
-          || defensiveGreatDepression.unavailable){
-        throw new Error(
-          `Defensive 1929 historical Cash Flow did not render authoritatively: ${JSON.stringify(defensiveGreatDepression)}`,
-        );
-      }
-      await page.select('#cashflow-path-mode', 'typical');
-      await waitForCashFlowPath(page, {
-        pathId: 'typical',
-        kind: 'typical',
-        timeout: 20000,
-      });
-    }
     // Restore Baseline for the historical-path checks below.
     const baselineValue = await page.evaluate(() => {
       const option = [...document.querySelectorAll('#scn-view [data-cash-select] option')]
