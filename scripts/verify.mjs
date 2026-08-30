@@ -3145,12 +3145,24 @@ try {
       const tracker = globalThis.__parallaxVerifyDefensiveScenarioTracker;
       return saved?.[1]?.lev?.allocationPresetId === 'defensive'
         && tracker?.sawRunning === true
-        && /^Plan updated/i.test(document.querySelector('#status')?.textContent || '');
+        && /Plan updated|Partial run/i.test(document.querySelector('#status')?.textContent || '');
     }, { timeout: 30000 }, withdrawalPlannerFixtureHouseholdId);
-    await page.evaluate(() => {
-      globalThis.__parallaxVerifyDefensiveScenarioTracker?.observer?.disconnect();
+    const defensiveScenarioRun = await page.evaluate(() => {
+      const tracker = globalThis.__parallaxVerifyDefensiveScenarioTracker;
+      tracker?.observer?.disconnect();
+      const diagnostic = {
+        status: document.querySelector('#status')?.textContent.trim() || '',
+        observedStatuses: tracker?.observed ?? [],
+      };
       delete globalThis.__parallaxVerifyDefensiveScenarioTracker;
+      return diagnostic;
     });
+    if(!/^Plan updated/i.test(defensiveScenarioRun.status)){
+      throw new Error(`Defensive scenario did not complete cleanly: ${JSON.stringify({
+        ...defensiveScenarioRun,
+        consoleErrors: errs,
+      })}`);
+    }
     await setCashFlow(page, true);
     await waitCashRows(page, 10);
     const EXPECT = ['Year', 'Age', 'Income', 'RMD', 'Essential', 'Goals', 'Tax', 'Draw', 'Return', 'WD Rate', 'Ending'];
