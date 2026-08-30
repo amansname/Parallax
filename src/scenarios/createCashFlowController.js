@@ -68,6 +68,7 @@ export function createCashFlowController({
     if(!runInputs) return null;
     return {
       analysis: scenario.res,
+      accumulationSimulation: simulationByIndex(scenario.res, baselineP50SimulationIndex(getScenarios())),
       plan: runInputs.plan,
       overrides: runInputs.overrides,
       periodId,

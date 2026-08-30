@@ -1151,6 +1151,7 @@ test('default Monte Carlo is identical to the explicit shortcut tax policy', () 
     'accountReturns',
     'householdEffectiveAllocation',
     'accountBalancesById',
+    'accountStates',
     'accountContributionsById',
     'accountWithdrawalsById',
   ]);
@@ -4173,10 +4174,13 @@ test('Monte Carlo keeps internal trials compact and selected paths fully traceab
       assert.ok(first.accountReturns);
       assert.ok(first.householdEffectiveAllocation);
       assert.ok(first.accountBalancesById);
+      assert.ok(Object.isFrozen(first.accountStates));
+      assert.deepEqual(Object.fromEntries(first.accountStates.map(a => [a.id, a.balance])), first.accountBalancesById);
     }else{
       assert.strictEqual(first.accountReturns, undefined);
       assert.strictEqual(first.householdEffectiveAllocation, undefined);
       assert.strictEqual(first.accountBalancesById, undefined);
+      assert.strictEqual(first.accountStates, undefined);
       assert.strictEqual(first.accountContributionsById, undefined);
       assert.strictEqual(first.accountWithdrawalsById, undefined);
     }
@@ -4199,4 +4203,20 @@ test('Monte Carlo keeps internal trials compact and selected paths fully traceab
     failed: row.failed,
   }));
   assert.deepStrictEqual(numericCore(selected), numericCore(direct));
+
+  const additionalIndex = analysis.sims.find(sim => !selectedIndexes.has(sim.simIndex)).simIndex;
+  const withSharedTypical = runSimulation(p, {}, bundle, {
+    accountDiagnosticsSimIndices: [additionalIndex, additionalIndex],
+  });
+  for(const sim of withSharedTypical.sims){
+    assert.deepEqual(numericCore(sim), numericCore(analysis.sims[sim.simIndex]));
+    assert.equal(Boolean(sim.rows[0].accountStates),
+      selectedIndexes.has(sim.simIndex) || sim.simIndex === additionalIndex);
+  }
+  assert.deepEqual(withSharedTypical.envelope, analysis.envelope);
+  assert.equal(withSharedTypical.successRate, analysis.successRate);
+  for(const indices of [null, '1', [-1], [bundle.length], [1.5]]){
+    assert.throws(() => runSimulation(p, {}, bundle, { accountDiagnosticsSimIndices: indices }),
+      /accountDiagnosticsSimIndices/);
+  }
 });

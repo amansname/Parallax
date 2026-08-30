@@ -1,6 +1,7 @@
 import { getAccountTypeById } from './accountTypes.js';
 import { validateBasisEnvelope } from './factEnvelope.js';
 import { resolvePortfolioAccounts } from './resolvePortfolioAccounts.js';
+import { readTransientProjectionAccountState } from './transientProjectionAccountState.js';
 
 const GAP_AFFECTS = 'taxable-withdrawal-gain';
 const APPROVED_BASIS_ASSUMPTION_CODE = 'TAXABLE_BASIS_ASSUMED_50_50';
@@ -202,20 +203,21 @@ export function resolveTaxableStartingBasis(plan, suppliedFold = null){
 
   for(const account of accounts){
     accountIds.push(account.id);
+    const carriedBasis = readTransientProjectionAccountState(plan, account.id)?.basis;
     if(account.sourceKind === 'legacy-base'){
-      if(account.basis?.method === 'calculated-carried-forward'){
+      if(carriedBasis !== undefined){
         hasCalculatedBasis = true;
-        calculatedCarriedForwardBasis = account.basis.amount;
-        completeBasis += account.basis.amount;
+        calculatedCarriedForwardBasis = carriedBasis;
+        completeBasis += carriedBasis;
         records.push(freezeRecord(
           account,
           'calculation',
-          account.basis.amount,
+          carriedBasis,
           'calculated-carried-forward'
         ));
         evidence.push(Object.freeze({
           accountId: account.id,
-          amount: account.basis.amount,
+          amount: carriedBasis,
           method: 'calculated-carried-forward',
           status: 'calculated',
           source: 'retirement-entry-calculation',
@@ -270,6 +272,27 @@ export function resolveTaxableStartingBasis(plan, suppliedFold = null){
         `portfolio.extraAccounts.${account.sourceIndex}.owner`,
         'scope'
       ));
+      continue;
+    }
+    if(carriedBasis !== undefined && (account.taxCharacter === 'taxable_cash'
+        || (account.taxCharacter === 'capital_asset' && getAccountTypeById(account.typeId)?.supportedForTax))){
+      const reportGap = resolveAccountTaxReportingGap(raw, account, plan);
+      if(reportGap){
+        records.push(freezeRecord(account, 'readiness-only', null, 'reporting-not-ready', raw));
+        gaps.push(reportGap);
+        continue;
+      }
+      hasCalculatedBasis = true;
+      completeBasis += carriedBasis;
+      records.push(Object.freeze({
+        ...freezeRecord(account, 'calculation', carriedBasis, 'calculated-carried-forward'),
+        basisStatus: 'calculated', source: 'retirement-entry-calculation', confirmedAt: null,
+      }));
+      evidence.push(Object.freeze({
+        accountId: account.id, amount: carriedBasis, method: 'calculated-carried-forward',
+        status: 'calculated', source: 'retirement-entry-calculation', confirmedAt: null,
+        reporting: freezeReportingSnapshot(raw.taxReporting),
+      }));
       continue;
     }
     if(account.taxCharacter === 'taxable_cash'){

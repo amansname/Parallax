@@ -26,7 +26,7 @@ function assertNear(actual, expected, label){
 }
 
 function retirementOverrides(overrides, accumulationYears){
-  const result = { ...(overrides || {}), retireDelay: 0 };
+  const result = { ...(overrides || {}), retireDelay: 0, initialShock: 0 };
   if(Number.isInteger(result.lumpSumYear)){
     const rebasedYear = result.lumpSumYear - accumulationYears;
     if(rebasedYear < 0){
@@ -93,6 +93,7 @@ function calendarYearForRetirementRow(row, retirementBaseYear){
 
 export function buildHistoricalCashFlowResult({
   analysis,
+  accumulationSimulation = analysis?.paths?.p50,
   plan,
   overrides = {},
   periodId,
@@ -107,20 +108,22 @@ export function buildHistoricalCashFlowResult({
 
   const params = resolveInputs(plan, overrides);
   const accumulationYears = Math.max(0, params.retirementAge - params.currentAge);
-  const p50Rows = analysis?.paths?.p50?.rows;
-  if(!Array.isArray(p50Rows)){
-    throw continuityError('the scenario p50 path is required');
+  const selectedRows = accumulationSimulation?.rows;
+  if(!Array.isArray(selectedRows)){
+    throw continuityError('the selected Typical path is required');
   }
-  const accumulationRows = p50Rows.slice(0, accumulationYears);
+  const accumulationRows = selectedRows.slice(0, accumulationYears);
   if(accumulationRows.length !== accumulationYears
       || accumulationRows.some(row => row?.phase !== 'accum')){
-    throw continuityError('the displayed p50 path did not reach retirement continuously');
+    throw continuityError('the displayed Typical path did not reach retirement continuously');
   }
 
   const entryAccounts = deriveExactRetirementEntryAccounts(
     analysis,
     accumulationYears,
-    params.accounts
+    params.accounts,
+    params.projectionAccounts,
+    accumulationSimulation,
   );
   const retirementPlan = buildRetirementEntryPlan(plan, {
     entryAccounts,
@@ -188,7 +191,7 @@ export function buildHistoricalCashFlowResult({
     accumulationRows,
     realHistoricalRows,
     entryAccounts,
-    params.retirementAge
+    Math.max(params.currentAge, params.retirementAge)
   );
 
   const retirementRows = realHistoricalRows.map((row, index) => Object.freeze({
@@ -260,6 +263,7 @@ export function createHistoricalCashFlowCache(){
       && cached.overrides === args.overrides
       && cached.scenarioId === args.scenarioId
       && cached.taxOptions === args.taxOptions
+      && cached.accumulationSimulation === args.accumulationSimulation
       ? cached.result
       : null;
   }
@@ -281,7 +285,8 @@ export function createHistoricalCashFlowCache(){
           && cached.plan === args.plan
           && cached.overrides === args.overrides
           && cached.scenarioId === args.scenarioId
-          && cached.taxOptions === args.taxOptions){
+          && cached.taxOptions === args.taxOptions
+          && cached.accumulationSimulation === args.accumulationSimulation){
         return cached.result;
       }
       const result = buildHistoricalCashFlowResult({
@@ -293,6 +298,7 @@ export function createHistoricalCashFlowCache(){
         overrides: args.overrides,
         scenarioId: args.scenarioId,
         taxOptions: args.taxOptions,
+        accumulationSimulation: args.accumulationSimulation,
         result,
       }));
       return result;

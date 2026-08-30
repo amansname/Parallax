@@ -19,6 +19,14 @@ function account(typeId, id, balance, basisAmount = null, owner = 'client'){
   return result;
 }
 
+function accountStatesFor(plan, changes = {}){
+  return resolveInputs(plan, {}).projectionAccounts.map(state => ({ ...state, ...changes[state.id] }));
+}
+
+function bucketView({ taxable, traditional, roth }){
+  return { taxable, traditional, roth };
+}
+
 test('retirement entry preserves the projected bucket mix and taxable basis', () => {
   const plan = structuredClone(defaultPlan);
   plan.household.primary = { currentAge: 60, retirementAge: 65, planEndAge: 95, birthYear: 1966 };
@@ -49,6 +57,9 @@ test('retirement entry preserves the projected bucket mix and taxable basis', ()
                 traditionalEndingBalancesByOwner: {
                   client: 500, spouse: 0, unattributed: 0,
                 },
+                accountStates: accountStatesFor(plan, {
+                  brokerage: { balance: 150, basis: 125 }, ira: { balance: 500 }, 'roth-401k': { balance: 50 },
+                }),
               }
             : {
                 accountBalances: { taxable: 100, traditional: 200, roth: 100 },
@@ -90,7 +101,7 @@ test('retirement entry preserves the projected bucket mix and taxable basis', ()
   const startingBasis = resolveTaxableStartingBasis(result);
 
   assert.deepEqual(plan, before, 'the source Household plan must remain unchanged');
-  assert.deepEqual(exactEntryAccounts, {
+  assert.deepEqual(bucketView(exactEntryAccounts), {
     taxable: { balance: 150, basis: 125 },
     traditional: {
       balance: 500,
@@ -98,32 +109,32 @@ test('retirement entry preserves the projected bucket mix and taxable basis', ()
     },
     roth: { balance: 50 },
   }, 'Cash Flow must preserve the exact displayed accumulation endpoint');
-  assert.deepEqual(entryAccounts, {
+  assert.deepEqual(bucketView(entryAccounts), {
     taxable: { balance: 300, basis: 250 },
-    traditional: { balance: 1000 },
+    traditional: { balance: 1000, byOwner: { client: 1000, spouse: 0, unattributed: 0 } },
     roth: { balance: 100 },
   });
   // The resolved traditional sleeve now also carries per-owner buckets, so
   // compare the balance contract rather than whole-object identity.
   assert.deepEqual({
     taxable: resolved.taxable,
-    traditional: { balance: resolved.traditional.balance },
+    traditional: { balance: resolved.traditional.balance, byOwner: resolved.traditional.byOwner },
     roth: resolved.roth,
-  }, entryAccounts,
+  }, bucketView(entryAccounts),
   'the historical clone must start from the modeled retirement engine state');
-  assert.equal(startingBasis.basisOverride, null);
+  assert.equal(startingBasis.basisOverride, 250);
   assert.equal(startingBasis.appliedBasis, 250);
   assert.equal(startingBasis.appliedMode, 'calculated-carried-forward');
   assert.deepEqual(
     result.portfolio.extraAccounts.map(({ id, balance }) => ({ id, balance })),
     [
-      { id: 'brokerage', balance: 0 },
+      { id: 'brokerage', balance: 300 },
       { id: 'ira', balance: 1000 },
-      { id: 'roth-401k', balance: 0 },
+      { id: 'roth-401k', balance: 100 },
       { id: 'inherited', balance: 75 },
     ]
   );
-  assert.equal(result.portfolio.extraAccounts[0].basis.amount, 0);
+  assert.equal(result.portfolio.extraAccounts[0].basis.amount, 60, 'recorded basis is not replaced by calculated basis');
   assert.equal(result.portfolio.accounts.traditional.balance, 0);
   assert.equal(inputs.rmdContract.owner, 'client');
   assert.equal(inputs.rmdContract.available, true);
@@ -158,6 +169,7 @@ test('exact Traditional ownership survives the retirement-entry handoff', () => 
       byOwner: { client: 3_012_000, spouse: 2_000_000, unattributed: 0 },
     },
     roth: { balance: 0 },
+    accountStates: accountStatesFor(plan, { 'client-ira': { balance: 3_012_000 } }),
   };
 
   const retirementPlan = buildRetirementEntryPlan(plan, {
@@ -189,12 +201,15 @@ test('exact retirement entry fails closed when owner reporting is missing', () =
     paths: { p50: { rows: [{
       accountBalances: { taxable: 0, traditional: 100, roth: 0 },
       taxableEndingBasis: 0,
+      accountStates: accountStatesFor(plan, {
+        'base-taxable': { balance: 0, basis: 0 }, 'base-traditional': { balance: 100 }, 'base-roth': { balance: 0 },
+      }),
     }] } },
   };
 
   assert.throws(
     () => deriveExactRetirementEntryAccounts(analysis, 1, fallbackAccounts),
-    /traditional\.byOwner is required/
+    /traditional\.byOwner\.client does not reconcile/
   );
 });
 
@@ -214,6 +229,9 @@ test('exact retirement entry fails closed when an owner has no modeled source', 
       byOwner: { client: 0, spouse: 100, unattributed: 0 },
     },
     roth: { balance: 0 },
+    accountStates: accountStatesFor(plan, {
+      'base-taxable': { balance: 0, basis: 0 }, 'base-roth': { balance: 0 },
+    }),
   };
 
   assert.throws(
@@ -222,7 +240,7 @@ test('exact retirement entry fails closed when an owner has no modeled source', 
       currentAge: 65,
       retirementAge: 65,
     }),
-    /byOwner\.spouse has no modeled account source/
+    /traditional\.byOwner\.client does not reconcile/
   );
 });
 
@@ -239,6 +257,10 @@ test('exact retirement entry uses a real zero-opening owner account for contribu
       byOwner: { client: 12_000, spouse: 0, unattributed: 0 },
     },
     roth: { balance: 0 },
+    accountStates: accountStatesFor(plan, {
+      'base-taxable': { balance: 0, basis: 0 }, 'base-roth': { balance: 0 },
+      'client-zero-ira': { balance: 12_000 },
+    }),
   };
 
   const retirementPlan = buildRetirementEntryPlan(plan, {
@@ -274,6 +296,10 @@ test('retirement entry reuses an eligible spouse IRA after an exact survivor rol
       byOwner: { client: 250_000, spouse: 0, unattributed: 0 },
     },
     roth: { balance: 0 },
+    accountStates: accountStatesFor(plan, {
+      'base-taxable': { balance: 0, basis: 0 }, 'base-roth': { balance: 0 },
+      'spouse-only-ira': { owner: 'client', balance: 250_000 },
+    }),
   };
 
   const retirementPlan = buildRetirementEntryPlan(plan, {

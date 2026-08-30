@@ -1,4 +1,5 @@
 import { ACCOUNT_SCHEMA_VERSION } from '../household/accountTypes.js';
+import { readTransientProjectionAccountState } from '../household/transientProjectionAccountState.js';
 import {
   ASSET_KEYS,
   ASSET_META,
@@ -94,7 +95,8 @@ export function buildProjectionAccountLedger({ plan, accountFold, taxableBasis, 
   const remainingBasis = Math.max(0, (taxableBasis?.appliedBasis ?? 0) - knownBasis);
 
   return accounts.map(account => {
-    const allocation = account.investmentAllocation
+    const allocation = readTransientProjectionAccountState(plan, account.id)?.investmentAllocation
+      ?? account.investmentAllocation
       ?? (legacySchema
         ? (account.investmentAllocationEligible === false
           ? resolveCashOnlyAllocation()
@@ -136,6 +138,11 @@ export function cloneProjectionAccountLedger(ledger){
 
 export function accountBalancesById(ledger){
   return Object.fromEntries(ledger.map(account => [account.id, account.balance]));
+}
+
+/** Immutable engine-owned ending state for account-exact path handoffs. */
+export function snapshotProjectionAccounts(ledger){
+  return Object.freeze(ledger.map(account => Object.freeze({ ...account })));
 }
 
 export function aggregateProjectionAccounts(ledger){

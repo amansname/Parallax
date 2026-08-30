@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { resolveHouseholdTimeline } from '../../engine.js';
+import { readTransientProjectionAccountState } from '../household/transientProjectionAccountState.js';
 import {
   resolveCashOnlyAllocation,
   snapshotPresetAllocation,
@@ -115,10 +116,11 @@ test('Scenario inputs wire each person independently and apply the selected mode
   assert.equal(timeline.people.spouse.socialSecurityClaimAge, 62);
 
   const aggressive = snapshotPresetAllocation('aggressive');
-  assert.deepEqual(scenario.portfolio.accounts.taxable.investmentAllocation, aggressive);
-  assert.deepEqual(scenario.portfolio.accounts.traditional.investmentAllocation, aggressive);
-  assert.deepEqual(scenario.portfolio.accounts.roth.investmentAllocation, aggressive);
-  assert.deepEqual(scenario.portfolio.extraAccounts[0].investmentAllocation, aggressive);
+  for(const id of ['base-taxable', 'base-traditional', 'base-roth', 'client-ira']){
+    assert.deepEqual(readTransientProjectionAccountState(scenario, id).investmentAllocation, aggressive);
+  }
+  assert.deepEqual(scenario.portfolio.accounts, plan.portfolio.accounts, 'recorded allocation provenance is preserved');
+  assert.deepEqual(scenario.portfolio.extraAccounts, plan.portfolio.extraAccounts);
   assert.deepEqual(scenario.portfolio.extraAccounts[1].investmentAllocation, resolveCashOnlyAllocation());
   assert.equal(scenario.portfolio.riskProfile, 5);
 });
