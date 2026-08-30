@@ -5,8 +5,8 @@ import {
   isValidEngineBucket,
 } from './accountTypes.js';
 import {
-  readTransientCalculatedTaxableBasis,
-} from './transientCalculatedTaxableBasis.js';
+  readTransientProjectionAccountState,
+} from './transientProjectionAccountState.js';
 import {
   calculateBalanceWeightedAllocation,
   cloneInvestmentAllocation,
@@ -105,8 +105,6 @@ export function resolvePortfolioAccounts(plan){
   const issues = [];
   const engineBuckets = emptyBuckets();
   const taxBuckets = emptyBuckets();
-  const transientCalculatedTaxableBasis =
-    readTransientCalculatedTaxableBasis(plan);
   const currentAllocationSchema = plan?.meta?.accountSchemaVersion === ACCOUNT_SCHEMA_VERSION;
 
   let baseTotal = 0;
@@ -118,16 +116,20 @@ export function resolvePortfolioAccounts(plan){
     const balance = assertFiniteNonNegative(sleeve.balance, `portfolio.accounts.${bucket}.balance`);
     baseTotal += balance;
     if(balance === 0) continue;
-    const investmentAllocation = cloneAllocation(sleeve.investmentAllocation);
+    const storedAllocation = cloneAllocation(sleeve.investmentAllocation);
     if(currentAllocationSchema){
       requireCurrentAllocation({
-        allocation: investmentAllocation,
+        allocation: storedAllocation,
         balance,
         canonical: null,
         engineBucket: bucket,
         path: `portfolio.accounts.${bucket}`,
       });
     }
+    const investmentAllocation = cloneAllocation(
+      readTransientProjectionAccountState(plan, sleeve.id || `base-${bucket}`)?.investmentAllocation
+        ?? storedAllocation,
+    );
     const account = freezeAccount({
       id: sleeve.id || `base-${bucket}`,
       sourceKind: 'legacy-base',
@@ -141,17 +143,7 @@ export function resolvePortfolioAccounts(plan){
       balance,
       valuationDate: null,
       basis: bucket === 'taxable'
-        ? Object.freeze(transientCalculatedTaxableBasis === null
-          ? {
-              amount: balance * 0.5,
-              method: 'assumed-50-50',
-              status: 'assumed',
-            }
-          : {
-              amount: transientCalculatedTaxableBasis,
-              method: 'calculated-carried-forward',
-              status: 'calculated',
-            })
+        ? Object.freeze({ amount: balance * 0.5, method: 'assumed-50-50', status: 'assumed' })
         : null,
       classificationStatus: 'included',
       exclusionReason: null,
@@ -176,10 +168,10 @@ export function resolvePortfolioAccounts(plan){
       ? getAccountTypeById(raw.typeId)
       : null;
     const engineBucket = isValidEngineBucket(raw.bucket) ? raw.bucket : null;
-    const investmentAllocation = cloneAllocation(raw.investmentAllocation);
+    const storedAllocation = cloneAllocation(raw.investmentAllocation);
     if(currentAllocationSchema){
       requireCurrentAllocation({
-        allocation: investmentAllocation,
+        allocation: storedAllocation,
         balance,
         canonical,
         engineBucket,
@@ -187,6 +179,13 @@ export function resolvePortfolioAccounts(plan){
       });
     }
 
+    const investmentAllocation = cloneAllocation(
+      readTransientProjectionAccountState(plan, id)?.investmentAllocation ?? storedAllocation,
+    );
+    if(currentAllocationSchema && canonical){
+      requireCurrentAllocation({ allocation: investmentAllocation, balance, canonical, engineBucket,
+        path: `portfolio.extraAccounts.${index}` });
+    }
     let classificationStatus = 'included';
     let exclusionReason = null;
     let taxBucketGroup = null;

@@ -26,7 +26,7 @@ function assertNear(actual, expected, label){
 }
 
 function retirementOverrides(overrides, accumulationYears){
-  const result = { ...(overrides || {}), retireDelay: 0 };
+  const result = { ...(overrides || {}), retireDelay: 0, initialShock: 0 };
   if(Number.isInteger(result.lumpSumYear)){
     const rebasedYear = result.lumpSumYear - accumulationYears;
     if(rebasedYear < 0){
@@ -120,7 +120,8 @@ export function buildHistoricalCashFlowResult({
   const entryAccounts = deriveExactRetirementEntryAccounts(
     analysis,
     accumulationYears,
-    params.accounts
+    params.accounts,
+    params.projectionAccounts,
   );
   const retirementPlan = buildRetirementEntryPlan(plan, {
     entryAccounts,
@@ -188,7 +189,7 @@ export function buildHistoricalCashFlowResult({
     accumulationRows,
     realHistoricalRows,
     entryAccounts,
-    params.retirementAge
+    Math.max(params.currentAge, params.retirementAge)
   );
 
   const retirementRows = realHistoricalRows.map((row, index) => Object.freeze({

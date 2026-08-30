@@ -1151,6 +1151,7 @@ test('default Monte Carlo is identical to the explicit shortcut tax policy', () 
     'accountReturns',
     'householdEffectiveAllocation',
     'accountBalancesById',
+    'accountStates',
     'accountContributionsById',
     'accountWithdrawalsById',
   ]);
@@ -4173,10 +4174,13 @@ test('Monte Carlo keeps internal trials compact and selected paths fully traceab
       assert.ok(first.accountReturns);
       assert.ok(first.householdEffectiveAllocation);
       assert.ok(first.accountBalancesById);
+      assert.ok(Object.isFrozen(first.accountStates));
+      assert.deepEqual(Object.fromEntries(first.accountStates.map(a => [a.id, a.balance])), first.accountBalancesById);
     }else{
       assert.strictEqual(first.accountReturns, undefined);
       assert.strictEqual(first.householdEffectiveAllocation, undefined);
       assert.strictEqual(first.accountBalancesById, undefined);
+      assert.strictEqual(first.accountStates, undefined);
       assert.strictEqual(first.accountContributionsById, undefined);
       assert.strictEqual(first.accountWithdrawalsById, undefined);
     }

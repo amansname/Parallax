@@ -1,4 +1,5 @@
-import { getAccountTypeById } from '../household/accountTypes.js';
+import { ACCOUNT_SCHEMA_VERSION, getAccountTypeById } from '../household/accountTypes.js';
+import { registerTransientProjectionAccountState } from '../household/transientProjectionAccountState.js';
 import {
   ASSET_ALLOCATION_PRESETS,
   identifyInvestmentAllocation,
@@ -88,24 +89,29 @@ function applyAllocationPreset(plan, presetId){
     throw new RangeError(`Unknown scenario allocation model: ${presetId}`);
   }
   const allocation = snapshotPresetAllocation(presetId);
-  Object.values(plan.portfolio.accounts || {}).forEach(account => {
+  const states = [];
+  Object.entries(plan.portfolio.accounts || {}).forEach(([bucket, account]) => {
     if(account && account.investmentAllocation?.source !== 'cash-only'){
-      account.investmentAllocation = allocation;
+      states.push({ id: account.id || `base-${bucket}`, investmentAllocation: allocation });
     }
   });
   (Array.isArray(plan.portfolio.extraAccounts) ? plan.portfolio.extraAccounts : [])
-    .forEach(account => {
+    .forEach((account, index) => {
       if(getAccountTypeById(account?.typeId)?.investmentAllocationEligible === true){
-        account.investmentAllocation = allocation;
+        states.push({ id: account.id || `extra-${index}`, investmentAllocation: allocation });
       }
     });
-  plan.portfolio.riskProfile = legacyRiskProfileByPresetId.get(presetId);
+  registerTransientProjectionAccountState(plan, states);
+  if(plan.meta?.accountSchemaVersion !== ACCOUNT_SCHEMA_VERSION){
+    plan.portfolio.riskProfile = legacyRiskProfileByPresetId.get(presetId);
+  }
 }
 
 export function applyScenarioPlanInputs(plan, levers){
   const scenarioPlan = JSON.parse(JSON.stringify(plan));
   applyPersonAges(scenarioPlan, levers);
-  if(Number.isInteger(levers.risk) && levers.risk >= 1 && levers.risk <= 6){
+  if(scenarioPlan.meta?.accountSchemaVersion !== ACCOUNT_SCHEMA_VERSION
+      && Number.isInteger(levers.risk) && levers.risk >= 1 && levers.risk <= 6){
     scenarioPlan.portfolio.riskProfile = levers.risk;
   }
   applyAllocationPreset(

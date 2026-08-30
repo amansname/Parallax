@@ -28,6 +28,7 @@ import {
   fundProjectionGap,
   resolveProjectionReturnFrame,
   rolloverProjectionAccounts,
+  snapshotProjectionAccounts,
   syncProjectionAggregates,
   zeroProjectionAccounts,
 } from './src/projection/accountLedger.js';
@@ -3172,6 +3173,7 @@ function buildFederalFundingCandidate({
     },
     ...(includeAccountDiagnostics ? {
       accountBalancesById: accountBalancesById(accounts.projectionAccounts),
+      accountStates: snapshotProjectionAccounts(accounts.projectionAccounts),
       accountWithdrawalsById: combineAccountAmounts(
         funding.grossById,
         rmdWithdrawalsById,
@@ -3289,6 +3291,7 @@ function solveFederalFundingYear(args, taxPolicy){
         },
         ...(args.includeAccountDiagnostics ? {
           accountBalancesById: accountBalancesById(accounts.projectionAccounts),
+          accountStates: snapshotProjectionAccounts(accounts.projectionAccounts),
         } : {}),
         taxableEndingBasis: accounts.taxable.basis,
         taxFundingConvergence: {
@@ -3584,6 +3587,7 @@ function runSinglePath(p, returnPath, options = {}){
         accountBalances: { taxable: accounts.taxable.balance, traditional: accounts.traditional.balance, roth: accounts.roth.balance },
         ...(includeAccountDiagnostics ? {
           accountBalancesById: accountBalancesById(projectionAccounts),
+          accountStates: snapshotProjectionAccounts(projectionAccounts),
           accountContributionsById: contributionsById,
           accountWithdrawalsById: combineAccountAmounts(
             outlayWithdrawalsByIdA,
@@ -3902,6 +3906,7 @@ function runSinglePath(p, returnPath, options = {}){
       },
       ...(includeAccountDiagnostics ? {
         accountBalancesById: accountBalancesById(projectionAccounts),
+        accountStates: snapshotProjectionAccounts(projectionAccounts),
         accountWithdrawalsById: combineAccountAmounts(
           funding.grossById,
           rmdWithdrawalsById,

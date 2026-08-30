@@ -1260,11 +1260,12 @@ function retireNowClone(p, ov, curAge, retAge, accumYears, analysis){
   // Reuse the chosen scenario's computed result so Sequencing never re-rolls
   // its market entry state. Fall back only before that scenario has run.
   const result = analysis || runSimulation(p, ov, sharedPaths);
-  const resolvedAccounts = resolveInputs(p, ov).accounts;
+  const resolved = resolveInputs(p, ov);
   const entryAccounts = deriveRetirementEntryAccounts(
     result,
     accumYears,
-    resolvedAccounts
+    resolved.accounts,
+    resolved.projectionAccounts,
   );
   return buildRetirementEntryPlan(p, {
     entryAccounts,
@@ -1285,7 +1286,7 @@ function runSeq(){
   const retAge=resolveInputs(p, ov).retirementAge;
   const accumYears=Math.max(0, retAge-curAge);
   const rp=retireNowClone(p, ov, curAge, retAge, accumYears, s.res);
-  const ov2={...ov, retireDelay:0};                // retirement age is baked into the clone now
+  const ov2={...ov, retireDelay:0, initialShock:0}; // age and initial shock are already in the entry state
   const historicalTaxOptions={
     baseTaxYear:rp.meta?.planningAsOfYear ?? new Date().getFullYear(),
     filingStatus:rp.meta?.filingStatus,
@@ -1295,7 +1296,7 @@ function runSeq(){
                       .map(m=>({m, res:runHistoricalPathWithFederalTax(rp, m.y, strat, undefined, ov2, historicalTaxOptions)}))
                       .filter(r=>r.res && r.res.rows.length);
   if(!runs.length){ $('#seq-svg').innerHTML=''; $('#seq-prints').innerHTML=''; return; }
-  drawSeqChart($('#seq-svg'), runs, retAge, seqChartSvg, { grid:GRID, axisInk:AXIS_INK });
+  drawSeqChart($('#seq-svg'), runs, rp.household.primary.currentAge, seqChartSvg, { grid:GRID, axisInk:AXIS_INK });
   renderPrints($('#seq-prints'), runs, pathDigest);
   $('#seq-sub').textContent='Same plan, real markets';
 }
