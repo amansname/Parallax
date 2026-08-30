@@ -13,7 +13,6 @@ import { generateReturnPath, resetSeed, resolveInputs, runSimulation } from '../
 import { runMonteCarloWithFederalFunding } from '../src/planning/tax/runMonteCarloWithFederalFunding.js';
 import { createBlankTaxProfiles } from '../src/household/factEnvelope.js';
 import { ACCOUNT_SCHEMA_VERSION } from '../src/household/accountTypes.js';
-import { HOUSEHOLD_RECORD_SCHEMA_VERSION } from '../src/household/householdRecordSchema.js';
 import { LEGACY_BASE_ACCOUNT_IDS } from '../src/household/migrateAccounts.js';
 import { snapshotLegacyRiskProfileAllocation } from '../src/household/investmentAllocation.js';
 import { assertCleanCandidateWorktree, buildSiteArtifact } from './build-site-artifact.mjs';
@@ -2978,7 +2977,7 @@ try {
       household.household.primary = { currentAge: 64, retirementAge: 66, planEndAge: 96, birthYear: 1962 };
       household.household.spouse = { currentAge: 63, retirementAge: 65, planEndAge: 95, birthYear: 1963 };
       household.meta.accountSchemaVersion = accountContract.accountSchemaVersion;
-      household.meta.householdRecordSchemaVersion = accountContract.householdRecordSchemaVersion;
+      delete household.meta.householdRecordSchemaVersion;
       household.portfolio.accounts = {
         taxable: {
           id: accountContract.baseAccountIds.taxable,
@@ -3004,7 +3003,6 @@ try {
       householdId: withdrawalPlannerFixtureHouseholdId,
       accountContract: {
         accountSchemaVersion: ACCOUNT_SCHEMA_VERSION,
-        householdRecordSchemaVersion: HOUSEHOLD_RECORD_SCHEMA_VERSION,
         baseAccountIds: LEGACY_BASE_ACCOUNT_IDS,
         investmentAllocation: snapshotLegacyRiskProfileAllocation(3),
       },
@@ -3147,7 +3145,7 @@ try {
       const tracker = globalThis.__parallaxVerifyDefensiveScenarioTracker;
       return saved?.[1]?.lev?.allocationPresetId === 'defensive'
         && tracker?.sawRunning === true
-        && /Plan updated|Partial run/i.test(document.querySelector('#status')?.textContent || '');
+        && /^Plan updated/i.test(document.querySelector('#status')?.textContent || '');
     }, { timeout: 30000 }, withdrawalPlannerFixtureHouseholdId);
     await page.evaluate(() => {
       globalThis.__parallaxVerifyDefensiveScenarioTracker?.observer?.disconnect();
