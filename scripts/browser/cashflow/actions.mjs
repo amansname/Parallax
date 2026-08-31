@@ -131,6 +131,6 @@ export async function waitForCashFlowPath(page, {
     throw new Error(`Cash Flow path readiness timed out: ${JSON.stringify({
       expected,
       observed
-    })}; ${error.message || error}`);
+    })}; ${error.message || error}`, { cause: error });
   }
 }

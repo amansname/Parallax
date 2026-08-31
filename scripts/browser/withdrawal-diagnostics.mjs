@@ -65,7 +65,7 @@ export function createPlannerDiagnostics({
         expected,
         observed,
         consoleErrors: errs
-      })}; ${error.message || error}`);
+      })}; ${error.message || error}`, { cause: error });
     }
     return plannerDiagnosticState();
   };

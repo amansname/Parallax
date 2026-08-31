@@ -19,7 +19,10 @@ src/tax/            Tax Engine: federal Form 1040 math (never imports engine.js)
 engine.js           Projection Engine public entry and logical authority
 src/projection/engine/  Internal projection inputs, timelines, accounts, funding, simulation, and analysis
 styles/*.css        presentation per surface
-scripts/verify.mjs  tests + browser smoke; scans index.html + src/**/*.js + ui/**/*.js
+scripts/verify.mjs  ordered browser campaign over the immutable candidate
+scripts/browser/   feature contracts, wizard/Cash Flow phases, browser runtime
+test/engine/        projection-engine contract suites and shared fixtures
+scripts/run-unit-tests.mjs  automatic test discovery; explicit pretest/governance separation
 ```
 
 **Product spine (tabs):** Household → Goals → Scenarios → Withdrawal Planner → Sequencing (Cash Flow lives inside Scenarios).
@@ -89,15 +92,21 @@ New work?
 src/
   main.js                 # thin entry (shrink over time)
   state.js
-  household/              # extract from main.js when touched
-    persistence.js        # load/save households, hydrate
-    wizard.js             # renderWiz*, hhField, syncHousehold
-    commit.js             # hhCommit, commitPlanEdit
-  scenarios/              # extract from main.js when touched
-    levers.js             # LEVCFG, leversToOverrides, planForScenario
-    engine-bridge.js      # reseedScenarios, ensureSharedPaths, runAll helpers
+  household/
+    persistence.js        # stored household validation, load/save preparation
+    wizard.js             # household wizard controller
+    commit.js             # guarded commit/error boundary and event registration
+    editor/               # input callbacks and focused household action families
+  scenarios/
+    scenarioConfiguration.js  # scenario defaults, levers, plan inputs
+    historicalStress.js       # historical engine orchestration
+    projectionMessages.js     # projection reason-code messages
+    createCashFlowController.js
+  goals/
+    scenarioGoalOverrides.js  # keep scenario overrides aligned with goal edits
+  projection/engine/      # internal modules behind the root engine.js interface
 ui/
-  config/                 # static tables (LEVCFG, goal palettes) when extracted
+  scenariosController.js  # Compare/Focus/Cash Flow view wiring
   householdWizard.js, goalsHorizon.js, scenarios.js, solver.js, cashflow.js, sequencing.js, ...
 ```
 

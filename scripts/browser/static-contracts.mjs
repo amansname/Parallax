@@ -1,22 +1,6 @@
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-function jsFilesUnder(dir) {
-  if (!existsSync(dir)) return [];
-  return readdirSync(dir, {
-    withFileTypes: true
-  }).flatMap(entry => {
-    const filePath = join(dir, entry.name);
-    if (entry.isDirectory()) return jsFilesUnder(filePath);
-    return entry.isFile() && entry.name.endsWith('.js') ? [filePath] : [];
-  });
-}
-function appSource(html, ROOT) {
-  const rootModules = readdirSync(ROOT, {
-    withFileTypes: true
-  }).filter(entry => entry.isFile() && entry.name.endsWith('.js')).map(entry => join(ROOT, entry.name));
-  const moduleFiles = [...rootModules, ...jsFilesUnder(join(ROOT, 'ui')), ...jsFilesUnder(join(ROOT, 'src'))];
-  return [html, ...moduleFiles.map(file => readFileSync(file, 'utf8'))].join('\n');
-}
+
 export function verifyTaxBuckets(ROOT, SKIP_SEQUENCING) {
   const read = path => existsSync(path) ? readFileSync(path, 'utf8') : '';
   const fails = [];

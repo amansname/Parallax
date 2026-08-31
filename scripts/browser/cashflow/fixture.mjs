@@ -86,7 +86,7 @@ export async function prepareCashFlowFixture({
     throw new Error(`Cash Flow Run baseline did not settle: ${JSON.stringify({
       observed,
       consoleErrors: errs
-    })}; ${error.message || error}`);
+    })}; ${error.message || error}`, { cause: error });
   }
   await page.$eval('#run-btn', button => {
     const status = document.querySelector('#status');

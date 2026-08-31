@@ -442,9 +442,7 @@ function buildIncomeAndDeductionLines(input, context, audits){
     const line15Value = pref > 0
       ? round2(input.taxableOrdinaryIncome + pref)
       : input.taxableOrdinaryIncome;
-    const ordinaryTaxableIncome = pref > 0
-      ? input.taxableOrdinaryIncome
-      : input.taxableOrdinaryIncome;
+    const ordinaryTaxableIncome = input.taxableOrdinaryIncome;
 
     const form1040 = {};
     for(const lineId of SPINE_LINE_IDS){

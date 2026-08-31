@@ -121,3 +121,28 @@ test('malformed annual rows fail closed with one deterministic code', () => {
     );
   }
 });
+
+
+test('non-object return rows reject even when they carry valid annual fields', () => {
+  const requested = snapshotLegacyRiskProfileAllocation(3).weights;
+  const valid = { ...RETURN_DATA[0] };
+  const rows = [null, undefined, Object.assign([], valid), Object.assign(() => {}, valid)];
+  for(const row of rows){
+    assert.throws(
+      () => resolveEffectiveAssetAllocation(row, requested),
+      error => error?.code === INVALID_RETURN_ROW,
+    );
+  }
+});
+
+test('inherited return values cannot substitute for an annual observation', () => {
+  const requested = snapshotLegacyRiskProfileAllocation(3).weights;
+  const valid = { ...RETURN_DATA[0] };
+  const row = Object.assign(Object.create({ cash: valid.cash }), valid);
+  delete row.cash;
+  assert.equal(row.cash, valid.cash);
+  assert.throws(
+    () => resolveEffectiveAssetAllocation(row, requested),
+    error => error?.code === INVALID_RETURN_ROW,
+  );
+});

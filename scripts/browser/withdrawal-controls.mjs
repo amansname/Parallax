@@ -257,7 +257,7 @@ export async function verifyRmdControls({
         revision: host.querySelector('[data-taw-root]')?.dataset.tawRenderRevision ?? null,
         facts: debugFacts,
         state: debugState
-      })}`);
+      })}`, { cause: error });
     }
     const initial = {
       distributionMin: distribution.min,

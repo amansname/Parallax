@@ -117,7 +117,7 @@ export async function verifyRetirementRelativeGoals({
       selector,
       scenarioId: target.scnId
     });
-    throw new Error(`retirement-relative goal edit did not commit: ${JSON.stringify(observed)}; ${error.message}`);
+    throw new Error(`retirement-relative goal edit did not commit: ${JSON.stringify(observed)}; ${error.message}`, { cause: error });
   }
   await page.focus(selector);
   await page.keyboard.down('Control');
@@ -330,7 +330,7 @@ export async function verifyRetiredAgeLever({
         } : null
       };
     });
-    throw new Error(`Retired-household lever state did not settle: ${JSON.stringify(observed)}. ${error.message}`);
+    throw new Error(`Retired-household lever state did not settle: ${JSON.stringify(observed)}. ${error.message}`, { cause: error });
   }
   const afterNames = await leverNames();
   const remainingRetirementLevers = expectedRetirementLevers.filter(name => afterNames.includes(name));

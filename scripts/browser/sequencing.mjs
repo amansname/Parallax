@@ -9,6 +9,19 @@ export async function verifySequencingChips({
   await page.waitForFunction(() => document.querySelector('.page.on')?.dataset.page === 'sequencing', {
     timeout: 8000
   });
+  const planPicker = await page.evaluate(() => {
+    const select = document.querySelector('#seq-select');
+    return {
+      labels: Array.from(select.labels, label => label.textContent.trim()),
+      labelTargets: Array.from(select.labels, label => label.htmlFor),
+      visible: select.getBoundingClientRect().width > 0,
+    };
+  });
+  if (JSON.stringify(planPicker.labels) !== JSON.stringify(['Plan'])
+      || JSON.stringify(planPicker.labelTargets) !== JSON.stringify(['seq-select'])
+      || !planPicker.visible) {
+    throw new Error(`Sequencing Plan picker must have one associated visible label: ${JSON.stringify(planPicker)}`);
+  }
   await page.evaluate(() => document.querySelectorAll('.seq-chip').forEach(c => {
     if (!c.classList.contains('on')) c.click();
   }));
@@ -23,7 +36,7 @@ export async function verifySequencingChips({
       activeChips: document.querySelectorAll('.seq-chip.on').length,
       prints: document.querySelectorAll('.seq-print').length
     }));
-    throw new Error(`${error.message}; state=${JSON.stringify(state)}; browser=${JSON.stringify(errs.slice(-5))}`);
+    throw new Error(`${error.message}; state=${JSON.stringify(state)}; browser=${JSON.stringify(errs.slice(-5))}`, { cause: error });
   }
   const el = await page.$('.seq-chart');
   const chartContract = await page.evaluate(() => {

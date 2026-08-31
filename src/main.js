@@ -317,15 +317,6 @@ function loadScenarios(id){
     });
   }catch(e){ return null; }
 }
-// Wipe the ACTIVE household's saved scenarios and return to its first-run set.
-function resetScenarios(){
-  if(!guardPlanMutation()) return;
-  if(!isRuntimeHousehold(activeHouseholdId)){
-    try{ localStorage.removeItem(scenKey()); }catch(e){}
-  }
-  uiState.scenarios=defaultScenarios(); uiState.baseSnapshot=defaultLevers();
-  uiState.plansDirty=true; runAll();
-}
 
 /* ── Plan persistence (browser localStorage) ──────────────────────────────
    MVP/DEMO PERSISTENCE ONLY. localStorage is a single-browser, unencrypted

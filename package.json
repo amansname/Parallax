@@ -15,9 +15,13 @@
     "site:build": "node scripts/build-site-artifact.mjs",
     "site:verify": "node scripts/verify-site-artifact.mjs",
     "site:verify-live": "node scripts/verify-live-site.mjs",
-    "test:inventory": "node scripts/run-unit-tests.mjs --list"
+    "test:inventory": "node scripts/run-unit-tests.mjs --list",
+    "lint": "eslint ."
   },
   "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "eslint": "10.9.1",
+    "globals": "17.11.0",
     "marked": "18.0.7",
     "puppeteer": "^25.1.0",
     "yaml": "^2.9.0"

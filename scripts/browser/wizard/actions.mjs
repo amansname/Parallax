@@ -76,7 +76,7 @@ export async function waitForWizard(page, {
       afterRevision,
       householdId,
       timeout
-    })}; observed ${JSON.stringify(observed)}. ${error.message}`);
+    })}; observed ${JSON.stringify(observed)}. ${error.message}`, { cause: error });
   }
   return wizardState(page);
 }
@@ -107,7 +107,7 @@ export async function waitForUnselectedWizard(page, {
     })).catch(stateError => ({
       stateReadError: stateError.message
     }));
-    throw new Error(`Unselected wizard readiness timeout; observed ${JSON.stringify(observed)}. ${error.message}`);
+    throw new Error(`Unselected wizard readiness timeout; observed ${JSON.stringify(observed)}. ${error.message}`, { cause: error });
   }
   return wizardState(page);
 }
@@ -187,7 +187,7 @@ export async function clickWizardAction(page, selector, {
   try {
     await page.click(selector);
   } catch (error) {
-    throw new Error(`Unable to click wizard action ${selector}: ${error.message}`);
+    throw new Error(`Unable to click wizard action ${selector}: ${error.message}`, { cause: error });
   }
   if (expectRevision) {
     return waitForWizard(page, {

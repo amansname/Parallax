@@ -51,6 +51,7 @@ Run commands from the repository root.
 npm ci                         install the locked development dependencies
 npm test                       full unit suite
 npm run test:inventory          discovered test files and execution categories
+npm run lint                    report JavaScript errors and unused variables
 npm run verify                 full browser verifier and screenshots
 npm run governance:check       repository-governance and static checks
 npm run preview                manual preview at http://127.0.0.1:8825/
@@ -58,7 +59,8 @@ npm run site:build             immutable site artifact from the clean HEAD commi
 npm run site:verify            verify the artifact manifest and commit receipt
 ```
 
-There is no lint or formatter command. The app must be served over HTTP. Port
+Lint is report-only; see `docs/LINTING.md`. There is no formatter command.
+The app must be served over HTTP. Port
 8825 is the only local origin: if it is occupied, identify and stop the stale
 Parallax preview instead of selecting another port. Preview and browser
 verification must serve the immutable artifact from the exact candidate commit;

@@ -256,9 +256,8 @@ test('the live Scenarios entry point completes for a two-owner household', async
 });
 
 test('a heavy-withdrawal projection cannot corrupt a later untouched one', () => {
-  // allocateTraditionalDistribution returns a shared frozen object on its
-  // no-draw fast path, and applyTraditionalMidyearWithdrawal compares against
-  // it by identity. If a refactor ever mutated that object, one plan's
+  // Required-distribution and account-funding helpers share frozen owner
+  // buckets when no draw is due. If a refactor ever mutated those buckets, one plan's
   // withdrawals would leak into every later plan's no-draw years — silently,
   // and everywhere at once. Guarded behaviorally so no test-only export is
   // needed: run a draw-heavy plan first, then confirm a quiet plan is bit-for-

@@ -154,3 +154,55 @@ body apart from explicit dependency binding.
 All 909 unit tests and 63 governance checks pass locally. Full browser
 verification is required on this committed checkpoint. Existing lint findings
 are recorded rather than suppressed; their cleanup is a separate final pass.
+
+## Final bounded cleanup
+
+The startup checkpoint is `40d40b4`. Its browser campaign was interrupted when
+another local task replaced the process on port 8825; that run is not a pass.
+The final candidate must run the complete campaign, covering both this
+checkpoint and the following smaller changes.
+
+- Removed 13 unexported functions: ten obsolete aggregate-account helpers,
+  the disconnected scenario-reset function, and two unused static-source
+  scanner helpers. Scope-aware reference checks found no callers outside each
+  removed group. Current account-ledger and RMD paths remain unchanged.
+- Removed the unused transitional taxable-gain alias, retaining the canonical
+  function. Simplified the audited identical tax-expression branches without
+  changing their result. Removed three unused named imports.
+- Associated the existing Sequencing `Plan` text with its selector. The visible
+  text, class, control, and layout are unchanged; the browser contract now
+  requires exactly one associated label. The immutable pre-fix artifact showed
+  a visible selector with zero associated labels.
+- Added two return-validation cases for non-object rows and inherited asset
+  observations. All former test assertions remain. A disposable-copy Stryker
+  run on the same 43 mutations caught 38, up from 30; five remain (four error
+  strings and one redundant type guard). This is a targeted pilot, not a
+  whole-repository score.
+- Integrated the separately approved ESLint setup, keeping all 30 previously
+  locked dependencies unchanged. It adds 71 development dependency packages
+  and remains report-only, with no CI, editor, or scheduler changes. Ten browser
+  error wrappers now retain their original exception as `cause`; their messages
+  and failure behavior are unchanged.
+- Updated current architecture paths and corrected comments that named retired
+  helpers. Historical design handoffs remain marked historical rather than
+  being rewritten as current architecture.
+
+The final local unit run passes 911 tests (24 pretests plus 887 discovered
+tests), and all 63 governance checks pass. The fixed-input engine probe still
+matches all 365 original responses. ESLint reports 19 errors and 34 warnings;
+its nonzero exit is retained. Remaining findings include existing empty
+best-effort storage catches, overwritten initial values, intentional control-
+character matching, and unused bindings. These need individual decisions, not
+a bulk autofix or weaker rules.
+
+With the same explicit test-entry scope, Knip reports one deliberately retained
+manual capture utility, no duplicate exports, and no dependency findings.
+Export warnings remain for individually reviewable APIs. Browser-relative
+imports yield more file-level warnings after extraction because formerly
+shared files are now separate; they are not silently suppressed.
+
+Local commits do not authorize publication. No push, PR, merge, deployment,
+Sonar settings change, or cloud rescan is part of this bundle. Independent
+review and required CI remain delivery requirements. Some internal engine
+algorithms and the Scenarios view installer are still large; lowering their
+complexity further is follow-up work, not an outcome claimed by this extraction.

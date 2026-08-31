@@ -1,5 +1,5 @@
 // Projection Engine implementation; public consumers import engine.js.
-import { TRADITIONAL_OWNER_KEYS, emptyTraditionalOwnerBuckets, ZERO_TRADITIONAL_OWNER_BUCKETS } from './traditionalOwners.js';
+import { emptyTraditionalOwnerBuckets, ZERO_TRADITIONAL_OWNER_BUCKETS } from './traditionalOwners.js';
 import { cloneProjectionAccountLedger, syncProjectionAggregates } from '../accountLedger.js';
 
 /* ============================================================================
@@ -115,41 +115,6 @@ export function cloneEngineAccounts(accounts){
   };
   syncProjectionAggregates(projectionAccounts, cloned);
   return cloned;
-}
-
-function midyearWithdrawalFactor(returnRate){
-  return Math.abs(returnRate) < 1e-7
-    ? 12
-    : returnRate / (Math.pow(1 + returnRate, 1 / 12) - 1);
-}
-
-// Ordinary retirement draws are spread through the year. With a negative
-// annual return, less than the opening balance can actually be delivered under
-// that timing convention. Scale every sleeve (and taxable basis) by the same
-// capacity factor so fundGap reports the deliverable draw and explicit
-// shortfall instead of funding from money lost before later installments.
-function buildMidyearFundingProxy(accounts, returnRate, factor){
-  const rawScale = Number.isFinite(factor) && factor > 0
-    ? ((1 + returnRate) * 12) / factor
-    : 0;
-  const scale = Math.max(0, Math.min(1, rawScale));
-  const traditionalByOwner = Object.fromEntries(
-    TRADITIONAL_OWNER_KEYS.map(owner => [
-      owner,
-      Math.max(0, accounts.traditional.byOwner[owner] ?? 0) * scale,
-    ])
-  );
-  return {
-    taxable: {
-      balance: Math.max(0, accounts.taxable.balance) * scale,
-      basis: Math.max(0, accounts.taxable.basis) * scale,
-    },
-    traditional: {
-      balance: Object.values(traditionalByOwner).reduce((sum, value) => sum + value, 0),
-      byOwner: traditionalByOwner,
-    },
-    roth: { balance: Math.max(0, accounts.roth.balance) * scale },
-  };
 }
 
 export function emptyFunding(){
