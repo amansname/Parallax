@@ -100,11 +100,11 @@ requireText('docs/CODEX_WORKFLOW.md', [
   '**Apply changes** handoff for governed Parallax candidates',
   'Run one authoritative clean-candidate verifier when',
   'parallax-pr-author-amans[bot]',
-  'request `t66wwpvthy-prog` as the human reviewer',
+  'request `amansname` as the human reviewer',
   'branch-caused required-gate failure',
   'monitor the pull-request run as authoritative',
   'The reviewer-dependent Governance safeguards gate runs only in the lightweight',
-  'Requesting `t66wwpvthy-prog` emits `review_requested`',
+  'Requesting `amansname` emits `review_requested`',
   'use the established two-stage identity bridge instead of changing App,',
   'tree-identical empty bot-authored identity commit',
   'bounded transport exception for workflow files',
@@ -135,7 +135,7 @@ requireText('scripts/validate-pr-authorship.mjs', [
 
 requireText('scripts/validate-pr-body.mjs', [
   "const REQUIRED_PR_AUTHOR = 'parallax-pr-author-amans[bot]';",
-  "const REQUIRED_PR_REVIEWER = 't66wwpvthy-prog';",
+  "const REQUIRED_PR_REVIEWER = 'amansname';",
   "const COMPLETED_REVIEW_STATES = new Set(['APPROVED', 'CHANGES_REQUESTED', 'COMMENTED']);",
   'pull request must request or have a completed exact-head review by ${REQUIRED_PR_REVIEWER}',
   'GitHub reviews API returned ${response.status}',
@@ -153,7 +153,7 @@ requireText('docs/GITHUB_SETTINGS.md', [
   'Verify every live byte',
   'Require exactly one approving review',
   'Disable the extra approval for changes not attributed to a user',
-  '`t66wwpvthy-prog` is the',
+  '`amansname` is the',
   'select `Governance safeguards` from',
   '`Parallax PR evidence`',
 ]);

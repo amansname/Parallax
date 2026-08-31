@@ -234,7 +234,7 @@ finding.
 Commit only the reviewed scope, freeze the candidate SHA, and verify both the
 commit author/committer and draft-PR author are
 `parallax-pr-author-amans[bot]`. Push through that identity, open or update the
-draft PR, and request `t66wwpvthy-prog` as the human reviewer. Record base and
+draft PR, and request `amansname` as the human reviewer. Record base and
 candidate SHAs, scope, evidence, commands, results, failures or gaps, rollback,
 and independent-review status. The human owner must not author the PR they are
 required to review.
@@ -265,7 +265,7 @@ bounded transport exception for workflow files; it never permits human commit
 metadata, a human-authored PR, a human final pusher, or a permission workaround.
 
 PR-event governance also rejects a pull request unless its live author is
-`parallax-pr-author-amans[bot]` and `t66wwpvthy-prog` is either still requested
+`parallax-pr-author-amans[bot]` and `amansname` is either still requested
 or has submitted a completed review on the exact head SHA. The bot must
 request the human owner before the final PR evidence validation can pass.
 
@@ -280,7 +280,7 @@ or receives a new candidate commit.
 
 Opening a PR starts the full campaign but does not run reviewer-dependent
 governance against the immutable opened-event snapshot.
-Requesting `t66wwpvthy-prog` emits `review_requested` and starts the lightweight
+Requesting `amansname` emits `review_requested` and starts the lightweight
 required Governance safeguards gate. That same lightweight gate reruns on a
 review-request removal, body edit, candidate synchronization, or reopen so
 authorship, exact-head evidence, and the current reviewer state stay coupled

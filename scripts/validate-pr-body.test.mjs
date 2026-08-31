@@ -93,7 +93,7 @@ function validEvent(body = validBody()){
       base: { sha: BASE_SHA },
       head: { sha: HEAD_SHA },
       user: { login: 'parallax-pr-author-amans[bot]' },
-      requested_reviewers: [{ login: 't66wwpvthy-prog' }],
+      requested_reviewers: [{ login: 'amansname' }],
       state: 'open',
       merged: false,
     },
@@ -159,27 +159,45 @@ test('rejects stale identity, unchecked authorship gates, and command placeholde
   assert.match(failures, /truthful completion checkbox/);
 });
 
+test('accepts the renamed owner on a bot-authored PR', () => {
+  assert.deepEqual(validatePullRequestEvent(validEvent()).failures, []);
+});
+
+test('rejects the retired username and unrelated accounts as owner review evidence', () => {
+  for(const login of ['t66wwpvthy-prog', 'another-reviewer', 'parallax-pr-author-amans[bot]']){
+    const event = validEvent();
+    event.pull_request.requested_reviewers = [{ login }];
+    assert.match(validatePullRequestEvent(event).failures.join('\n'),
+      /must request or have a completed exact-head review by amansname/, login);
+
+    event.pull_request.requested_reviewers = [];
+    assert.match(validatePullRequestEvent(event, {
+      completedReviews: [{ user: { login }, state: 'APPROVED', commit_id: HEAD_SHA }],
+    }).failures.join('\n'), /must request or have a completed exact-head review by amansname/, login);
+  }
+});
+
 test('rejects a human-authored PR so the owner remains the independent reviewer', () => {
   const event = validEvent();
-  event.pull_request.user.login = 't66wwpvthy-prog';
+  event.pull_request.user.login = 'amansname';
   assert.match(validatePullRequestEvent(event).failures.join('\n'), /must be authored by parallax-pr-author-amans\[bot\]/);
 });
 
 test('rejects a PR without the human owner requested or completed on the exact head', () => {
   const missingReviewer = validEvent();
   missingReviewer.pull_request.requested_reviewers = [];
-  assert.match(validatePullRequestEvent(missingReviewer).failures.join('\n'), /must request or have a completed exact-head review by t66wwpvthy-prog/);
+  assert.match(validatePullRequestEvent(missingReviewer).failures.join('\n'), /must request or have a completed exact-head review by amansname/);
 
   const wrongReviewer = validEvent();
   wrongReviewer.pull_request.requested_reviewers = [{ login: 'parallax-pr-author-amans[bot]' }];
-  assert.match(validatePullRequestEvent(wrongReviewer).failures.join('\n'), /must request or have a completed exact-head review by t66wwpvthy-prog/);
+  assert.match(validatePullRequestEvent(wrongReviewer).failures.join('\n'), /must request or have a completed exact-head review by amansname/);
 });
 
 test('accepts only a current, completed owner review after the request clears', () => {
   const event = validEvent();
   event.pull_request.requested_reviewers = [];
   const currentApproval = {
-    user: { login: 't66wwpvthy-prog' },
+    user: { login: 'amansname' },
     state: 'APPROVED',
     commit_id: HEAD_SHA,
   };

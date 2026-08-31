@@ -68,7 +68,7 @@ they must never serve mutable worktree files.
   branch, base and current commit SHAs, remotes, and dirty paths. Preserve user
   work. Use one feature or fix per branch, isolated worktree, and pull request.
 - Delivery PRs and their commits use `parallax-pr-author-amans[bot]`; request
-  `t66wwpvthy-prog` as the human reviewer before calling the draft ready.
+  `amansname` as the human reviewer before calling the draft ready.
 - Reproduce every reported symptom through its actual visible-input and saved-
   state path before editing. Record the exact command, fixture kind (clean or
   persisted/legacy), and observed failure.
