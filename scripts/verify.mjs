@@ -14,6 +14,7 @@ import { runMonteCarloWithFederalFunding } from '../src/planning/tax/runMonteCar
 import { createBlankTaxProfiles } from '../src/household/factEnvelope.js';
 import { assertCleanCandidateWorktree, buildSiteArtifact } from './build-site-artifact.mjs';
 import { verifyArtifactBundle } from './site-integrity-lib.mjs';
+import { runPublicUrlBrowserContract } from './public-url-browser-contract.mjs';
 import {
   goToWizardStep,
   openNetWorthCategory,
@@ -581,6 +582,13 @@ try {
         && document.querySelector('[data-hh-wizard-root]')?.dataset.householdId === selected;
     }, { timeout: 10000 });
     await waitForWizard(page);
+  });
+
+  await step('public URL stays clean while artifact requests remain versioned', async () => {
+    await runPublicUrlBrowserContract(browser, {
+      baseUrl: `http://127.0.0.1:${PORT}/`,
+      artifactId: VERIFIED_ARTIFACT.manifest.artifactId,
+    });
   });
 
   await step('Graphite Aubergine design contracts render at governed viewports', async () => {
@@ -1871,16 +1879,16 @@ try {
       end: document.querySelector('[data-field="end-age"]')?.value,
     }));
     if(!m.start || !m.end || +m.start >= +m.end) throw new Error(`later preset produced an invalid range (${JSON.stringify(m)})`);
-    await page.click('[data-action="category"][data-category="home"]'); await sleep(250);
-    if(!await page.evaluate(() => {
-      const src = document.querySelector('.gh-rail__icon img')?.getAttribute('src');
+    await page.click('[data-action="category"][data-category="home"]');
+    await page.waitForFunction(artifactId => {
+      const icon = document.querySelector('.gh-rail__icon img');
+      const src = icon?.getAttribute('src');
       if(!src) return false;
       const iconUrl = new URL(src, location.href);
-      const artifactId = new URL(location.href).searchParams.get('v');
       return iconUrl.pathname.endsWith('/assets/goals-horizon/home.svg')
-        && iconUrl.searchParams.get('v') === artifactId;
-    }))
-      throw new Error('category change did not update the source icon');
+        && iconUrl.searchParams.get('v') === artifactId
+        && icon.complete && icon.naturalWidth > 0;
+    }, { timeout: 8000 }, VERIFIED_ARTIFACT.manifest.artifactId);
 
     const beforeDuplicate = await page.evaluate(() => document.querySelectorAll('.gh-lane').length);
     await page.click('[data-action="duplicate"]'); await sleep(350);

@@ -16,6 +16,15 @@ ID. The stable root page fetches cache-busted deployment metadata before opening
 that artifact. An already-open older application checks the same metadata and
 returns to the stable root when a newer artifact is active.
 
+After the application validates its artifact and starts, it replaces the visible
+`app.html?v=...` address with the stable site root without another navigation or
+history entry. Other query parameters and fragments are preserved at this step.
+The HTML request, application modules, styles, and assets remain version-bound;
+refreshing the clean address goes through the stable root and its metadata check.
+The cleanup module is a deployable source file, so changes to it also change the
+artifact ID. Browser verification checks clean entry, reload, old version links,
+and recovery when application metadata reports a different deployment.
+
 ## Preview and required checks
 
 `npm run preview` serves only the verified committed artifact at

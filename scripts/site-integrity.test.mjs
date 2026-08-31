@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { cleanPublicUrl } from '../src/deployment/cleanPublicUrl.js';
 import {
   IMPORT_MAP_TOKEN,
   MANIFEST_FILE,
@@ -91,3 +92,21 @@ test('artifact verifier rejects an unmanifested or changed byte', () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+for(const [input, expected] of [
+  ['https://www.amansparallax.com/app.html?v=build-id', 'https://www.amansparallax.com/'],
+  ['https://example.github.io/Parallax/app.html?v=build-id', 'https://example.github.io/Parallax/'],
+  ['https://www.amansparallax.com/app.html?mode=review&v=build-id#goals', 'https://www.amansparallax.com/?mode=review#goals'],
+  ['https://www.amansparallax.com/app.html', 'https://www.amansparallax.com/'],
+]){
+  test(`clean public URL preserves the site directory and navigation state: ${input}`, () => {
+    const location = new URL(input);
+    const state = { navigation: 'existing state' };
+    const replacements = [];
+    const history = { state, replaceState: (...args) => replacements.push(args) };
+    cleanPublicUrl({ location, history });
+    assert.deepEqual(replacements, [[state, '', expected]]);
+    assert.equal(replacements[0][0], state);
+    assert.equal(location.href, input, 'Cleaning history must not trigger a new location navigation');
+  });
+}
