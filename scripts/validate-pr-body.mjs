@@ -48,7 +48,7 @@ const REQUIRED_CI_JOBS = [
   'Full browser verification',
 ];
 const REQUIRED_PR_AUTHOR = 'parallax-pr-author-amans[bot]';
-const REQUIRED_PR_REVIEWER = 't66wwpvthy-prog';
+const REQUIRED_PR_REVIEWER = 'amansname';
 const COMPLETED_REVIEW_STATES = new Set(['APPROVED', 'CHANGES_REQUESTED', 'COMMENTED']);
 const COMPLETION_SENTENCES = [
   'Every original request or reported symptom is accounted for as fixed, delivered, deferred, or separately scoped.',
