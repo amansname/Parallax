@@ -1,10 +1,18 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { defaultPlan, resolveInputs, runSimulation } from '../engine.js';
+import { flatAssetReturnRow } from '../test/fixtures/assetReturnRows.js';
+import { createBlankHousehold, createSelectableDefaultHouseholds } from './householdFactories.js';
+import {
+  ACTIVE_KEY, HHDB_KEY, commitPreparedHouseholdStore, createMemoryStorage,
+  prepareHouseholdRecordForSave, prepareHouseholdStore, readHouseholdStore,
+} from '../src/household/persistence.js';
 
 import {
   buildPathRows,
   buildSimulationRows,
   formatCashFlowHeaderMoney,
+  groupPhases,
   renderCashflow,
 } from './cashflow.js';
 
@@ -67,6 +75,87 @@ test('Cash Flow displays gross required RMD when an ordinary IRA withdrawal alre
   assert.equal(row.rmd, 30_000);
   assert.equal(row.draw, 80_000);
   assert.equal(row.tax, 15_000);
+});
+
+test('Future demo Cash Flow starts its RMD phase at the first engine-required RMD, age 75', () => {
+  const future = createSelectableDefaultHouseholds(defaultPlan, 2026)
+    .find(household => household.meta.householdId === 'future-household');
+  const before = JSON.stringify(future);
+  const params = resolveInputs(future, {});
+  const market = Array.from({ length: params.horizonYears }, (_, i) => flatAssetReturnRow(2026 + i));
+  const simulation = runSimulation(future, {}, [market]).paths.p50;
+  const rows = buildSimulationRows(simulation, { plan: future, currentYear: 2026 });
+
+  assert.equal(simulation.rows.find(row => row.rmdRequired > 0)?.age, 75);
+  assert.equal(rows.find(row => row.age === 73).rmd, 0);
+  assert.equal(rows.find(row => row.age === 74).rmd, 0);
+  assert.deepEqual(groupPhases(rows).map(phase => phase.rows.map(row => row.age)), [
+    rows.filter(row => row.age < 75).map(row => row.age),
+    rows.filter(row => row.age >= 75).map(row => row.age),
+  ]);
+  assert.equal(JSON.stringify(future), before, 'render preparation must not mutate household facts');
+});
+
+test('Cash Flow phase grouping follows required RMD rows without inventing an age threshold', () => {
+  const cases = [
+    { ages: [], required: [], expected: [] },
+    { ages: [72, 73, 74], required: [0, 100, 90], expected: [[72], [73, 74]] },
+    { ages: [72, 73, 74, 75], required: [0, 0, 0, 100], expected: [[72, 73, 74], [75]] },
+    { ages: [72, 73, 74, 75], required: [0, 0, 0, 0], expected: [[72, 73, 74, 75]] },
+    // An older spouse can require RMDs before the primary turns 73.
+    { ages: [69, 70, 71], required: [0, 100, 90], expected: [[69], [70, 71]] },
+    // If RMDs already apply at the first visible year, there is no invented pre-RMD band.
+    { ages: [72, 73, 74], required: [100, 90, 80], expected: [[72, 73, 74]] },
+    // A later zero requirement does not move years back into the pre-RMD phase.
+    { ages: [72, 73, 74, 75], required: [0, 100, 0, 0], expected: [[72], [73, 74, 75]] },
+  ];
+  for(const { ages, required, expected } of cases){
+    const simulation = { rows: ages.map((age, i) => ({
+      age, phase: 'accum', rmdRequired: required[i], rmd: 0,
+    })) };
+    const rows = buildSimulationRows(simulation, { plan, currentYear: 2026 });
+    assert.deepEqual(groupPhases(rows).map(phase => phase.rows.map(row => row.age)), expected,
+      `ages ${ages}; required RMDs ${required}`);
+  }
+});
+
+test('a saved Future-derived household retains exact RMD rows through canonical reloads', () => {
+  // Synthetic current-schema saved household, not an export of the user's Parker record.
+  const defaults = createSelectableDefaultHouseholds(defaultPlan, 2026);
+  const source = structuredClone(defaults.find(household => household.meta.householdId === 'future-household'));
+  const id = 'hh_rmdfixture';
+  Object.assign(source.meta, {
+    householdId: id, name: 'RMD reload fixture', isSelectableDefault: false, isDemo: false,
+  });
+  const saved = prepareHouseholdRecordForSave(source, id);
+  const savedBytes = JSON.stringify(saved);
+  const database = Object.fromEntries(defaults.map(household => [household.meta.householdId, household]));
+  database[id] = saved;
+  const databaseBytes = JSON.stringify(database);
+  const storage = createMemoryStorage({ [HHDB_KEY]: databaseBytes, [ACTIVE_KEY]: id });
+  const params = resolveInputs(saved, {});
+  const market = Array.from({ length: params.horizonYears }, (_, i) => flatAssetReturnRow(2026 + i));
+  const projectedRows = household => buildSimulationRows(
+    runSimulation(household, {}, [market]).paths.p50,
+    { plan: household, currentYear: 2026 },
+  );
+  const before = projectedRows(saved);
+  assert.equal(before.find(row => row.rmd > 0)?.age, 75);
+
+  for(let reload = 0; reload < 2; reload++){
+    const prepared = prepareHouseholdStore(readHouseholdStore(storage), {
+      createBlankHousehold, createSelectableDefaultHouseholds,
+      pristinePlan: defaultPlan, currentYear: () => 2026,
+    });
+    assert.equal(prepared.ok, true);
+    assert.equal(prepared.mode, 'normal');
+    assert.equal(prepared.activeHouseholdId, null, 'startup requires explicit household selection');
+    assert.equal(JSON.stringify(prepared.db[id]), savedBytes);
+    assert.deepEqual(projectedRows(prepared.db[id]), before);
+    assert.equal(commitPreparedHouseholdStore(storage, prepared).ok, true);
+    assert.equal(storage.getItem(HHDB_KEY), databaseBytes);
+    assert.equal(storage.getItem(ACTIVE_KEY), null);
+  }
 });
 
 test('Cash Flow visibly labels the engine-owned annual shortfall for Typical', () => {

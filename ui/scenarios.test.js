@@ -37,6 +37,44 @@ test('Focus renders goal state as read-only status instead of an inert switch', 
   assert.match(html, /class="goal-state goal-state--off">Off<\/span>/);
 });
 
+test('Compare and Focus preserve the direction of probability deltas versus Baseline', () => {
+  const scenarios = [
+    { id: 'baseline', name: 'Baseline', isBaseline: true, prob: 70, probStr: '70.0' },
+    { id: 'better', name: 'Better', isBaseline: false, prob: 80, probStr: '80.0' },
+    { id: 'worse', name: 'Worse', isBaseline: false, prob: 60, probStr: '60.0' },
+    { id: 'same', name: 'Same', isBaseline: false, prob: 70, probStr: '70.0' },
+    { id: 'pending', name: 'Pending', isBaseline: false, prob: null, probStr: '' },
+  ].map(scenario => ({
+    ...scenario,
+    tone: '#8fa57e',
+    median: '$0',
+    viability: 'Review',
+    levers: [],
+    goals: [],
+    stress: [],
+    range: null,
+  }));
+  const baseline = scenarios[0];
+
+  const compare = renderCompare(scenarios, baseline, {
+    plan: {}, planEndAge: 95, goalsExpandedState: false, esc, downTri: '▼',
+  });
+  const focus = renderFocus(scenarios, baseline, baseline.id, false, deps);
+
+  assert.ok(compare.includes('<span class="tag-delta">+10.0 pts</span>'));
+  assert.ok(compare.includes('<span class="tag-delta">▼10.0 pts</span>'));
+  assert.ok(compare.includes('<span class="tag-delta">0.0 pts</span>'));
+  assert.ok(focus.includes('<span class="rail-card__tag rail-card__tag--delta">+10.0 pts</span>'));
+  assert.ok(focus.includes('<span class="rail-card__tag rail-card__tag--delta">−10.0 pts</span>'));
+  assert.ok(focus.includes('<span class="rail-card__tag rail-card__tag--delta">0.0 pts</span>'));
+  assert.ok(focus.includes('<span class="rail-card__tag rail-card__tag--delta"></span>'));
+  for(const html of [compare, focus]){
+    assert.ok(!html.includes('NaN pts'));
+    assert.ok(!html.includes('−0.0 pts'));
+    assert.ok(!html.includes('▼0.0 pts'));
+  }
+});
+
 test('Compare discloses pre-retirement funding for the base row and every plan', () => {
   const goal = {
     idx: 0,

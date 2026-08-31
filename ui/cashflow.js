@@ -329,12 +329,17 @@ export function federalWarningMessage(warning) {
     return 'Federal tax calculation warning';
   }
 
+function rmdStartAgeForRows(rows) {
+    return rows.find((r) => r.rmd > 0)?.age ?? null;
+  }
+
 export function groupPhases(rows) {
     if (!rows.length) return [];
-    const RMD_START_AGE = 73;
+    const rmdStartAge = rmdStartAgeForRows(rows);
+    if (rmdStartAge == null) return [{ rows }];
     return [
-      { rows: rows.filter((r) => r.age < RMD_START_AGE) },
-      { rows: rows.filter((r) => r.age >= RMD_START_AGE) },
+      { rows: rows.filter((r) => r.age < rmdStartAge) },
+      { rows: rows.filter((r) => r.age >= rmdStartAge) },
     ].filter((p) => p.rows.length);
   }
 
@@ -382,8 +387,7 @@ export function renderCashflow(scn, allScns, {
     );
 
     const retStartAge = rows.find((r) => !r.accum)?.age ?? null;
-    const RMD_START_AGE = 73;
-    const rmdStartAge = rows.find((r) => r.age >= RMD_START_AGE)?.age ?? null;
+    const rmdStartAge = rmdStartAgeForRows(rows);
 
     const headerMetrics = selected?.headerMetrics ?? null;
     const typicalSummaryStrip = headerMetrics?.kind === 'typical' ? (
