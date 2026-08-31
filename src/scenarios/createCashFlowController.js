@@ -160,6 +160,26 @@ export function createCashFlowController({
       });
     }
 
+    const scenarios = getScenarios();
+    const baseline = scenarios.find(item => item?.base) ?? scenarios[0];
+    const unavailable = scenario.res.projectionStatus === 'unavailable'
+      ? scenario
+      : kind === 'typical' && baseline?.res?.projectionStatus === 'unavailable'
+        ? baseline
+        : null;
+    if(unavailable){
+      const { issue, issueAge } = unavailable.res;
+      const age = Number.isFinite(issueAge) ? ` from age ${issueAge}` : '';
+      const reason = issue || 'PROJECTION_INPUTS_UNAVAILABLE';
+      const action = issue === 'TRADITIONAL_ACCOUNT_OWNER_LIFECYCLE_UNAVAILABLE'
+        ? 'Check account ownership and plan-end ages in Household.'
+        : 'Review the calculation inputs in Household and run the plan again.';
+      return freezeSelectedResult({
+        kind, pathId, rows: [], summary: {}, issue: reason, issueAge,
+        error: `${unavailable === scenario ? 'This projection' : 'The Baseline projection required for Typical Cash Flow'} is unavailable${age} (${reason}). ${action}`,
+      });
+    }
+
     try{
       const runInputs = scenarioInputsByResult.get(scenario.res);
       if(!runInputs) throw new Error('scenario run inputs are unavailable');
@@ -224,7 +244,9 @@ export function createCashFlowController({
         pathId,
         rows: [],
         summary: {},
-        error: 'This path is unavailable because its retirement handoff could not be verified.',
+        error: kind === 'typical'
+          ? 'The shared Typical path could not be prepared. Run the plan again; if this persists, report the Cash Flow diagnostic.'
+          : 'This path is unavailable because its retirement handoff could not be verified.',
       });
     }
   }

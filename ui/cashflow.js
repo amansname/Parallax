@@ -369,7 +369,7 @@ export function renderCashflow(scn, allScns, {
         }
       : taxSidecarFor(scn.raw, { isTypicalPath, typicalPathFederalTax, pathFederalTax });
     const taxColumn = taxColumnMeta(sidecar);
-    const federalAttachFailed = typicalPath && !!scn.raw.res && !sidecar;
+    const federalAttachFailed = typicalPath && !!scn.raw.res && !sidecar && !selected?.error;
     const taxDisclosureState = federalAttachFailed
       ? 'engine-fallback'
       : taxColumn.source === 'federal-converged-row'

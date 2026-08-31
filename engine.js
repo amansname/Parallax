@@ -2427,10 +2427,9 @@ function applyDeathBoundaryRollover(p, age, traditional, rolledOverOwners){
     const aliveBefore = priorYear.people?.[owner]?.alive === true;
     const aliveNow = thisYear.people?.[owner]?.alive === true;
     if(!aliveBefore || aliveNow) continue;          // they did not just die
-    if(!((traditional.byOwner[owner] ?? 0) > 0.01)){
-      rolledOverOwners.add(owner);
-      continue;
-    }
+    // Ownership changes at the death boundary, independently of the RMD
+    // materiality threshold. A sub-cent remainder must not stay invested in
+    // the decedent's name and grow into an unresolvable balance next year.
     const survivor = owner === 'client' ? 'spouse' : 'client';
     if(thisYear.people?.[survivor]?.alive !== true) continue;   // no survivor to receive it
     if(!spousalRolloverSupported(p, p.rmdContract, owner, survivor)) continue;  // fail closed
