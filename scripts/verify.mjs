@@ -16,6 +16,7 @@ import { assertCleanCandidateWorktree, buildSiteArtifact } from './build-site-ar
 import { verifyArtifactBundle } from './site-integrity-lib.mjs';
 import { runPublicUrlBrowserContract } from './public-url-browser-contract.mjs';
 import { runGoalsPresentationContract } from './goals-presentation-browser-contract.mjs';
+import { runRolloverErrorBrowserContract } from './rollover-error-browser-contract.mjs';
 import {
   goToWizardStep,
   openNetWorthCategory,
@@ -591,6 +592,10 @@ try {
       baseUrl: `http://127.0.0.1:${PORT}/`,
       artifactId: VERIFIED_ARTIFACT.manifest.artifactId,
     });
+  });
+
+  await step('Cash Flow renders the actual projection failure without false tax or handoff claims', async () => {
+    await runRolloverErrorBrowserContract(browser, `http://127.0.0.1:${PORT}/`);
   });
 
   await step('Graphite Aubergine design contracts render at governed viewports', async () => {
