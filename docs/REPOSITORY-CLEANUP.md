@@ -10,8 +10,8 @@ publication or replace the repository's verification and review requirements.
 
 | Request | Status | Acceptance evidence |
 |---|---|---|
-| 1. Retire verified legacy code with obsolete tests | First bundle implemented; delivery verification pending | No active entry-point path reaches the removed modules; replacement tests and existing account assertions remain. |
-| 2. Reliable test discovery and smaller verification/test modules | Pending | Every intended test is discovered; preserve assertions, fixtures, transitions, and failure signals during extraction. |
+| 1. Retire verified legacy code with obsolete tests | First local checkpoint verified | No active entry-point path reaches the removed modules; replacement tests and existing account assertions remain. Unit, governance, and full browser verification passed at `e33d596`. |
+| 2. Reliable test discovery and smaller verification/test modules | Discovery and engine test extraction implemented; browser extraction next | All 147 original engine cases and ten helper declarations preserve their ASTs, normalizing only relative import paths. Unit and governance checks pass; full browser proof for this checkpoint remains pending. |
 | 3. Smaller engine responsibilities | Pending | Preserve the public engine interface and deterministic result parity across account, timeline, and simulation boundaries. |
 | 4. Smaller startup and household action dispatch | Pending | Preserve orchestration order, saved-state behavior, and visible results. |
 | 5. Smaller duplication, stale exports, and outdated documentation | Pending | Remove only verified redundancy; preserve distinct boundary cases and calculation semantics. |
@@ -64,3 +64,23 @@ groups remain for separate contract and caller review.
 The local ESLint setup remains a separate tooling branch. Its pinned executable
 and configuration can inspect this bundle without adding dependencies or
 changing CI. Lint findings do not authorize automatic fixes or test deletion.
+
+## Test-discovery and engine-test checkpoint
+
+The implementation baseline is now `5a56edc`, including the merged Goals fix,
+with the first retirement patch carried forward at `f9a138b`. The baseline has
+906 passing unit tests (24 pretests and 882 main tests).
+
+`npm test` now discovers tests automatically. Explicit pretest and governance
+commands retain their existing order and scope. Three regression checks prove
+new-file discovery, rejection of stale/overlapping exclusions, and propagation
+of a newly added failing test's nonzero exit. The resulting suite has 909
+passing tests; no former scheduled case was dropped.
+
+The former 4,222-line `engine.test.js` is divided into 14 contract suites under
+`test/engine/`. Three shared fixture factories live in `fixtures.js`; seven
+single-suite helpers remain with their tests. All 147 test bodies, ten helper
+declarations, and their financial expectations are structurally identical;
+only two relative dynamic-import paths needed relocation. Explanatory comments
+are retained. Production JavaScript, persisted fixtures, and the merged Goals
+fix are unchanged by this checkpoint. See `test/README.md` for usage.

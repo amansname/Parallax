@@ -49,6 +49,7 @@ Run commands from the repository root.
 ```text
 npm ci                         install the locked development dependencies
 npm test                       full unit suite
+npm run test:inventory          discovered test files and execution categories
 npm run verify                 full browser verifier and screenshots
 npm run governance:check       repository-governance and static checks
 npm run preview                manual preview at http://127.0.0.1:8825/
