@@ -128,3 +128,29 @@ resolve that probe failure.
 The large algorithms retain their existing internals. This establishes coherent
 module boundaries and a small public entry point; it is not a claim that every
 function's cognitive complexity is resolved or that cloud scan scores improved.
+
+The browser extraction passed the full campaign at `2496cda`; the engine
+extraction passed it at `40d9b1c`, including the merged Goals presentation fix.
+These are separate immutable local checkpoints, not published or live changes.
+
+## Startup and household action boundaries
+
+Scenario configuration, historical orchestration, projection messages, and
+scenario goal overrides now live in their owning `src/` modules. The existing
+Compare/Focus/Cash Flow view installer lives in `ui/scenariosController.js`.
+It runs at the same point in startup, receives stable service dependencies, and
+imports mutable shared state through live module bindings. The pristine plan
+snapshot, household hydration, persistence, migrations, and boot order remain
+in the composition root. `src/main.js` is reduced to 942 lines; its 90 original
+top-level declarations are preserved across the new locations.
+
+The household editor retains one guarded commit/error boundary. Its five input
+callbacks and all 21 click-action bodies are unchanged, with actions grouped
+into navigation, net-worth views, net-worth mutations, family, and tax modules.
+Disabled controls and unknown actions still do nothing. No validation or saved
+data contract is changed. The source comparison preserves the view installer
+body apart from explicit dependency binding.
+
+All 909 unit tests and 63 governance checks pass locally. Full browser
+verification is required on this committed checkpoint. Existing lint findings
+are recorded rather than suppressed; their cleanup is a separate final pass.
