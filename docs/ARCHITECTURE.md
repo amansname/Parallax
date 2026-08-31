@@ -17,6 +17,7 @@ src/household/      Household Facts with provenance/readiness, schemas, persiste
 src/planning/       orchestration between Projection Engine and Tax Engine; no substitute math
 src/tax/            Tax Engine: federal Form 1040 math (never imports engine.js)
 engine.js           Projection Engine public entry and logical authority
+src/projection/engine/  Internal projection inputs, timelines, accounts, funding, simulation, and analysis
 styles/*.css        presentation per surface
 scripts/verify.mjs  tests + browser smoke; scans index.html + src/**/*.js + ui/**/*.js
 ```

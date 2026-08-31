@@ -21,6 +21,7 @@ Parallax is a static ES-module application with no build step or backend.
 | `src/state.js` | Mutable UI state and persistence effects; no rendering. |
 | `ui/*.js` | Display and DOM modules; no financial calculations. |
 | `engine.js` | Public entry point and logical authority for the Projection Engine: simulation, wealth paths, withdrawals, and bucket math. |
+| `src/projection/engine/` | Internal Projection Engine implementation. Preserve the public `engine.js` interface and result parity. |
 | `src/tax/` | Tax Engine authority for federal tax calculations; never imports `engine.js`. |
 | `src/planning/` | Adapters and orchestration between the Projection Engine, Tax Engine, and views; no substitute financial math. |
 | `src/household/` | Household Facts with provenance/readiness, schemas, persistence, migrations, and wizard contracts. |

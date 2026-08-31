@@ -11,8 +11,8 @@ publication or replace the repository's verification and review requirements.
 | Request | Status | Acceptance evidence |
 |---|---|---|
 | 1. Retire verified legacy code with obsolete tests | First local checkpoint verified | No active entry-point path reaches the removed modules; replacement tests and existing account assertions remain. Unit, governance, and full browser verification passed at `e33d596`. |
-| 2. Reliable test discovery and smaller verification/test modules | Local implementation; full browser verification pending | All 147 original engine cases and ten helper declarations preserve their ASTs. The browser campaign retains its 35 ordered steps, 321 throw assertions, and 842 function callbacks. |
-| 3. Smaller engine responsibilities | Pending | Preserve the public engine interface and deterministic result parity across account, timeline, and simulation boundaries. |
+| 2. Reliable test discovery and smaller verification/test modules | Verified locally at `2496cda` | All 147 original engine cases and ten helper declarations preserve their ASTs. The 35-step browser campaign passed, including the merged Goals fix; 321 throw assertions and 842 callbacks remain. |
+| 3. Smaller engine responsibilities | Local extraction implemented; browser verification pending | All 84 declarations and the public export list are preserved. Each extraction matches 365 fixed-input results/failure responses and passes all 909 unit tests. |
 | 4. Smaller startup and household action dispatch | Pending | Preserve orchestration order, saved-state behavior, and visible results. |
 | 5. Smaller duplication, stale exports, and outdated documentation | Pending | Remove only verified redundancy; preserve distinct boundary cases and calculation semantics. |
 
@@ -104,3 +104,27 @@ No assertions, saved fixtures, waiting conditions, timeouts, or financial
 expectations are weakened. No production module or merged Goals-fix file is
 changed. Governance checks pass. Full browser verification must run against
 the committed extraction before this local checkpoint is considered verified.
+
+## Engine boundaries
+
+The engine was extracted in separate timeline/execution, ownership/RMD,
+input/Withdrawal Planner, and simulation/funding checkpoints. `engine.js`
+remains the public interface; implementation modules live in
+`src/projection/engine/`. No caller was redirected to a substitute engine.
+The shared default-plan object and private random stream remain singletons.
+
+All 84 original declarations and the public export declaration match the
+pre-extraction syntax trees. A separate fixed-input probe matches 365 baseline
+responses, including complete output hashes for ordinary, historical, federal,
+owner-account, withdrawal, timeline, and unavailable-state cases. Every local
+checkpoint also passes all 909 scheduled unit tests.
+
+An intermediate probe run exposed a filename collision in its own scratch
+outputs. The input fixture was recovered from the untouched original engine
+checkout and verified against the preserved original result hashes before the
+candidate was compared again. No product or expected-result change was used to
+resolve that probe failure.
+
+The large algorithms retain their existing internals. This establishes coherent
+module boundaries and a small public entry point; it is not a claim that every
+function's cognitive complexity is resolved or that cloud scan scores improved.
