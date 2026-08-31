@@ -22,7 +22,9 @@ The existing account ledger and allocation-return modules remain in
 `src/projection/`. The Tax Engine remains in `src/tax/`; planning adapters connect
 the two authorities. Do not duplicate their calculations here or in the UI.
 
-The extraction preserves all 84 original engine declarations and the public
-export list. Some internal algorithms remain long and complex. This module
-split establishes reviewable boundaries; it does not claim that every function
-is simple or that a new CodeScene score has been measured.
+The initial extraction preserved all 84 original engine declarations. The final
+cleanup retains 74 unchanged declarations after retiring ten verified-unused
+private helpers; the public export list remains unchanged. Some internal
+algorithms remain long and complex. This module split establishes reviewable
+boundaries; it does not claim that every function is simple or that a new
+CodeScene score has been measured.

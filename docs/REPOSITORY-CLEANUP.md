@@ -12,9 +12,9 @@ publication or replace the repository's verification and review requirements.
 |---|---|---|
 | 1. Retire verified legacy code with obsolete tests | First local checkpoint verified | No active entry-point path reaches the removed modules; replacement tests and existing account assertions remain. Unit, governance, and full browser verification passed at `e33d596`. |
 | 2. Reliable test discovery and smaller verification/test modules | Verified locally at `2496cda` | All 147 original engine cases and ten helper declarations preserve their ASTs. The 35-step browser campaign passed, including the merged Goals fix; 321 throw assertions and 842 callbacks remain. |
-| 3. Smaller engine responsibilities | Local extraction implemented; browser verification pending | All 84 declarations and the public export list are preserved. Each extraction matches 365 fixed-input results/failure responses and passes all 909 unit tests. |
-| 4. Smaller startup and household action dispatch | Pending | Preserve orchestration order, saved-state behavior, and visible results. |
-| 5. Smaller duplication, stale exports, and outdated documentation | Pending | Remove only verified redundancy; preserve distinct boundary cases and calculation semantics. |
+| 3. Smaller engine responsibilities | Verified locally at `b4e23bb` | The initial extraction preserved 84 declarations; the final cleanup retains 74 after ten verified-unused private helper removals. Public exports are unchanged; 365 fixed-input responses match. All 911 unit tests and the full browser campaign pass. |
+| 4. Smaller startup and household action dispatch | Verified locally at `b4e23bb` | Stable service dependencies and live shared-state imports preserve startup order. Five input callbacks and 21 action bodies retain their behavior; the full browser campaign covers saved-state and visible-result contracts. |
+| 5. Smaller duplication, stale exports, and outdated documentation | Code and tooling verified locally at `b4e23bb`; review documentation corrections applied | Confirmed-unused helpers and a transitional alias were removed, the identical expression was simplified, and the Plan label was associated. All 911 unit tests and 63 governance checks pass. The two P3 review findings are corrected in this documentation-only follow-up. |
 
 There is no target for reducing the number of tests or files. Meaningful
 coverage, clear ownership, and unchanged behavior determine what stays.
@@ -113,8 +113,10 @@ remains the public interface; implementation modules live in
 `src/projection/engine/`. No caller was redirected to a substitute engine.
 The shared default-plan object and private random stream remain singletons.
 
-All 84 original declarations and the public export declaration match the
-pre-extraction syntax trees. A separate fixed-input probe matches 365 baseline
+At the engine-extraction checkpoint, all 84 original declarations and the public
+export declaration matched the pre-extraction syntax trees. The final cleanup
+later retired ten verified-unused private helpers, leaving 74 unchanged
+declarations and the same public exports. A separate fixed-input probe matches 365 baseline
 responses, including complete output hashes for ordinary, historical, federal,
 owner-account, withdrawal, timeline, and unavailable-state cases. Every local
 checkpoint also passes all 909 scheduled unit tests.
@@ -201,8 +203,14 @@ Export warnings remain for individually reviewable APIs. Browser-relative
 imports yield more file-level warnings after extraction because formerly
 shared files are now separate; they are not silently suppressed.
 
+Three fresh independent reviews of `b4e23bb` found no P0-P2 issues and two P3
+documentation issues. This follow-up corrects the stale ledger/count wording
+and the root README's old engine-test path. Nathan explicitly waived sending
+these documentation-only corrections back to the reviewers; no new independent
+review result is claimed for this follow-up.
+
 Local commits do not authorize publication. No push, PR, merge, deployment,
-Sonar settings change, or cloud rescan is part of this bundle. Independent
-review and required CI remain delivery requirements. Some internal engine
+Sonar settings change, or cloud rescan is part of this bundle. Required CI and
+human merge approval remain delivery requirements. Some internal engine
 algorithms and the Scenarios view installer are still large; lowering their
 complexity further is follow-up work, not an outcome claimed by this extraction.

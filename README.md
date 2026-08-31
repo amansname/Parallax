@@ -38,8 +38,9 @@ or helps an advisor explain a client decision:
   remains the logical public authority and public behavior/result parity must
   be preserved. Do not change either engine's math without explicit agreement
   and tests.
-- `engine.test.js` — Node test suite guarding the engine. Runs in CI on every
-  push (`.github/workflows/test.yml`).
+- `test/engine/` — Node contract suites guarding the engine, included in
+  `npm test` and the required CI unit job. See [test/README.md](test/README.md)
+  for test discovery and organization.
 - `index.html` — app markup and styles. Loads `src/main.js` as the sole ES module
   entry; must be served over HTTP (as `scripts/verify.mjs` and GitHub Pages do),
   not opened via `file://`.
