@@ -86,6 +86,7 @@ function contentType(filePath){
     : ext === 'js' ? 'text/javascript'
     : ext === 'css' ? 'text/css'
     : ext === 'png' ? 'image/png'
+    : ext === 'svg' ? 'image/svg+xml'
     : 'application/octet-stream';
 }
 
