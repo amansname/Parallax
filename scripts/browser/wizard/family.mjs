@@ -1,0 +1,129 @@
+// Wizard browser contract: family.
+import { requireCondition } from './assertions.mjs';
+import { goToWizardStep, setWizardValue, clickWizardAction, openNetWorthCategory, reloadWizard } from './actions.mjs';
+export async function verifyFamilyPropagation(page) {
+  await goToWizardStep(page, 'family');
+  await setWizardValue(page, '[data-wizard-field="client.birthDate"]', '1960-01-01');
+  await setWizardValue(page, '[data-wizard-field="filingStatus"]', 'marriedFilingJointly');
+  const family = await page.evaluate(() => ({
+    people: document.querySelectorAll('[data-person-owner]').length,
+    spouse: document.querySelectorAll('[data-person-owner="spouse"]').length
+  }));
+  requireCondition(family.people === 2 && family.spouse === 1, `MFJ did not render the co-client: ${JSON.stringify(family)}`);
+  await setWizardValue(page, '[data-wizard-field="spouse.birthDate"]', '1961-01-01');
+  for (const nextStatus of ['single', 'headOfHousehold']) {
+    await setWizardValue(page, '[data-wizard-field="filingStatus"]', nextStatus, {
+      expectRevision: false
+    });
+    const rejected = await page.evaluate(() => ({
+      status: document.querySelector('[data-wizard-field="filingStatus"]')?.value || '',
+      code: document.querySelector('[data-hh-wizard-root]')?.dataset.validationCode || '',
+      people: document.querySelectorAll('[data-person-owner]').length
+    }));
+    requireCondition(rejected.status === 'marriedFilingJointly' && rejected.code === 'CO_CLIENT_REMOVAL_REQUIRED' && rejected.people === 2, `Direct co-client filing transition did not fail closed: ${JSON.stringify(rejected)}`);
+  }
+  await openNetWorthCategory(page, 'investment');
+  await clickWizardAction(page, '[data-hh-action="net-worth-pick-type"][data-account-type-id="roth_ira"]');
+  await setWizardValue(page, '[data-net-worth-draft="owner"]', 'spouse', {
+    expectRevision: false
+  });
+  await setWizardValue(page, '[data-net-worth-draft="value"]', '1000', {
+    expectRevision: false,
+    eventType: 'input'
+  });
+  await clickWizardAction(page, '[data-hh-action="net-worth-save-entry"]');
+  const spouseAccountId = await page.$eval('[data-hh-action="net-worth-remove-entry"][data-entry-source="account"]', button => button.dataset.accountId);
+  await clickWizardAction(page, '[data-net-worth-overlay] .nw-panel-close');
+  await page.evaluate(() => {
+    window.__coClientConfirmCalls = 0;
+    window.confirm = () => {
+      window.__coClientConfirmCalls += 1;
+      return true;
+    };
+  });
+  await goToWizardStep(page, 'family');
+  await clickWizardAction(page, '[data-hh-action="remove-spouse"]', {
+    expectRevision: false
+  });
+  const accountBlocked = await page.evaluate(() => ({
+    code: document.querySelector('[data-hh-wizard-root]')?.dataset.validationCode || '',
+    confirms: window.__coClientConfirmCalls,
+    people: document.querySelectorAll('[data-person-owner]').length
+  }));
+  requireCondition(accountBlocked.code === 'CO_CLIENT_ACCOUNTS_REQUIRE_REASSIGNMENT' && accountBlocked.confirms === 0 && accountBlocked.people === 2, `Co-client account guard did not precede confirmation: ${JSON.stringify(accountBlocked)}`);
+  await openNetWorthCategory(page, 'investment');
+  await clickWizardAction(page, `[data-hh-action="net-worth-remove-entry"][data-entry-source="account"][data-account-id="${spouseAccountId}"]`);
+  await clickWizardAction(page, '[data-net-worth-overlay] .nw-panel-close');
+  await goToWizardStep(page, 'family');
+  await page.evaluate(() => {
+    window.__coClientConfirmCalls = 0;
+    window.confirm = () => {
+      window.__coClientConfirmCalls += 1;
+      return false;
+    };
+  });
+  await clickWizardAction(page, '[data-hh-action="remove-spouse"]', {
+    expectRevision: false
+  });
+  const cancelled = await page.evaluate(() => ({
+    confirms: window.__coClientConfirmCalls,
+    people: document.querySelectorAll('[data-person-owner]').length,
+    status: document.querySelector('[data-wizard-field="filingStatus"]')?.value || ''
+  }));
+  requireCondition(cancelled.confirms === 1 && cancelled.people === 2 && cancelled.status === 'marriedFilingJointly', `Cancelled co-client removal changed the household: ${JSON.stringify(cancelled)}`);
+  await page.evaluate(() => {
+    window.__coClientConfirmCalls = 0;
+    window.confirm = () => {
+      window.__coClientConfirmCalls += 1;
+      return true;
+    };
+  });
+  await clickWizardAction(page, '[data-hh-action="remove-spouse"]');
+  const removed = await page.evaluate(() => ({
+    confirms: window.__coClientConfirmCalls,
+    people: document.querySelectorAll('[data-person-owner]').length,
+    status: document.querySelector('[data-wizard-field="filingStatus"]')?.value || '',
+    removeAction: document.querySelectorAll('[data-hh-action="remove-spouse"]').length
+  }));
+  requireCondition(removed.confirms === 1 && removed.people === 1 && removed.status === 'single' && removed.removeAction === 0, `Confirmed co-client removal was not atomic: ${JSON.stringify(removed)}`);
+  await page.waitForFunction(() => {
+    const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+    const active = localStorage.getItem('parallax.activeHouseholdId');
+    const saved = db?.[active];
+    return saved?.meta?.filingStatus === 'single' && saved?.household?.spouse == null;
+  }, {
+    timeout: 10000
+  });
+  await reloadWizard(page);
+  await goToWizardStep(page, 'family');
+  const persistedRemoval = await page.evaluate(() => ({
+    people: document.querySelectorAll('[data-person-owner]').length,
+    status: document.querySelector('[data-wizard-field="filingStatus"]')?.value || ''
+  }));
+  requireCondition(persistedRemoval.people === 1 && persistedRemoval.status === 'single', `Co-client removal did not survive reload: ${JSON.stringify(persistedRemoval)}`);
+  await openNetWorthCategory(page, 'bank');
+  await clickWizardAction(page, '[data-hh-action="net-worth-pick-type"][data-account-type-id="checking"]');
+  const singleOwnerState = await page.evaluate(() => ({
+    spouseOptions: document.querySelectorAll('[data-net-worth-draft="owner"] option[value="spouse"]').length,
+    owner: document.querySelector('[data-net-worth-draft="owner"]')?.value || '',
+    saveDisabled: document.querySelector('[data-hh-action="net-worth-save-entry"]')?.disabled === true
+  }));
+  requireCondition(singleOwnerState.spouseOptions === 0 && singleOwnerState.owner === '' && singleOwnerState.saveDisabled, `Single-household account ownership is unsafe: ${JSON.stringify(singleOwnerState)}`);
+  await clickWizardAction(page, '[data-hh-action="net-worth-cancel-draft"]');
+  await clickWizardAction(page, '[data-net-worth-overlay] .nw-panel-close');
+  await goToWizardStep(page, 'family');
+  await setWizardValue(page, '[data-wizard-field="filingStatus"]', 'headOfHousehold');
+  await setWizardValue(page, '[data-wizard-field="filingStatus"]', 'marriedFilingJointly');
+  await setWizardValue(page, '[data-wizard-field="spouse.birthDate"]', '1961-01-01');
+  await setWizardValue(page, '[data-wizard-field="client.retirementAge"]', '68');
+  await setWizardValue(page, '[data-wizard-field="spouse.retirementAge"]', '70');
+  await setWizardValue(page, '[data-wizard-field="client.socialSecurityAge"]', '67');
+  await setWizardValue(page, '[data-wizard-field="spouse.socialSecurityAge"]', '69');
+  await setWizardValue(page, '[data-wizard-field="client.socialSecurityBenefit"]', '32000');
+  await setWizardValue(page, '[data-wizard-field="spouse.socialSecurityBenefit"]', '22000');
+  await setWizardValue(page, '[data-wizard-field="client.planEndAge"]', '94');
+  await setWizardValue(page, '[data-wizard-field="spouse.planEndAge"]', '101');
+  await goToWizardStep(page, 'tax');
+  const filing = await page.evaluate(() => document.querySelector('.hh-tax-static strong')?.textContent.trim() || '');
+  requireCondition(filing === 'Married filing jointly', `Family filing status did not reach Tax: "${filing}"`);
+}

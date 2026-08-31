@@ -11,7 +11,7 @@ publication or replace the repository's verification and review requirements.
 | Request | Status | Acceptance evidence |
 |---|---|---|
 | 1. Retire verified legacy code with obsolete tests | First local checkpoint verified | No active entry-point path reaches the removed modules; replacement tests and existing account assertions remain. Unit, governance, and full browser verification passed at `e33d596`. |
-| 2. Reliable test discovery and smaller verification/test modules | Discovery and engine test extraction implemented; browser extraction next | All 147 original engine cases and ten helper declarations preserve their ASTs, normalizing only relative import paths. Unit and governance checks pass; full browser proof for this checkpoint remains pending. |
+| 2. Reliable test discovery and smaller verification/test modules | Local implementation; full browser verification pending | All 147 original engine cases and ten helper declarations preserve their ASTs. The browser campaign retains its 35 ordered steps, 321 throw assertions, and 842 function callbacks. |
 | 3. Smaller engine responsibilities | Pending | Preserve the public engine interface and deterministic result parity across account, timeline, and simulation boundaries. |
 | 4. Smaller startup and household action dispatch | Pending | Preserve orchestration order, saved-state behavior, and visible results. |
 | 5. Smaller duplication, stale exports, and outdated documentation | Pending | Remove only verified redundancy; preserve distinct boundary cases and calculation semantics. |
@@ -84,3 +84,23 @@ declarations, and their financial expectations are structurally identical;
 only two relative dynamic-import paths needed relocation. Explanatory comments
 are retained. Production JavaScript, persisted fixtures, and the merged Goals
 fix are unchanged by this checkpoint. See `test/README.md` for usage.
+
+## Browser-verifier extraction checkpoint
+
+The verifier entry point now owns setup and campaign order; feature assertions
+live under `scripts/browser/`. The wizard coordinator retains its public
+exports and exact storage-restoration procedure. Cash Flow is divided by
+fixture setup, Typical view, scenario selection, historical snapshots,
+presentation, metrics, goal edits, underfunding, and reload/restoration.
+
+Syntax-tree comparison preserves all 35 ordered campaign labels, all 321 throw
+statements, all 842 non-step function callbacks, and all 48 wizard declarations.
+The created Withdrawal Planner household ID is returned explicitly to the
+campaign instead of being assigned through a cross-module global. Cash Flow
+phases return only the observations needed by later phases. Browser-relative
+dynamic imports remain unchanged; only Node module imports are relocated.
+
+No assertions, saved fixtures, waiting conditions, timeouts, or financial
+expectations are weakened. No production module or merged Goals-fix file is
+changed. Governance checks pass. Full browser verification must run against
+the committed extraction before this local checkpoint is considered verified.
