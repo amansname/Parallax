@@ -24,7 +24,7 @@ Configure a branch protection rule or repository ruleset targeting `main`:
 6. Require exactly one approving review, dismiss stale approvals on a new
    reviewable push, and require approval of the most recent reviewable push.
 7. Disable the extra approval for changes not attributed to a user. Parallax
-   delivery PRs are intentionally App-authored, and `t66wwpvthy-prog` is the
+   delivery PRs are intentionally App-authored, and `amansname` is the
    single required human reviewer; enabling that extra rule would require a
    second distinct reviewer.
 
