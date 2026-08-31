@@ -1192,12 +1192,38 @@ try {
 
     const plannerSnapshot = () => page.evaluate(() => {
       const text = selector => document.querySelector(selector)?.textContent.trim() ?? null;
+      const inventory = Array.from(document.querySelectorAll('[data-taw-col]'), column => [
+        column.dataset.tawCol, column.querySelector('.taw-col-name')?.textContent.trim(),
+      ]);
+      const expectedInventory = [
+        ['ord', 'Income Tax'], ['ltcg', 'Long-term gains'],
+        ['irmaa', 'Medicare IRMAA'], ['ss', 'Social Security'],
+      ];
+      if (JSON.stringify(inventory) !== JSON.stringify(expectedInventory)) {
+        throw new Error(`Withdrawal column inventory drifted: ${JSON.stringify(inventory)}`);
+      }
       const columns = Object.fromEntries(['ord', 'ltcg', 'irmaa', 'ss'].map(id => {
         const column = document.querySelector(`[data-taw-col="${id}"]`);
         const base = column?.querySelector('.taw-col-base');
         const fill = column?.querySelector('.taw-col-fill');
         const gap = column?.querySelector('.taw-col-gap');
+        const edge = column?.querySelector('.taw-col-edge');
+        const paint = {};
+        for (const [region, element, extent] of [
+          ['base', base, base?.style.height],
+          ['fill', fill, fill?.style.height],
+          ['edge', edge, edge?.style.bottom],
+        ]) {
+          if (!element) throw new Error(`Missing ${id} ${region}`);
+          const style = getComputedStyle(element);
+          paint[region] = { image: style.backgroundImage, color: style.backgroundColor };
+          if (parseFloat(extent) > 0 && style.backgroundImage === 'none'
+            && ['transparent', 'rgba(0, 0, 0, 0)'].includes(style.backgroundColor)) {
+            throw new Error(`Funded threshold paint is transparent: ${id} ${region}`);
+          }
+        }
         return [id, {
+          paint,
           value: text(`[data-taw-col="${id}"] .taw-col-edge span`),
           baseStyle: base?.style.height ?? null,
           fillStyle: fill?.style.height ?? null,
