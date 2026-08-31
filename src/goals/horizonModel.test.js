@@ -193,3 +193,35 @@ test('formatting, percentages and duplicates are deterministic', () => {
   assert.equal(goalPct(79,62,96),50);
   assert.deepEqual(duplicateGoal(goal,()=> 'b'),{...goal,id:'b',name:'Beach house copy'});
 });
+
+test('timeline preserves monthly input precision through serialization and cadence changes', () => {
+  const goal={amount:0,per:'mo',startAge:70,endAge:85};
+  setGoalDisplayAmount(goal,2500);
+  const saved=JSON.stringify(goal);
+  const restored=JSON.parse(saved);
+  assert.equal(restored.amount,30000);
+  assert.equal(goalDisplayAmount(restored),2500);
+  assert.equal(formatGoalAmount(restored),'$2.5k / mo');
+  assert.equal(JSON.stringify(restored),saved);
+  setGoalPer(restored,'yr');
+  assert.equal(formatGoalAmount(restored),'$30k / yr');
+  setGoalPer(restored,'mo');
+  assert.equal(formatGoalAmount(restored),'$2.5k / mo');
+  assert.equal(restored.amount,30000);
+});
+
+test('compact goal labels retain every displayed dollar at thousands and millions boundaries', () => {
+  const examples=[
+    [0,'$0'],[999,'$999'],[1000,'$1k'],[1001,'$1.001k'],
+    [1250,'$1.25k'],[2500,'$2.5k'],[5500,'$5.5k'],[11040,'$11.04k'],
+    [995000,'$995k'],[999999,'$999.999k'],[1000000,'$1M'],
+    [1250000,'$1.25M'],[1250001,'$1.250001M'],
+  ];
+  for(const [amount,label] of examples){
+    const goal={amount,per:'yr',startAge:70,endAge:70};
+    assert.equal(formatGoalAmount(goal),label);
+    assert.equal(formatGoalAmount({...goal,endAge:85}),`${label} / yr`);
+    assert.equal(formatGoalAmount({...goal,amount:amount*12,per:'mo',endAge:85}),`${label} / mo`);
+    assert.equal(goal.amount,amount);
+  }
+});

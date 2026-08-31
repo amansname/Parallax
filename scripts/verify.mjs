@@ -15,6 +15,7 @@ import { createBlankTaxProfiles } from '../src/household/factEnvelope.js';
 import { assertCleanCandidateWorktree, buildSiteArtifact } from './build-site-artifact.mjs';
 import { verifyArtifactBundle } from './site-integrity-lib.mjs';
 import { runPublicUrlBrowserContract } from './public-url-browser-contract.mjs';
+import { runGoalsPresentationContract } from './goals-presentation-browser-contract.mjs';
 import {
   goToWizardStep,
   openNetWorthCategory,
@@ -1820,19 +1821,23 @@ try {
     await page.screenshot({ path: join(OUT, '02-goals.png'), fullPage: true });
   });
 
+  await step('goals Horizon: exact monthly labels and persistent category glows', async () => {
+    await runGoalsPresentationContract(page, { householdId:withdrawalPlannerFixtureHouseholdId, outDir:OUT });
+  });
+
   await step('goals Horizon: add, edit, cadence, timing, category, duplicate, delete, undo', async () => {
-    const sleep = ms => new Promise(r => setTimeout(r, ms));
     await stableClick('.htab[data-page="household"]');
     await waitForWizard(page, { householdId: withdrawalPlannerFixtureHouseholdId });
     await page.click('.htab[data-sub-target="goals"]');
-    await sleep(300);
+    await page.waitForSelector('.gh-lane', { visible:true });
     const before = await page.evaluate(() => document.querySelectorAll('.gh-lane').length);
     await page.click('.gh-add-toggle');
-    await sleep(150);
+    await page.waitForSelector('.gh-starter', { visible:true });
     const starters = await page.evaluate(() => document.querySelectorAll('.gh-starter').length);
     if(starters !== 8) throw new Error(`expected 8 goal starters, got ${starters}`);
     await page.click('.gh-starter[data-add-category="travel"]');
-    await sleep(450);
+    await page.waitForFunction(count => document.querySelectorAll('.gh-lane').length === count,
+      { timeout:10000 }, before + 1);
     let m = await page.evaluate(() => ({
       lanes: document.querySelectorAll('.gh-lane').length,
       rail: !!document.querySelector('.gh-rail'),
@@ -1847,12 +1852,10 @@ try {
     await page.click('.gh-name-input');
     await page.keyboard.down('Control'); await page.keyboard.press('A'); await page.keyboard.up('Control');
     await page.keyboard.type('European summers');
-    await page.evaluate(() => {
-      const el = document.querySelector('.gh-amount-input');
-      el.value = '24000';
-      el.dispatchEvent(new Event('input', { bubbles:true }));
-    });
-    await sleep(150);
+    await page.click('.gh-amount-input');
+    await page.keyboard.down('Control'); await page.keyboard.press('A'); await page.keyboard.up('Control');
+    await page.keyboard.type('24000');
+    await page.waitForFunction(() => document.querySelector('.gh-amount-input')?.value === '24,000');
     m = await page.evaluate(() => ({
       railName: document.querySelector('.gh-name-input')?.value,
       chipName: [...document.querySelectorAll('.gh-chip__name')].some(el => el.textContent === 'European summers'),
@@ -1862,19 +1865,23 @@ try {
     if(m.railName !== 'European summers' || !m.chipName || m.amount !== '24,000' || !/24k/.test(m.chipAmount || ''))
       throw new Error(`live goal editing failed (${JSON.stringify(m)})`);
 
-    await page.click('[data-action="per-month"]'); await sleep(250);
+    await page.click('[data-action="per-month"]');
+    await page.waitForFunction(() => document.querySelector('.gh-amount-input')?.value === '2,000');
     m = await page.evaluate(() => ({
       amount: document.querySelector('.gh-amount-input')?.value,
       monthly: document.querySelector('[data-action="per-month"]')?.classList.contains('is-selected'),
     }));
     if(m.amount !== '2,000' || !m.monthly) throw new Error(`monthly cadence conversion failed (${JSON.stringify(m)})`);
-    await page.click('[data-action="kind-once"]'); await sleep(250);
+    await page.click('[data-action="kind-once"]');
+    await page.waitForSelector('[data-field="once-age"]', { visible:true });
     if(!await page.evaluate(() => !!document.querySelector('[data-field="once-age"]')))
       throw new Error('one-time cadence did not expose a single age control');
-    await page.click('[data-action="kind-rec"]'); await sleep(250);
+    await page.click('[data-action="kind-rec"]');
+    await page.waitForSelector('[data-field="start-age"]', { visible:true });
     if(!await page.evaluate(() => !!document.querySelector('[data-field="start-age"]') && !!document.querySelector('[data-field="end-age"]')))
       throw new Error('recurring cadence did not restore a range');
-    await page.click('[data-action="preset"][data-preset="later"]'); await sleep(250);
+    await page.click('[data-action="preset"][data-preset="later"]');
+    await page.waitForFunction(() => document.querySelector('[data-action="preset"][data-preset="later"]')?.classList.contains('is-selected'));
     m = await page.evaluate(() => ({
       start: document.querySelector('[data-field="start-age"]')?.value,
       end: document.querySelector('[data-field="end-age"]')?.value,
@@ -1892,20 +1899,26 @@ try {
     }, { timeout: 8000 }, VERIFIED_ARTIFACT.manifest.artifactId);
 
     const beforeDuplicate = await page.evaluate(() => document.querySelectorAll('.gh-lane').length);
-    await page.click('[data-action="duplicate"]'); await sleep(350);
+    await page.click('[data-action="duplicate"]');
+    await page.waitForFunction(count => document.querySelectorAll('.gh-lane').length === count,
+      { timeout:10000 }, beforeDuplicate + 1);
     m = await page.evaluate(() => ({
       lanes: document.querySelectorAll('.gh-lane').length,
       name: document.querySelector('.gh-name-input')?.value || '',
     }));
     if(m.lanes !== beforeDuplicate + 1 || !m.name.endsWith(' copy'))
       throw new Error(`duplicate failed (${JSON.stringify(m)})`);
-    await page.click('[data-action="delete"]'); await sleep(350);
+    await page.click('[data-action="delete"]');
+    await page.waitForFunction(count => document.querySelectorAll('.gh-lane').length === count && document.querySelector('.gh-toast'),
+      { timeout:10000 }, beforeDuplicate);
     m = await page.evaluate(() => ({
       lanes: document.querySelectorAll('.gh-lane').length,
       toast: document.querySelector('.gh-toast')?.textContent || '',
     }));
     if(m.lanes !== beforeDuplicate || !/Undo/.test(m.toast)) throw new Error(`delete/toast failed (${JSON.stringify(m)})`);
-    await page.click('[data-action="undo"]'); await sleep(350);
+    await page.click('[data-action="undo"]');
+    await page.waitForFunction(count => document.querySelectorAll('.gh-lane').length === count,
+      { timeout:10000 }, beforeDuplicate + 1);
     const restoredLaneCount = await page.evaluate(() => document.querySelectorAll('.gh-lane').length);
     if(restoredLaneCount !== beforeDuplicate + 1)
       throw new Error('undo did not restore the deleted goal');
@@ -2615,7 +2628,7 @@ try {
     }));
     if(m.lanes !== 2
         || JSON.stringify(m.names) !== JSON.stringify(['Essentials', 'Healthcare'])
-        || JSON.stringify(m.amounts) !== JSON.stringify(['$0 / yr', '$6k / yr'])
+        || JSON.stringify(m.amounts) !== JSON.stringify(['$0 / yr', '$5.5k / yr'])
         || m.lifetime){
       throw new Error(`new-household Goals Horizon system goals are wrong (${JSON.stringify(m)})`);
     }
