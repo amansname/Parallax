@@ -3201,11 +3201,37 @@ try {
     });
     const retireAge = await retirementStartAge();
     if(retireAge !== '66') throw new Error(`baseline retirement start not at age 66 (got "${retireAge}")`);
-    const rmdAge = await page.evaluate(() => {
-      const row = document.querySelector('#scn-view .cf-row__mark-dot--rmd')?.closest('.cf-row');
-      return row ? (row.querySelector('.cf-cell--age')?.textContent.trim() || '') : '';
+    const rmdBoundary = await page.evaluate(async () => {
+      const { scenarios } = await import('./src/state.js');
+      const baselines = scenarios.filter(scenario => scenario.base);
+      const views = document.querySelectorAll('#scn-view .cf');
+      if(baselines.length !== 1 || views.length !== 1){
+        throw new Error('RMD boundary proof requires one Baseline and one Cash Flow view');
+      }
+      const view = views[0];
+      const simulation = baselines[0].res?.paths?.p50;
+      if(!Array.isArray(simulation?.rows)
+          || view.dataset.simIndex !== String(simulation.simIndex)){
+        throw new Error('RMD boundary proof must use the displayed Baseline Typical simulation');
+      }
+      const visibleRows = [...view.querySelectorAll('.cf-row')];
+      const visibleAges = new Set(visibleRows.map(row => row.dataset.age));
+      const engineRows = simulation.rows.filter(row => visibleAges.has(String(row.age)));
+      const firstRequired = engineRows.find(row => row.rmdRequired > 0);
+      if(!firstRequired) throw new Error('RMD boundary fixture must contain an engine-required RMD');
+      const firstRetirement = engineRows.find(row => row.phase !== 'accum');
+      return {
+        engineAge: String(firstRequired.age),
+        displayedAge: visibleRows.find(row => row.children[3].textContent.trim())?.dataset.age ?? null,
+        markerAges: [...view.querySelectorAll('.cf-row__mark-dot--rmd')]
+          .map(marker => marker.closest('.cf-row').dataset.age),
+        expectedMarkerAges: firstRequired.age === firstRetirement?.age ? [] : [String(firstRequired.age)],
+      };
     });
-    if(rmdAge !== '73') throw new Error(`RMD start marker not at age 73 (got "${rmdAge}")`);
+    if(rmdBoundary.displayedAge !== rmdBoundary.engineAge
+        || JSON.stringify(rmdBoundary.markerAges) !== JSON.stringify(rmdBoundary.expectedMarkerAges)){
+      throw new Error(`RMD column and marker must follow the first engine-required RMD: ${JSON.stringify(rmdBoundary)}`);
+    }
 
     // The scenario selector switches which plan's cash flow is shown, and each plan's
     // cash flow reflects ITS OWN retire age. The scenario initializer seeds Baseline at the
