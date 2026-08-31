@@ -378,6 +378,8 @@ not remove stronger rules. Architecture remains in `AGENTS.md` and
 review in `docs/CODE_REVIEW.md`, and release identity in
 `docs/DEPLOYMENT-INTEGRITY.md`.
 
-Parallax currently has no general linter or formatter command. Adding one is a
-separate tooling PR with its own rule selection, baseline, CI cost, and rollout
-decision.
+`npm run lint` runs the approved report-only ESLint configuration documented in
+`LINTING.md`. Existing findings retain their exit status; this command does not
+change source or replace required checks. CI enforcement, editor installation,
+and scheduled runs require a separate rollout decision. There is no formatter
+command.

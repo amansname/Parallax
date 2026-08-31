@@ -21,6 +21,7 @@ Parallax is a static ES-module application with no build step or backend.
 | `src/state.js` | Mutable UI state and persistence effects; no rendering. |
 | `ui/*.js` | Display and DOM modules; no financial calculations. |
 | `engine.js` | Public entry point and logical authority for the Projection Engine: simulation, wealth paths, withdrawals, and bucket math. |
+| `src/projection/engine/` | Internal Projection Engine implementation. Preserve the public `engine.js` interface and result parity. |
 | `src/tax/` | Tax Engine authority for federal tax calculations; never imports `engine.js`. |
 | `src/planning/` | Adapters and orchestration between the Projection Engine, Tax Engine, and views; no substitute financial math. |
 | `src/household/` | Household Facts with provenance/readiness, schemas, persistence, migrations, and wizard contracts. |
@@ -49,6 +50,8 @@ Run commands from the repository root.
 ```text
 npm ci                         install the locked development dependencies
 npm test                       full unit suite
+npm run test:inventory          discovered test files and execution categories
+npm run lint                    report JavaScript errors and unused variables
 npm run verify                 full browser verifier and screenshots
 npm run governance:check       repository-governance and static checks
 npm run preview                manual preview at http://127.0.0.1:8825/
@@ -56,7 +59,8 @@ npm run site:build             immutable site artifact from the clean HEAD commi
 npm run site:verify            verify the artifact manifest and commit receipt
 ```
 
-There is no lint or formatter command. The app must be served over HTTP. Port
+Lint is report-only; see `docs/LINTING.md`. There is no formatter command.
+The app must be served over HTTP. Port
 8825 is the only local origin: if it is occupied, identify and stop the stale
 Parallax preview instead of selecting another port. Preview and browser
 verification must serve the immutable artifact from the exact candidate commit;

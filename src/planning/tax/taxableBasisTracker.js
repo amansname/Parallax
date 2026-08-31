@@ -32,6 +32,3 @@ export function buildRowTaxableGainPlanMeta(baseRowPlanMeta = null){
     return Object.keys(meta).length > 0 ? meta : null;
   };
 }
-
-/** @deprecated Use buildRowTaxableGainPlanMeta — kept for transitional imports. */
-export const buildDynamicTaxableGainRowPlanMeta = buildRowTaxableGainPlanMeta;

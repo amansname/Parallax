@@ -36,7 +36,7 @@ Format: `- [YYYY-MM-DD] short description (why / context)`
   feature work, not as a standalone sprint.
 - [2026-07-10] Tax engine completion — see `docs/ARCHITECTURE.md` workstreams and
   `docs/TAX-HANDOFF-2026-06-22.md` (T0–T6).
-- [2026-07-10] Asset-class bucketing — `engine.js` + `ui/household.js`; after tax T1.
+- [2026-07-10] Asset-class bucketing — `engine.js` + `src/household/resolvePortfolioAccounts.js`; the former `ui/household.js` renderer is retired.
 
 ## Flexibility / "don't trap the input"
 - [2026-07-07] Spending lever range is a fixed $80k–$360k window (LEVCFG `spend`).

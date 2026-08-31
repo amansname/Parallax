@@ -1,9 +1,4 @@
-import {
-  getAccountTypeById,
-  isValidEngineBucket,
-  isValidOwner,
-  isValidValuationDate,
-} from './accountTypes.js';
+import { getAccountTypeById, isValidOwner, isValidValuationDate } from './accountTypes.js';
 import { createFact } from './factEnvelope.js';
 import {
   cloneInvestmentAllocation,

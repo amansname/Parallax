@@ -8,13 +8,7 @@ import {
   parseSchemaVersion,
   resolveTypeFromLabel,
 } from './accountTypes.js';
-import {
-  createBlankTaxProfiles,
-  isValidConfirmationTimestamp,
-  isValidFactSource,
-  validateBasisEnvelope,
-  validateFactEnvelope,
-} from './factEnvelope.js';
+import { createBlankTaxProfiles, validateBasisEnvelope, validateFactEnvelope } from './factEnvelope.js';
 import { resolvePortfolioAccounts } from './resolvePortfolioAccounts.js';
 import {
   cloneInvestmentAllocation,

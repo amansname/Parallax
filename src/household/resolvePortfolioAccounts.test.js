@@ -16,7 +16,6 @@ import {
 } from './investmentAllocation.js';
 import { LEGACY_BASE_ACCOUNT_IDS } from './migrateAccounts.js';
 import { resolvePortfolioAccounts } from './resolvePortfolioAccounts.js';
-import { investableTotal } from '../../ui/household.js';
 
 function planWithBase(taxable = 0, traditional = 0, roth = 0){
   return {
@@ -105,7 +104,6 @@ test('one fold preserves strategy-ready engine totals while limiting Tax Buckets
   assert.deepEqual(fold.pendingStrategyAccounts.map(item => item.id), ['inherited-trad']);
   assert.deepEqual(fold.excludedAccounts.map(item => item.id), ['hsa', '529', 'unsupported']);
   assert.deepEqual(fold.issues, ['LEGACY_TYPED_OVERLAP', 'ACCOUNT_UNSUPPORTED:unsupported']);
-  assert.equal(investableTotal(plan), fold.totalBalance);
 });
 
 test('inherited accounts remain in current totals but are tagged rules-pending', () => {
