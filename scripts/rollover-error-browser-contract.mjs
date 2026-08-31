@@ -3,7 +3,10 @@ import assert from 'node:assert/strict';
 // Synthetic failure-state contract, not a replay of the user's saved household.
 // Use the shipped controller and renderer in an isolated page of the artifact.
 export async function runRolloverErrorBrowserContract(browser, baseUrl){
-  const page = await browser.newPage();
+  // App startup may update household storage. Keep the synthetic page entirely
+  // separate from the verifier's real visible-input household journey.
+  const context = await browser.createBrowserContext();
+  const page = await context.newPage();
   try{
     await page.goto(baseUrl, { waitUntil: 'networkidle0' });
     const actual = await page.evaluate(async () => {
@@ -41,6 +44,6 @@ export async function runRolloverErrorBrowserContract(browser, baseUrl){
     assert.equal(actual.summaryCount, 0);
     assert.deepEqual(actual.headers, ['Year', 'Age', 'Income', 'RMD', 'Essential', 'Goals', 'Tax', 'Draw', 'Return', 'WD Rate', 'Ending']);
   }finally{
-    await page.close();
+    await context.close();
   }
 }
