@@ -97,7 +97,7 @@ src/
     engine-bridge.js      # reseedScenarios, ensureSharedPaths, runAll helpers
 ui/
   config/                 # static tables (LEVCFG, goal palettes) when extracted
-  household.js, goals.js, scenarios.js, solver.js, cashflow.js, sequencing.js, ...
+  householdWizard.js, goalsHorizon.js, scenarios.js, solver.js, cashflow.js, sequencing.js, ...
 ```
 
 Extract **when you touch an area**, not as a standalone refactor sprint.
