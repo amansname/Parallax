@@ -12,6 +12,17 @@
    ============================================================================= */
 
 .taw-root {
+  --taw-column-baseline-fill: linear-gradient(180deg,
+    color-mix(in srgb, var(--acc) 18%, transparent),
+    color-mix(in srgb, var(--acc) 12%, transparent));
+  --taw-column-accent-fill: linear-gradient(180deg,
+    color-mix(in srgb, var(--acc) 45%, transparent),
+    color-mix(in srgb, var(--acc) 25%, transparent));
+  --taw-column-sage-fill: linear-gradient(180deg,
+    color-mix(in srgb, var(--pos) 50%, transparent),
+    color-mix(in srgb, var(--pos) 28%, transparent));
+  --taw-column-accent-edge: color-mix(in srgb, var(--acc) 55%, transparent);
+  --taw-column-sage-edge: color-mix(in srgb, var(--pos) 55%, transparent);
   display: block;
   width: 100%;
   min-height: calc(100vh - 68px); /* geometry: header offset */

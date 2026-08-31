@@ -123,6 +123,49 @@ test('IRMAA column renders annual premium, baseline delta, room, and premium yea
   );
 });
 
+test('funded threshold columns paint baseline, added amount, and top edge', () => {
+  const columns = buildThresholdColumns({
+    result: {
+      ordinary: { income: 120000 },
+      ltcg: { stackedOn: 120000, gains: 20000 },
+      socialSecurity: { provisionalIncome: 80000 },
+      irmaa: { baselineMagi: 100000, magi: 150000 },
+      baseline: { ordinaryIncome: 80000, provisionalIncome: 60000 },
+      ladders: {
+        ordinary: [{ upTo: 100000 }, { upTo: 200000 }],
+        ltcg: { zeroRateMax: 90000, fifteenRateMax: 500000 },
+        socialSecurity: { tier1: 32000, tier2: 44000 },
+        irmaa: [{ upTo: 109000 }, { upTo: 137000 }, { upTo: 171000 }],
+      },
+    },
+    hoverMark: null,
+  });
+  assert.deepEqual(columns.map(column => column.name), [
+    'Income Tax', 'Long-term gains', 'Medicare IRMAA', 'Social Security',
+  ]);
+  for (const column of columns) {
+    assert.ok(parseFloat(column.base) > 0, `${column.id} has a funded baseline`);
+    assert.ok(parseFloat(column.fill) > 0, `${column.id} has an added amount`);
+    for (const paint of ['baseBg', 'fillBg', 'edge']) {
+      assert.ok(column[paint] && column[paint] !== 'transparent', `${column.id} ${paint} must be visible`);
+    }
+  }
+});
+
+test('missing ladders and unavailable results keep threshold paint empty', () => {
+  for (const result of [null, { code: 'UNAVAILABLE' }, { error: 'Unavailable' }, {}]) {
+    const columns = buildThresholdColumns({ result, hoverMark: null });
+    assert.equal(columns.length, 4);
+    for (const column of columns) {
+      assert.equal(parseFloat(column.base), 0);
+      assert.equal(parseFloat(column.fill), 0);
+      for (const paint of ['baseBg', 'fillBg', 'edge']) {
+        assert.equal(column[paint] || 'transparent', 'transparent');
+      }
+    }
+  }
+});
+
 test('slider caps use the smaller of engine-approved limits and the $500,000 display ceiling', () => {
   const keys = [
     'rothConversion', 'rothWithdrawal', 'qcd',

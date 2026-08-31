@@ -150,9 +150,9 @@ export function buildThresholdColumns({ result, hoverMark }) {
     pc,
   );
 
-  const gold = 'transparent';
-  const sage = 'transparent';
-  const dim = 'transparent';
+  const accentFill = 'var(--taw-column-accent-fill)';
+  const sageFill = 'var(--taw-column-sage-fill)';
+  const baselineFill = 'var(--taw-column-baseline-fill)';
   const blank = { fillBg: 'transparent', baseBg: 'transparent', edge: 'transparent', ...BLANK_GEOM };
 
   return [
@@ -163,9 +163,9 @@ export function buildThresholdColumns({ result, hoverMark }) {
       tone: 'var(--ink)',
       footLabel: pc(ord.rate),
       foot: Number.isFinite(ord.roomToNext) ? `${m(ord.roomToNext)} to next` : '—',
-      fillBg: gold,
-      baseBg: dim,
-      edge: 'transparent',
+      fillBg: accentFill,
+      baseBg: baselineFill,
+      edge: 'var(--taw-column-accent-edge)',
       ...(gOrd || blank),
       value: m(taxDollars.ordinaryIncomeTax),
     },
@@ -180,9 +180,9 @@ export function buildThresholdColumns({ result, hoverMark }) {
       foot: Number.isFinite(ltcg.roomToZeroCeiling)
         ? `${m(ltcg.roomToZeroCeiling)} to next`
         : '—',
-      fillBg: sage,
-      baseBg: dim,
-      edge: 'transparent',
+      fillBg: sageFill,
+      baseBg: baselineFill,
+      edge: 'var(--taw-column-sage-edge)',
       ...(gLtcg || blank),
       value: m(taxDollars.preferentialIncomeTax),
     },
@@ -200,9 +200,9 @@ export function buildThresholdColumns({ result, hoverMark }) {
           ? `${m(irmaa.roomToNext)} to next`
           : 'Top tier'} · ${irmaa.premiumYear}`
         : '\u2014',
-      fillBg: gold,
-      baseBg: dim,
-      edge: 'transparent',
+      fillBg: accentFill,
+      baseBg: baselineFill,
+      edge: 'var(--taw-column-accent-edge)',
       ...(gIrmaa || blank),
       value: m(taxDollars.irmaaPremium),
     },
@@ -213,9 +213,9 @@ export function buildThresholdColumns({ result, hoverMark }) {
       tone: 'var(--ink)',
       footLabel: pc(ss.taxablePct),
       foot: Number.isFinite(ss.roomToNext) ? `${m(ss.roomToNext)} to next` : '—',
-      fillBg: gold,
-      baseBg: dim,
-      edge: 'transparent',
+      fillBg: accentFill,
+      baseBg: baselineFill,
+      edge: 'var(--taw-column-accent-edge)',
       ...(gSs || blank),
       value: m(taxDollars.socialSecurityIncrementalModeledFederalIncomeTax),
     },
