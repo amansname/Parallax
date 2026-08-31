@@ -106,6 +106,8 @@ try{
     location.replace(new URL('./',location.href).href);
   }else{
     await import('./src/main.js?v='+expectedArtifactId);
+    const {cleanPublicUrl}=await import('./src/deployment/cleanPublicUrl.js?v='+expectedArtifactId);
+    cleanPublicUrl();
   }
 }catch(error){
   document.body.textContent='Parallax could not verify the deployed site. Refresh to retry.';

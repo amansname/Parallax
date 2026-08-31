@@ -1322,6 +1322,10 @@ async function assertFourStepStructure(page){
       panel: document.querySelectorAll(`[data-hh-wizard-screen="${id}"]`).length,
     }));
     const logo = document.querySelector('.brand-logo');
+    const importMaps = document.querySelectorAll('script[type="importmap"]');
+    if(importMaps.length !== 1) throw new Error('Expected one artifact import map');
+    const mainUrl = JSON.parse(importMaps[0].textContent).imports['./src/main.js'];
+    if(!mainUrl) throw new Error('Artifact import map is missing src/main.js');
     return {
       ready: root?.dataset.wizardReady,
       busy: root?.getAttribute('aria-busy'),
@@ -1334,7 +1338,7 @@ async function assertFourStepStructure(page){
         complete: logo?.complete === true,
         naturalWidth: logo?.naturalWidth || 0,
       },
-      artifactId: new URL(location.href).searchParams.get('v') || '',
+      artifactId: new URL(mainUrl, location.href).searchParams.get('v') || '',
     };
   });
   requireCondition(
