@@ -2628,7 +2628,7 @@ try {
     }));
     if(m.lanes !== 2
         || JSON.stringify(m.names) !== JSON.stringify(['Essentials', 'Healthcare'])
-        || JSON.stringify(m.amounts) !== JSON.stringify(['$0 / yr', '$6k / yr'])
+        || JSON.stringify(m.amounts) !== JSON.stringify(['$0 / yr', '$5.5k / yr'])
         || m.lifetime){
       throw new Error(`new-household Goals Horizon system goals are wrong (${JSON.stringify(m)})`);
     }
