@@ -3,7 +3,55 @@ import { test } from 'node:test';
 import assert from 'node:assert';
 import { generateReturnPath, runSimulation, runHistoricalPath, runSinglePath, resolveInputs, defaultPlan, resetSeed, resolveHouseholdTimeline, householdIncomeAtYear, resolveWithdrawalPlannerAccountState } from '../../engine.js';
 import { createAccount } from '../../src/household/createAccount.js';
+import { createFederalTaxResolver } from '../../src/planning/tax/createFederalTaxResolver.js';
 import { flatAssetReturnRow } from './fixtures.js';
+
+test('spousal rollover transfers full account ownership regardless of remaining cents', () => {
+  for(const decedent of ['client', 'spouse']){
+    for(const balance of [0, 0.009, 0.01, 0.02, 265000]){
+      for(const federal of [false, true]){
+        const p = structuredClone(defaultPlan);
+        p.meta.filingStatus = 'marriedFilingJointly';
+        p.meta.planningAsOfYear = 2026;
+        p.household.primary = { currentAge: 90, retirementAge: 65, planEndAge: decedent === 'client' ? 90 : 92, birthYear: 1936 };
+        p.household.spouse = { currentAge: 88, retirementAge: 62, planEndAge: decedent === 'spouse' ? 88 : 90, birthYear: 1938 };
+        p.income.socialSecurity = { primary: { pia: 0, claimAge: 67 }, spouse: { pia: 0, claimAge: 67 } };
+        p.income.other = [];
+        p.income.pension = { base: 0 };
+        p.savings.annual = 0;
+        p.goals = [];
+        p.expenses = { living: 0, housing: 0, debt: 0, healthcare: 0, healthcareRealGrowth: 0, extra: [] };
+        p.portfolio.accounts = { taxable: { balance: 1000000, basisPct: 1 }, traditional: { balance: 0 }, roth: { balance: 0 } };
+        const survivor = decedent === 'client' ? 'spouse' : 'client';
+        const inherited = createAccount('rollover_ira', { owner: decedent, balance: 1 });
+        // Engine state can contain fractional cents after years of funding/returns.
+        // createAccount intentionally rounds entered amounts to whole dollars.
+        inherited.balance = balance;
+        p.portfolio.extraAccounts = [inherited, createAccount('rollover_ira', { owner: survivor, balance: 600000 })];
+        const before = JSON.stringify(p);
+        const params = resolveInputs(p, {});
+        const path = [flatAssetReturnRow(2026), flatAssetReturnRow(2027, 0.2), flatAssetReturnRow(2028)];
+        const options = federal ? {
+          taxPolicy: createFederalTaxResolver(params, { filingStatus: 'marriedFilingJointly', baseTaxYear: 2026 }),
+          fundTaxPolicyDelta: true,
+        } : {};
+        const result = runSinglePath(params, path, options);
+        assert.equal(result.rows.length, 3, `${decedent}/${balance}/${federal}`);
+        assert.ok(Math.abs(result.rows[1].accountStartingBalances.traditional
+          - result.rows[0].accountBalances.traditional) < 1e-8,
+        'death-boundary transfer must conserve the entire pre-tax balance');
+        if(balance > 0){
+          for(const row of result.rows.slice(1)){
+            const account = row.accountStates.find(account => account.id === inherited.id);
+            assert.equal(account.owner, survivor);
+            assert.ok(account.balance > 0, 'transfer must preserve rather than discard the remainder');
+          }
+        }
+        assert.equal(JSON.stringify(p), before, 'projection must not mutate saved ownership');
+      }
+    }
+  }
+});
 
 // ── RMDs (Required Minimum Distributions) ───────────────────────────────────
 // From age 73 the pre-tax sleeve must distribute a minimum even if spending

@@ -214,3 +214,28 @@ Sonar settings change, or cloud rescan is part of this bundle. Required CI and
 human merge approval remain delivery requirements. Some internal engine
 algorithms and the Scenarios view installer are still large; lowering their
 complexity further is follow-up work, not an outcome claimed by this extraction.
+
+## Integration of main after PR #252
+
+The cleanup checkpoints above describe their recorded commits. Main subsequently
+advanced to `27cce71d768f5a260d4aecc6c4cff560c0704fe1` through PR #252 while this
+cleanup was under review. Its ownership and Cash Flow corrections are retained
+in the reorganized implementation:
+
+- `traditionalOwners.js` carries the exact corrected death-boundary rollover
+  function from main. The public `engine.js` entry remains unchanged.
+- The exact added rollover test joins `test/engine/rmd-lifecycle.test.js`; the
+  old root test monolith is not restored. Existing engine cases remain.
+- The Cash Flow controller, controller tests, renderer, isolated browser
+  contract, and original repair notes are carried directly from main.
+- The new browser step remains immediately after the public-URL contract and
+  before design checks, preserving both campaigns and the isolated context.
+
+The imported regression fails on the pre-integration cleanup with the original
+age-92 RMD lifecycle error and passes after the correction. It is a synthetic
+contract, not a replay of the original user's saved household. PR #252's
+documented exact-household acceptance limit remains unchanged.
+
+Current combined-candidate verification and review status are recorded on
+PR #253; the earlier checkpoint results must not be represented as a new
+candidate or combined-state approval.

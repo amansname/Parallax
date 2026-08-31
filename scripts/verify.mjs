@@ -48,6 +48,7 @@ import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { runPublicUrlBrowserContract } from './public-url-browser-contract.mjs';
 import { runGoalsPresentationContract } from './goals-presentation-browser-contract.mjs';
+import { runRolloverErrorBrowserContract } from './rollover-error-browser-contract.mjs';
 import { runWizardBrowserContract } from './wizard-browser-contract.mjs';
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const OUT = join(ROOT, 'verify-out');
@@ -144,6 +145,10 @@ try {
       artifactId: VERIFIED_ARTIFACT.manifest.artifactId
     });
   });
+  await step('Cash Flow renders the actual projection failure without false tax or handoff claims', async () => {
+    await runRolloverErrorBrowserContract(browser, `http://127.0.0.1:${PORT}/`);
+  });
+
   await step('Graphite Aubergine design contracts render at governed viewports', () => verifyDesign({
     VERIFIED_ARTIFACT,
     page,

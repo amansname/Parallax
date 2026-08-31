@@ -50,6 +50,28 @@ function cashFlowDigest(overrides = {}){
   };
 }
 
+test('Cash Flow preserves unavailable projection reason and age without claiming a handoff failure', () => {
+  const baseline = { base: true, name: 'Baseline', res: {
+    projectionStatus: 'unavailable', issue: 'TRADITIONAL_ACCOUNT_OWNER_LIFECYCLE_UNAVAILABLE', issueAge: 92,
+  } };
+  const alternative = { name: 'Alternative', res: { sims: [simulation(0, 650000)], paths: { p50: { simIndex: 0 } } } };
+  const selection = { id: 'typical' };
+  const controller = createCashFlowController({
+    getScenarios: () => [baseline, alternative],
+    scenarioInputsByResult: new WeakMap(), selection, buildRows, onError: () => {},
+  });
+  for(const scenario of [baseline, alternative]){
+    const result = controller.resultForScenario(scenario);
+    assert.match(result.error, /age 92/);
+    assert.match(result.error, /TRADITIONAL_ACCOUNT_OWNER_LIFECYCLE_UNAVAILABLE/);
+    assert.match(result.error, /account ownership and plan-end ages/);
+    assert.doesNotMatch(result.error, /handoff/);
+    assert.deepEqual(result.rows, []);
+  }
+  selection.id = 'historical-1973';
+  assert.match(controller.resultForScenario(baseline).error, /age 92/);
+});
+
 test('Typical Cash Flow compares every scenario on the baseline p50 market index', () => {
   const baselineTypical = simulation(7, 700_000);
   const baselineOther = simulation(3, 300_000);
@@ -240,7 +262,7 @@ test('Typical Cash Flow fails closed when the baseline p50 identity is absent', 
 
   const result = controller.resultForScenario(alternative);
 
-  assert.match(result.error, /retirement handoff could not be verified/);
+  assert.match(result.error, /Typical path.*Run the plan again/);
   assert.deepEqual(result.rows, []);
   assert.equal(result.simulation, undefined);
 });
@@ -284,7 +306,7 @@ test('Typical Cash Flow fails closed when a scenario lacks the exact shared simI
 
   const result = controller.resultForScenario(alternative);
 
-  assert.match(result.error, /retirement handoff could not be verified/);
+  assert.match(result.error, /Typical path.*Run the plan again/);
   assert.deepEqual(result.rows, []);
   assert.notEqual(result.simulation, unrelatedAtPositionSeven);
 });
