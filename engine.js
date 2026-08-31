@@ -1,3 +1,7 @@
+import { TRADITIONAL_OWNER_KEYS, TRADITIONAL_PERSON_OWNERS, emptyTraditionalOwnerBuckets, ZERO_TRADITIONAL_OWNER_BUCKETS, cloneTraditionalOwnerBuckets, reconcileTraditionalTotal, applyDeathBoundaryRollover } from './src/projection/engine/traditionalOwners.js';
+
+import { resolveOpeningRmd, rmdDivisor, evaluateRmdByOwner } from './src/projection/engine/requiredDistributions.js';
+
 import { PROJECTION_EXECUTION_LIMITS, validateProjectionHorizon, validateProjectionIterations, validateReturnPaths } from './src/projection/engine/execution.js';
 
 import { resolveHouseholdTimeline, externalIncomeAtAge, householdStateAtYear, householdIncomeAtYear, householdTaxStatusAtAge } from './src/projection/engine/householdTimeline.js';
@@ -1906,539 +1910,49 @@ function resolveInputs(plan, ov){
 }
 
 
-// ── RMDs (Required Minimum Distributions) ───────────────────────────────────
-// SECURE 2.0: the pre-tax (Traditional) sleeve must distribute a minimum each
-// year from the owner's cohort-specific applicable age. Roth is exempt. The
-// distribution is ordinary income and is modeled as spent in full. Required
-// distributions never silently move into the taxable sleeve.
-//
-// ── Owner-level traditional sleeve ──────────────────────────────────────────
-// The traditional sleeve is tracked per owner because RMDs are per owner: each
-// spouse's requirement runs off their own balance and their own age, and one
-// spouse's withdrawal can never satisfy the other's requirement.
-//
-// `byOwner` is the source of truth. `.balance` is a derived cache kept only so
-// the many read sites (accountTotal, row emission, funding breakdown) stay
-// untouched — nothing outside these helpers may assign it.
-const TRADITIONAL_OWNER_KEYS = Object.freeze(['client', 'spouse', 'unattributed']);
 
-const TRADITIONAL_PERSON_OWNERS = Object.freeze(['client', 'spouse']);
 
-function emptyTraditionalOwnerBuckets(){
-  return { client: 0, spouse: 0, unattributed: 0 };
-}
 
-// Shared read-only zero buckets. resolveOpeningRmd returns "nothing due" on the
-// large majority of the ~40,000 year-evaluations in a 1,000-path run, and
-// allocating a fresh object each time is pure overhead on a loop the audit
-// already flags as blocking the UI thread (PX-AUD-028 — the durable fix is to
-// move the projection off the UI thread, which is tracked separately).
-//
-// MUST NOT be mutated: it is shared across every caller, and
-// applyTraditionalMidyearWithdrawal compares against it by identity to take its
-// no-draw fast path. Frozen so a future refactor fails loudly in strict mode
-// rather than silently corrupting every projection; locked by a unit test.
-const ZERO_TRADITIONAL_OWNER_BUCKETS = Object.freeze({ client: 0, spouse: 0, unattributed: 0 });
 
-// 72 is the pre-SECURE-2.0 floor: used only to ask "could anyone owe yet?", never
-// to compute an amount. A real applicable age is still required for that.
-function belowApplicableAge(person){
-  return person?.alive === true
-    && typeof person.age === 'number'
-    && person.age < (person.rmdStartAge ?? 72);
-}
 
-function cloneTraditionalOwnerBuckets(byOwner){
-  return {
-    client: byOwner?.client ?? 0,
-    spouse: byOwner?.spouse ?? 0,
-    unattributed: byOwner?.unattributed ?? 0,
-  };
-}
 
-// Recompute the derived total. Every mutation helper ends here. Unrolled: this
-// runs on every secant iteration of every year of every path.
-function reconcileTraditionalTotal(traditional){
-  const b = traditional.byOwner;
-  const total = b.client + b.spouse + b.unattributed;
-  traditional.balance = total;
-  return total;
-}
 
-function clampTraditionalNonNegative(traditional){
-  for(const owner of TRADITIONAL_OWNER_KEYS){
-    if(!(traditional.byOwner[owner] > 0)) traditional.byOwner[owner] = 0;
-  }
-  return reconcileTraditionalTotal(traditional);
-}
 
-function zeroTraditionalOwners(traditional){
-  traditional.byOwner = emptyTraditionalOwnerBuckets();
-  return reconcileTraditionalTotal(traditional);
-}
 
-// Growth is proportional, so ownership shares are unchanged by returns.
-function growTraditional(traditional, r){
-  const b = traditional.byOwner;
-  const g = 1 + r;
-  b.client *= g;
-  b.spouse *= g;
-  b.unattributed *= g;
-  return reconcileTraditionalTotal(traditional);
-}
 
-/**
- * Split a gross traditional distribution across owners: RMD-first, then pro
- * rata over what's left.
- *
- * Pro-rata-only would be wrong. If the client owes a $10k RMD, the spouse owes
- * nothing, and the plan needs $10k from the traditional sleeve, splitting
- * $5k/$5k leaves $5k of the client's RMD unsatisfied — which then gets forced
- * out on top, pulling $15k out of tax-deferred money instead of $10k.
- *
- * Returns gross by owner. This is the figure RMD satisfaction and Form 1040
- * reporting use; it deliberately does NOT touch balances, because the sleeve's
- * mid-year timing math is a separate concern (see applyTraditionalMidyearWithdrawal).
- */
-function allocateTraditionalDistribution({ traditional, grossAmount, requiredByOwner = null }){
-  // Shared frozen result when there is nothing to split — callers only read it.
-  if(!(grossAmount > 0)) return ZERO_TRADITIONAL_OWNER_BUCKETS;
-  const allocation = emptyTraditionalOwnerBuckets();
-  let remaining = grossAmount;
 
-  const available = {};
-  for(const owner of TRADITIONAL_OWNER_KEYS){
-    available[owner] = Math.max(0, traditional.byOwner[owner] ?? 0);
-  }
 
-  // 1. Satisfy each owner's own outstanding RMD first, capped by their balance.
-  if(requiredByOwner){
-    for(const owner of TRADITIONAL_PERSON_OWNERS){
-      const required = requiredByOwner[owner];
-      if(!(required > 0)) continue;
-      const take = Math.min(required, available[owner], remaining);
-      if(take > 0){
-        allocation[owner] += take;
-        available[owner] -= take;
-        remaining -= take;
-      }
-      if(!(remaining > 0)) break;
-    }
-  }
 
-  // 2. Anything left is pro rata across remaining attributable balances.
-  if(remaining > 0){
-    let pool = 0;
-    for(const owner of TRADITIONAL_OWNER_KEYS) pool += available[owner];
-    if(pool > 0){
-      let assigned = 0;
-      const ordered = TRADITIONAL_OWNER_KEYS.filter(owner => available[owner] > 0);
-      ordered.forEach((owner, index) => {
-        const isLast = index === ordered.length - 1;
-        // Last bucket takes "whatever is left" rather than its own computed
-        // share, so floating-point error in the earlier shares cannot leave a
-        // residual. Without this the per-owner parts drift from the gross by
-        // fractions of a cent, and that gap compounds across 40 years into a
-        // real discrepancy against the sleeve total.
-        const take = isLast
-          ? Math.min(available[owner], remaining - assigned)
-          : Math.min(available[owner], (available[owner] / pool) * remaining);
-        if(take > 0){
-          allocation[owner] += take;
-          assigned += take;
-        }
-      });
-      remaining -= assigned;
-    }
-  }
 
-  return allocation;
-}
 
-/**
- * Apply an ordinary spending withdrawal using the engine's existing mid-year
- * convention — end = start*(1+r) − (amount/12)*factor — per owner. Keeping this
- * separate from allocation is what preserves single-owner parity: the gross
- * figure feeds tax, the timing math feeds balances, and they are not the same
- * number.
- */
-function applyTraditionalMidyearWithdrawal({ traditional, returnRate, factor, grossByOwner }){
-  // No draw at all is the common case (taxable-first strategies spend other
-  // sleeves for years), and it reduces to pure growth.
-  if(!grossByOwner || grossByOwner === ZERO_TRADITIONAL_OWNER_BUCKETS){
-    return growTraditional(traditional, returnRate);
-  }
-  const b = traditional.byOwner;
-  const g = 1 + returnRate;
-  const spread = factor / 12;
-  b.client = b.client * g - grossByOwner.client * spread;
-  b.spouse = b.spouse * g - grossByOwner.spouse * spread;
-  b.unattributed = b.unattributed * g - grossByOwner.unattributed * spread;
-  return reconcileTraditionalTotal(traditional);
-}
 
-// Accumulation-phase contribution, mid-year spread, allocated by owner policy.
-function applyTraditionalContribution({ traditional, returnRate, contributionByOwner }){
-  for(const owner of TRADITIONAL_OWNER_KEYS){
-    const start = traditional.byOwner[owner] ?? 0;
-    traditional.byOwner[owner] = start * (1 + returnRate)
-      + (contributionByOwner?.[owner] ?? 0);
-  }
-  return reconcileTraditionalTotal(traditional);
-}
 
-// Direct-subtraction draw spread pro rata across owners. Used for liquidations
-// that are not RMD-driven (capital outlays), where no owner has a claim.
-function withdrawTraditionalProRata(traditional, amount){
-  const allocation = allocateTraditionalDistribution({ traditional, grossAmount: amount });
-  let taken = 0;
-  for(const owner of TRADITIONAL_OWNER_KEYS){
-    const available = Math.max(0, traditional.byOwner[owner] ?? 0);
-    const take = Math.min(allocation[owner], available);
-    traditional.byOwner[owner] = available - take;
-    taken += take;
-  }
-  reconcileTraditionalTotal(traditional);
-  return taken;
-}
 
-// Forced RMD keeps the engine's existing year-end convention: a direct
-// subtraction, taken from that owner's own bucket.
-function withdrawTraditionalForced(traditional, owner, amount){
-  const available = Math.max(0, traditional.byOwner[owner] ?? 0);
-  const taken = Math.min(Math.max(0, amount), available);
-  traditional.byOwner[owner] = available - taken;
-  reconcileTraditionalTotal(traditional);
-  return taken;
-}
 
-// Spousal rollover at a death-year boundary: one transfer, decedent zeroed.
-function rolloverTraditional(traditional, from, to){
-  const moved = Math.max(0, traditional.byOwner[from] ?? 0);
-  if(moved > 0){
-    traditional.byOwner[from] = 0;
-    traditional.byOwner[to] = (traditional.byOwner[to] ?? 0) + moved;
-  }
-  reconcileTraditionalTotal(traditional);
-  return moved;
-}
 
-/**
- * Is a spousal rollover of `from`'s pre-tax balance to `to` supportable?
- *
- * Both sides are inspected for attributable balances and supported RMD rules.
- * Employer-plan status does not prevent the death-boundary transfer: the
- * surviving spouse owns the transferred pre-tax balance after the rollover.
- *
- * Deliberately NOT derived from `rmdContract.spousalRolloverAvailable`, which is
- * computed off the single-owner `traditionalRmdOwner` and is therefore always
- * false in exactly the two-owner households this needs to serve.
- */
-function spousalRolloverSupported(p, contract, from, to){
-  const fromContract = contract?.byOwner?.[from];
-  if(!fromContract) return false;
-  if(fromContract.focusRulesAvailable !== true) return false;
-  if(fromContract.rmdAccountAttributionAvailable !== true) return false;
 
-  // The survivor need not already hold pre-tax accounts — inheriting one is the
-  // normal case — so their eligibility comes from the timeline, not from a
-  // byOwner entry that may legitimately not exist. Where they do have one, it
-  // has to be clean too.
-  const toContract = contract?.byOwner?.[to];
-  if(toContract){
-    if(toContract.focusRulesAvailable !== true) return false;
-    if(toContract.rmdAccountAttributionAvailable !== true) return false;
-  }
-  return Number.isFinite(p.people?.[to]?.rmdStartAge);
-}
 
-/**
- * Transfer a decedent's remaining pre-tax balance to the surviving spouse at
- * the closing boundary of their final living year. One move, no proration.
- */
-function applyDeathBoundaryRollover(p, age, traditional, rolledOverOwners){
-  // Spousal rollover needs a spouse, not a particular filing status — a
-  // surviving spouse may roll over regardless of how the couple filed.
-  if(!p.people?.spouse) return null;
-  const priorYear = householdTaxStatusAtAge(p, age - 1);
-  const thisYear = householdTaxStatusAtAge(p, age);
 
-  for(const owner of TRADITIONAL_PERSON_OWNERS){
-    if(rolledOverOwners.has(owner)) continue;
-    const aliveBefore = priorYear.people?.[owner]?.alive === true;
-    const aliveNow = thisYear.people?.[owner]?.alive === true;
-    if(!aliveBefore || aliveNow) continue;          // they did not just die
-    if(!((traditional.byOwner[owner] ?? 0) > 0.01)){
-      rolledOverOwners.add(owner);
-      continue;
-    }
-    const survivor = owner === 'client' ? 'spouse' : 'client';
-    if(thisYear.people?.[survivor]?.alive !== true) continue;   // no survivor to receive it
-    if(!spousalRolloverSupported(p, p.rmdContract, owner, survivor)) continue;  // fail closed
-    rolloverTraditional(traditional, owner, survivor);
-    rolledOverOwners.add(owner);
-    return { from: owner, to: survivor, age };
-  }
-  return null;
-}
 
-/**
- * Per-owner RMD requirement for one projection year.
- *
- * Short-circuits when there is no pre-tax money, and stays quiet while everyone
- * is below their applicable age — an unresolvable owner only matters once a
- * distribution is actually due.
- */
-function resolveOpeningRmd(p, age, traditional, yearIndex){
-  // `available` / `owner` are retained for the existing row contract. `owner`
-  // identifies whose pre-tax money this is — which is why it follows the
-  // balances rather than the plan's contract: after a spousal rollover the
-  // survivor owns it. It is null when two people hold pre-tax money, because
-  // then there is no single household RMD owner, which is the point of all this.
-  const clientHolds = (traditional.byOwner.client ?? 0) > 0.01;
-  const spouseHolds = (traditional.byOwner.spouse ?? 0) > 0.01;
-  const rowOwner = clientHolds && spouseHolds
-    ? null                                        // two owners: no single one
-    : (clientHolds ? 'client'
-      : (spouseHolds ? 'spouse' : (p.rmdContract?.owner ?? null)));
 
-  // `requiredByOwner` on the not-required paths is shared and frozen: this
-  // function runs ~40,000 times in a 1,000-path projection and is "nothing due"
-  // for most of them, so per-call allocation is pure overhead on a loop the
-  // audit already flags as blocking the UI thread (PX-AUD-028).
-  const empty = {
-    status: 'not-required',
-    available: true,
-    owner: rowOwner,
-    required: 0,
-    requiredByOwner: ZERO_TRADITIONAL_OWNER_BUCKETS,
-    issue: null,
-    basisSource: null,
-  };
-  if(!(traditional.balance > 0.01)) return empty;
 
-  const contract = p.rmdContract;
-  const householdState = householdTaxStatusAtAge(p, age);
 
-  // Hot path — this runs for every year of every path, so the age gates below
-  // read the two people directly instead of building and filtering arrays.
-  const clientPerson = householdState.people?.client ?? null;
-  const spousePerson = householdState.people?.spouse ?? null;
-  const hasUnattributed = (traditional.byOwner.unattributed ?? 0) > 0.01;
 
-  // Nobody in the household has reached an applicable age — nothing is due, so
-  // ownership gaps are not yet a problem.
-  if((clientPerson || spousePerson)
-    && (!clientPerson || belowApplicableAge(clientPerson))
-    && (!spousePerson || belowApplicableAge(spousePerson))){
-    return empty;
-  }
 
-  // Someone is old enough, but a distribution is only owed by a person who
-  // actually holds pre-tax money. An older spouse with no IRA of their own does
-  // not force resolution of the younger owner's cohort.
-  if((clientHolds || spouseHolds)
-    && (!clientHolds || belowApplicableAge(clientPerson))
-    && (!spouseHolds || belowApplicableAge(spousePerson))
-    && !hasUnattributed){
-    return empty;
-  }
 
-  // Pre-tax money nobody owns cannot produce a defensible RMD.
-  if(hasUnattributed){
-    return {
-      ...empty,
-      status: 'unavailable',
-      available: false,
-      owner: null,
-      required: null,
-      issue: 'TRADITIONAL_ACCOUNT_OWNER_UNAVAILABLE',
-    };
-  }
 
-  const basisSource = yearIndex === 0
-    ? 'opening-balance-assumption'
-    : 'simulated-prior-year-close';
 
-  // A survivor who inherited a spouse's IRA now holds pre-tax money without
-  // having an entry in the plan-derived contract. Synthesize one from the
-  // timeline so the inherited balance still produces an RMD instead of silently
-  // escaping the requirement.
-  let effectiveContract = contract;
-  const missingOwners = [];
-  if(clientHolds && !contract?.byOwner?.client) missingOwners.push('client');
-  if(spouseHolds && !contract?.byOwner?.spouse) missingOwners.push('spouse');
-  if(missingOwners.length > 0){
-    const byOwner = { ...(contract?.byOwner || {}) };
-    for(const owner of missingOwners){
-      byOwner[owner] = {
-        available: true,
-        balance: traditional.byOwner[owner],
-        startAge: p.people?.[owner]?.rmdStartAge ?? null,
-        containsEmployerPlan: false,
-        focusRulesAvailable: true,
-        rmdAccountAttributionAvailable: true,
-        priorYearEndBalance: traditional.byOwner[owner],
-        priorYearEndBalanceAvailable: true,
-      };
-    }
-    effectiveContract = { ...contract, byOwner };
-  }
 
-  const evaluated = evaluateRmdByOwner(effectiveContract, householdState, {
-    priorYearEndBalanceForOwner: (owner) => (
-      yearIndex === 0
-        ? (contract?.openingBalanceByOwner?.[owner] ?? 0)   // raw, pre-shock
-        : (traditional.byOwner[owner] ?? 0)                 // prior year's close
-    ),
-  });
 
-  const requiredByOwner = emptyTraditionalOwnerBuckets();
-  for(const owner of TRADITIONAL_PERSON_OWNERS){
-    const detail = evaluated.byOwner[owner];
-    requiredByOwner[owner] = detail && detail.required > 0 ? detail.required : 0;
-  }
 
-  return {
-    status: evaluated.status,
-    available: evaluated.status !== 'unavailable',
-    owner: rowOwner,
-    required: evaluated.requiredTotal,
-    requiredByOwner,
-    issue: evaluated.issue,
-    basisSource,
-    byOwner: evaluated.byOwner,
-  };
-}
 
-// Divisors: IRS Uniform Lifetime Table (Pub 590-B, Table III), current 2026.
-const UNIFORM_LIFETIME = {
-  72:27.4, 73:26.5, 74:25.5, 75:24.6, 76:23.7, 77:22.9, 78:22.0, 79:21.1, 80:20.2,
-  81:19.4, 82:18.5, 83:17.7, 84:16.8, 85:16.0, 86:15.2, 87:14.4, 88:13.7,
-  89:12.9, 90:12.2, 91:11.5, 92:10.8, 93:10.1, 94:9.5, 95:8.9, 96:8.4,
-  97:7.8, 98:7.3, 99:6.8, 100:6.4, 101:6.0, 102:5.6, 103:5.2, 104:4.9,
-  105:4.6, 106:4.3, 107:4.1, 108:3.9, 109:3.7, 110:3.5, 111:3.4, 112:3.3,
-  113:3.1, 114:3.0, 115:2.9, 116:2.8, 117:2.7, 118:2.5, 119:2.3, 120:2.0
-};
 
-function rmdDivisor(age){
-  if(age < 72) return Infinity;                     // no RMD → required = 0
-  return UNIFORM_LIFETIME[Math.min(age, 120)];      // table floors at 120+
-}
 
-/**
- * THE authoritative per-owner RMD evaluator. RMDs are legally per owner — you
- * cannot satisfy your spouse's RMD out of your IRA — so every caller that needs
- * a required amount comes through here.
- *
- * `priorYearEndBalanceForOwner` lets a caller supply the basis it actually has.
- * The Withdrawal Planner has only the plan's recorded prior-Dec-31 figure, so it
- * passes nothing and the contract's own `priorYearEndBalance` is used. The
- * projection simulates each year, so from year 1 on it supplies that owner's
- * real prior-year closing balance — which is why the planner's focus-year guard
- * is a parameter rather than a hard rule.
- */
-function evaluateRmdByOwner(contract, householdState, {
-  priorYearEndBalanceForOwner = null,
-  focusYearMatchesBase = true,
-} = {}){
-  const suppliedBasis = typeof priorYearEndBalanceForOwner === 'function';
-  const details = {};
-  let anyKnown = false;
-  let anyUnavailable = false;
-  let requiredTotal = 0;
-  let priorYearEndTotal = 0;
-  let priorYearEndComplete = true;
 
-  const contractOwners = contract?.byOwner;
-  for(const owner of TRADITIONAL_PERSON_OWNERS){
-    const ownerContract = contractOwners?.[owner];
-    if(!ownerContract) continue;
-    const ownerPerson = householdState.people?.[owner] ?? null;
-    let status = 'not-required';
-    let required = 0;
-    let issue = null;
-    const basis = suppliedBasis
-      ? priorYearEndBalanceForOwner(owner, ownerContract)
-      : ownerContract.priorYearEndBalance;
-    const basisAvailable = suppliedBasis
-      ? Number.isFinite(basis)
-      : (ownerContract.priorYearEndBalanceAvailable === true && Number.isFinite(basis));
 
-    if(suppliedBasis && !(basis > 0.01)){
-      // Projection mode: this owner holds no pre-tax dollars this year, so
-      // there is nothing to distribute and nothing to resolve. Most often a
-      // decedent whose balance already rolled to the survivor — they must not
-      // keep failing the lifecycle check forever after.
-      status = 'not-required';
-      required = 0;
-    }else if(!ownerPerson?.alive){
-      status = 'unavailable';
-      required = null;
-      issue = 'TRADITIONAL_ACCOUNT_OWNER_LIFECYCLE_UNAVAILABLE';
-    }else if(ownerContract.startAge === null){
-      status = 'unavailable';
-      required = null;
-      issue = 'RMD_BIRTH_COHORT_UNAVAILABLE';
-    }else if(ownerPerson.age >= ownerContract.startAge){
-      if(!focusYearMatchesBase){
-        status = 'unavailable';
-        required = null;
-        issue = 'RMD_FOCUS_YEAR_BALANCE_UNAVAILABLE';
-      }else if(ownerContract.rmdAccountAttributionAvailable !== true){
-        status = 'unavailable';
-        required = null;
-        issue = 'EMPLOYER_PLAN_RMD_ACCOUNT_ATTRIBUTION_UNAVAILABLE';
-      }else if(ownerContract.focusRulesAvailable !== true){
-        status = 'unavailable';
-        required = null;
-        issue = 'TRADITIONAL_ACCOUNT_RMD_RULE_UNAVAILABLE';
-      }else if(ownerContract.containsEmployerPlan
-          && ownerPerson.retired !== true){
-        status = 'unavailable';
-        required = null;
-        issue = 'EMPLOYER_PLAN_RMD_RULE_UNAVAILABLE';
-      }else if(!basisAvailable){
-        status = 'unavailable';
-        required = null;
-        issue = 'RMD_PRIOR_YEAR_END_BALANCE_UNAVAILABLE';
-      }else{
-        status = 'known';
-        required = basis / rmdDivisor(ownerPerson.age);
-      }
-    }
 
-    if(status === 'known') anyKnown = true;
-    if(status === 'unavailable') anyUnavailable = true;
-    if(required !== null) requiredTotal += required;
-    if(Number.isFinite(basis)){
-      priorYearEndTotal += basis;
-    }else{
-      priorYearEndComplete = false;
-    }
-    details[owner] = {
-      status,
-      age: ownerPerson?.age ?? null,
-      applicableAge: ownerContract.startAge,
-      priorYearEndBalance: Number.isFinite(basis) ? basis : null,
-      containsEmployerPlan: ownerContract.containsEmployerPlan === true,
-      required,
-      issue,
-    };
-  }
 
-  return {
-    byOwner: details,
-    requiredTotal: anyUnavailable ? null : requiredTotal,
-    status: anyUnavailable ? 'unavailable' : (anyKnown ? 'known' : 'not-required'),
-    issue: anyUnavailable
-      ? (Object.values(details).find(detail => detail.issue)?.issue
-        ?? 'RMD_CONTRACT_UNAVAILABLE')
-      : null,
-    priorYearEndTotal,
-    priorYearEndComplete,
-  };
-}
+
 
 /**
  * A goal's cost in THIS year, in today's dollars.
