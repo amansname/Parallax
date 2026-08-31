@@ -250,8 +250,10 @@ export function goalTimingLabel(goal){
 export function formatGoalAmount(goal){
   const value = goalDisplayAmount(goal);
   let amount;
-  if(value >= 995_000) amount = `$${(value / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
-  else if(value >= 1_000) amount = `$${Math.round(value / 1_000)}k`;
+  // Compact labels must preserve the editor's displayed dollars, not round
+  // a $2,500 monthly input into a different-looking $3k commitment.
+  if(value >= 1_000_000) amount = `$${value / 1_000_000}M`;
+  else if(value >= 1_000) amount = `$${value / 1_000}k`;
   else amount = `$${Math.round(value)}`;
   if(isOneTimeGoal(goal)) return amount;
   return `${amount} / ${goal.per === 'mo' ? 'mo' : 'yr'}`;

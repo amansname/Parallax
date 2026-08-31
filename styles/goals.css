@@ -1,13 +1,9 @@
 /* =============================================================================
    goals.css — Goals Horizon, single presentation owner.
 
-   Authored from the finalized Graphite & Aubergine reference. The timeline is
-   deliberately monochrome: bands, milestones and labels are neutral, and bronze
-   marks only the selected goal. Category identity is carried by the icon, not
-   by colour, which keeps accent use inside the system's distribution rule.
-
-   `--goal-color` is still set inline per lane by ui/goalsHorizon.js. Nothing
-   here consumes it; the property is inert and no renderer contract changed.
+   Neutral bands retain a faint, persistent glow matching their category icon.
+   ui/goalsHorizon.js supplies the existing --goal-color for each lane. Bronze
+   still distinguishes selection without replacing the category glow.
    ============================================================================= */
 
 .page[data-page="net-worth"]:has(.gh-page) {
@@ -108,6 +104,7 @@
 
 /* A funded span is a quiet raised band; a one-time goal is a single mark. */
 .gh-band {
+  --gh-category-glow: 0 0 16px color-mix(in srgb, var(--goal-color) 20%, transparent);
   position: absolute;
   top: 50%;
   left: var(--gh-start);
@@ -116,6 +113,7 @@
   border: var(--bw) solid var(--rule);
   border-radius: var(--r-chip);
   background: var(--raised);
+  box-shadow: var(--gh-category-glow);
   transform: translateY(-50%);
 }
 
@@ -199,7 +197,7 @@
 .gh-lane.is-selected .gh-band {
   border-color: var(--acc-hair);
   background: var(--acc-tint);
-  box-shadow: var(--elev-select);
+  box-shadow: var(--gh-category-glow), var(--elev-select);
 }
 
 .gh-lane.is-selected .gh-chip { color: var(--acc); }
