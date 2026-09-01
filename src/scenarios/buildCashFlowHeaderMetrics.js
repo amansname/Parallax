@@ -27,10 +27,11 @@ function isFullyFundedRetirement(row){
     && row.failed !== true;
 }
 
-function planEndRow(rows, label){
+function planEndRow(rows, timelinePlanEndAge, label){
   const row = rows.at(-1) ?? null;
   if(!isFullyFundedRetirement(row)
       || !Number.isFinite(row.age)
+      || row.age !== timelinePlanEndAge
       || !Number.isFinite(row.balance)
       || row.balance < 0){
     throw new Error(`${label} funded plan-end row is unavailable`);
@@ -38,20 +39,97 @@ function planEndRow(rows, label){
   return row;
 }
 
-function livingPlanEndAge(row){
+function timelineRowAtAge(simulation, timelineAge, label, { authoritative = true } = {}){
+  const matches = rowsFor(simulation, label).filter(row => (
+    Number.isFinite(row?.age)
+      && row.age === timelineAge
+      && (!authoritative || isAuthoritative(row))
+  ));
+  if(matches.length !== 1){
+    throw new Error(`${label} timeline row is unavailable`);
+  }
+  return matches[0];
+}
+
+function terminalSurvivorLens(typicalSimulation, timelinePlanEndAge){
+  const rows = rowsFor(typicalSimulation, 'Typical plan-end');
+  if(rows.at(-1)?.age !== timelinePlanEndAge){
+    throw new Error('Typical digest and simulation plan-end ages do not match');
+  }
+  const row = timelineRowAtAge(
+    typicalSimulation,
+    timelinePlanEndAge,
+    'Typical plan-end',
+    { authoritative: false }
+  );
   const people = row?.people;
   if(!people?.client) throw new Error('Typical plan-end household ages are unavailable');
-  const modeled = [people.client, people.spouse].filter(person => person !== null && person !== undefined);
-  if(modeled.some(person => !Number.isFinite(person.age) || typeof person.alive !== 'boolean')){
+  const modeled = [
+    ['client', people.client],
+    ['spouse', people.spouse],
+  ].filter(([, person]) => person !== null && person !== undefined);
+  if(modeled.some(([, person]) => !Number.isFinite(person.age) || typeof person.alive !== 'boolean')){
     throw new Error('Typical plan-end household ages are incomplete');
   }
+  const living = modeled.filter(([, person]) => person.alive);
+  if(living.length === 0) throw new Error('Typical plan-end living household age is unavailable');
+  const maxLivingAge = Math.max(...living.map(([, person]) => person.age));
+  const [personKey, person] = living.find(([, candidate]) => candidate.age === maxLivingAge);
+  const ageOffset = person.age - timelinePlanEndAge;
+  if(!Number.isInteger(person.age) || person.age < 0 || !Number.isInteger(ageOffset)){
+    throw new Error('Typical plan-end survivor age lens is invalid');
+  }
+  return { personKey, ageOffset, planEndAge: person.age };
+}
+
+function translateTimelineAge(simulation, timelineAge, lens, label, options = {}){
+  const row = timelineRowAtAge(simulation, timelineAge, label, options);
+  const person = row?.people?.[lens.personKey];
+  if(!person || !Number.isFinite(person.age) || typeof person.alive !== 'boolean'){
+    throw new Error(`${label} terminal survivor is unavailable`);
+  }
+  const expectedAge = timelineAge + lens.ageOffset;
+  if(!Number.isInteger(person.age) || person.age < 0 || person.age !== expectedAge){
+    throw new Error(`${label} terminal-survivor age is inconsistent`);
+  }
+  if(!person.alive){
+    throw new Error(`${label} terminal survivor is not living`);
+  }
+  return person.age;
+}
+
+function oldestLivingAgeAtTimelineAge(simulation, timelineAge, label){
+  const row = timelineRowAtAge(simulation, timelineAge, label);
+  const people = row?.people;
+  if(!people?.client) throw new Error(`${label} household ages are unavailable`);
+  const modeled = [people.client, people.spouse]
+    .filter(person => person !== null && person !== undefined);
+  if(modeled.some(person => !Number.isFinite(person.age) || typeof person.alive !== 'boolean')){
+    throw new Error(`${label} household ages are incomplete`);
+  }
   const livingAges = modeled.filter(person => person.alive).map(person => person.age);
-  if(livingAges.length === 0) throw new Error('Typical plan-end living household age is unavailable');
+  if(livingAges.length === 0) throw new Error(`${label} living household age is unavailable`);
   return Math.max(...livingAges);
 }
 
-function typicalHeader(typicalSimulation){
+function typicalHeader(typicalSimulation, typicalDigest){
   const rows = rowsFor(typicalSimulation, 'Typical');
+  const timelinePlanEndAge = rows.at(-1)?.age;
+  if(!Number.isInteger(timelinePlanEndAge) || timelinePlanEndAge < 0){
+    throw new Error('Typical plan-end age is unavailable');
+  }
+  if(Object.prototype.hasOwnProperty.call(typicalDigest ?? {}, 'planEndAge')){
+    const digestPlanEndAge = finiteMetric(
+      typicalDigest,
+      'planEndAge',
+      'Typical plan-end age',
+      { integer: true, min: 0 }
+    );
+    if(digestPlanEndAge !== timelinePlanEndAge){
+      throw new Error('Typical digest and simulation plan-end ages do not match');
+    }
+  }
+  const ageLens = terminalSurvivorLens(typicalSimulation, timelinePlanEndAge);
   const realRows = rows.filter(isAuthoritative);
   const underfundedRows = realRows.filter(row => (
     isRetirement(row)
@@ -81,12 +159,23 @@ function typicalHeader(typicalSimulation){
       throw new Error('Typical underfunded ending position is unavailable');
     }
     outcome = 'underfunded';
-    fundedThroughAge = previous.age;
+    fundedThroughAge = translateTimelineAge(
+      typicalSimulation,
+      previous.age,
+      ageLens,
+      'Typical funded-through'
+    );
     fundedThroughSupport = 'Plan underfunded';
     endingPosition = firstUnderfunded.balance;
   }else{
-    const ending = planEndRow(rows, 'Typical');
-    fundedThroughAge = livingPlanEndAge(ending);
+    const ending = planEndRow(rows, timelinePlanEndAge, 'Typical');
+    fundedThroughAge = translateTimelineAge(
+      typicalSimulation,
+      ending.age,
+      ageLens,
+      'Typical plan-end',
+      { authoritative: false }
+    );
     endingPosition = ending.balance;
   }
 
@@ -115,43 +204,84 @@ function optionalFiniteMetric(digest, key, label, options = {}){
   return finiteMetric(digest, key, label, options);
 }
 
-function drawdownTroughAge(digest, drawdown, label){
-  if(drawdown === 0 && digest?.maxRealDrawdownTroughAge === null) return null;
-  return finiteMetric(digest, 'maxRealDrawdownTroughAge', `${label} drawdown trough age`, {
+function earlyBalanceFacts(digest, label){
+  const balance = finiteMetric(
+    digest,
+    'lowestRealBalanceFirst10Years',
+    `${label} first-decade low balance`,
+    { min: 0 }
+  );
+  const age = finiteMetric(digest, 'lowestRealBalanceFirst10Age', `${label} first-decade low age`, {
     integer: true,
     min: 0,
   });
+  return { balance, age };
 }
 
-function recoveryFacts(digest, label){
-  const status = digest?.portfolioRecoveryPeriodStatus;
-  const years = digest?.portfolioRecoveryPeriodYears;
-  if(status === 'never'){
-    if(years !== null) throw new Error(`${label} unrecovered period is invalid`);
-    return { status, years: null };
+function earlyWithdrawalPressureFacts(digest, label){
+  const windowYears = finiteMetric(digest, 'earlyWindowYears', `${label} early window`, {
+    integer: true,
+    min: 1,
+    max: 10,
+  });
+  const years = finiteMetric(
+    digest,
+    'yearsAboveFivePctWdRateFirst10Years',
+    `${label} years above 5% withdrawal rate`,
+    { integer: true, min: 0, max: windowYears }
+  );
+  return { years, windowYears };
+}
+
+function recoveryFacts(digest, simulation, label){
+  const status = digest?.marketRecoveryPeriodStatus;
+  const years = digest?.marketRecoveryPeriodYears;
+  const age = digest?.marketRecoveryAge;
+  if(status === 'never' || status === 'not-observed'){
+    if(years !== null || age !== null) throw new Error(`${label} unrecovered period is invalid`);
+    return { status, years: null, age: null };
   }
   if(status === 'no-dip'){
-    if(years !== 0) throw new Error(`${label} no-dip recovery period is invalid`);
-    return { status, years: 0 };
+    if(years !== 0 || age !== null) throw new Error(`${label} no-dip recovery period is invalid`);
+    return { status, years: 0, age: null };
   }
   if(status === 'recovered'){
     if(!Number.isInteger(years) || years < 1){
       throw new Error(`${label} recovered period is unavailable`);
     }
-    return { status, years };
+    if(!Number.isInteger(age) || age < 0){
+      throw new Error(`${label} recovery age is unavailable`);
+    }
+    return {
+      status,
+      years,
+      age: oldestLivingAgeAtTimelineAge(simulation, age, `${label} recovery`),
+    };
   }
   throw new Error(`${label} recovery-period status is unavailable`);
 }
 
-function fundingFacts(digest, label){
-  const fundedThroughAge = finiteMetric(digest, 'fundedThroughAge', `${label} funded-through age`, {
+function recoveryDelta(historical, typical){
+  if(Number.isFinite(historical.years) && Number.isFinite(typical.years)){
+    return historical.years - typical.years;
+  }
+  if(historical.status === typical.status && ['never', 'not-observed'].includes(historical.status)){
+    return 0;
+  }
+  return null;
+}
+
+function fundingFacts(digest, simulation, ageLens, label){
+  const timelineFundedThroughAge = finiteMetric(digest, 'fundedThroughAge', `${label} funded-through age`, {
     integer: true,
     min: 0,
   });
-  const planEndAge = finiteMetric(digest, 'planEndAge', `${label} plan-end age`, {
-    integer: true,
-    min: 0,
-  });
+  const fundedThroughAge = translateTimelineAge(
+    simulation,
+    timelineFundedThroughAge,
+    ageLens,
+    `${label} funded-through`
+  );
   const marginKind = digest?.fundingMarginKind;
   if(!['zero-return-runway', 'years-short', 'no-portfolio-draw'].includes(marginKind)){
     throw new Error(`${label} funding-margin kind is unavailable`);
@@ -171,10 +301,15 @@ function fundingFacts(digest, label){
   if(marginKind === 'zero-return-runway' && marginYears === null){
     throw new Error(`${label} zero-return runway is unavailable`);
   }
-  return { fundedThroughAge, planEndAge, marginYears, marginKind };
+  return {
+    fundedThroughAge,
+    timelineFundedThroughAge,
+    marginYears,
+    marginKind,
+  };
 }
 
-function historicalHeader(historicalResult, typicalDigest){
+function historicalHeader(historicalResult, typicalSimulation, typicalDigest){
   const historicalDigest = historicalResult?.digest;
   if(!historicalDigest || typeof historicalDigest !== 'object'){
     throw new Error('Historical path digest is unavailable');
@@ -186,21 +321,33 @@ function historicalHeader(historicalResult, typicalDigest){
   if(!['survives', 'underfunded'].includes(outcome)){
     throw new Error('Historical outcome is unavailable');
   }
-
-  const historicalDrawdown = finiteMetric(
+  const historicalPlanEndAge = finiteMetric(
     historicalDigest,
-    'maxRealDrawdownPct',
-    'Historical max real drawdown',
-    { min: 0, max: 100 }
+    'planEndAge',
+    'Historical plan-end age',
+    { integer: true, min: 0 }
   );
-  const typicalDrawdown = finiteMetric(
+  const typicalPlanEndAge = finiteMetric(
     typicalDigest,
-    'maxRealDrawdownPct',
-    'Typical max real drawdown',
-    { min: 0, max: 100 }
+    'planEndAge',
+    'Typical plan-end age',
+    { integer: true, min: 0 }
   );
-  const historicalRecovery = recoveryFacts(historicalDigest, 'Historical');
-  const typicalRecovery = recoveryFacts(typicalDigest, 'Typical');
+  if(historicalPlanEndAge !== typicalPlanEndAge){
+    throw new Error('Historical and Typical plan-end ages do not match');
+  }
+  const ageLens = terminalSurvivorLens(typicalSimulation, typicalPlanEndAge);
+
+  const historicalEarlyBalance = earlyBalanceFacts(historicalDigest, 'Historical');
+  const typicalEarlyBalance = earlyBalanceFacts(typicalDigest, 'Typical');
+  const historicalEarlyPressure = earlyWithdrawalPressureFacts(historicalDigest, 'Historical');
+  const typicalEarlyPressure = earlyWithdrawalPressureFacts(typicalDigest, 'Typical');
+  const historicalRecovery = recoveryFacts(
+    historicalDigest,
+    historicalResult?.simulation,
+    'Historical'
+  );
+  const typicalRecovery = recoveryFacts(typicalDigest, typicalSimulation, 'Typical');
   const historicalAge80 = optionalFiniteMetric(
     historicalDigest,
     'realBalanceAtAge80',
@@ -213,56 +360,48 @@ function historicalHeader(historicalResult, typicalDigest){
     'Typical real balance at age 80',
     { min: 0 }
   );
-  const historicalFunding = fundingFacts(historicalDigest, 'Historical');
-  const typicalFunding = fundingFacts(typicalDigest, 'Typical');
-  if(historicalFunding.planEndAge !== typicalFunding.planEndAge){
-    throw new Error('Historical and Typical plan-end ages do not match');
-  }
+  const historicalFunding = fundingFacts(
+    historicalDigest,
+    historicalResult?.simulation,
+    ageLens,
+    'Historical'
+  );
+  const typicalFunding = fundingFacts(typicalDigest, typicalSimulation, ageLens, 'Typical');
 
   return deepFreeze({
     kind: 'historical',
     outcome,
     rows: [
       {
-        id: 'max-real-drawdown',
-        label: 'Max real drawdown',
-        format: 'drawdown',
-        thisPath: historicalDrawdown,
-        typicalPath: typicalDrawdown,
-        delta: typicalDrawdown - historicalDrawdown,
-        thisPathAge: drawdownTroughAge(historicalDigest, historicalDrawdown, 'Historical'),
-        typicalPathAge: drawdownTroughAge(typicalDigest, typicalDrawdown, 'Typical'),
+        id: 'lowest-balance-first-10-years',
+        label: 'Lowest balance · first 10 yrs',
+        format: 'money',
+        thisPath: historicalEarlyBalance.balance,
+        typicalPath: typicalEarlyBalance.balance,
+        delta: historicalEarlyBalance.balance - typicalEarlyBalance.balance,
+        thisPathAge: historicalEarlyBalance.age,
+        typicalPathAge: typicalEarlyBalance.age,
       },
       {
-        id: 'years-above-6-wd-rate',
-        label: 'Years above 6% WD rate',
-        format: 'years',
-        thisPath: finiteMetric(
-          historicalDigest,
-          'yearsAboveSixPctWdRate',
-          'Historical years above 6% withdrawal rate',
-          { integer: true, min: 0 }
-        ),
-        typicalPath: finiteMetric(
-          typicalDigest,
-          'yearsAboveSixPctWdRate',
-          'Typical years above 6% withdrawal rate',
-          { integer: true, min: 0 }
-        ),
+        id: 'early-withdrawal-pressure',
+        label: 'WD rate above 5% · first 10 yrs',
+        format: 'early-withdrawal-pressure',
+        thisPath: historicalEarlyPressure.years,
+        typicalPath: typicalEarlyPressure.years,
+        thisPathWindowYears: historicalEarlyPressure.windowYears,
+        typicalPathWindowYears: typicalEarlyPressure.windowYears,
       },
       {
         id: 'recovery-period',
-        label: 'Recovery period',
+        label: 'Market recovery',
         format: 'recovery',
         thisPath: historicalRecovery.years,
         typicalPath: typicalRecovery.years,
         thisPathRecoveryStatus: historicalRecovery.status,
         typicalPathRecoveryStatus: typicalRecovery.status,
-        delta: Number.isFinite(historicalRecovery.years) && Number.isFinite(typicalRecovery.years)
-          ? historicalRecovery.years - typicalRecovery.years
-          : historicalRecovery.status === 'never' && typicalRecovery.status === 'never'
-            ? 0
-            : null,
+        thisPathRecoveryAge: historicalRecovery.age,
+        typicalPathRecoveryAge: typicalRecovery.age,
+        delta: recoveryDelta(historicalRecovery, typicalRecovery),
       },
       {
         id: 'balance-at-age-80',
@@ -272,13 +411,13 @@ function historicalHeader(historicalResult, typicalDigest){
         typicalPath: typicalAge80,
         thisPathUnavailable: historicalAge80 === null
           ? (historicalFunding.marginKind === 'years-short'
-              && historicalFunding.fundedThroughAge < 80
+              && historicalFunding.timelineFundedThroughAge < 80
             ? 'Underfunded before 80'
             : 'Not modeled')
           : null,
         typicalPathUnavailable: typicalAge80 === null
           ? (typicalFunding.marginKind === 'years-short'
-              && typicalFunding.fundedThroughAge < 80
+              && typicalFunding.timelineFundedThroughAge < 80
             ? 'Underfunded before 80'
             : 'Not modeled')
           : null,
@@ -301,7 +440,7 @@ function historicalHeader(historicalResult, typicalDigest){
         typicalPathMargin: typicalFunding.marginYears,
         thisPathMarginKind: historicalFunding.marginKind,
         typicalPathMarginKind: typicalFunding.marginKind,
-        planEndAge: historicalFunding.planEndAge,
+        planEndAge: ageLens.planEndAge,
       },
     ].map(row => {
       if(row.delta === undefined && Number.isFinite(row.thisPath) && Number.isFinite(row.typicalPath)){
@@ -318,7 +457,7 @@ export function buildCashFlowHeaderMetrics({
   typicalDigest,
 }){
   if(!historicalResult){
-    return typicalHeader(typicalSimulation);
+    return typicalHeader(typicalSimulation, typicalDigest);
   }
-  return historicalHeader(historicalResult, typicalDigest);
+  return historicalHeader(historicalResult, typicalSimulation, typicalDigest);
 }

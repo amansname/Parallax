@@ -82,6 +82,13 @@ test('pathDigest exposes real portfolio stress and plan-margin metrics from auth
   assert.equal(digest.maxRealDrawdownPct, 40);
   assert.equal(digest.maxRealDrawdownTroughAge, 80);
   assert.equal(digest.yearsAboveSixPctWdRate, 2, '6.0% is not above the threshold');
+  assert.equal(digest.lowestRealBalanceFirst10Years, 660);
+  assert.equal(digest.lowestRealBalanceFirst10Age, 80);
+  assert.equal(digest.yearsAboveFivePctWdRateFirst10Years, 3, '5.0% is not above the threshold');
+  assert.equal(digest.earlyWindowYears, 4);
+  assert.equal(digest.marketRecoveryPeriodStatus, 'never');
+  assert.equal(digest.marketRecoveryPeriodYears, null);
+  assert.equal(digest.marketRecoveryAge, null);
   assert.equal(digest.portfolioUnderwaterYearsMax, 3);
   assert.equal(digest.portfolioRecoveryPeriodStatus, 'never');
   assert.equal(digest.portfolioRecoveryPeriodYears, null);
@@ -123,6 +130,9 @@ test('pathDigest never fabricates age-80 balance or runway after underfunding', 
   assert.equal(digest.portfolioUnderwaterYearsMax, 1);
   assert.equal(digest.portfolioRecoveryPeriodStatus, 'never');
   assert.equal(digest.portfolioRecoveryPeriodYears, null);
+  assert.equal(digest.marketRecoveryPeriodStatus, 'not-observed');
+  assert.equal(digest.marketRecoveryPeriodYears, null);
+  assert.equal(digest.marketRecoveryAge, null);
   assert.equal(digest.realBalanceAtAge80, null);
   assert.equal(digest.fundedThroughAge, 78);
   assert.equal(digest.planEndAge, 81);
@@ -130,18 +140,75 @@ test('pathDigest never fabricates age-80 balance or runway after underfunding', 
   assert.equal(digest.fundingMarginKind, 'years-short');
 });
 
-test('pathDigest recovery period distinguishes no dip, recovered spells, and an open final spell', () => {
-  const digestFor = balances => {
-    const rows = balances.map((balance, index) => ({
+test('pathDigest does not call truncated market evidence Never when failure precedes a later recovery', () => {
+  const marketRows = [
+    { year: 1, age: 65, phase: 'ret', source: 2000, returnRate: -0.2,
+      startBalance: 100, balance: 80, withdrawal: 0, wdRate: 0,
+      fundingShortfall: 0, failed: false },
+    { year: 2, age: 66, phase: 'ret', source: 2001, returnRate: 0.25,
+      startBalance: 80, balance: 100, withdrawal: 0, wdRate: 0,
+      fundingShortfall: 0, failed: false },
+  ];
+  const simulation = (rows, failed) => ({
+    rows,
+    terminalBalance: rows.at(-1)?.balance ?? 0,
+    cagr: 0,
+    first10Cagr: 0,
+    minBalance: 0,
+    failed,
+    depletionAge: failed ? 65 : null,
+    lifetimeTax: 0,
+  });
+
+  const fullHorizon = pathDigest(simulation(marketRows, false));
+  assert.equal(fullHorizon.marketRecoveryPeriodStatus, 'recovered');
+  assert.equal(fullHorizon.marketRecoveryPeriodYears, 1);
+  assert.equal(fullHorizon.marketRecoveryAge, 66);
+
+  const failedFirstRow = {
+    ...marketRows[0], balance: 0, withdrawal: 100, wdRate: 100,
+    fundingShortfall: 10, failed: true,
+  };
+  const rawSinglePath = pathDigest(simulation([
+    failedFirstRow,
+    { ...marketRows[1], source: null, returnRate: 0, balance: 0, failed: true },
+  ], true));
+  assert.equal(rawSinglePath.marketRecoveryPeriodStatus, 'not-observed');
+  assert.equal(rawSinglePath.marketRecoveryPeriodYears, null);
+  assert.equal(rawSinglePath.marketRecoveryAge, null);
+
+  const combinedHistorical = pathDigest(
+    simulation([failedFirstRow], true),
+    { people: { client: { planEndAgeOnPrimaryTimeline: 66 }, spouse: null } }
+  );
+  assert.equal(combinedHistorical.marketRecoveryPeriodStatus, 'not-observed');
+  assert.equal(combinedHistorical.marketRecoveryPeriodYears, null);
+  assert.equal(combinedHistorical.marketRecoveryAge, null);
+
+  const recoveredBeforeFailure = pathDigest(simulation([
+    ...marketRows,
+    { ...marketRows[1], year: 3, age: 67, source: 2002, returnRate: -1,
+      balance: 0, fundingShortfall: 10, failed: true },
+    { ...marketRows[1], year: 4, age: 68, source: null, returnRate: 0,
+      balance: 0, failed: true },
+  ], true));
+  assert.equal(recoveredBeforeFailure.marketRecoveryPeriodStatus, 'recovered');
+  assert.equal(recoveredBeforeFailure.marketRecoveryPeriodYears, 1);
+  assert.equal(recoveredBeforeFailure.marketRecoveryAge, 66);
+});
+
+test('pathDigest market recovery ignores withdrawals and preserves the first real-return recovery', () => {
+  const digestFor = (returns, balances = returns.map((_, index) => 1_000 - index * 100)) => {
+    const rows = returns.map((returnRate, index) => ({
       year: index + 1,
       age: 65 + index,
       phase: 'ret',
       source: 1995 + index,
-      returnRate: 0,
+      returnRate,
       startBalance: index === 0 ? 1_000 : balances[index - 1],
-      balance,
-      withdrawal: 10,
-      wdRate: 1,
+      balance: balances[index],
+      withdrawal: 100 + index * 50,
+      wdRate: 5 + index,
       fundingShortfall: 0,
       failed: false,
     }));
@@ -157,19 +224,61 @@ test('pathDigest recovery period distinguishes no dip, recovered spells, and an 
     });
   };
 
-  const noDip = digestFor([1_050, 1_000, 1_100]);
-  assert.equal(noDip.portfolioRecoveryPeriodStatus, 'no-dip');
-  assert.equal(noDip.portfolioRecoveryPeriodYears, 0);
+  const noDip = digestFor([0.05, -0.02]);
+  assert.equal(noDip.marketRecoveryPeriodStatus, 'no-dip');
+  assert.equal(noDip.marketRecoveryPeriodYears, 0);
 
-  const recovered = digestFor([900, 850, 1_000, 950, 1_010]);
-  assert.equal(recovered.portfolioRecoveryPeriodStatus, 'recovered');
-  assert.equal(recovered.portfolioRecoveryPeriodYears, 2);
-  assert.equal(recovered.portfolioUnderwaterYearsMax, 2);
+  const recoveredThenBelowAgain = digestFor(
+    [0.10, -0.20, 0.20, -0.20],
+    [900, 500, 100, 50]
+  );
+  assert.equal(recoveredThenBelowAgain.marketRecoveryPeriodStatus, 'recovered');
+  assert.equal(recoveredThenBelowAgain.marketRecoveryPeriodYears, 1);
+  assert.equal(recoveredThenBelowAgain.marketRecoveryAge, 67);
 
-  const openFinalSpell = digestFor([900, 1_000, 950]);
-  assert.equal(openFinalSpell.portfolioRecoveryPeriodStatus, 'never');
-  assert.equal(openFinalSpell.portfolioRecoveryPeriodYears, null);
-  assert.equal(openFinalSpell.portfolioUnderwaterYearsMax, 1);
+  const sameReturnsDifferentWithdrawals = digestFor(
+    [0.10, -0.20, 0.20, -0.20],
+    [1_050, 1_100, 1_150, 1_200]
+  );
+  assert.equal(sameReturnsDifferentWithdrawals.marketRecoveryPeriodStatus, 'recovered');
+  assert.equal(sameReturnsDifferentWithdrawals.marketRecoveryPeriodYears, 1);
+  assert.equal(sameReturnsDifferentWithdrawals.marketRecoveryAge, 67);
+
+  const neverRecovered = digestFor([-0.10, 0.05, 0.05]);
+  assert.equal(neverRecovered.marketRecoveryPeriodStatus, 'never');
+  assert.equal(neverRecovered.marketRecoveryPeriodYears, null);
+  assert.equal(neverRecovered.marketRecoveryAge, null);
+});
+
+test('pathDigest bounds early balance and 5% withdrawal pressure to ten retirement years', () => {
+  const rows = Array.from({ length: 12 }, (_, index) => ({
+    year: index + 1,
+    age: 65 + index,
+    phase: 'ret',
+    source: 1980 + index,
+    returnRate: 0,
+    startBalance: 101 - index,
+    balance: 100 - index,
+    withdrawal: 5,
+    wdRate: index === 0 ? 5 : index < 10 ? 5.01 : 99,
+    fundingShortfall: 0,
+    failed: false,
+  }));
+  const digest = pathDigest({
+    rows,
+    terminalBalance: rows.at(-1).balance,
+    cagr: 0,
+    first10Cagr: 0,
+    minBalance: rows.at(-1).balance,
+    failed: false,
+    depletionAge: null,
+    lifetimeTax: 0,
+  });
+
+  assert.equal(digest.earlyWindowYears, 10);
+  assert.equal(digest.lowestRealBalanceFirst10Years, 91);
+  assert.equal(digest.lowestRealBalanceFirst10Age, 74);
+  assert.equal(digest.yearsAboveFivePctWdRateFirst10Years, 9);
 });
 
 test('returnDollars is the market gain on start-of-year balance', () => {

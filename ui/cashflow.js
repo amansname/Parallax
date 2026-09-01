@@ -30,9 +30,13 @@ export function buildSimulationRows(sim, { plan, currentYear }) {
     const baseYear = currentYear;
     return sim.rows.map((r) => {
       const age = (r.age != null) ? r.age : curAge;
+      const livingAges = [r.people?.client, r.people?.spouse]
+        .filter((person) => person?.alive === true && Number.isFinite(person.age))
+        .map((person) => person.age);
       return {
         year: baseYear + (age - curAge),
         age: age,
+        livingAge: livingAges.length ? Math.max(...livingAges) : null,
         sourceYear: r.source,
         accum: r.phase === 'accum',
         ret: (r.source != null && r.returnRate != null) ? r.returnRate : null,   // engine's applied return; null on failed filler rows
@@ -170,14 +174,6 @@ export function formatCashFlowHeaderMoney(value, { signed = false } = {}) {
     return prefix + '$' + amount;
   }
 
-function formatCashFlowHeaderPercent(value, { delta = false } = {}) {
-    if (!Number.isFinite(value)) return '—';
-    const absolute = Math.abs(value).toFixed(1);
-    if (!delta) return absolute + '%';
-    const prefix = value < 0 ? '\u2212' : (value > 0 ? '+' : '');
-    return prefix + absolute + ' pts';
-  }
-
 function formatCashFlowHeaderYears(value, { delta = false } = {}) {
     if (!Number.isFinite(value)) return '—';
     const absolute = Math.abs(value);
@@ -189,8 +185,9 @@ function formatCashFlowHeaderYears(value, { delta = false } = {}) {
   }
 
 const CASH_FLOW_PATH_RAIL_METRICS = Object.freeze([
-  Object.freeze({ id: 'max-real-drawdown', label: 'Max Drawdown' }),
-  Object.freeze({ id: 'recovery-period', label: 'Recovery period' }),
+  Object.freeze({ id: 'lowest-balance-first-10-years', label: 'Lowest balance · first 10 yrs' }),
+  Object.freeze({ id: 'early-withdrawal-pressure', label: 'WD rate above 5% · first 10 yrs' }),
+  Object.freeze({ id: 'recovery-period', label: 'Market recovery' }),
   Object.freeze({ id: 'balance-at-age-80', label: 'Savings left at age 80' }),
   Object.freeze({ id: 'funded-through-margin', label: 'Money lasts through' }),
 ]);
@@ -202,33 +199,45 @@ function pathRailValue(metric, key) {
         ? 'thisPathRecoveryStatus'
         : 'typicalPathRecoveryStatus';
       if (metric[statusKey] === 'never') return 'Never';
-      return formatCashFlowHeaderYears(value);
+      if (metric[statusKey] === 'not-observed') return 'Not observed';
+      const ageKey = key === 'thisPath'
+        ? 'thisPathRecoveryAge'
+        : 'typicalPathRecoveryAge';
+      return formatCashFlowHeaderYears(value)
+        + (Number.isFinite(metric[ageKey]) ? ' · age ' + metric[ageKey] : '');
+    }
+    if (metric.id === 'early-withdrawal-pressure') {
+      const windowKey = key === 'thisPath'
+        ? 'thisPathWindowYears'
+        : 'typicalPathWindowYears';
+      return Number.isFinite(value) && Number.isFinite(metric[windowKey])
+        ? value + ' of ' + metric[windowKey] + ' yrs'
+        : 'Not modeled';
     }
     if (value === null || value === undefined) {
       return metric[key + 'Unavailable'] ?? 'Not modeled';
     }
-    if (metric.id === 'max-real-drawdown') return '\u2212' + formatCashFlowHeaderPercent(value);
-    if (metric.id === 'balance-at-age-80') return formatCashFlowHeaderMoney(value);
+    if (metric.id === 'lowest-balance-first-10-years' || metric.id === 'balance-at-age-80') {
+      return formatCashFlowHeaderMoney(value);
+    }
     if (metric.id === 'funded-through-margin') return 'Age ' + value;
     return String(value);
   }
 
 function pathRailDelta(metric) {
     const delta = metric.delta;
-    if (metric.id === 'max-real-drawdown') {
-      if (!Number.isFinite(metric.thisPath) || !Number.isFinite(metric.typicalPath)) {
-        return { text: '', tone: 'muted' };
-      }
-      const displayedDelta = Number((
-        Number(metric.typicalPath.toFixed(1)) - Number(metric.thisPath.toFixed(1))
-      ).toFixed(1));
-      if (displayedDelta === 0) return { text: 'Same', tone: 'muted' };
+    if (metric.id === 'early-withdrawal-pressure') {
+      if (!Number.isFinite(delta)) return { text: '', tone: 'muted' };
+      if (delta === 0) return { text: 'Same', tone: 'muted' };
       return {
-        text: formatCashFlowHeaderPercent(displayedDelta, { delta: true }),
-        tone: displayedDelta < 0 ? 'negative' : 'muted',
+        text: formatCashFlowHeaderYears(delta, { delta: true }),
+        tone: delta > 0 ? 'negative' : 'muted',
       };
     }
     if (metric.id === 'recovery-period') {
+      const thisNotObserved = metric.thisPathRecoveryStatus === 'not-observed';
+      const typicalNotObserved = metric.typicalPathRecoveryStatus === 'not-observed';
+      if (thisNotObserved || typicalNotObserved) return { text: '', tone: 'muted' };
       const thisNever = metric.thisPathRecoveryStatus === 'never';
       const typicalNever = metric.typicalPathRecoveryStatus === 'never';
       if (thisNever && typicalNever) return { text: 'Same', tone: 'muted' };
@@ -242,7 +251,7 @@ function pathRailDelta(metric) {
         tone: delta > 0 ? 'negative' : 'muted',
       };
     }
-    if (metric.id === 'balance-at-age-80') {
+    if (metric.id === 'lowest-balance-first-10-years' || metric.id === 'balance-at-age-80') {
       if (!Number.isFinite(delta)) return { text: '', tone: 'muted' };
       const magnitude = formatCashFlowHeaderMoney(Math.abs(delta));
       if (magnitude === '$0') return { text: 'Same', tone: 'muted' };
@@ -286,6 +295,10 @@ function historicalPathRail(headerMetrics, period, esc) {
           (Number.isFinite(metric.typicalPathAge) ? ' data-typical-path-age="' + metric.typicalPathAge + '"' : '') +
           (metric.thisPathRecoveryStatus ? ' data-this-path-recovery-status="' + esc(metric.thisPathRecoveryStatus) + '"' : '') +
           (metric.typicalPathRecoveryStatus ? ' data-typical-path-recovery-status="' + esc(metric.typicalPathRecoveryStatus) + '"' : '') +
+          (Number.isFinite(metric.thisPathRecoveryAge) ? ' data-this-path-recovery-age="' + metric.thisPathRecoveryAge + '"' : '') +
+          (Number.isFinite(metric.typicalPathRecoveryAge) ? ' data-typical-path-recovery-age="' + metric.typicalPathRecoveryAge + '"' : '') +
+          (Number.isFinite(metric.thisPathWindowYears) ? ' data-this-path-window-years="' + metric.thisPathWindowYears + '"' : '') +
+          (Number.isFinite(metric.typicalPathWindowYears) ? ' data-typical-path-window-years="' + metric.typicalPathWindowYears + '"' : '') +
           (Number.isFinite(metric.thisPathMargin) ? ' data-this-path-margin="' + metric.thisPathMargin + '"' : '') +
           (Number.isFinite(metric.typicalPathMargin) ? ' data-typical-path-margin="' + metric.typicalPathMargin + '"' : '') +
           (Number.isFinite(metric.marginDelta) ? ' data-margin-delta="' + metric.marginDelta + '"' : '') +
@@ -458,7 +471,7 @@ export function renderCashflow(scn, allScns, {
         ? '<span class="cf-row__mark-dot cf-row__mark-dot--ret"></span>'
         : (isRmdStart ? '<span class="cf-row__mark-dot cf-row__mark-dot--rmd"></span>' : '');
       return (
-        '<div class="cf-row cf-grid" data-age="' + esc(r.age) + '" data-phase="' + (r.accum ? 'accum' : 'retirement') + '" data-source-year="' + esc(r.sourceYear ?? '') + '" data-start-balance="' + r.startPort + '" data-ending-balance="' + r.ending + '" data-withdrawal="' + r.draw + '" data-wd-rate="' + r.wdRate + '" data-funding-shortfall="' + r.fundingShortfall + '">' +
+        '<div class="cf-row cf-grid" data-age="' + esc(r.age) + '" data-living-age="' + esc(r.livingAge ?? '') + '" data-phase="' + (r.accum ? 'accum' : 'retirement') + '" data-source-year="' + esc(r.sourceYear ?? '') + '" data-start-balance="' + r.startPort + '" data-ending-balance="' + r.ending + '" data-withdrawal="' + r.draw + '" data-wd-rate="' + r.wdRate + '" data-return-rate="' + esc(r.ret ?? '') + '" data-funding-shortfall="' + r.fundingShortfall + '">' +
           '<span class="cf-row__year">' +
             '<span class="cf-row__mark" aria-hidden="true">' + yearMark + '</span>' +
             esc(r.year) +
