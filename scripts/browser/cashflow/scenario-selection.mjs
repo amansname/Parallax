@@ -39,6 +39,7 @@ export async function verifyCashFlowScenarioSelection({
   const typicalRowsByPlanYear = await page.evaluate(() => [...document.querySelectorAll('#scn-view .cf-row')].map((row, index) => ({
     planYear: index + 1,
     age: Number(row.dataset.age),
+    livingAge: row.dataset.livingAge === '' ? null : Number(row.dataset.livingAge),
     year: Number(row.querySelector('.cf-row__year')?.textContent.trim()),
     phase: row.dataset.phase || '',
     sourceYear: row.dataset.sourceYear === '' ? null : Number(row.dataset.sourceYear),
@@ -46,6 +47,7 @@ export async function verifyCashFlowScenarioSelection({
     endingBalance: Number(row.dataset.endingBalance),
     withdrawal: Number(row.dataset.withdrawal),
     wdRate: Number(row.dataset.wdRate),
+    returnRate: Number(row.dataset.returnRate),
     shortfall: Number(row.dataset.fundingShortfall)
   })));
   return {

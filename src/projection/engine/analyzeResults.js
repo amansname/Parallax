@@ -191,6 +191,18 @@ export function pathDigest(sim, params){
   const real    = rows.filter(r => r.source != null);
   const retRows = real.filter(r => r.phase !== 'accum');
   const wdRows  = retRows.filter(r => r.wdRate > 0);
+  const resolvedPlanEndAges = [
+    params?.people?.client?.planEndAgeOnPrimaryTimeline,
+    params?.people?.spouse?.planEndAgeOnPrimaryTimeline,
+  ].filter(Number.isFinite);
+  const planEndAge = resolvedPlanEndAges.length > 0
+    ? Math.max(...resolvedPlanEndAges)
+    : (Number.isFinite(rows.at(-1)?.age) ? rows.at(-1).age : null);
+  const marketEvidencePlanEndAge = resolvedPlanEndAges.length > 0
+      || sim?.failed !== true
+      || rows.at(-1)?.source == null
+    ? planEndAge
+    : null;
 
   // Withdrawal pressure — wdRate is stored in PERCENT on the row.
   let peakWdRate = 0, peakWdAge = null, wdSum = 0;
@@ -203,14 +215,67 @@ export function pathDigest(sim, params){
   // Early sequence — the first 10 retirement years, where sequence risk lives.
   const early = retRows.slice(0, 10);
   const negEarlyYears = early.filter(r => r.returnRate < 0).length;
+  const earlyBalanceRows = early.filter(r => Number.isFinite(r.balance) && r.balance >= 0);
+  const lowestBalanceFirst10Row = earlyBalanceRows.reduce(
+    (lowest, row) => lowest === null || row.balance < lowest.balance ? row : lowest,
+    null
+  );
+  const lowestRealBalanceFirst10Years = lowestBalanceFirst10Row?.balance ?? null;
+  const lowestRealBalanceFirst10Age = Number.isFinite(lowestBalanceFirst10Row?.age)
+    ? lowestBalanceFirst10Row.age
+    : null;
+  const yearsAboveFivePctWdRateFirst10Years = early.filter(
+    r => Number.isFinite(r.wdRate) && r.wdRate > 5
+  ).length;
 
   // Damage window — longest run of retirement years the cumulative return sat
-  // below its retirement-day level. (Same definition the Sequencing prints use.)
+  // below its retirement-day level. Market recovery uses this same real-return
+  // index, so planned withdrawals cannot create a false "Never" result.
   let g = 1, cur = 0, underwaterSpellMax = 0;
+  let marketRecoveryStarted = false;
+  let marketRecoveryYears = 0;
+  let marketRecoveryPeriodStatus = null;
+  let marketRecoveryPeriodYears = null;
+  let marketRecoveryAge = null;
   for(const r of retRows){
     g *= (1 + r.returnRate);
-    if(g < 1){ cur++; if(cur > underwaterSpellMax) underwaterSpellMax = cur; }
-    else cur = 0;
+    if(g < 1 - 1e-12){
+      cur++;
+      if(cur > underwaterSpellMax) underwaterSpellMax = cur;
+      if(!marketRecoveryStarted){
+        marketRecoveryStarted = true;
+        marketRecoveryYears = 1;
+      }else if(marketRecoveryPeriodStatus !== 'recovered'){
+        marketRecoveryYears += 1;
+      }
+    }else{
+      cur = 0;
+      if(marketRecoveryStarted && marketRecoveryPeriodStatus !== 'recovered'){
+        marketRecoveryPeriodStatus = 'recovered';
+        marketRecoveryPeriodYears = marketRecoveryYears;
+        marketRecoveryAge = Number.isFinite(r.age) ? r.age : null;
+      }
+    }
+  }
+  const lastMarketEvidenceAge = Number.isFinite(retRows.at(-1)?.age)
+    ? retRows.at(-1).age
+    : null;
+  const marketEvidenceReachesFullRetirementHorizon = Number.isFinite(marketEvidencePlanEndAge)
+    && Number.isFinite(lastMarketEvidenceAge)
+    && lastMarketEvidenceAge >= marketEvidencePlanEndAge;
+  // A recovery observed before a later funding failure remains valid. Open or
+  // never-started spells need market evidence through the retirement horizon.
+  if(marketRecoveryPeriodStatus !== 'recovered'){
+    if(!marketEvidenceReachesFullRetirementHorizon){
+      marketRecoveryPeriodStatus = 'not-observed';
+      marketRecoveryPeriodYears = null;
+      marketRecoveryAge = null;
+    }else if(!marketRecoveryStarted){
+      marketRecoveryPeriodStatus = 'no-dip';
+      marketRecoveryPeriodYears = 0;
+    }else{
+      marketRecoveryPeriodStatus = 'never';
+    }
   }
 
   // Real-portfolio stress — balances in the Projection Engine are already in
@@ -278,13 +343,6 @@ export function pathDigest(sim, params){
   // conservative, zero-return runway at the final modeled gross portfolio
   // draw. Failed paths instead report the exact number of plan years missed.
   // A zero final draw is not treated as infinite runway.
-  const resolvedPlanEndAges = [
-    params?.people?.client?.planEndAgeOnPrimaryTimeline,
-    params?.people?.spouse?.planEndAgeOnPrimaryTimeline,
-  ].filter(Number.isFinite);
-  const planEndAge = resolvedPlanEndAges.length > 0
-    ? Math.max(...resolvedPlanEndAges)
-    : (Number.isFinite(rows.at(-1)?.age) ? rows.at(-1).age : null);
   const firstUnderfundedRow = retRows.find(r => (
     (Number.isFinite(r.fundingShortfall) && r.fundingShortfall > 0.01)
       || r.failed === true
@@ -371,7 +429,13 @@ export function pathDigest(sim, params){
     avgWdRate, peakWdRate, peakWdAge,
     earlyWindowYears: early.length,
     negEarlyYears,
+    lowestRealBalanceFirst10Years,
+    lowestRealBalanceFirst10Age,
+    yearsAboveFivePctWdRateFirst10Years,
     underwaterSpellMax,
+    marketRecoveryPeriodStatus,
+    marketRecoveryPeriodYears,
+    marketRecoveryAge,
     portfolioStartingRealBalance,
     maxRealDrawdownPct,
     maxRealDrawdownTroughAge,

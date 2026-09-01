@@ -20,6 +20,7 @@ export async function readHistoricalPeriod({
     const rows = [...document.querySelectorAll('#scn-view .cf-row')].map((row, index) => ({
       planYear: index + 1,
       age: Number(row.dataset.age),
+      livingAge: row.dataset.livingAge === '' ? null : Number(row.dataset.livingAge),
       year: Number(row.querySelector('.cf-row__year')?.textContent.trim()),
       phase: row.dataset.phase || '',
       sourceYear: row.dataset.sourceYear === '' ? null : Number(row.dataset.sourceYear),
@@ -27,6 +28,7 @@ export async function readHistoricalPeriod({
       endingBalance: Number(row.dataset.endingBalance),
       withdrawal: Number(row.dataset.withdrawal),
       wdRate: Number(row.dataset.wdRate),
+      returnRate: Number(row.dataset.returnRate),
       shortfall: Number(row.dataset.fundingShortfall),
       endingText: row.querySelector('.cf-cell--ending')?.textContent.trim() || ''
     }));
@@ -121,6 +123,10 @@ export async function readHistoricalPeriod({
         typicalPathAge: metric.dataset.typicalPathAge === undefined ? null : Number(metric.dataset.typicalPathAge),
         thisPathRecoveryStatus: metric.dataset.thisPathRecoveryStatus || '',
         typicalPathRecoveryStatus: metric.dataset.typicalPathRecoveryStatus || '',
+        thisPathRecoveryAge: metric.dataset.thisPathRecoveryAge === undefined ? null : Number(metric.dataset.thisPathRecoveryAge),
+        typicalPathRecoveryAge: metric.dataset.typicalPathRecoveryAge === undefined ? null : Number(metric.dataset.typicalPathRecoveryAge),
+        thisPathWindowYears: metric.dataset.thisPathWindowYears === undefined ? null : Number(metric.dataset.thisPathWindowYears),
+        typicalPathWindowYears: metric.dataset.typicalPathWindowYears === undefined ? null : Number(metric.dataset.typicalPathWindowYears),
         thisPathMargin: metric.dataset.thisPathMargin === undefined ? null : Number(metric.dataset.thisPathMargin),
         typicalPathMargin: metric.dataset.typicalPathMargin === undefined ? null : Number(metric.dataset.typicalPathMargin),
         marginDelta: metric.dataset.marginDelta === undefined ? null : Number(metric.dataset.marginDelta),
@@ -248,7 +254,7 @@ export async function readHistoricalPeriod({
         sentenceDeltaCopy: /(?:Dips|Recovers|less|more|Lasts just|Comparison unavailable)/i.test(rail.textContent || ''),
         oldSummaryCount: document.querySelectorAll('#scn-view .cf-summary--historical, #scn-view .cf-comparison').length,
         extraHeadingCount: rail.querySelectorAll('h1,h2,h3,h4,h5,h6').length,
-        extraQualifierCopy: /(?:·\s*age|no trough|WD rate|margin)/i.test(rail.textContent || ''),
+        extraQualifierCopy: /(?:no trough|margin)/i.test(rail.textContent || ''),
         deltaPillCount: rail.querySelectorAll('[class*="pill"], [data-computed-delta]').length
       } : null,
       probability: /Probability of success/i.test(summary?.textContent || ''),

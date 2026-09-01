@@ -309,16 +309,18 @@ test('underfunded historical Cash Flow keeps the path rail traceable to engine m
         kind: 'historical',
         outcome: 'underfunded',
         rows: [{
-          id: 'max-real-drawdown', label: 'Max real drawdown', format: 'drawdown',
-          thisPath: 100, typicalPath: 35.2, delta: -64.8,
-          thisPathAge: 89, typicalPathAge: 74,
+          id: 'lowest-balance-first-10-years', label: 'Lowest balance · first 10 yrs', format: 'money',
+          thisPath: 200_000, typicalPath: 1_900_000, delta: -1_700_000,
+          thisPathAge: 80, typicalPathAge: 74,
         }, {
-          id: 'years-above-6-wd-rate', label: 'Years above 6% WD rate', format: 'years',
+          id: 'early-withdrawal-pressure', label: 'WD rate above 5% · first 10 yrs', format: 'early-withdrawal-pressure',
           thisPath: 8, typicalPath: 2, delta: 6,
+          thisPathWindowYears: 10, typicalPathWindowYears: 10,
         }, {
-          id: 'recovery-period', label: 'Recovery period', format: 'recovery',
+          id: 'recovery-period', label: 'Market recovery', format: 'recovery',
           thisPath: null, typicalPath: 5, delta: null,
-          thisPathRecoveryStatus: 'never', typicalPathRecoveryStatus: 'recovered',
+          thisPathRecoveryStatus: 'not-observed', typicalPathRecoveryStatus: 'recovered',
+          thisPathRecoveryAge: null, typicalPathRecoveryAge: 90,
         }, {
           id: 'balance-at-age-80', label: 'Real balance at age 80', format: 'money',
           thisPath: 620_000, typicalPath: 1_900_000, delta: -1_280_000,
@@ -355,27 +357,30 @@ test('underfunded historical Cash Flow keeps the path rail traceable to engine m
   assert.match(html, /cf-path-rail__selected-period-year">1973<\/span> · <span class="cf-path-rail__selected-period-name">Stagflation<\/span>/);
   assert.ok(
     html.indexOf('data-cash-path-selected-period="historical-1973"')
-      < html.indexOf('data-historical-metric="max-real-drawdown"')
+      < html.indexOf('data-historical-metric="lowest-balance-first-10-years"')
   );
-  assert.equal((html.match(/data-path-reference-metric=/g) || []).length, 4);
-  assert.equal((html.match(/data-historical-metric=/g) || []).length, 4);
+  assert.equal((html.match(/data-path-reference-metric=/g) || []).length, 5);
+  assert.equal((html.match(/data-historical-metric=/g) || []).length, 5);
   assert.match(html, /Typical path/);
-  assert.match(html, /Max Drawdown[\s\S]*−35\.2%/);
-  assert.match(html, /Max Drawdown[\s\S]*−100\.0%[\s\S]*−64\.8 pts/);
-  assert.match(html, /Recovery period[\s\S]*5 yrs/);
-  assert.match(html, /data-historical-metric="recovery-period"[\s\S]*>Never<[\s\S]*cf-path-rail__delta--negative"><\/div>/);
+  assert.match(html, /Lowest balance · first 10 yrs[\s\S]*\$1\.9M/);
+  assert.match(html, /Lowest balance · first 10 yrs[\s\S]*\$200K[\s\S]*−\$1\.7M/);
+  assert.match(html, /WD rate above 5% · first 10 yrs[\s\S]*2 of 10 yrs/);
+  assert.match(html, /WD rate above 5% · first 10 yrs[\s\S]*8 of 10 yrs[\s\S]*\+6 yrs/);
+  assert.match(html, /Market recovery[\s\S]*5 yrs · age 90/);
+  assert.match(html, /data-historical-metric="recovery-period"[\s\S]*>Not observed<[\s\S]*cf-path-rail__delta--muted"><\/div>/);
   assert.match(html, /Savings left at age 80[\s\S]*\$1\.9M/);
   assert.match(html, /Savings left at age 80[\s\S]*\$620K[\s\S]*−\$1\.28M/);
   assert.match(html, /Money lasts through[\s\S]*Age 95/);
   assert.match(html, /Money lasts through[\s\S]*Age 88[\s\S]*−7 yrs/);
   assert.equal((html.match(/data-delta-tone="negative"/g) || []).length, 4);
+  assert.equal((html.match(/data-delta-tone="muted"/g) || []).length, 1);
   assert.match(html, /class="cf-path-rail__selected" data-cash-path-selected/);
-  assert.doesNotMatch(html, /Years above 6% WD rate|Deepest dip in savings|Years below starting balance|Max real drawdown|Underwater duration|Real balance at age 80|Funded through · margin/);
+  assert.doesNotMatch(html, /Max Drawdown|Years above 6% WD rate|Deepest dip in savings|Years below starting balance|Max real drawdown|Underwater duration|Real balance at age 80|Funded through · margin/);
   assert.doesNotMatch(html, /cf-summary--historical|cf-comparison|role="columnheader"|role="rowheader"|role="cell"/);
-  assert.doesNotMatch(html, /Dips |Recovers | less| more|Lasts | · age | · no trough|computed-delta|delta-pill/);
+  assert.doesNotMatch(html, /Dips |Recovers | less| more|Lasts | · no trough|computed-delta|delta-pill/);
   assert.match(html, /cf-cell cf-cell--ending[^>]*><span>Underfunded<\/span>/);
   assert.doesNotMatch(html, /modeled shortfall|Short \$5,000/);
-  assert.doesNotMatch(html, /Early withdrawal pressure|Median withdrawal rate|Ending portfolio|Portfolio at age|First underfunded age|Ending position/);
+  assert.doesNotMatch(html, /Median withdrawal rate|Ending portfolio|Portfolio at age|First underfunded age|Ending position/);
   assert.doesNotMatch(html, /Probability of success/);
   assert.doesNotMatch(html, /Median Ending/);
   assert.doesNotMatch(html, /Federal tax scope|data-tax-scope-disclosure/);
@@ -424,16 +429,18 @@ test('surviving historical Cash Flow renders the Option 3a reference fixture in 
         kind: 'historical',
         outcome: 'survives',
         rows: [{
-          id: 'max-real-drawdown', label: 'Max real drawdown', format: 'drawdown',
-          thisPath: 36.5, typicalPath: 31.7, delta: -4.8,
+          id: 'lowest-balance-first-10-years', label: 'Lowest balance · first 10 yrs', format: 'money',
+          thisPath: 7_990_000, typicalPath: 9_810_000, delta: -1_820_000,
           thisPathAge: 72, typicalPathAge: null,
         }, {
-          id: 'years-above-6-wd-rate', label: 'Years above 6% WD rate', format: 'years',
+          id: 'early-withdrawal-pressure', label: 'WD rate above 5% · first 10 yrs', format: 'early-withdrawal-pressure',
           thisPath: 4, typicalPath: 1, delta: 3,
+          thisPathWindowYears: 10, typicalPathWindowYears: 10,
         }, {
-          id: 'recovery-period', label: 'Recovery period', format: 'recovery',
+          id: 'recovery-period', label: 'Market recovery', format: 'recovery',
           thisPath: 8, typicalPath: 2, delta: 6,
           thisPathRecoveryStatus: 'recovered', typicalPathRecoveryStatus: 'recovered',
+          thisPathRecoveryAge: 80, typicalPathRecoveryAge: 70,
         }, {
           id: 'balance-at-age-80', label: 'Real balance at age 80', format: 'money',
           thisPath: 7_990_000, typicalPath: 9_810_000, delta: -1_820_000,
@@ -465,49 +472,53 @@ test('surviving historical Cash Flow renders the Option 3a reference fixture in 
   assert.match(html, /cf-path-rail__selected-period-year">1966<\/span> · <span class="cf-path-rail__selected-period-name">Lost Decade<\/span>/);
   assert.ok(
     html.indexOf('data-cash-path-selected-period="historical-1966"')
-      < html.indexOf('data-historical-metric="max-real-drawdown"')
+      < html.indexOf('data-historical-metric="lowest-balance-first-10-years"')
   );
-  assert.equal((html.match(/data-path-reference-metric=/g) || []).length, 4);
-  assert.equal((html.match(/data-historical-metric=/g) || []).length, 4);
+  assert.equal((html.match(/data-path-reference-metric=/g) || []).length, 5);
+  assert.equal((html.match(/data-historical-metric=/g) || []).length, 5);
   const labels = [...html.matchAll(/class="cf-path-rail__(?:reference-label|metric-name)">([^<]+)/g)]
     .map(match => match[1]);
   assert.deepEqual(labels, [
-    'Max Drawdown',
-    'Recovery period',
+    'Lowest balance · first 10 yrs',
+    'WD rate above 5% · first 10 yrs',
+    'Market recovery',
     'Savings left at age 80',
     'Money lasts through',
-    'Max Drawdown',
-    'Recovery period',
+    'Lowest balance · first 10 yrs',
+    'WD rate above 5% · first 10 yrs',
+    'Market recovery',
     'Savings left at age 80',
     'Money lasts through',
   ]);
-  assert.match(html, /Typical path[\s\S]*−31\.7%[\s\S]*2 yrs[\s\S]*\$9\.81M[\s\S]*Age 95/);
-  assert.match(html, /−36\.5%[\s\S]*−4\.8 pts/);
-  assert.match(html, /8 yrs[\s\S]*\+6 yrs/);
+  assert.match(html, /Typical path[\s\S]*\$9\.81M[\s\S]*1 of 10 yrs[\s\S]*2 yrs · age 70[\s\S]*\$9\.81M[\s\S]*Age 95/);
+  assert.match(html, /4 of 10 yrs[\s\S]*\+3 yrs/);
+  assert.match(html, /8 yrs · age 80[\s\S]*\+6 yrs/);
   assert.match(html, /\$7\.99M[\s\S]*−\$1\.82M/);
   assert.match(html, /Age 95[\s\S]*Same/);
-  assert.equal((html.match(/data-delta-tone="negative"/g) || []).length, 3);
+  assert.equal((html.match(/data-delta-tone="negative"/g) || []).length, 4);
   assert.equal((html.match(/data-delta-tone="muted"/g) || []).length, 1);
   assert.doesNotMatch(html, /cf-path-rail__delta--positive|var\(--pos\)/);
-  assert.doesNotMatch(html, /Years above 6% WD rate|cf-summary--historical|cf-comparison|This path|>Delta</);
+  assert.doesNotMatch(html, /Max Drawdown|Years above 6% WD rate|cf-summary--historical|cf-comparison|This path|>Delta</);
   assert.doesNotMatch(html, /Median withdrawal rate|Ending portfolio|Peak withdrawal rate/);
-  assert.doesNotMatch(html, /Funded through plan end|Through age 70|age 68|Plan funding|Ending position| · age | · no trough/);
+  assert.doesNotMatch(html, /Funded through plan end|Through age 70|age 68|Plan funding|Ending position| · no trough/);
   assert.doesNotMatch(html, /Probability of success|Median Ending|modeled shortfall|Federal tax scope|data-tax-scope-disclosure/);
 
   const nearZeroRows = [
     {
-      id: 'max-real-drawdown', label: 'Max real drawdown', format: 'drawdown',
-      thisPath: 31.74, typicalPath: 31.66, delta: -0.08,
+      id: 'lowest-balance-first-10-years', label: 'Lowest balance · first 10 yrs', format: 'money',
+      thisPath: 9_809_999.6, typicalPath: 9_810_000, delta: -0.4,
       thisPathAge: 72, typicalPathAge: 72,
     },
     {
-      id: 'years-above-6-wd-rate', label: 'Years above 6% WD rate', format: 'years',
+      id: 'early-withdrawal-pressure', label: 'WD rate above 5% · first 10 yrs', format: 'early-withdrawal-pressure',
       thisPath: 1, typicalPath: 1, delta: 0,
+      thisPathWindowYears: 10, typicalPathWindowYears: 10,
     },
     {
-      id: 'recovery-period', label: 'Recovery period', format: 'recovery',
+      id: 'recovery-period', label: 'Market recovery', format: 'recovery',
       thisPath: 2, typicalPath: 2, delta: 0,
       thisPathRecoveryStatus: 'recovered', typicalPathRecoveryStatus: 'recovered',
+      thisPathRecoveryAge: 70, typicalPathRecoveryAge: 70,
     },
     {
       id: 'balance-at-age-80', label: 'Real balance at age 80', format: 'money',
@@ -548,7 +559,7 @@ test('surviving historical Cash Flow renders the Option 3a reference fixture in 
     cfCols: ['Year', 'Age', 'Income', 'RMD', 'Essential', 'Goals', 'Tax', 'Draw', 'Return', 'WD Rate', 'Ending'],
   });
   const nearZeroHtml = renderMetricRows(nearZeroRows);
-  assert.equal((nearZeroHtml.match(/>Same<\/div>/g) || []).length, 4);
+  assert.equal((nearZeroHtml.match(/>Same<\/div>/g) || []).length, 5);
   assert.doesNotMatch(nearZeroHtml, /0\.0 pts|[−+]\$0/);
 
   const bothNeverHtml = renderMetricRows(nearZeroRows.map(metric => (
@@ -560,11 +571,27 @@ test('surviving historical Cash Flow renders the Option 3a reference fixture in 
           delta: 0,
           thisPathRecoveryStatus: 'never',
           typicalPathRecoveryStatus: 'never',
+          thisPathRecoveryAge: null,
+          typicalPathRecoveryAge: null,
         }
       : metric
   )));
   assert.match(bothNeverHtml, /data-path-reference-metric="recovery-period"[\s\S]*>Never</);
   assert.match(bothNeverHtml, /data-historical-metric="recovery-period"[\s\S]*>Never<[\s\S]*>Same<\/div>/);
+
+  const truncatedRecoveryHtml = renderMetricRows(nearZeroRows.map(metric => (
+    metric.id === 'recovery-period'
+      ? {
+          ...metric,
+          thisPath: null,
+          delta: null,
+          thisPathRecoveryStatus: 'not-observed',
+          thisPathRecoveryAge: null,
+        }
+      : metric
+  )));
+  assert.match(truncatedRecoveryHtml, /data-path-reference-metric="recovery-period"[\s\S]*>2 yrs · age 70</);
+  assert.match(truncatedRecoveryHtml, /data-historical-metric="recovery-period"[\s\S]*>Not observed<[\s\S]*cf-path-rail__delta--muted"><\/div>/);
 });
 
 test('Cash Flow comparison money formatter uses deterministic dollars, K, and M bands', () => {

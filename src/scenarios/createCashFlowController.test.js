@@ -35,12 +35,13 @@ function buildRows(selected, { plan, currentYear = 2026 } = {}){
 
 function cashFlowDigest(overrides = {}){
   return {
-    maxRealDrawdownPct: 10,
-    maxRealDrawdownTroughAge: 66,
-    yearsAboveSixPctWdRate: 0,
-    portfolioUnderwaterYearsMax: 1,
-    portfolioRecoveryPeriodStatus: 'recovered',
-    portfolioRecoveryPeriodYears: 1,
+    lowestRealBalanceFirst10Years: 600_000,
+    lowestRealBalanceFirst10Age: 66,
+    yearsAboveFivePctWdRateFirst10Years: 0,
+    earlyWindowYears: 2,
+    marketRecoveryPeriodStatus: 'recovered',
+    marketRecoveryPeriodYears: 1,
+    marketRecoveryAge: 66,
     realBalanceAtAge80: null,
     fundedThroughAge: 66,
     planEndAge: 66,
@@ -318,10 +319,12 @@ test('historical Cash Flow attaches the comparison contract to the same ledger r
       {
         year: 1, age: 65, phase: 'ret', source: 1995, startBalance: 750_000,
         balance: 700_000, fundingShortfall: 0, failed: false, wdRate: 4, taxes: 0,
+        people: { client: { age: 65, alive: true }, spouse: null },
       },
       {
         year: 2, age: 66, phase: 'ret', source: 1996, startBalance: 700_000,
         balance: 600_000, fundingShortfall: 0, failed: false, wdRate: 5, taxes: 0,
+        people: { client: { age: 66, alive: true }, spouse: null },
       },
     ],
   };
@@ -340,18 +343,23 @@ test('historical Cash Flow attaches the comparison contract to the same ledger r
   };
   const cases = [{
     summary: { outcome: 'survives', endingBalance: 650_000 },
-    digest: cashFlowDigest({ maxRealDrawdownPct: 12 }),
+    digest: cashFlowDigest({
+      lowestRealBalanceFirst10Years: 650_000,
+      earlyWindowYears: 1,
+    }),
     rows: [{
       year: 2, age: 66, phase: 'ret', source: 1974, startBalance: 690_000,
       balance: 650_000, fundingShortfall: 0, failed: false, wdRate: 4.2, taxes: 0,
+      people: { client: { age: 66, alive: true }, spouse: null },
     }],
     expectedOutcome: 'survives',
-    expectedMetric: 'max-real-drawdown',
-    expectedDelta: -2,
+    expectedMetric: 'lowest-balance-first-10-years',
+    expectedDelta: 50_000,
   }, {
     summary: { outcome: 'underfunded' },
     digest: cashFlowDigest({
-      maxRealDrawdownPct: 100,
+      lowestRealBalanceFirst10Years: 50_000,
+      lowestRealBalanceFirst10Age: 65,
       fundedThroughAge: 65,
       fundingMarginYears: -1,
       fundingMarginKind: 'years-short',
@@ -359,14 +367,15 @@ test('historical Cash Flow attaches the comparison contract to the same ledger r
     rows: [{
       year: 1, age: 65, phase: 'ret', source: 1973, startBalance: 90_000,
       balance: 50_000, fundingShortfall: 0, failed: false, wdRate: 6, taxes: 0,
+      people: { client: { age: 65, alive: true }, spouse: null },
     }, {
       year: 2, age: 66, phase: 'ret', source: 1974, startBalance: 50_000,
       balance: 0, fundingShortfall: 20_000, failed: true, wdRate: 100, taxes: 0,
       people: { client: { age: 66, alive: true }, spouse: null },
     }],
     expectedOutcome: 'underfunded',
-    expectedMetric: 'max-real-drawdown',
-    expectedDelta: -90,
+    expectedMetric: 'lowest-balance-first-10-years',
+    expectedDelta: -550_000,
   }];
 
   for(const entry of cases){

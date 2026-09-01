@@ -12,7 +12,7 @@ export async function verifyUnderfundedMatrix({
       simIndex: 7,
       rows: [{
         year: 1,
-        age: 65,
+        age: 95,
         phase: 'ret',
         source: 1995,
         startBalance: 700000,
@@ -21,10 +21,11 @@ export async function verifyUnderfundedMatrix({
         fundingShortfall: 0,
         failed: false,
         wdRate: 4,
-        taxes: 0
+        taxes: 0,
+        people: { client: { age: 95, alive: true }, spouse: { age: 92, alive: true } }
       }, {
         year: 2,
-        age: 66,
+        age: 98,
         phase: 'ret',
         source: 1996,
         startBalance: 650000,
@@ -33,12 +34,13 @@ export async function verifyUnderfundedMatrix({
         fundingShortfall: 0,
         failed: false,
         wdRate: 5,
-        taxes: 0
+        taxes: 0,
+        people: { client: { age: 98, alive: false }, spouse: { age: 95, alive: true } }
       }]
     };
     const historicalRows = [{
       year: 1,
-      age: 65,
+      age: 95,
       phase: 'ret',
       source: 1973,
       startBalance: 90000,
@@ -46,10 +48,11 @@ export async function verifyUnderfundedMatrix({
       fundingShortfall: 0,
       failed: false,
       wdRate: 6,
-      taxes: 0
+      taxes: 0,
+      people: { client: { age: 95, alive: true }, spouse: { age: 92, alive: true } }
     }, {
       year: 2,
-      age: 66,
+      age: 96,
       phase: 'ret',
       source: 1974,
       startBalance: 50000,
@@ -60,10 +63,13 @@ export async function verifyUnderfundedMatrix({
       taxes: 0,
       people: {
         client: {
-          age: 66,
-          alive: true
+          age: 96,
+          alive: false
         },
-        spouse: null
+        spouse: {
+          age: 93,
+          alive: true
+        }
       }
     }];
     const scenario = {
@@ -99,16 +105,17 @@ export async function verifyUnderfundedMatrix({
         outcome: 'underfunded'
       },
       digest: {
-        maxRealDrawdownPct: 100,
-        maxRealDrawdownTroughAge: 66,
-        yearsAboveSixPctWdRate: 1,
-        portfolioUnderwaterYearsMax: 2,
-        portfolioRecoveryPeriodStatus: 'never',
-        portfolioRecoveryPeriodYears: null,
+        lowestRealBalanceFirst10Years: 0,
+        lowestRealBalanceFirst10Age: 96,
+        yearsAboveFivePctWdRateFirst10Years: 2,
+        earlyWindowYears: 2,
+        marketRecoveryPeriodStatus: 'not-observed',
+        marketRecoveryPeriodYears: null,
+        marketRecoveryAge: null,
         realBalanceAtAge80: null,
-        fundedThroughAge: 65,
-        planEndAge: 66,
-        fundingMarginYears: -1,
+        fundedThroughAge: 95,
+        planEndAge: 98,
+        fundingMarginYears: -3,
         fundingMarginKind: 'years-short'
       },
       taxScope: 'MODELED_FEDERAL_LINE_24'
@@ -116,6 +123,9 @@ export async function verifyUnderfundedMatrix({
     const buildRows = simulation => simulation.rows.map(row => ({
       year: 2025 + row.year,
       age: row.age,
+      livingAge: Math.max(...[row.people?.client, row.people?.spouse]
+        .filter(person => person?.alive === true)
+        .map(person => person.age)),
       sourceYear: row.source,
       accum: row.phase === 'accum',
       ret: 0,
@@ -148,15 +158,16 @@ export async function verifyUnderfundedMatrix({
       },
       buildRows,
       digest: () => ({
-        maxRealDrawdownPct: 7.142857142857143,
-        maxRealDrawdownTroughAge: 65,
-        yearsAboveSixPctWdRate: 0,
-        portfolioUnderwaterYearsMax: 1,
-        portfolioRecoveryPeriodStatus: 'recovered',
-        portfolioRecoveryPeriodYears: 1,
+        lowestRealBalanceFirst10Years: 650000,
+        lowestRealBalanceFirst10Age: 95,
+        yearsAboveFivePctWdRateFirst10Years: 0,
+        earlyWindowYears: 2,
+        marketRecoveryPeriodStatus: 'recovered',
+        marketRecoveryPeriodYears: 1,
+        marketRecoveryAge: 98,
         realBalanceAtAge80: null,
-        fundedThroughAge: 66,
-        planEndAge: 66,
+        fundedThroughAge: 98,
+        planEndAge: 98,
         fundingMarginYears: 18.46153846153846,
         fundingMarginKind: 'zero-return-runway'
       })
@@ -215,6 +226,18 @@ export async function verifyUnderfundedMatrix({
           deltaHeight: delta?.getBoundingClientRect().height ?? 0
         };
       };
+      const readFunding = () => {
+        const funding = host.querySelector('[data-historical-metric="funded-through-margin"]');
+        const fundingReference = host.querySelector('[data-path-reference-metric="funded-through-margin"]');
+        return {
+          reference: fundingReference?.querySelector('.cf-path-rail__reference-value')?.textContent.trim() || '',
+          figure: funding?.querySelector('.cf-path-rail__figure')?.textContent.trim() || '',
+          delta: funding?.querySelector('.cf-path-rail__delta')?.textContent.trim() || '',
+          planEndAge: Number(funding?.dataset.planEndAge),
+          thisPath: Number(funding?.dataset.thisPath),
+          typicalPath: Number(funding?.dataset.typicalPath)
+        };
+      };
       renderSelected(selected);
       const summary = host.querySelector('[data-cash-path-metrics]');
       const probe = document.createElement('span');
@@ -223,6 +246,7 @@ export async function verifyUnderfundedMatrix({
       const expectedColor = getComputedStyle(probe).color;
       probe.remove();
       const recovery = readRecovery();
+      const funding = readFunding();
       renderSelected({
         ...selected,
         headerMetrics: {
@@ -233,7 +257,9 @@ export async function verifyUnderfundedMatrix({
             typicalPath: null,
             delta: null,
             thisPathRecoveryStatus: 'no-dip',
-            typicalPathRecoveryStatus: 'never'
+            typicalPathRecoveryStatus: 'not-observed',
+            thisPathRecoveryAge: null,
+            typicalPathRecoveryAge: null
           } : metric)
         }
       });
@@ -246,7 +272,10 @@ export async function verifyUnderfundedMatrix({
         statusColor: getComputedStyle(status).color,
         expectedColor,
         recovery,
-        reverseRecovery
+        reverseRecovery,
+        funding,
+        rawTypicalTerminalAge: typicalSimulation.rows.at(-1).age,
+        rawHistoricalFundedThroughAge: historical.digest.fundedThroughAge
       };
     } finally {
       host.remove();
@@ -255,7 +284,7 @@ export async function verifyUnderfundedMatrix({
       liveStatus.id = 'cashflow-path-status';
     }
   });
-  if (underfundedMatrixProof.outcome !== 'underfunded' || JSON.stringify(underfundedMatrixProof.metrics) !== JSON.stringify(['max-real-drawdown', 'recovery-period', 'balance-at-age-80', 'funded-through-margin']) || underfundedMatrixProof.recovery.reference !== '1 yr' || underfundedMatrixProof.recovery.figure !== 'Never' || underfundedMatrixProof.recovery.delta !== '' || underfundedMatrixProof.recovery.tone !== 'negative' || underfundedMatrixProof.recovery.referenceFontSize !== '15px' || underfundedMatrixProof.recovery.figureFontSize !== '24px' || underfundedMatrixProof.recovery.deltaMinHeight !== '12px' || underfundedMatrixProof.recovery.deltaHeight < 12 || underfundedMatrixProof.reverseRecovery.reference !== 'Never' || underfundedMatrixProof.reverseRecovery.figure !== '0 yrs' || underfundedMatrixProof.reverseRecovery.delta !== '' || underfundedMatrixProof.reverseRecovery.tone !== 'muted' || underfundedMatrixProof.reverseRecovery.referenceFontSize !== '15px' || underfundedMatrixProof.reverseRecovery.figureFontSize !== '24px' || underfundedMatrixProof.reverseRecovery.deltaMinHeight !== '12px' || underfundedMatrixProof.reverseRecovery.deltaHeight < 12 || underfundedMatrixProof.glyph !== '!' || !/is-underfunded/.test(underfundedMatrixProof.statusClass) || underfundedMatrixProof.statusColor !== underfundedMatrixProof.expectedColor) {
+  if (underfundedMatrixProof.outcome !== 'underfunded' || JSON.stringify(underfundedMatrixProof.metrics) !== JSON.stringify(['lowest-balance-first-10-years', 'early-withdrawal-pressure', 'recovery-period', 'balance-at-age-80', 'funded-through-margin']) || underfundedMatrixProof.recovery.reference !== '1 yr · age 95' || underfundedMatrixProof.recovery.figure !== 'Not observed' || underfundedMatrixProof.recovery.delta !== '' || underfundedMatrixProof.recovery.tone !== 'muted' || underfundedMatrixProof.recovery.referenceFontSize !== '15px' || underfundedMatrixProof.recovery.figureFontSize !== '24px' || underfundedMatrixProof.recovery.deltaMinHeight !== '12px' || underfundedMatrixProof.recovery.deltaHeight < 12 || underfundedMatrixProof.reverseRecovery.reference !== 'Not observed' || underfundedMatrixProof.reverseRecovery.figure !== '0 yrs' || underfundedMatrixProof.reverseRecovery.delta !== '' || underfundedMatrixProof.reverseRecovery.tone !== 'muted' || underfundedMatrixProof.reverseRecovery.referenceFontSize !== '15px' || underfundedMatrixProof.reverseRecovery.figureFontSize !== '24px' || underfundedMatrixProof.reverseRecovery.deltaMinHeight !== '12px' || underfundedMatrixProof.reverseRecovery.deltaHeight < 12 || underfundedMatrixProof.funding.reference !== 'Age 95' || underfundedMatrixProof.funding.figure !== 'Age 92' || underfundedMatrixProof.funding.delta !== '\u22123 yrs' || underfundedMatrixProof.funding.planEndAge !== 95 || underfundedMatrixProof.funding.thisPath !== 92 || underfundedMatrixProof.funding.typicalPath !== 95 || underfundedMatrixProof.rawTypicalTerminalAge !== 98 || underfundedMatrixProof.rawHistoricalFundedThroughAge !== 95 || underfundedMatrixProof.glyph !== '!' || !/is-underfunded/.test(underfundedMatrixProof.statusClass) || underfundedMatrixProof.statusColor !== underfundedMatrixProof.expectedColor) {
     throw new Error(`controlled underfunded Historical matrix is incomplete: ${JSON.stringify(underfundedMatrixProof)}`);
   }
   observedHistoricalOutcomes.add(underfundedMatrixProof.outcome);

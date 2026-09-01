@@ -31,12 +31,13 @@ function row({
 
 function digest(overrides = {}){
   return {
-    maxRealDrawdownPct: 18.4,
-    maxRealDrawdownTroughAge: 74,
-    yearsAboveSixPctWdRate: 1,
-    portfolioUnderwaterYearsMax: 3,
-    portfolioRecoveryPeriodStatus: 'recovered',
-    portfolioRecoveryPeriodYears: 3,
+    lowestRealBalanceFirst10Years: 1_600_000,
+    lowestRealBalanceFirst10Age: 74,
+    yearsAboveFivePctWdRateFirst10Years: 1,
+    earlyWindowYears: 10,
+    marketRecoveryPeriodStatus: 'recovered',
+    marketRecoveryPeriodYears: 3,
+    marketRecoveryAge: 77,
     realBalanceAtAge80: 1_600_000,
     fundedThroughAge: 95,
     planEndAge: 95,
@@ -46,11 +47,37 @@ function digest(overrides = {}){
   };
 }
 
-function historicalResult(outcome, pathDigest){
+function singlePersonSimulation(...ages){
+  const modeledAges = [...new Set(ages.length > 0 ? ages : [77, 95])].sort((a, b) => a - b);
+  return {
+    rows: modeledAges.map((age, index) => (
+      row({
+        year: index + 1,
+        age,
+        people: {
+          client: { age, alive: true },
+          spouse: null,
+        },
+      })
+    )),
+  };
+}
+
+function historicalResult(
+  outcome,
+  pathDigest,
+  simulation = singlePersonSimulation(
+    ...[
+      pathDigest.marketRecoveryPeriodStatus === 'recovered' ? pathDigest.marketRecoveryAge : null,
+      pathDigest.fundedThroughAge,
+    ].filter(Number.isInteger)
+  )
+){
   return {
     kind: 'historical',
     summary: { outcome },
     digest: pathDigest,
+    ...(simulation ? { simulation } : {}),
   };
 }
 
@@ -72,7 +99,7 @@ test('Typical header reports the living household plan-end age and ending positi
         }),
       ],
     },
-    typicalDigest: digest(),
+    typicalDigest: digest({ fundedThroughAge: 98, planEndAge: 98 }),
   });
 
   assert.deepEqual(metrics, {
@@ -85,11 +112,70 @@ test('Typical header reports the living household plan-end age and ending positi
   assert.equal(Object.isFrozen(metrics), true);
 });
 
+test('Historical rail translates a younger surviving spouse horizon to the living household age', () => {
+  const rawHistoricalDigest = digest({ fundedThroughAge: 98, planEndAge: 98 });
+  const rawTypicalDigest = digest({ fundedThroughAge: 98, planEndAge: 98 });
+  const jointSimulation = {
+    rows: [
+      row({
+        year: 1,
+        age: 65,
+        people: {
+          client: { age: 65, alive: true },
+          spouse: { age: 62, alive: true },
+        },
+      }),
+      row({
+        year: 13,
+        age: 77,
+        people: {
+          client: { age: 77, alive: true },
+          spouse: { age: 74, alive: true },
+        },
+      }),
+      row({
+        year: 34,
+        age: 98,
+        people: {
+          client: { age: 98, alive: false },
+          spouse: { age: 95, alive: true },
+        },
+      }),
+    ],
+  };
+
+  const metrics = buildCashFlowHeaderMetrics({
+    historicalResult: historicalResult('survives', rawHistoricalDigest, jointSimulation),
+    typicalSimulation: jointSimulation,
+    typicalDigest: rawTypicalDigest,
+  });
+  const funding = metrics.rows.find(metric => metric.id === 'funded-through-margin');
+  const recovery = metrics.rows.find(metric => metric.id === 'recovery-period');
+
+  assert.equal(funding.thisPath, 95);
+  assert.equal(funding.typicalPath, 95);
+  assert.equal(funding.planEndAge, 95);
+  assert.equal(funding.delta, 0);
+  assert.equal(recovery.thisPathRecoveryAge, 77, 'recovery keeps the oldest living age on its row');
+  assert.equal(recovery.typicalPathRecoveryAge, 77, 'Typical recovery uses the same row-local age rule');
+  assert.equal(rawHistoricalDigest.fundedThroughAge, 98, 'engine timeline remains unchanged');
+  assert.equal(rawTypicalDigest.planEndAge, 98, 'engine plan horizon remains unchanged');
+});
+
 test('underfunded Typical reports its last funded age and same-path boundary position', () => {
   const metrics = buildCashFlowHeaderMetrics({
     typicalSimulation: {
       rows: [
-        row({ year: 1, age: 65, wdRate: 4, balance: 80_000 }),
+        row({
+          year: 1,
+          age: 65,
+          wdRate: 4,
+          balance: 80_000,
+          people: {
+            client: { age: 65, alive: true },
+            spouse: null,
+          },
+        }),
         row({
           year: 2,
           age: 66,
@@ -100,6 +186,18 @@ test('underfunded Typical reports its last funded age and same-path boundary pos
           failed: true,
         }),
         row({ year: 3, age: 67, source: null, balance: 0, fundingShortfall: 0, failed: true }),
+        row({
+          year: 31,
+          age: 95,
+          source: null,
+          balance: 0,
+          fundingShortfall: 0,
+          failed: true,
+          people: {
+            client: { age: 95, alive: true },
+            spouse: null,
+          },
+        }),
       ],
     },
     typicalDigest: digest(),
@@ -109,6 +207,51 @@ test('underfunded Typical reports its last funded age and same-path boundary pos
   assert.equal(metrics.fundedThroughAge, 65);
   assert.equal(metrics.fundedThroughSupport, 'Plan underfunded');
   assert.equal(metrics.endingPosition, 0);
+});
+
+test('underfunded Typical holds the terminal spouse lens across the client-death boundary', () => {
+  const metrics = buildCashFlowHeaderMetrics({
+    typicalSimulation: {
+      rows: [
+        row({
+          year: 31,
+          age: 95,
+          balance: 80_000,
+          people: {
+            client: { age: 95, alive: true },
+            spouse: { age: 92, alive: true },
+          },
+        }),
+        row({
+          year: 32,
+          age: 96,
+          balance: 0,
+          fundingShortfall: 20_000,
+          failed: true,
+          people: {
+            client: { age: 96, alive: false },
+            spouse: { age: 93, alive: true },
+          },
+        }),
+        row({
+          year: 34,
+          age: 98,
+          source: null,
+          balance: 0,
+          fundingShortfall: 0,
+          failed: true,
+          people: {
+            client: { age: 98, alive: false },
+            spouse: { age: 95, alive: true },
+          },
+        }),
+      ],
+    },
+    typicalDigest: digest({ fundedThroughAge: 95, planEndAge: 98 }),
+  });
+
+  assert.equal(metrics.outcome, 'underfunded');
+  assert.equal(metrics.fundedThroughAge, 92);
 });
 
 test('underfunded Typical never counts accumulation as funded through retirement', () => {
@@ -125,6 +268,18 @@ test('underfunded Typical never counts accumulation as funded through retirement
           fundingShortfall: 20_000,
           failed: true,
         }),
+        row({
+          year: 31,
+          age: 95,
+          source: null,
+          balance: 0,
+          fundingShortfall: 0,
+          failed: true,
+          people: {
+            client: { age: 95, alive: true },
+            spouse: null,
+          },
+        }),
       ],
     },
     typicalDigest: digest(),
@@ -134,51 +289,56 @@ test('underfunded Typical never counts accumulation as funded through retirement
 test('Historical header exposes the fixed five-metric comparison in decision order', () => {
   const metrics = buildCashFlowHeaderMetrics({
     historicalResult: historicalResult('survives', digest({
-      maxRealDrawdownPct: 41.2,
-      maxRealDrawdownTroughAge: 72,
-      yearsAboveSixPctWdRate: 4,
-      portfolioUnderwaterYearsMax: 9,
-      portfolioRecoveryPeriodStatus: 'recovered',
-      portfolioRecoveryPeriodYears: 9,
+      lowestRealBalanceFirst10Years: 800_000,
+      lowestRealBalanceFirst10Age: 72,
+      yearsAboveFivePctWdRateFirst10Years: 4,
+      marketRecoveryPeriodStatus: 'recovered',
+      marketRecoveryPeriodYears: 9,
+      marketRecoveryAge: 81,
       realBalanceAtAge80: 800_000,
       fundingMarginYears: 5.5,
     })),
+    typicalSimulation: singlePersonSimulation(),
     typicalDigest: digest(),
   });
 
   assert.deepEqual(metrics.rows.map(metric => metric.id), [
-    'max-real-drawdown',
-    'years-above-6-wd-rate',
+    'lowest-balance-first-10-years',
+    'early-withdrawal-pressure',
     'recovery-period',
     'balance-at-age-80',
     'funded-through-margin',
   ]);
   assert.deepEqual(metrics.rows[0], {
-    id: 'max-real-drawdown',
-    label: 'Max real drawdown',
-    format: 'drawdown',
-    thisPath: 41.2,
-    typicalPath: 18.4,
-    delta: -22.800000000000004,
+    id: 'lowest-balance-first-10-years',
+    label: 'Lowest balance · first 10 yrs',
+    format: 'money',
+    thisPath: 800_000,
+    typicalPath: 1_600_000,
+    delta: -800_000,
     thisPathAge: 72,
     typicalPathAge: 74,
   });
   assert.deepEqual(metrics.rows[1], {
-    id: 'years-above-6-wd-rate',
-    label: 'Years above 6% WD rate',
-    format: 'years',
+    id: 'early-withdrawal-pressure',
+    label: 'WD rate above 5% · first 10 yrs',
+    format: 'early-withdrawal-pressure',
     thisPath: 4,
     typicalPath: 1,
+    thisPathWindowYears: 10,
+    typicalPathWindowYears: 10,
     delta: 3,
   });
   assert.deepEqual(metrics.rows[2], {
     id: 'recovery-period',
-    label: 'Recovery period',
+    label: 'Market recovery',
     format: 'recovery',
     thisPath: 9,
     typicalPath: 3,
     thisPathRecoveryStatus: 'recovered',
     typicalPathRecoveryStatus: 'recovered',
+    thisPathRecoveryAge: 81,
+    typicalPathRecoveryAge: 77,
     delta: 6,
   });
   assert.deepEqual(metrics.rows[3], {
@@ -214,17 +374,18 @@ test('Historical header exposes the fixed five-metric comparison in decision ord
 test('underfunded Historical keeps all five metrics and expresses funding margin as years short', () => {
   const metrics = buildCashFlowHeaderMetrics({
     historicalResult: historicalResult('underfunded', digest({
-      maxRealDrawdownPct: 100,
-      maxRealDrawdownTroughAge: 86,
-      yearsAboveSixPctWdRate: 7,
-      portfolioUnderwaterYearsMax: 10,
-      portfolioRecoveryPeriodStatus: 'never',
-      portfolioRecoveryPeriodYears: null,
+      lowestRealBalanceFirst10Years: 200_000,
+      lowestRealBalanceFirst10Age: 80,
+      yearsAboveFivePctWdRateFirst10Years: 7,
+      marketRecoveryPeriodStatus: 'never',
+      marketRecoveryPeriodYears: null,
+      marketRecoveryAge: null,
       realBalanceAtAge80: 200_000,
       fundedThroughAge: 85,
       fundingMarginYears: -10,
       fundingMarginKind: 'years-short',
     })),
+    typicalSimulation: singlePersonSimulation(),
     typicalDigest: digest(),
   });
 
@@ -232,12 +393,14 @@ test('underfunded Historical keeps all five metrics and expresses funding margin
   assert.equal(metrics.rows.length, 5);
   assert.deepEqual(metrics.rows[2], {
     id: 'recovery-period',
-    label: 'Recovery period',
+    label: 'Market recovery',
     format: 'recovery',
     thisPath: null,
     typicalPath: 3,
     thisPathRecoveryStatus: 'never',
     typicalPathRecoveryStatus: 'recovered',
+    thisPathRecoveryAge: null,
+    typicalPathRecoveryAge: 77,
     delta: null,
   });
   assert.deepEqual(metrics.rows[4], {
@@ -257,35 +420,202 @@ test('underfunded Historical keeps all five metrics and expresses funding margin
   });
 });
 
+test('stable terminal-survivor lens does not switch to a living client before client death', () => {
+  const historicalDigest = digest({
+    fundedThroughAge: 95,
+    planEndAge: 98,
+    fundingMarginYears: -3,
+    fundingMarginKind: 'years-short',
+    marketRecoveryPeriodStatus: 'never',
+    marketRecoveryPeriodYears: null,
+    marketRecoveryAge: null,
+  });
+  const typicalPathDigest = digest({
+    fundedThroughAge: 98,
+    planEndAge: 98,
+    marketRecoveryPeriodStatus: 'no-dip',
+    marketRecoveryPeriodYears: 0,
+    marketRecoveryAge: null,
+  });
+  const historicalSimulation = {
+    rows: [
+      row({
+        year: 31,
+        age: 95,
+        people: {
+          client: { age: 95, alive: true },
+          spouse: { age: 92, alive: true },
+        },
+      }),
+      row({
+        year: 32,
+        age: 96,
+        balance: 0,
+        fundingShortfall: 20_000,
+        failed: true,
+        people: {
+          client: { age: 96, alive: false },
+          spouse: { age: 93, alive: true },
+        },
+      }),
+    ],
+  };
+  const typicalSimulation = {
+    rows: [
+      row({
+        year: 34,
+        age: 98,
+        people: {
+          client: { age: 98, alive: false },
+          spouse: { age: 95, alive: true },
+        },
+      }),
+    ],
+  };
+
+  const metrics = buildCashFlowHeaderMetrics({
+    historicalResult: historicalResult('underfunded', historicalDigest, historicalSimulation),
+    typicalSimulation,
+    typicalDigest: typicalPathDigest,
+  });
+  const funding = metrics.rows.find(metric => metric.id === 'funded-through-margin');
+
+  assert.equal(funding.thisPath, 92);
+  assert.equal(funding.typicalPath, 95);
+  assert.equal(funding.planEndAge, 95);
+  assert.equal(funding.delta, -3);
+  assert.equal(funding.thisPathMargin, -3, 'calendar-year engine margin remains unchanged');
+  assert.equal(historicalDigest.fundedThroughAge, 95, 'raw timeline age remains unchanged');
+});
+
+test('Historical and Typical terminal recovery ages use the living spouse age', () => {
+  const historicalDigest = digest({
+    fundedThroughAge: 98,
+    planEndAge: 98,
+    marketRecoveryPeriodYears: 8,
+    marketRecoveryAge: 98,
+  });
+  const typicalPathDigest = digest({
+    fundedThroughAge: 98,
+    planEndAge: 98,
+    marketRecoveryPeriodYears: 5,
+    marketRecoveryAge: 98,
+  });
+  const jointSimulation = {
+    rows: [
+      row({
+        year: 34,
+        age: 98,
+        people: {
+          client: { age: 98, alive: false },
+          spouse: { age: 95, alive: true },
+        },
+      }),
+    ],
+  };
+
+  const recovery = buildCashFlowHeaderMetrics({
+    historicalResult: historicalResult('survives', historicalDigest, jointSimulation),
+    typicalSimulation: jointSimulation,
+    typicalDigest: typicalPathDigest,
+  }).rows.find(metric => metric.id === 'recovery-period');
+
+  assert.equal(recovery.thisPathRecoveryAge, 95);
+  assert.equal(recovery.typicalPathRecoveryAge, 95);
+  assert.equal(recovery.delta, 3);
+  assert.equal(historicalDigest.marketRecoveryAge, 98, 'Historical raw recovery age remains unchanged');
+  assert.equal(typicalPathDigest.marketRecoveryAge, 98, 'Typical raw recovery age remains unchanged');
+});
+
+test('terminal-survivor translation fails closed on missing or inconsistent target evidence', () => {
+  const historicalDigest = digest({
+    fundedThroughAge: 95,
+    planEndAge: 98,
+    marketRecoveryPeriodStatus: 'never',
+    marketRecoveryPeriodYears: null,
+    marketRecoveryAge: null,
+  });
+  const typicalPathDigest = digest({
+    fundedThroughAge: 98,
+    planEndAge: 98,
+    marketRecoveryPeriodStatus: 'no-dip',
+    marketRecoveryPeriodYears: 0,
+    marketRecoveryAge: null,
+  });
+  const typicalSimulation = {
+    rows: [row({
+      year: 34,
+      age: 98,
+      people: {
+        client: { age: 98, alive: false },
+        spouse: { age: 95, alive: true },
+      },
+    })],
+  };
+
+  assert.throws(() => buildCashFlowHeaderMetrics({
+    historicalResult: historicalResult('underfunded', historicalDigest, {
+      rows: [row({
+        year: 31,
+        age: 95,
+        people: { client: { age: 95, alive: true }, spouse: null },
+      })],
+    }),
+    typicalSimulation,
+    typicalDigest: typicalPathDigest,
+  }), /Historical funded-through terminal survivor is unavailable/);
+
+  assert.throws(() => buildCashFlowHeaderMetrics({
+    historicalResult: historicalResult('underfunded', historicalDigest, {
+      rows: [row({
+        year: 31,
+        age: 95,
+        people: {
+          client: { age: 95, alive: true },
+          spouse: { age: 93, alive: true },
+        },
+      })],
+    }),
+    typicalSimulation,
+    typicalDigest: typicalPathDigest,
+  }), /Historical funded-through terminal-survivor age is inconsistent/);
+});
+
 test('Historical recovery comparison preserves no-dip and both-never engine states', () => {
   const noDip = buildCashFlowHeaderMetrics({
     historicalResult: historicalResult('survives', digest({
-      portfolioUnderwaterYearsMax: 0,
-      portfolioRecoveryPeriodStatus: 'no-dip',
-      portfolioRecoveryPeriodYears: 0,
+      marketRecoveryPeriodStatus: 'no-dip',
+      marketRecoveryPeriodYears: 0,
+      marketRecoveryAge: null,
     })),
+    typicalSimulation: singlePersonSimulation(),
     typicalDigest: digest(),
   }).rows.find(metric => metric.id === 'recovery-period');
 
   assert.deepEqual(noDip, {
     id: 'recovery-period',
-    label: 'Recovery period',
+    label: 'Market recovery',
     format: 'recovery',
     thisPath: 0,
     typicalPath: 3,
     thisPathRecoveryStatus: 'no-dip',
     typicalPathRecoveryStatus: 'recovered',
+    thisPathRecoveryAge: null,
+    typicalPathRecoveryAge: 77,
     delta: -3,
   });
 
   const bothNever = buildCashFlowHeaderMetrics({
     historicalResult: historicalResult('survives', digest({
-      portfolioRecoveryPeriodStatus: 'never',
-      portfolioRecoveryPeriodYears: null,
+      marketRecoveryPeriodStatus: 'never',
+      marketRecoveryPeriodYears: null,
+      marketRecoveryAge: null,
     })),
+    typicalSimulation: singlePersonSimulation(),
     typicalDigest: digest({
-      portfolioRecoveryPeriodStatus: 'never',
-      portfolioRecoveryPeriodYears: null,
+      marketRecoveryPeriodStatus: 'never',
+      marketRecoveryPeriodYears: null,
+      marketRecoveryAge: null,
     }),
   }).rows.find(metric => metric.id === 'recovery-period');
 
@@ -294,6 +624,26 @@ test('Historical recovery comparison preserves no-dip and both-never engine stat
   assert.equal(bothNever.thisPathRecoveryStatus, 'never');
   assert.equal(bothNever.typicalPathRecoveryStatus, 'never');
   assert.equal(bothNever.delta, 0);
+
+  const bothNotObserved = buildCashFlowHeaderMetrics({
+    historicalResult: historicalResult('survives', digest({
+      marketRecoveryPeriodStatus: 'not-observed',
+      marketRecoveryPeriodYears: null,
+      marketRecoveryAge: null,
+    })),
+    typicalSimulation: singlePersonSimulation(),
+    typicalDigest: digest({
+      marketRecoveryPeriodStatus: 'not-observed',
+      marketRecoveryPeriodYears: null,
+      marketRecoveryAge: null,
+    }),
+  }).rows.find(metric => metric.id === 'recovery-period');
+
+  assert.equal(bothNotObserved.thisPathRecoveryStatus, 'not-observed');
+  assert.equal(bothNotObserved.typicalPathRecoveryStatus, 'not-observed');
+  assert.equal(bothNotObserved.thisPathRecoveryAge, null);
+  assert.equal(bothNotObserved.typicalPathRecoveryAge, null);
+  assert.equal(bothNotObserved.delta, 0);
 });
 
 test('Historical age-80 balance fails closed per metric after earlier underfunding', () => {
@@ -304,6 +654,7 @@ test('Historical age-80 balance fails closed per metric after earlier underfundi
       fundingMarginYears: -17,
       fundingMarginKind: 'years-short',
     })),
+    typicalSimulation: singlePersonSimulation(),
     typicalDigest: digest(),
   });
 
@@ -326,6 +677,7 @@ test('Historical no-draw plan end does not invent infinite funding cushion', () 
       fundingMarginYears: null,
       fundingMarginKind: 'no-portfolio-draw',
     })),
+    typicalSimulation: singlePersonSimulation(),
     typicalDigest: digest(),
   });
 
