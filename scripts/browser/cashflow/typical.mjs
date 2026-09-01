@@ -62,6 +62,41 @@ export async function verifyTypicalCashFlow({
         const row = [...(v?.querySelectorAll('.cf-row') || [])].find(el => el.querySelector('.cf-cell--age')?.textContent.trim() === '64');
         return row?.querySelector('.cf-cell--tax')?.textContent.trim() || '';
       })(),
+      ledgerTypography: (() => {
+        const head = v?.querySelector('.cf-table__head');
+        const heading = head?.querySelector('.cf-th');
+        const row = v?.querySelector('.cf-row');
+        const cell = row?.querySelector('.cf-cell:not(.cf-cell--age):not(.cf-cell--zero)');
+        if (!head || !heading || !row || !cell) return null;
+        const headStyle = getComputedStyle(head);
+        const headingStyle = getComputedStyle(heading);
+        const rowStyle = getComputedStyle(row);
+        const cellStyle = getComputedStyle(cell);
+        const tokenColor = token => {
+          const probe = document.createElement('span');
+          probe.style.color = `var(${token})`;
+          document.body.appendChild(probe);
+          const color = getComputedStyle(probe).color;
+          probe.remove();
+          return color;
+        };
+        return {
+          headerFontSize: headingStyle.fontSize,
+          headerLineHeight: headingStyle.lineHeight,
+          headerLetterSpacing: headingStyle.letterSpacing,
+          headerColor: headingStyle.color,
+          headPadding: headStyle.padding,
+          rowFontSize: rowStyle.fontSize,
+          rowLineHeight: rowStyle.lineHeight,
+          rowPadding: rowStyle.padding,
+          rowHeight: row.getBoundingClientRect().height,
+          rowBorderColor: rowStyle.borderTopColor,
+          columnGap: rowStyle.columnGap,
+          cellColor: cellStyle.color,
+          expectedInkColor: tokenColor('--ink'),
+          expectedRuleColor: tokenColor('--rule')
+        };
+      })(),
       hasCaption: !!v?.querySelector('.cf__caption'),
       hasCfEyebrow: !!v?.querySelector('.cf__head .eyebrow'),
       hasSummaryName: !!v?.querySelector('.cf-summary__name'),
@@ -72,6 +107,10 @@ export async function verifyTypicalCashFlow({
   if (!m.cf) throw new Error('cash-flow view did not render');
   if (m.rows < 10) throw new Error(`cash-flow rows = ${m.rows} (expected >=10)`);
   if (JSON.stringify(m.cols) !== JSON.stringify(EXPECT)) throw new Error(`cash-flow columns are not the exact contract: ${JSON.stringify(m.cols)}`);
+  const ledgerTypography = m.ledgerTypography;
+  if (!ledgerTypography || ledgerTypography.headerFontSize !== '12px' || ledgerTypography.headerLineHeight !== '15.6px' || ledgerTypography.headerLetterSpacing !== '0.72px' || ledgerTypography.headerColor !== ledgerTypography.expectedInkColor || ledgerTypography.headPadding !== '20px 24px 10px' || ledgerTypography.rowFontSize !== '14px' || ledgerTypography.rowLineHeight !== '20px' || ledgerTypography.rowPadding !== '7px 24px' || ledgerTypography.rowHeight > 36 || ledgerTypography.rowBorderColor !== ledgerTypography.expectedRuleColor || ledgerTypography.columnGap !== '8px' || ledgerTypography.cellColor !== ledgerTypography.expectedInkColor) {
+    throw new Error(`Cash Flow ledger readability contract drifted: ${JSON.stringify(ledgerTypography)}`);
+  }
   if (m.cols.filter(c => /tax/i.test(c)).length !== 1) throw new Error(`cash flow must have exactly one scoped tax column: ${JSON.stringify(m.cols)}`);
   if (m.taxHeader?.source !== 'federal-converged-row' || m.taxHeader?.scope !== 'MODELED_FEDERAL_LINE_24') throw new Error(`typical path converged tax scope missing: ${JSON.stringify(m.taxHeader)}`);
   if (!/retirement rows funded and converged; working years reporting-only/i.test(m.taxHeader?.title || '')) throw new Error(`typical path tax tooltip missing phase scope: ${JSON.stringify(m.taxHeader)}`);

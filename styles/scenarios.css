@@ -1314,16 +1314,17 @@
   display: grid;
   grid-template-columns: 98px 58px 1fr 1fr 1fr 1.3fr 1fr 1fr .92fr .92fr 1.08fr; /* geometry: ledger columns */
   align-items: center;
-  gap: 0 var(--sp-3);
+  gap: 0 var(--sp-2);
 }
 
-.page[data-page="scenarios"] .cf-table__head { padding: 20px var(--sp-8) var(--sp-3); }
+.page[data-page="scenarios"] .cf-table__head { padding: 20px var(--sp-6) 10px; }
 
 .page[data-page="scenarios"] .cf-th {
-  color: var(--body);
-  font-size: var(--fs-eyebrow);
+  color: var(--ink);
+  font-size: var(--fs-caption);
   font-weight: var(--fw-eyebrow);
-  letter-spacing: var(--ls-eyebrow);
+  line-height: 1.3;
+  letter-spacing: .06em;
   text-transform: uppercase;
   white-space: nowrap;
 }
@@ -1335,9 +1336,10 @@
 
 .page[data-page="scenarios"] .cf-row {
   align-items: center;
-  padding: var(--sp-3) var(--sp-8);
-  border-top: var(--bw) solid var(--rule-f);
-  font-size: var(--fs-caption);
+  padding: 7px var(--sp-6);
+  border-top: var(--bw) solid var(--rule);
+  font-size: 14px;
+  line-height: 20px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -1375,7 +1377,7 @@
   background: none;
 }
 
-.page[data-page="scenarios"] .cf-cell { color: var(--body); text-align: right; white-space: nowrap; }
+.page[data-page="scenarios"] .cf-cell { color: var(--ink); text-align: right; white-space: nowrap; }
 .page[data-page="scenarios"] .cf-cell--age { color: var(--body); text-align: left; }
 .page[data-page="scenarios"] .cf-cell--zero { color: var(--muted); }
 
