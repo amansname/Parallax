@@ -79,6 +79,44 @@ test('row tax metadata never copies current-return facts into projected years', 
   assert.deepStrictEqual(rowPlanMeta({ year: 2 }), { taxYear: 2026 });
 });
 
+test('row tax metadata carries the correct survivor birth date into the single return', () => {
+  const params = {
+    meta: { filingStatus: 'marriedFilingJointly' },
+    people: {
+      client: { birthDate: '1960-02-03' },
+      spouse: { birthDate: '1958-04-05' },
+    },
+  };
+  const rowPlanMeta = buildRowPlanMetaFromOptions({ baseTaxYear: 2026 }, params);
+
+  assert.deepStrictEqual(rowPlanMeta({
+    year: 1,
+    filingStatus: 'marriedFilingJointly',
+  }).taxpayers, {
+    client: { birthDate: '1960-02-03' },
+    spouse: { birthDate: '1958-04-05' },
+  });
+  assert.deepStrictEqual(rowPlanMeta({
+    year: 2,
+    filingStatus: 'single',
+    survivingOwner: 'spouse',
+  }).taxpayers, {
+    client: { birthDate: '1958-04-05' },
+  });
+});
+
+test('row tax metadata does not invent January 1 from a birth year', () => {
+  const rowPlanMeta = buildRowPlanMetaFromOptions({ baseTaxYear: 2026 }, {
+    meta: { filingStatus: 'single' },
+    people: { client: { birthYear: 1962 } },
+  });
+
+  assert.deepStrictEqual(rowPlanMeta({
+    year: 1,
+    filingStatus: 'single',
+  }), { taxYear: 2026 });
+});
+
 test('buildPlanMetaFromEngineParams uses household filing status without an MFJ default', () => {
   for(const filingStatus of [
     'single',
@@ -403,4 +441,56 @@ test('survivor filing-status transition integration', () => {
   });
   assert.strictEqual(summary.years.find(year => year.age === 69).filingStatus, 'marriedFilingJointly');
   assert.strictEqual(summary.years.find(year => year.age === 70).filingStatus, 'single');
+});
+
+test('survivor tax integration applies the single senior standard deduction and brackets', () => {
+  const row = (overrides) => ({
+    year: 1,
+    age: 66,
+    phase: 'retire',
+    filingStatus: 'marriedFilingJointly',
+    survivor: false,
+    survivingOwner: null,
+    incomeTaxFacts: { wages: 100_000 },
+    taxes: 0,
+    accountBreakdown: { taxable: 0, traditional: 0, roth: 0 },
+    ...overrides,
+  });
+  const analysis = {
+    params: {
+      retirementAge: 65,
+      meta: { filingStatus: 'marriedFilingJointly' },
+      people: {
+        client: { birthDate: '1960-01-02', birthYear: 1960 },
+        spouse: { birthDate: '1961-01-02', birthYear: 1961 },
+      },
+      accounts: { taxable: { balance: 0, basis: 0 } },
+    },
+    paths: {
+      p50: {
+        rows: [
+          row({ year: 1 }),
+          row({
+            year: 2,
+            age: 67,
+            filingStatus: 'single',
+            survivor: true,
+            survivingOwner: 'client',
+          }),
+        ],
+      },
+    },
+  };
+
+  const summary = attachTypicalPathFederalTax(analysis, { baseTaxYear: 2026 });
+  const deathYear = summary.years[0];
+  const survivorYear = summary.years[1];
+
+  assert.strictEqual(deathYear.filingStatus, 'marriedFilingJointly');
+  assert.strictEqual(survivorYear.filingStatus, 'single');
+  assert.strictEqual(survivorYear.taxableIncome, 81_850,
+    'the single survivor receives the age-65 additional standard deduction');
+  assert.strictEqual(survivorYear.federalTaxLiability, 12_719);
+  assert.ok(survivorYear.federalTaxLiability > deathYear.federalTaxLiability,
+    'the same income is taxed more heavily after the joint-to-single transition');
 });

@@ -5,6 +5,7 @@ import {
   attributeWithdrawalTaxByBucket,
 } from './attributeWithdrawalTaxByBucket.js';
 import { runTaxForScenarioPath } from './runTaxForScenarioPath.js';
+import { buildRowPlanMetaFromOptions } from './buildPlanMetaFromEngineParams.js';
 import {
   buildComparisonEligibility,
   counterfactualSemantics,
@@ -205,6 +206,9 @@ function runCoalition({
 
   const coalitionRow = {
     year: row.year,
+    filingStatus: row.filingStatus ?? context.planMeta.filingStatus,
+    survivor: row.survivor ?? false,
+    survivingOwner: row.survivingOwner ?? null,
     socialSecurity: row.socialSecurity,
     pension: row.pension,
     otherIncome: row.otherIncome,
@@ -214,8 +218,13 @@ function runCoalition({
     accountBreakdown: coalitionWithdrawals,
     rmd: mandatoryRmd,
   };
+  const identityMeta = buildRowPlanMetaFromOptions({}, {
+    people: context.projectedPeople,
+    meta: { filingStatus: context.planMeta.filingStatus },
+  })?.(coalitionRow) ?? {};
   const planMeta = {
     ...context.planMeta,
+    ...identityMeta,
     taxYear: taxLawYear,
     capitalGain: included.has('taxable') ? taxableCapitalGain : 0,
   };

@@ -4,7 +4,10 @@ import { resolveTaxableStartingBasis } from '../../household/resolveTaxableStart
 import { TaxInputError } from '../../tax/core/errors.js';
 import { supportedTaxYears } from '../../tax/core/lawRegistry.js';
 import { buildHouseholdTaxFactContract } from './buildHouseholdTaxFactContract.js';
-import { buildPlanMetaFromEngineParams } from './buildPlanMetaFromEngineParams.js';
+import {
+  buildPlanMetaFromEngineParams,
+  buildRowPlanMetaFromOptions,
+} from './buildPlanMetaFromEngineParams.js';
 
 function cloneFreeze(value){
   if(Array.isArray(value)) return Object.freeze(value.map(cloneFreeze));
@@ -193,10 +196,15 @@ export function buildWithdrawalTaxCounterfactualContext(
   const fold = supplied.fold ?? resolvePortfolioAccounts(plan);
   const taxFacts = supplied.taxFacts ?? buildHouseholdTaxFactContract(plan);
   const basis = resolveTaxableStartingBasis(plan, fold);
-  const planMeta = buildPlanMetaFromEngineParams(engineParams, {
+  const basePlanMeta = buildPlanMetaFromEngineParams(engineParams, {
     ...options,
     filingStatus: options.filingStatus ?? plan.meta?.filingStatus,
   });
+  const initialTaxIdentity = buildRowPlanMetaFromOptions({}, engineParams)?.({
+    filingStatus: basePlanMeta.filingStatus,
+    survivingOwner: null,
+  }) ?? {};
+  const planMeta = { ...basePlanMeta, ...initialTaxIdentity };
   const years = supportedTaxYears();
   const defaultYear = years[years.length - 1];
   const baseCalendarYear = options.baseTaxYear ?? options.taxYear ?? defaultYear;
@@ -239,6 +247,7 @@ export function buildWithdrawalTaxCounterfactualContext(
     scenarioId: options.scenarioId ?? 'withdrawal_tax_counterfactual',
     contextOverrides: cloneFreeze(options.contextOverrides ?? {}),
     planMeta: cloneFreeze(planMeta),
+    projectedPeople: cloneFreeze(engineParams?.people ?? {}),
     householdAges: Object.freeze({
       primary: primaryAge,
       resolvedRetirement: resolvedRetirementAge,

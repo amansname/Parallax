@@ -1923,7 +1923,8 @@ test('householdIncome returns person-specific focus-year ages and survivor statu
   assert.ok(terminal.socialSecurityBenefits > 0);
   assert.equal(terminal.filingStatus, 'marriedFilingJointly');
   assert.deepEqual(survivor.ages, { client: 67, spouse: 65 });
-  assert.equal(survivor.socialSecurityBenefits, 0);
+  assert.equal(survivor.socialSecurityBenefits, 19_800,
+    'the focus-year tax contract receives the engine-owned survivor benefit');
   assert.equal(survivor.filingStatus, 'single');
   assert.equal(survivor.survivingOwner, 'client');
 });
