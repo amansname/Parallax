@@ -9,23 +9,9 @@ import { normalizedIncomeSource } from '../../household/incomeTaxModel.js';
 import { goalsFromLegacyExpenses } from '../../household/migrateSpendingToGoals.js';
 import { aggregateProjectionAccounts, buildProjectionAccountLedger } from '../accountLedger.js';
 import { LONGRUN_INFLATION, RISK_PROFILES } from './marketAssumptions.js';
+import { resolveSocialSecurityModel, ssAdjust } from './socialSecurity.js';
 
-// Social Security claim-age math (modern Full Retirement Age = 67, born 1960+).
-// pia = Primary Insurance Amount = the benefit at FRA. The actual benefit is the
-// pia adjusted for when you actually file (the real SSA schedule):
-//   • file LATE  → delayed retirement credits, +8%/yr, capped at age 70.
-//   • file EARLY → permanent reduction: 5/9 of 1% per month for the first 36
-//     months before FRA, then 5/12 of 1% per month beyond that. (62 = 30% cut.)
-const SS_FRA = 67;
-
-export function ssAdjust(pia, claimAge){
-  const c = Math.max(62, Math.min(70, claimAge));
-  if(c >= SS_FRA) return pia * (1 + 0.08 * (c - SS_FRA));
-  const monthsEarly = (SS_FRA - c) * 12;
-  const first36 = Math.min(monthsEarly, 36);
-  const beyond  = Math.max(0, monthsEarly - 36);
-  return pia * (1 - (first36 * (5/900) + beyond * (5/1200)));
-}
+export { ssAdjust } from './socialSecurity.js';
 
 // Standard fixed-rate amortization → the NOMINAL ANNUAL payment (12 monthly
 // payments). `ratePct` is the APR in percent; rate 0 → straight-line. This is the
@@ -77,27 +63,21 @@ export function resolveInputs(plan, ov){
   // age; the spouse keeps their own claim age (edited on the input page).
   const ssCfg = plan.income.socialSecurity || {};
   const ssCutMult = 1 - (ov.ssCut || 0);
-  const ssBenefits = [];
   const incomeContractIssues = [];
-  function addSS(person, owner){
-    if(!person || !(person.pia > 0)) return;
-    const isPrimary = owner === 'client';
-    const personTimeline = timeline.people[owner];
-    const claim = personTimeline.socialSecurityClaimAge;
-    const personCurAge = personTimeline.currentAge;
-    if(claim === null || personCurAge === null){
+  for(const [owner, person] of [
+    ['client', ssCfg.primary],
+    ['spouse', timeline.people.spouse ? ssCfg.spouse : null],
+  ]){
+    if(person?.pia > 0 && timeline.people[owner]?.socialSecurityClaimAge === null){
       incomeContractIssues.push(`SOCIAL_SECURITY_TIMELINE_INCOMPLETE:${owner}`);
-      return;
     }
-    ssBenefits.push({
-      owner,
-      amount:   ssAdjust(person.pia, claim) * ssCutMult,
-      startAge: pCurAge + (claim - personCurAge),
-      endAge: isPrimary ? primaryEndAge : spouseEndAge,
-    });
   }
-  addSS(ssCfg.primary, 'client');
-  if(timeline.people.spouse) addSS(ssCfg.spouse, 'spouse');
+  const socialSecurityModel = resolveSocialSecurityModel({
+    config: ssCfg,
+    timeline,
+    primaryCurrentAge: pCurAge,
+    stressMultiplier: ssCutMult,
+  });
 
   // Spend cut: proportional reduction across all expense categories.
   // spendCut reduces spending (stress); spendBump raises it (elasticity probe).
@@ -386,7 +366,7 @@ export function resolveInputs(plan, ov){
       && o.endAge == null
       && ownerRetirementAge === null;
     const duplicateSocialSecurity = source.typeId === 'social_security'
-      && ssBenefits.some(benefit => benefit.owner === source.owner);
+      && socialSecurityModel.streams.some(benefit => benefit.owner === source.owner);
     if(duplicateSocialSecurity){
       incomeContractIssues.push(`SOCIAL_SECURITY_SOURCE_OVERLAP:${source.owner}`);
     }else if(unassignedHouseholdWage){
@@ -489,7 +469,7 @@ export function resolveInputs(plan, ov){
       weights: profile.weights
     },
     returnAdj: (ov.returnAdj || 0) / 100,
-    ss: ssBenefits,   // array of { amount, startAge } in the primary's age frame
+    ss: socialSecurityModel.streams,
     // Other income — normalized to an array of timed streams, each carrying its
     // own real growth and taxable share (both defaulting to the legacy flat-real,
     // fully-taxed behavior). Accepts a legacy single object too.
@@ -679,6 +659,7 @@ export function resolveInputs(plan, ov){
       initialFilingStatus: plan.meta?.filingStatus ?? null,
       primaryEndAge,
       spouseEndAge,
+      socialSecuritySurvivorBenefits: socialSecurityModel.survivorBenefits,
     }
   };
 }

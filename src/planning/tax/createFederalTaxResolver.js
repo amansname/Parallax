@@ -18,7 +18,7 @@ import {
  */
 export function createFederalTaxResolver(params, options = {}){
   const planMeta = buildPlanMetaFromEngineParams(params, options);
-  const baseRowPlanMeta = buildRowPlanMetaFromOptions(options);
+  const baseRowPlanMeta = buildRowPlanMetaFromOptions(options, params);
   const rowPlanMeta = options.taxableGainFraction !== undefined
     ? baseRowPlanMeta
     : buildRowTaxableGainPlanMeta(baseRowPlanMeta);

@@ -10,6 +10,7 @@ import {
   LINE_COVERAGE,
 } from '../../tax/core/1040BasicLineMap.js';
 import { buildWithdrawalTaxCounterfactualContext } from './buildWithdrawalTaxCounterfactualContext.js';
+import { buildRowPlanMetaFromOptions } from './buildPlanMetaFromEngineParams.js';
 import { createFederalTaxResolver } from './createFederalTaxResolver.js';
 import { runWithdrawalTaxCounterfactual } from './runWithdrawalTaxCounterfactual.js';
 import { runTaxForScenarioPath } from './runTaxForScenarioPath.js';
@@ -152,9 +153,9 @@ test('counterfactual runs all eight 1040 coalitions and reconciles tax attributi
   assert.ok(result.comparisonEligibility.reasonCodes.includes(
     'SOCIAL_SECURITY_TAX_EXEMPT_INTEREST_ASSUMED_ZERO'
   ));
-  assert.ok(result.comparisonEligibility.reasonCodes.includes(
+  assert.equal(result.comparisonEligibility.reasonCodes.includes(
     'STANDARD_DEDUCTION_AGE_ADDITION_NOT_MODELED'
-  ));
+  ), false);
   assert.equal(result.comparisonEligibility.status, 'blocked');
   assert.deepEqual(result.distributionTaxEvidence.roth.accounts, [{
     accountId: 'roth',
@@ -177,8 +178,13 @@ test('counterfactual runs all eight 1040 coalitions and reconciles tax attributi
     result.distributionTaxEvidence.roth.rule.ruleId,
     'FED_QUALIFIED_ROTH_DISTRIBUTION'
   );
+  const projectedIdentity = buildRowPlanMetaFromOptions({}, {
+    people: counterfactualContext.projectedPeople,
+    meta: { filingStatus: counterfactualContext.planMeta.filingStatus },
+  })(sourceRow);
   const direct = runTaxForScenarioPath([sourceRow], {
     ...counterfactualContext.planMeta,
+    ...projectedIdentity,
     taxYear: 2026,
   }, {
     contextOverrides: {

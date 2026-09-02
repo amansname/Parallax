@@ -75,7 +75,7 @@ export function attachPathFederalTax(analysis, pathKey, options = {}){
   if(rows.length === 0) return emptySummary(selected, pathKey);
 
   const planMeta = buildPlanMetaFromEngineParams(params, options);
-  const baseRowPlanMeta = buildRowPlanMetaFromOptions(options);
+  const baseRowPlanMeta = buildRowPlanMetaFromOptions(options, params);
   const rowPlanMeta = options.taxableGainFraction !== undefined
     ? baseRowPlanMeta
     : buildRowTaxableGainPlanMeta(baseRowPlanMeta);
