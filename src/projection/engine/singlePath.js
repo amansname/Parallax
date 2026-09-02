@@ -7,6 +7,7 @@ import { createProjectionReturnCache, RETURN_SERIES_PROVENANCE } from '../portfo
 import { accountBalancesById, addProjectionCash, applyDirectBucketWithdrawal, applyProjectionContributions, applyProjectionOwnerRmd, applyProjectionYearReturnsAndWithdrawals, cloneProjectionAccountLedger, fundProjectionGap, resolveProjectionReturnFrame, rolloverProjectionAccounts, snapshotProjectionAccounts, syncProjectionAggregates, zeroProjectionAccounts } from '../accountLedger.js';
 import { fundGap, emptyFunding, combineAccountAmounts, traditionalWithdrawalsByOwner } from './accountFunding.js';
 import { assertFiniteFederalFundingInputs, solveFederalFundingYear } from './federalFunding.js';
+import { effectiveWithdrawalRate } from './withdrawalMetrics.js';
 
 /**
  * A goal's cost in THIS year, in today's dollars.
@@ -41,7 +42,7 @@ function appendFailedTailRows(rows, p, failedYearIndex){
       ...householdStateAtYear(p, z),
       socialSecurity:0, otherIncome:0, withdrawal:0,
       expenses:0, goals:0, taxes:0,
-      startBalance:0, wdRate:0, netCashflow:0, balance:0, failed:true,
+      startBalance:0, wdRate:0, effectiveWdRate:0, netCashflow:0, balance:0, failed:true,
       fundingShortfall:0,
       accountBreakdown: { taxable:0, traditional:0, roth:0 },
       accountBalances:  { taxable:0, traditional:0, roth:0 }
@@ -287,7 +288,7 @@ export function runSinglePath(p, returnPath, options = {}){
         assetSale: saleProceeds,
         ...(oiInc > 0 ? { otherIncomeTaxable: oiTaxable } : {}),
         expenses: 0, goals: goalsA, liabilities: 0, taxes: rowShortcutTax, savings: p.savingsAnnual, lumpSum: lumpA,
-        startBalance: startBalanceA, wdRate: 0,
+        startBalance: startBalanceA, wdRate: 0, effectiveWdRate: 0,
         netCashflow: saleProceeds - lumpA - goalsA,
         balance: endBalanceA, failed: accumulationFailed,
         fundingShortfall: accumulationFunding.shortfall,
@@ -481,6 +482,11 @@ export function runSinglePath(p, returnPath, options = {}){
     lifetimeTax     += totalTax;
     let wdRate = (startBalance > 0.01 && withdrawal > 0)
                  ? (withdrawal / startBalance) * 100 : 0;
+    const effectiveWdRate = effectiveWithdrawalRate({
+      withdrawal,
+      startBalance,
+      returnDollars: returnFrame.returnDollars,
+    });
 
     returnProduct *= (1 + r);
     if(y < 10) first10Product *= (1 + r);
@@ -600,7 +606,7 @@ export function runSinglePath(p, returnPath, options = {}){
       rmdBasisSource: openingRmd.basisSource,
       assetSale: saleProceeds,
       expenses, goals: goalsY, liabilities: liabCost, taxes: resolvedTax, lumpSum: lumpY,
-      startBalance, wdRate,
+      startBalance, wdRate, effectiveWdRate,
       netCashflow: (ssInc + oiInc + penInc + saleProceeds)
                    - (expenses + goalsY + liabCost + resolvedTax),
       balance: endBalance, failed,

@@ -208,7 +208,7 @@ export async function verifyUnderfundedMatrix({
           num: value => String(value),
           esc: value => String(value),
           fmtMoney: value => '$' + Math.round(value).toLocaleString('en-US'),
-          cfCols: ['Year', 'Age', 'Income', 'RMD', 'Essential', 'Goals', 'Tax', 'Draw', 'Return', 'WD Rate', 'Ending']
+          cfCols: ['Year', 'Age', 'Income', 'RMD', 'Essential', 'Goals', 'Tax', 'Draw', 'Return', 'Eff. WD Rate', 'Ending']
         });
       };
       const readRecovery = () => {

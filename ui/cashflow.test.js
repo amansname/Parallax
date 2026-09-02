@@ -55,6 +55,7 @@ test('Cash Flow consumes the engine funding shortfall contract', () => {
 
   assert.equal(row.fundingShortfall, 5_000);
   assert.equal(row.shortfall, true);
+  assert.equal(row.effectiveWdRate, null, 'missing engine metric must not become a displayed zero');
 });
 
 test('Cash Flow displays gross required RMD when an ordinary IRA withdrawal already satisfies it', () => {
@@ -75,6 +76,48 @@ test('Cash Flow displays gross required RMD when an ordinary IRA withdrawal alre
   assert.equal(row.rmd, 30_000);
   assert.equal(row.draw, 80_000);
   assert.equal(row.tax, 15_000);
+});
+
+test('Cash Flow renders the engine effective withdrawal rate and preserves legacy diagnostic data', () => {
+  const [row] = buildSimulationRows({ rows: [{
+    age: 65,
+    source: 2026,
+    phase: 'ret',
+    returnRate: 0.2,
+    returnDollars: 400_000,
+    withdrawal: 180_000,
+    startBalance: 2_000_000,
+    wdRate: 9,
+    effectiveWdRate: 7.5,
+    balance: 2_220_000,
+    fundingShortfall: 0,
+  }] }, { plan, currentYear: 2026 });
+  const scenario = {
+    id: 'baseline', name: 'Baseline', tone: '#8fa57e', prob: 100,
+    probStr: '100.0', median: '$2.2M', raw: { res: {} },
+  };
+  const html = renderCashflow(scenario, [scenario], {
+    cashFlowResult: () => ({
+      kind: 'typical', pathId: 'typical', rows: [row], summary: {},
+    }),
+    cashFromRetirement: false,
+    isTypicalPath: () => true,
+    typicalPathFederalTax: () => null,
+    pathFederalTax: () => null,
+    wdColor: () => '',
+    num: value => String(value),
+    esc: value => String(value),
+    fmtMoney: value => `$${Number(value).toLocaleString('en-US')}`,
+    cfCols: ['Year', 'Age', 'Income', 'RMD', 'Essential', 'Goals', 'Tax', 'Draw', 'Return', 'Eff. WD Rate', 'Ending'],
+  });
+
+  assert.equal(row.wdRate, 9);
+  assert.equal(row.effectiveWdRate, 7.5);
+  assert.match(html, /data-wd-rate="9"/);
+  assert.match(html, /data-effective-wd-rate="7\.5"/);
+  assert.match(html, /cf-cell--wd[^>]*>7\.5%<\/span>/);
+  assert.doesNotMatch(html, /cf-cell--wd[^>]*>9%<\/span>/);
+  assert.match(html, /title="Draw divided by the portfolio after this year's return, before the draw"/);
 });
 
 test('Future demo Cash Flow starts its RMD phase at the first engine-required RMD, age 75', () => {
@@ -186,7 +229,7 @@ test('Cash Flow visibly labels the engine-owned annual shortfall for Typical', (
     num: value => String(value),
     esc: value => String(value),
     fmtMoney: value => `$${Number(value).toLocaleString('en-US')}`,
-    cfCols: ['Year', 'Age', 'Income', 'RMD', 'Essential', 'Goals', 'Tax', 'Draw', 'Return', 'WD Rate', 'Ending'],
+    cfCols: ['Year', 'Age', 'Income', 'RMD', 'Essential', 'Goals', 'Tax', 'Draw', 'Return', 'Eff. WD Rate', 'Ending'],
   });
 
   assert.match(html, /data-funding-shortfall="5000"/);
@@ -233,7 +276,7 @@ test('Typical Cash Flow uses one selector and the locked two-metric header', () 
     num: value => String(value),
     esc: value => String(value),
     fmtMoney: value => `$${Number(value).toLocaleString('en-US')}`,
-    cfCols: ['Year', 'Age', 'Income', 'RMD', 'Essential', 'Goals', 'Tax', 'Draw', 'Return', 'WD Rate', 'Ending'],
+    cfCols: ['Year', 'Age', 'Income', 'RMD', 'Essential', 'Goals', 'Tax', 'Draw', 'Return', 'Eff. WD Rate', 'Ending'],
   };
   const html = renderCashflow(baseline, [baseline, alternative], renderDeps);
 
@@ -345,7 +388,7 @@ test('underfunded historical Cash Flow keeps the path rail traceable to engine m
     num: value => String(value),
     esc: value => String(value),
     fmtMoney: value => `$${Number(value).toLocaleString('en-US')}`,
-    cfCols: ['Year', 'Age', 'Income', 'RMD', 'Essential', 'Goals', 'Tax', 'Draw', 'Return', 'WD Rate', 'Ending'],
+    cfCols: ['Year', 'Age', 'Income', 'RMD', 'Essential', 'Goals', 'Tax', 'Draw', 'Return', 'Eff. WD Rate', 'Ending'],
   });
 
   assert.match(html, /data-cash-path-id="historical-1973"/);
@@ -464,7 +507,7 @@ test('surviving historical Cash Flow renders the Option 3a reference fixture in 
     num: value => String(value),
     esc: value => String(value),
     fmtMoney: value => `$${Number(value).toLocaleString('en-US')}`,
-    cfCols: ['Year', 'Age', 'Income', 'RMD', 'Essential', 'Goals', 'Tax', 'Draw', 'Return', 'WD Rate', 'Ending'],
+    cfCols: ['Year', 'Age', 'Income', 'RMD', 'Essential', 'Goals', 'Tax', 'Draw', 'Return', 'Eff. WD Rate', 'Ending'],
   });
 
   assert.match(html, /data-outcome="survives"/);
@@ -556,7 +599,7 @@ test('surviving historical Cash Flow renders the Option 3a reference fixture in 
     num: value => String(value),
     esc: value => String(value),
     fmtMoney: value => `$${Number(value).toLocaleString('en-US')}`,
-    cfCols: ['Year', 'Age', 'Income', 'RMD', 'Essential', 'Goals', 'Tax', 'Draw', 'Return', 'WD Rate', 'Ending'],
+    cfCols: ['Year', 'Age', 'Income', 'RMD', 'Essential', 'Goals', 'Tax', 'Draw', 'Return', 'Eff. WD Rate', 'Ending'],
   });
   const nearZeroHtml = renderMetricRows(nearZeroRows);
   assert.equal((nearZeroHtml.match(/>Same<\/div>/g) || []).length, 5);
@@ -630,7 +673,7 @@ test('unavailable historical Cash Flow suppresses all financial summary claims',
     num: value => String(value),
     esc: value => String(value),
     fmtMoney: value => `$${Number(value).toLocaleString('en-US')}`,
-    cfCols: ['Year', 'Age', 'Income', 'RMD', 'Essential', 'Goals', 'Tax', 'Draw', 'Return', 'WD Rate', 'Ending'],
+    cfCols: ['Year', 'Age', 'Income', 'RMD', 'Essential', 'Goals', 'Tax', 'Draw', 'Return', 'Eff. WD Rate', 'Ending'],
   });
 
   assert.match(html, /retirement handoff could not be verified/);
@@ -666,7 +709,7 @@ test('historical Cash Flow keeps a valid ledger when only its header metrics are
     num: value => String(value),
     esc: value => String(value),
     fmtMoney: value => `$${Number(value).toLocaleString('en-US')}`,
-    cfCols: ['Year', 'Age', 'Income', 'RMD', 'Essential', 'Goals', 'Tax', 'Draw', 'Return', 'WD Rate', 'Ending'],
+    cfCols: ['Year', 'Age', 'Income', 'RMD', 'Essential', 'Goals', 'Tax', 'Draw', 'Return', 'Eff. WD Rate', 'Ending'],
   });
 
   assert.match(html, /data-cash-path-id="historical-1995"/);

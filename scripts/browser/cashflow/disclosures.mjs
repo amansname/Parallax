@@ -72,7 +72,7 @@ export async function verifyCashFlowDisclosures({
         "'": '&#39;'
       })[ch]),
       fmtMoney: n => '$' + Math.round(n).toLocaleString('en-US'),
-      cfCols: ['Year', 'Age', 'Income', 'RMD', 'Essential', 'Goals', 'Tax', 'Draw', 'Return', 'WD Rate', 'Ending']
+      cfCols: ['Year', 'Age', 'Income', 'RMD', 'Essential', 'Goals', 'Tax', 'Draw', 'Return', 'Eff. WD Rate', 'Ending']
     };
     const inspect = () => {
       const host = document.createElement('div');

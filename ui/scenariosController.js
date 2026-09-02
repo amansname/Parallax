@@ -396,7 +396,7 @@ export function installScenariosView(dependencies) {
 
   /* ---- CASH FLOW --------------------------------------------------------- */
   // Visible columns, exactly and in order. No Engine-tax / Federal-tax columns.
-  const CF_COLS = ['Year', 'Age', 'Income', 'RMD', 'Essential', 'Goals', 'Tax', 'Draw', 'Return', 'WD Rate', 'Ending'];
+  const CF_COLS = ['Year', 'Age', 'Income', 'RMD', 'Essential', 'Goals', 'Tax', 'Draw', 'Return', 'Eff. WD Rate', 'Ending'];
   function renderCashflowView(scn, allScns) {
     return renderCashflow(scn, allScns, {
       cashFlowResult: PROD.cashFlowResult,
