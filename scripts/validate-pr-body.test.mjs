@@ -29,8 +29,8 @@ function validBody({
     ? 'The UI reads the engine-owned RMD field; Projection Engine and Tax Engine outputs remain unchanged.'
     : 'Not applicable — no protected contract changes at this tier.';
   const commands = bareCommands
-    ? 'npm run governance:check\nnpm test\nnpm run verify\ngit diff --check'
-    : 'npm run governance:check — 51 tests passed\nnpm test — 860 tests passed\nnpm run verify — passed\ngit diff --check — exit 0';
+    ? 'npm run governance:check\nnpm run lint:changed\nnpm test\nnpm run verify\ngit diff --check'
+    : 'npm run governance:check — 51 tests passed\nnpm run lint:changed — exit code 0; changed JavaScript passed\nnpm test — 860 tests passed\nnpm run verify — passed\ngit diff --check — exit 0';
 
   return `## Scope and risk
 - Change type: ${changeType}
@@ -66,6 +66,7 @@ ${commands}
 
 ## Delivery status
 - [x] Governance safeguards
+- [x] ESLint
 - [x] Unit tests
 - [x] Build deployable site artifact
 - [x] Full browser verification
@@ -118,7 +119,7 @@ test('accepts a non-defect, non-visual Tier 1 receipt without forensic filler', 
 
 test('accepts an honest draft receipt while CI and review are pending', () => {
   const body = validBody()
-    .replace(/- \[x\] (Governance safeguards|Unit tests|Build deployable site artifact|Full browser verification)/g, '- [ ] $1')
+    .replace(/- \[x\] (Governance safeguards|ESLint|Unit tests|Build deployable site artifact|Full browser verification)/g, '- [ ] $1')
     .replace('- Reviewer/result link: https://github.com/example/review', '- Reviewer/result link: Pending publication')
     .replace('- Review status: Approved with no findings.', '- Review status: Pending independent review.')
     .replace('- Lifecycle: Merge-ready', '- Lifecycle: Draft-ready')
@@ -147,6 +148,11 @@ test('rejects a PR 234-style subset proof that omits exact visible inventory and
 test('rejects a required-CI receipt that omits the deployable artifact job', () => {
   const body = validBody().replace('- [x] Build deployable site artifact\n', '');
   assert.match(validatePullRequestBody(body).join('\n'), /Build deployable site artifact/);
+});
+
+test('rejects a required-CI receipt that omits the ESLint job', () => {
+  const body = validBody().replace('- [x] ESLint\n', '');
+  assert.match(validatePullRequestBody(body).join('\n'), /ESLint/);
 });
 
 test('rejects stale identity, unchecked authorship gates, and command placeholders', () => {
@@ -252,7 +258,7 @@ test('rejects Merge-ready while CI or independent review is pending', () => {
     .replace('- [x] Full browser verification', '- [ ] Full browser verification')
     .replace('- Review status: Approved with no findings.', '- Review status: Pending independent review.');
   const failures = validatePullRequestBody(body).join('\n');
-  assert.match(failures, /Merge-ready requires all four required CI/);
+  assert.match(failures, /Merge-ready requires all five required CI/);
   assert.match(failures, /exact positive completed independent-review status/);
 });
 
@@ -302,7 +308,7 @@ test('rejects post-merge lifecycle claims on an open pull request', () => {
     .replace('- [x] Full browser verification', '- [ ] Full browser verification')
     .replace('- Review status: Approved with no findings.', '- Review status: Pending independent review.');
   const bodyFailures = validatePullRequestBody(body).join('\n');
-  assert.match(bodyFailures, /Merged requires all four required CI/);
+  assert.match(bodyFailures, /Merged requires all five required CI/);
   assert.match(bodyFailures, /exact positive completed independent-review status/);
 
   const eventFailures = validatePullRequestEvent(validEvent(body)).failures.join('\n');
@@ -423,7 +429,7 @@ test('rejects default-ignorable-only section and image-only evidence', () => {
   const imageRow = `| ${image} | ${image} | ${image} | ${image} | ${image} | ${image} |`;
   let imageBody = validBody({ acceptanceRows: [imageRow], bareCommands: true })
     .replace('- Root cause: The view maps the additional top-up field.', `- Root cause: ${image}`);
-  for(const command of ['npm run governance:check', 'npm test', 'npm run verify', 'git diff --check']){
+  for(const command of ['npm run governance:check', 'npm run lint:changed', 'npm test', 'npm run verify', 'git diff --check']){
     imageBody = imageBody.replace(command, `${command} ${image}`);
   }
   const failures = validatePullRequestBody(imageBody).join('\n');

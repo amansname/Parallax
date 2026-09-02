@@ -100,7 +100,7 @@ reported state condition.
 Compare exact command outputs with required CI. No required failure may be
 hidden, suppressed, or labeled irrelevant to claim completion. GitHub Pages or
 another deployment proves reachability only. Confirm the PR checkbox and status
-language match the evidence. The readiness receipt must name all four required
+language match the evidence. The readiness receipt must name all five required
 jobs and the actual independent-review result; reject stale `pending` or `draft`
 claims when Merge-ready is requested. A failed, blocked, or findings-remaining
 review is not a completed positive review.

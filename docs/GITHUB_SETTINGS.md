@@ -11,6 +11,7 @@ Configure a branch protection rule or repository ruleset targeting `main`:
 1. Require a pull request before merging.
 2. Require these exact status-check names:
    - `Governance safeguards`
+   - `ESLint`
    - `Unit tests`
    - `Build deployable site artifact`
    - `Full browser verification`
@@ -29,7 +30,7 @@ Configure a branch protection rule or repository ruleset targeting `main`:
    second distinct reviewer.
 
 After the workflows first run, select `Governance safeguards` from
-`Parallax PR evidence`; select the unit, artifact, and browser contexts from
+`Parallax PR evidence`; select the ESLint, unit, artifact, and browser contexts from
 `Parallax quality`. Do not create similarly named external statuses.
 
 ## Codex code review
