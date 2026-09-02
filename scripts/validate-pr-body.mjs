@@ -43,6 +43,7 @@ const ALLOWED_POSITIVE_REVIEW_STATUSES = new Set([
 ]);
 const REQUIRED_CI_JOBS = [
   'Governance safeguards',
+  'ESLint',
   'Unit tests',
   'Build deployable site artifact',
   'Full browser verification',
@@ -77,6 +78,7 @@ function visibleEvidenceText(token){
     })
     .replace(/&[a-z][a-z0-9]+;/gi, '')
     .normalize('NFKC')
+    // eslint-disable-next-line no-control-regex -- these are the unsafe control characters being removed.
     .replace(/[\p{Cf}\p{Default_Ignorable_Code_Point}\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u2800\u3164\uffa0\u{13441}\u{13442}]/gu, '');
 }
 
@@ -275,7 +277,7 @@ export function validatePullRequestBody(body, expectedShas = {}){
   const commands = sectionContent(sections, 'Verification') || '';
   const commandLines = commands.split(/\r?\n/);
   const verificationResults = new Map();
-  for(const command of ['npm run governance:check', 'npm test', 'npm run verify', 'git diff --check']){
+  for(const command of ['npm run governance:check', 'npm run lint:changed', 'npm test', 'npm run verify', 'git diff --check']){
     if(!commands.includes(command)) failures.push(`Verification is missing: ${command}`);
     const escapedCommand = escapeRegExp(command);
     const linePattern = new RegExp(`^[ \\t]*${escapedCommand}(?:[ \\t]+(.+))?$`, 'i');
@@ -316,8 +318,8 @@ export function validatePullRequestBody(body, expectedShas = {}){
   }
   if(readinessLifecycle){
     const unchecked = REQUIRED_CI_JOBS.filter(job => !ciItems.some(item => item.text === job && item.checked));
-    if(unchecked.length) failures.push(`${lifecycle} requires all four required CI checkboxes to be checked`);
-    for(const command of ['npm run governance:check', 'npm test', 'npm run verify', 'git diff --check']){
+    if(unchecked.length) failures.push(`${lifecycle} requires all five required CI checkboxes to be checked`);
+    for(const command of ['npm run governance:check', 'npm run lint:changed', 'npm test', 'npm run verify', 'git diff --check']){
       const result = verificationResults.get(command) || '';
       const isTierOneLocalException = riskTier === 'Tier 1 - Fast'
         && ['npm test', 'npm run verify'].includes(command)

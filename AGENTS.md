@@ -52,6 +52,7 @@ npm ci                         install the locked development dependencies
 npm test                       full unit suite
 npm run test:inventory          discovered test files and execution categories
 npm run lint                    report JavaScript errors and unused variables
+npm run lint:changed            enforce ESLint on JavaScript changed from origin/main
 npm run verify                 full browser verifier and screenshots
 npm run governance:check       repository-governance and static checks
 npm run preview                manual preview at http://127.0.0.1:8825/
@@ -59,7 +60,8 @@ npm run site:build             immutable site artifact from the clean HEAD commi
 npm run site:verify            verify the artifact manifest and commit receipt
 ```
 
-Lint is report-only; see `docs/LINTING.md`. There is no formatter command.
+Full-repository lint remains report-only; pull requests enforce ESLint on every
+changed JavaScript file. See `docs/LINTING.md`. There is no formatter command.
 The app must be served over HTTP. Port
 8825 is the only local origin: if it is occupied, identify and stop the stale
 Parallax preview instead of selecting another port. Preview and browser
@@ -116,9 +118,9 @@ migration, financial-result, security, CI/deployment, repository-governance,
 and cross-authority changes are Tier 3. Goals, Scenarios, Cash Flow, household,
 or UI work is Tier 2 only when protected calculations, saved-data contracts,
 migrations, and financial policy remain unchanged. Tier 3 requires focused
-tests, applicable cross-surface invariants, `npm test`, `npm run verify`, and an
-independent review against `main`. Persistence and migration work also requires
-clean-state and exact legacy-state evidence. Tier 1 docs, non-governance
+tests, applicable cross-surface invariants, `npm run lint:changed`, `npm test`,
+`npm run verify`, and an independent review against `main`. Persistence and
+migration work also requires clean-state and exact legacy-state evidence. Tier 1 docs, non-governance
 templates, copy, and
 strictly non-behavioral changes require `npm run governance:check`,
 `git diff --check`, applicable focused/rendered proof, and the full required CI

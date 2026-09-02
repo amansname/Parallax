@@ -159,17 +159,18 @@ accepted corrections.
 
 ## 3. Verify
 
-Every tier must ultimately pass all four required GitHub gates:
+Every tier must ultimately pass all five required GitHub gates:
 
 - Governance safeguards (`Parallax PR evidence`)
+- ESLint
 - Unit tests
 - Build deployable site artifact
 - Full browser verification
 
 The reviewer-dependent Governance safeguards gate runs only in the lightweight
-PR-evidence workflow. The Unit tests, deployable artifact, and Full browser
-verification jobs form the full `Parallax quality` campaign. This separation
-prevents the immutable `opened` event from testing a reviewer request that can
+PR-evidence workflow. ESLint, Unit tests, the deployable artifact, and Full
+browser verification jobs form the full `Parallax quality` campaign. This
+separation prevents the immutable `opened` event from testing a reviewer request that can
 only be created after the pull request exists.
 
 Tier 1 scales only the additional local campaign. GitHub still runs the full
@@ -179,6 +180,7 @@ Tier 2 and Tier 3 run and record:
 
 ```text
 npm run governance:check
+npm run lint:changed
 npm test
 npm run verify
 git diff --check
@@ -332,7 +334,7 @@ reason recorded, while the full GitHub suite still must pass. An open PR cannot
 claim `Merged` or `Production-confirmed`; those later states require matching
 GitHub lifecycle evidence and the same readiness gates.
 Before asking for Decision 2, post one current readiness receipt that names all
-four required jobs, the independent-review result, conversation resolution,
+five required jobs, the independent-review result, conversation resolution,
 base and head SHAs, and mergeability. Do not leave `pending` or `draft` language
 in the receipt used to request merge approval.
 
@@ -378,8 +380,8 @@ not remove stronger rules. Architecture remains in `AGENTS.md` and
 review in `docs/CODE_REVIEW.md`, and release identity in
 `docs/DEPLOYMENT-INTEGRITY.md`.
 
-`npm run lint` runs the approved report-only ESLint configuration documented in
-`LINTING.md`. Existing findings retain their exit status; this command does not
-change source or replace required checks. CI enforcement, editor installation,
-and scheduled runs require a separate rollout decision. There is no formatter
-command.
+`npm run lint` remains the full-repository reporting command documented in
+`LINTING.md`; existing findings retain their exit status. Pull requests run
+`npm run lint:changed`, which applies the same rules to every changed JavaScript
+file and fails on ESLint errors. Editor installation and scheduled
+full-repository runs remain separate decisions. There is no formatter command.

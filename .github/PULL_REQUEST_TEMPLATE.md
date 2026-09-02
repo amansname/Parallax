@@ -57,6 +57,7 @@ may write "Not applicable —" with the reason. -->
 
 ```text
 npm run governance:check  # actual result
+npm run lint:changed      # actual result
 npm test                  # actual result, or not run locally with Tier 1 reason
 npm run verify            # actual result, or not run locally with Tier 1 reason
 git diff --check          # actual result
@@ -65,6 +66,7 @@ git diff --check          # actual result
 ## Delivery status
 
 - [ ] Governance safeguards
+- [ ] ESLint
 - [ ] Unit tests
 - [ ] Build deployable site artifact
 - [ ] Full browser verification

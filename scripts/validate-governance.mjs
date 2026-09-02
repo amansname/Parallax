@@ -143,6 +143,7 @@ requireText('scripts/validate-pr-body.mjs', [
 
 requireText('docs/GITHUB_SETTINGS.md', [
   '`Governance safeguards`',
+  '`ESLint`',
   '`Unit tests`',
   '`Build deployable site artifact`',
   '`Full browser verification`',
@@ -167,6 +168,20 @@ requireText('docs/DEPLOYMENT-INTEGRITY.md', [
   'preserved byte-for-byte',
 ]);
 
+requireText('docs/LINTING.md', [
+  '`npm run lint` remains the full-repository reporting command.',
+  'Every pull request also runs the required `ESLint` job.',
+  '`npm run lint:changed` against the pull request merge-base range',
+  'without shell interpolation.',
+]);
+
+requireText('scripts/lint-changed.mjs', [
+  "'--diff-filter=ACMR'",
+  "'-z'",
+  "'origin/main'",
+  "'node_modules', 'eslint', 'bin', 'eslint.js'",
+]);
+
 requireText('docs/templates/CODEX_BUG_FIX_PROMPT.md', [
   '## Goal',
   '## Exact reported behavior',
@@ -187,6 +202,7 @@ const prTemplate = requireText('.github/PULL_REQUEST_TEMPLATE.md', [
   '## Delivery status',
   '## Rollback considerations',
   '## Truthful completion gate',
+  '- [ ] ESLint',
   '- [ ] Build deployable site artifact',
   '- [ ] Every original request or reported symptom is accounted for as fixed, delivered, deferred, or separately scoped.',
   '- [ ] The visible UI contract names the exact allowed result and explicitly absent or unchanged behavior.',
@@ -211,6 +227,8 @@ const expectedScripts = {
   'site:build': 'node scripts/build-site-artifact.mjs',
   'site:verify': 'node scripts/verify-site-artifact.mjs',
   'site:verify-live': 'node scripts/verify-live-site.mjs',
+  lint: 'eslint .',
+  'lint:changed': 'node scripts/lint-changed.mjs',
 };
 for(const [name, command] of Object.entries(expectedScripts)){
   if(packageJson.scripts?.[name] !== command){
@@ -246,7 +264,9 @@ if(!workflowFiles.length){
 
 const workflow = requireText('.github/workflows/test.yml', [
   'name: Parallax quality',
+  'name: ESLint',
   'name: Unit tests',
+  'run: npm run lint:changed',
   'name: Full browser verification',
   'run: npm test',
   'run: npm run verify',
@@ -273,9 +293,18 @@ if(!Array.isArray(configuredPushBranches)
   failures.push('.github/workflows/test.yml must run push quality only on main; feature branches use the pull_request run');
 }
 const qualityJobs = Object.keys(workflowConfig?.jobs || {}).sort();
-if(qualityJobs.length !== 3
-  || ['artifact', 'browser', 'unit'].some(job => !qualityJobs.includes(job))){
-  failures.push('.github/workflows/test.yml must contain only unit, artifact, and browser jobs; reviewer governance belongs to PR evidence');
+if(qualityJobs.length !== 4
+  || ['artifact', 'browser', 'lint', 'unit'].some(job => !qualityJobs.includes(job))){
+  failures.push('.github/workflows/test.yml must contain only lint, unit, artifact, and browser jobs; reviewer governance belongs to PR evidence');
+}
+const lintJob = workflowConfig?.jobs?.lint;
+const lintCheckout = lintJob?.steps?.find(step => String(step?.uses || '').startsWith('actions/checkout@'));
+if(lintJob?.name !== 'ESLint'
+  || lintJob?.if !== "github.event_name == 'pull_request'"
+  || lintJob?.env?.PARALLAX_BASE_SHA !== '${{ github.event.pull_request.base.sha }}'
+  || lintCheckout?.with?.['fetch-depth'] !== 0
+  || !lintJob?.steps?.some(step => step?.run === 'npm run lint:changed')){
+  failures.push('.github/workflows/test.yml ESLint must lint the full PR merge-base range in its own pull-request job');
 }
 for(const forbidden of ['npm run governance:check', 'npm run governance:pr', 'validate-pr-authorship.mjs']){
   if(workflow.includes(forbidden)){
@@ -405,6 +434,7 @@ const markdownFiles = [
   'docs/CODE_REVIEW.md',
   'docs/GITHUB_SETTINGS.md',
   'docs/DEPLOYMENT-INTEGRITY.md',
+  'docs/LINTING.md',
   'docs/templates/CODEX_BUG_FIX_PROMPT.md',
   'test/fixtures/persisted/README.md',
 ];

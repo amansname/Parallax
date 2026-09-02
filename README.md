@@ -74,6 +74,7 @@ npm run site:verify       # verify every artifact byte and its commit attestatio
 
 GitHub Pages deploys the immutable commit artifact only after the complete
 `Parallax quality` workflow succeeds on `main`, then compares every live byte to
-the artifact manifest. Required CI exposes separate Governance safeguards, Unit
-tests, and Full browser verification checks. See
+the artifact manifest. Required CI exposes separate Governance safeguards,
+ESLint, Unit tests, Build deployable site artifact, and Full browser verification
+checks. See
 [`docs/DEPLOYMENT-INTEGRITY.md`](docs/DEPLOYMENT-INTEGRITY.md).

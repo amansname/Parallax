@@ -16,7 +16,8 @@
     "site:verify": "node scripts/verify-site-artifact.mjs",
     "site:verify-live": "node scripts/verify-live-site.mjs",
     "test:inventory": "node scripts/run-unit-tests.mjs --list",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "lint:changed": "node scripts/lint-changed.mjs"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

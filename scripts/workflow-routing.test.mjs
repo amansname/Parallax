@@ -19,7 +19,13 @@ test('the full quality campaign never validates reviewer evidence from the opene
   const { source, config } = readWorkflow('test.yml');
 
   assert.deepEqual(config.on.pull_request.types, ['opened', 'synchronize', 'reopened']);
-  assert.deepEqual(Object.keys(config.jobs).sort(), ['artifact', 'browser', 'unit']);
+  assert.deepEqual(Object.keys(config.jobs).sort(), ['artifact', 'browser', 'lint', 'unit']);
+  assert.equal(config.jobs.lint.name, 'ESLint');
+  assert.equal(config.jobs.lint.if, "github.event_name == 'pull_request'");
+  assert.equal(config.jobs.lint.env.PARALLAX_BASE_SHA, '${{ github.event.pull_request.base.sha }}');
+  const lintCheckout = config.jobs.lint.steps.find(step => String(step.uses).startsWith('actions/checkout@'));
+  assert.equal(lintCheckout.with['fetch-depth'], 0);
+  assert.match(source, /run: npm run lint:changed/);
   assert.doesNotMatch(source, /npm run governance:(?:check|pr)/);
   assert.doesNotMatch(source, /validate-pr-authorship\.mjs/);
 });
