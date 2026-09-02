@@ -194,7 +194,8 @@ test('household income uses the same per-person survival boundary as simulation'
   assert.strictEqual(terminalAge.filingStatus, 'marriedFilingJointly');
   assert.strictEqual(terminalAge.people.spouse.alive, true);
   const afterSpouseEnd = householdIncomeAtYear(resolved, 2);
-  assert.strictEqual(afterSpouseEnd.socialSecurityBenefits, 0);
+  assert.strictEqual(afterSpouseEnd.socialSecurityBenefits, 19_800,
+    'the surviving client retains the larger payable survivor benefit');
   assert.strictEqual(afterSpouseEnd.filingStatus, 'single');
   assert.strictEqual(afterSpouseEnd.survivingOwner, 'client');
   assert.deepStrictEqual(afterSpouseEnd.ages, { client: 67, spouse: 65 });

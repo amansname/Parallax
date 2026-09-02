@@ -1,4 +1,5 @@
 // Projection Engine implementation; public consumers import engine.js.
+import { socialSecurityIncomeAtAge } from './socialSecurity.js';
 
 
 function finiteAge(value, fallback, path){
@@ -96,6 +97,7 @@ export function resolveHouseholdTimeline(plan, overrides = {}){
     : clientBaseEndAge + longevityYears;
   const client = Object.freeze({
     currentAge: clientCurrentAge,
+    ...(clientProfileBirthDate ? { birthDate: clientProfileBirthDate } : {}),
     birthYear: clientBirthYear,
     rmdStartAge: clientRmdStartAge,
     retirementAge: clientRetirementAge,
@@ -182,6 +184,7 @@ export function resolveHouseholdTimeline(plan, overrides = {}){
       : spouseBaseEndAge + longevityYears;
     spouse = Object.freeze({
       currentAge: spouseCurrentAge,
+      ...(spouseProfileBirthDate ? { birthDate: spouseProfileBirthDate } : {}),
       birthYear: spouseBirthYear,
       rmdStartAge: spouseRmdStartAge,
       retirementAge: spouseRetirementAge,
@@ -226,8 +229,8 @@ export function resolveHouseholdTimeline(plan, overrides = {}){
 }
 
 export function externalIncomeAtAge(p, age){
-  let ssInc = 0;
-  for(const b of p.ss){ if(age >= b.startAge && (b.endAge == null || age <= b.endAge)) ssInc += b.amount; }
+  const householdState = householdStateAtYear(p, age - p.currentAge);
+  let ssInc = socialSecurityIncomeAtAge(p, age, householdState);
   let oiInc = 0, oiTaxable = 0;
   const taxIncome = {};
   const add = (key, value) => {
@@ -354,9 +357,10 @@ export function householdIncomeAtYear(p, yearIndex){
   const wages = taxIncome.wages || 0;
   const grossOtherIncome = income.oiInc - wages + income.penInc;
   const householdState = householdStateAtYear(p, yearIndex);
-  const socialSecurityAvailable = !(p.incomeContractIssues || []).some(issue => (
-    String(issue).startsWith('SOCIAL_SECURITY_TIMELINE_INCOMPLETE:')
-  ));
+  const incompleteSocialSecurityOwners = (p.incomeContractIssues || [])
+    .filter(issue => String(issue).startsWith('SOCIAL_SECURITY_TIMELINE_INCOMPLETE:'))
+    .map(issue => String(issue).split(':').at(-1));
+  const socialSecurityAvailable = incompleteSocialSecurityOwners.length === 0;
   const unavailableIncomeTypes = new Set((p.incomeContractIssues || [])
     .filter(issue => (
       String(issue).startsWith('INCOME_OWNER_UNAVAILABLE:')

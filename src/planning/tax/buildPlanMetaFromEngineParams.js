@@ -59,15 +59,53 @@ export function buildPlanMetaFromEngineParams(params, options = {}){
 }
 
 /** Per-row taxYear when baseTaxYear tracks simulation row.year (clamped to supported law). */
-export function buildRowPlanMetaFromOptions(options = {}){
-  if(options.baseTaxYear == null) return null;
+function taxpayerBirthDate(person){
+  if(typeof person?.birthDate === 'string') return person.birthDate;
+  return null;
+}
+
+function rowTaxpayers(row, params){
+  const people = params?.people;
+  if(!people) return null;
+  const filingStatus = row?.filingStatus ?? params.meta?.filingStatus ?? params.filingStatus;
+  if(filingStatus === 'marriedFilingJointly'){
+    const clientBirthDate = taxpayerBirthDate(people.client);
+    const spouseBirthDate = taxpayerBirthDate(people.spouse);
+    if(!clientBirthDate || !spouseBirthDate) return null;
+    return {
+      client: { birthDate: clientBirthDate },
+      spouse: { birthDate: spouseBirthDate },
+    };
+  }
+  if(!['single', 'headOfHousehold'].includes(filingStatus)) return null;
+  const sourceOwner = row?.survivingOwner ?? 'client';
+  const birthDate = taxpayerBirthDate(people[sourceOwner]);
+  return birthDate ? { client: { birthDate } } : null;
+}
+
+export function buildRowPlanMetaFromOptions(options = {}, params = null){
+  if(options.baseTaxYear == null && !params?.people) return null;
   const supported = supportedTaxYears();
   const minYear = supported[0];
   const maxYear = supported[supported.length - 1];
   const baseTaxYear = options.baseTaxYear;
   return (row) => {
-    const raw = baseTaxYear + (row.year ?? 1) - 1;
-    const taxYear = Math.max(minYear, Math.min(maxYear, raw));
-    return { taxYear };
+    const out = {};
+    if(baseTaxYear != null){
+      const raw = baseTaxYear + (row.year ?? 1) - 1;
+      out.taxYear = Math.max(minYear, Math.min(maxYear, raw));
+    }
+    const taxpayers = rowTaxpayers(row, params);
+    if(taxpayers){
+      out.taxpayers = taxpayers;
+      if(options.deductions === undefined){
+        out.deductions = {
+          method: 'standard',
+          source: 'calculated',
+          standardScope: 'base-and-age',
+        };
+      }
+    }
+    return out;
   };
 }

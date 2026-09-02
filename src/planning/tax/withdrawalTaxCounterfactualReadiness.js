@@ -227,8 +227,12 @@ function modelLimitationReasons(row, context, calendarYear, taxCoverage){
       reasons.push('SOCIAL_SECURITY_WORKSHEET_ADJUSTMENTS_ASSUMED_ZERO');
     }
   }
-  const usesStandard = context.planMeta.deductions?.useStandard !== false
-    && context.planMeta.deductions?.itemizedAmount === undefined;
+  const usesStandard = context.planMeta.deductions?.method === 'standard'
+    || (context.planMeta.deductions?.useStandard !== false
+      && context.planMeta.deductions?.itemizedAmount === undefined);
+  const modelsAgeAddition = context.planMeta.deductions?.method === 'standard'
+    && context.planMeta.deductions?.source === 'calculated'
+    && context.planMeta.deductions?.standardScope === 'base-and-age';
   if(usesStandard){
     const activeOwners = ['client'];
     if(context.householdAges.spouse !== null) activeOwners.push('spouse');
@@ -243,8 +247,10 @@ function modelLimitationReasons(row, context, calendarYear, taxCoverage){
         reasons.push('STANDARD_DEDUCTION_BLIND_ADDITION_NOT_MODELED');
       }
     }
-    if(hasSenior){
+    if(hasSenior && !modelsAgeAddition){
       reasons.push('STANDARD_DEDUCTION_AGE_ADDITION_NOT_MODELED');
+    }
+    if(hasSenior){
       if(calendarYear >= 2025 && calendarYear <= 2028){
         reasons.push('ENHANCED_SENIOR_DEDUCTION_NOT_MODELED');
       }
