@@ -9,7 +9,10 @@ export async function verifyAssetAllocationPersistenceFlow(page) {
   const householdId = await page.$eval('#hh-switch', selector => selector.value || '');
   requireCondition(householdId, 'Allocation selector custom household is unavailable');
   await openNetWorthCategory(page, 'investment');
-  await clickWizardAction(page, '[data-hh-action="net-worth-pick-type"][data-account-type-id="rollover_ira"]');
+  // Keep allocation persistence isolated from the Family flow's owned 401(k).
+  // A same-owner IRA plus employer plan is intentionally an unavailable RMD
+  // attribution state, while a Roth IRA exercises the same allocation UI.
+  await clickWizardAction(page, '[data-hh-action="net-worth-pick-type"][data-account-type-id="roth_ira"]');
   const defaultSelector = await page.evaluate(() => ({
     labels: [...document.querySelectorAll('[data-asset-allocation-selector] .nw-allocation-option span')].map(element => element.textContent.trim()),
     selected: document.querySelector('[data-asset-allocation-selector] input:checked')?.value || ''
