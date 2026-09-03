@@ -39,6 +39,7 @@ function cashFlowDigest(overrides = {}){
     lowestRealBalanceFirst10Age: 66,
     yearsAboveFivePctWdRateFirst10Years: 0,
     yearsAboveFivePctEffectiveWdRateFirst10Years: 0,
+    avgEffectiveWdRate: 4,
     earlyWindowYears: 2,
     marketRecoveryPeriodStatus: 'recovered',
     marketRecoveryPeriodYears: 1,

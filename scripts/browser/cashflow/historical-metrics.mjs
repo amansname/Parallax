@@ -7,6 +7,9 @@ export function verifyHistoricalMetrics({
     const retirement = rows.filter(row => row.phase === 'retirement' && row.sourceYear !== null);
     const firstUnderfunded = retirement.find(row => row.shortfall > 0.01) || null;
     const early = retirement.slice(0, 10);
+    const effectiveWithdrawalRows = retirement.filter(
+      row => Number.isFinite(row.effectiveWdRate) && row.effectiveWdRate > 0
+    );
     const lowestEarly = early.reduce((lowest, row) => (
       lowest === null || row.endingBalance < lowest.endingBalance ? row : lowest
     ), null);
@@ -53,8 +56,10 @@ export function verifyHistoricalMetrics({
       retirement,
       lowestEarlyBalance: lowestEarly?.endingBalance ?? null,
       lowestEarlyAge: lowestEarly?.age ?? null,
-      earlyWindowYears: early.length,
-      yearsAboveFiveEarly: early.filter(row => row.effectiveWdRate > 5).length,
+      averageEffectiveWdRate: effectiveWithdrawalRows.length
+        ? effectiveWithdrawalRows.reduce((sum, row) => sum + row.effectiveWdRate, 0)
+          / effectiveWithdrawalRows.length
+        : 0,
       recoveryStatus,
       recoveryYears,
       recoveryAge,
@@ -91,7 +96,7 @@ export function verifyHistoricalMetrics({
   const historicalFacts = portfolioFacts(historicalPath.rows);
   const typicalFacts = portfolioFacts(typicalRowsByPlanYear);
   const lowMetric = historicalPath.metrics[0];
-  const pressureMetric = historicalPath.metrics[1];
+  const effectiveWithdrawalMetric = historicalPath.metrics[1];
   const recoveryMetric = historicalPath.metrics[2];
   const age80Metric = historicalPath.metrics[3];
   const fundingMetric = historicalPath.metrics[4];
@@ -105,7 +110,7 @@ export function verifyHistoricalMetrics({
         && ['never', 'not-observed'].includes(historicalFacts.recoveryStatus) ? 0 : null;
   const fundingAgesAgree = fundingMetric.thisPath === displayAge(historicalFunding.timelineFundedThroughAge)
     && fundingMetric.typicalPath === displayAge(typicalFunding.timelineFundedThroughAge);
-  if (!sameOptional(lowMetric.thisPath, historicalFacts.lowestEarlyBalance) || !sameOptional(lowMetric.typicalPath, typicalFacts.lowestEarlyBalance) || !sameOptional(lowMetric.delta, historicalFacts.lowestEarlyBalance - typicalFacts.lowestEarlyBalance) || lowMetric.thisPathAge !== historicalFacts.lowestEarlyAge || lowMetric.typicalPathAge !== typicalFacts.lowestEarlyAge || pressureMetric.thisPath !== historicalFacts.yearsAboveFiveEarly || pressureMetric.typicalPath !== typicalFacts.yearsAboveFiveEarly || pressureMetric.thisPathWindowYears !== historicalFacts.earlyWindowYears || pressureMetric.typicalPathWindowYears !== typicalFacts.earlyWindowYears || pressureMetric.delta !== historicalFacts.yearsAboveFiveEarly - typicalFacts.yearsAboveFiveEarly || recoveryMetric.thisPath !== historicalFacts.recoveryYears || recoveryMetric.typicalPath !== typicalFacts.recoveryYears || recoveryMetric.thisPathRecoveryStatus !== historicalFacts.recoveryStatus || recoveryMetric.typicalPathRecoveryStatus !== typicalFacts.recoveryStatus || recoveryMetric.thisPathRecoveryAge !== historicalFacts.recoveryLivingAge || recoveryMetric.typicalPathRecoveryAge !== typicalFacts.recoveryLivingAge || !sameOptional(recoveryMetric.delta, expectedRecoveryDelta) || !sameOptional(age80Metric.thisPath, historicalFacts.age80Balance) || !sameOptional(age80Metric.typicalPath, typicalFacts.age80Balance) || !sameOptional(age80Metric.delta, historicalFacts.age80Balance !== null && typicalFacts.age80Balance !== null ? historicalFacts.age80Balance - typicalFacts.age80Balance : null) || !fundingAgesAgree || !sameOptional(fundingMetric.thisPathMargin, historicalFunding.margin) || !sameOptional(fundingMetric.typicalPathMargin, typicalFunding.margin) || fundingMetric.thisPathMarginKind !== historicalFunding.kind || fundingMetric.typicalPathMarginKind !== typicalFunding.kind || fundingMetric.delta !== fundingMetric.thisPath - fundingMetric.typicalPath || !sameOptional(fundingMetric.marginDelta, historicalFunding.margin !== null && typicalFunding.margin !== null ? historicalFunding.margin - typicalFunding.margin : null)) {
+  if (!sameOptional(lowMetric.thisPath, historicalFacts.lowestEarlyBalance) || !sameOptional(lowMetric.typicalPath, typicalFacts.lowestEarlyBalance) || !sameOptional(lowMetric.delta, historicalFacts.lowestEarlyBalance - typicalFacts.lowestEarlyBalance) || lowMetric.thisPathAge !== historicalFacts.lowestEarlyAge || lowMetric.typicalPathAge !== typicalFacts.lowestEarlyAge || !close(effectiveWithdrawalMetric.thisPath, historicalFacts.averageEffectiveWdRate) || !close(effectiveWithdrawalMetric.typicalPath, typicalFacts.averageEffectiveWdRate) || !close(effectiveWithdrawalMetric.delta, historicalFacts.averageEffectiveWdRate - typicalFacts.averageEffectiveWdRate) || recoveryMetric.thisPath !== historicalFacts.recoveryYears || recoveryMetric.typicalPath !== typicalFacts.recoveryYears || recoveryMetric.thisPathRecoveryStatus !== historicalFacts.recoveryStatus || recoveryMetric.typicalPathRecoveryStatus !== typicalFacts.recoveryStatus || recoveryMetric.thisPathRecoveryAge !== historicalFacts.recoveryLivingAge || recoveryMetric.typicalPathRecoveryAge !== typicalFacts.recoveryLivingAge || !sameOptional(recoveryMetric.delta, expectedRecoveryDelta) || !sameOptional(age80Metric.thisPath, historicalFacts.age80Balance) || !sameOptional(age80Metric.typicalPath, typicalFacts.age80Balance) || !sameOptional(age80Metric.delta, historicalFacts.age80Balance !== null && typicalFacts.age80Balance !== null ? historicalFacts.age80Balance - typicalFacts.age80Balance : null) || !fundingAgesAgree || !sameOptional(fundingMetric.thisPathMargin, historicalFunding.margin) || !sameOptional(fundingMetric.typicalPathMargin, typicalFunding.margin) || fundingMetric.thisPathMarginKind !== historicalFunding.kind || fundingMetric.typicalPathMarginKind !== typicalFunding.kind || fundingMetric.delta !== fundingMetric.thisPath - fundingMetric.typicalPath || !sameOptional(fundingMetric.marginDelta, historicalFunding.margin !== null && typicalFunding.margin !== null ? historicalFunding.margin - typicalFunding.margin : null)) {
     throw new Error(`${mode} historical metrics do not reconcile to visible engine rows: ${JSON.stringify({
       historicalPath,
       historicalFacts,
@@ -131,25 +136,29 @@ export function verifyHistoricalMetrics({
     return amount + (absolute === 1 ? ' yr' : ' yrs');
   };
   const visibleSignedYears = value => value === 0 ? 'Same' : (value < 0 ? '\u2212' : '+') + visibleYears(value);
+  const visibleRate = value => Number.isFinite(value) ? value.toFixed(1) + '%' : 'Not modeled';
+  const visibleSignedPoints = value => {
+    const rounded = Math.round(value * 10) / 10;
+    return rounded === 0 ? 'Same' : (rounded < 0 ? '\u2212' : '+') + Math.abs(rounded).toFixed(1) + ' pts';
+  };
   const visibleRecovery = facts => facts.recoveryStatus === 'never'
     ? 'Never'
     : facts.recoveryStatus === 'not-observed'
       ? 'Not observed'
-      : visibleYears(facts.recoveryYears) + (Number.isFinite(facts.recoveryLivingAge) ? ' · age ' + facts.recoveryLivingAge : '');
-  const visiblePressure = facts => facts.yearsAboveFiveEarly + ' / ' + facts.earlyWindowYears;
+      : visibleYears(facts.recoveryYears) + (Number.isFinite(facts.recoveryLivingAge) ? ' · Age ' + facts.recoveryLivingAge : '');
   const lowDelta = historicalFacts.lowestEarlyBalance - typicalFacts.lowestEarlyBalance;
   const balanceDelta = historicalFacts.age80Balance !== null && typicalFacts.age80Balance !== null ? historicalFacts.age80Balance - typicalFacts.age80Balance : null;
   const displayedLowDelta = Number.isFinite(lowDelta) ? visibleMoney(Math.abs(lowDelta)) : null;
   const displayedBalanceDelta = Number.isFinite(balanceDelta) ? visibleMoney(Math.abs(balanceDelta)) : null;
   const recoveryDelta = Number.isFinite(historicalFacts.recoveryYears) && Number.isFinite(typicalFacts.recoveryYears) ? historicalFacts.recoveryYears - typicalFacts.recoveryYears : null;
-  const pressureDelta = historicalFacts.yearsAboveFiveEarly - typicalFacts.yearsAboveFiveEarly;
+  const effectiveWithdrawalDelta = historicalFacts.averageEffectiveWdRate - typicalFacts.averageEffectiveWdRate;
   const fundingDelta = fundingMetric.thisPath - fundingMetric.typicalPath;
-  const expectedReferenceValues = [visibleMoney(typicalFacts.lowestEarlyBalance), visiblePressure(typicalFacts), visibleRecovery(typicalFacts), visibleMoney(typicalFacts.age80Balance, typicalFunding.kind === 'years-short' && typicalFunding.timelineFundedThroughAge < 80 ? 'Underfunded before 80' : 'Not modeled'), 'Age ' + fundingMetric.typicalPath];
-  const expectedSelectedValues = [visibleMoney(historicalFacts.lowestEarlyBalance), visiblePressure(historicalFacts), visibleRecovery(historicalFacts), visibleMoney(historicalFacts.age80Balance, historicalFunding.kind === 'years-short' && historicalFunding.timelineFundedThroughAge < 80 ? 'Underfunded before 80' : 'Not modeled'), 'Age ' + fundingMetric.thisPath];
+  const expectedReferenceValues = [visibleMoney(typicalFacts.lowestEarlyBalance), visibleRate(typicalFacts.averageEffectiveWdRate), visibleRecovery(typicalFacts), visibleMoney(typicalFacts.age80Balance, typicalFunding.kind === 'years-short' && typicalFunding.timelineFundedThroughAge < 80 ? 'Underfunded before 80' : 'Not modeled'), 'Age ' + fundingMetric.typicalPath];
+  const expectedSelectedValues = [visibleMoney(historicalFacts.lowestEarlyBalance), visibleRate(historicalFacts.averageEffectiveWdRate), visibleRecovery(historicalFacts), visibleMoney(historicalFacts.age80Balance, historicalFunding.kind === 'years-short' && historicalFunding.timelineFundedThroughAge < 80 ? 'Underfunded before 80' : 'Not modeled'), 'Age ' + fundingMetric.thisPath];
   const recoveryNotObserved = historicalFacts.recoveryStatus === 'not-observed'
     || typicalFacts.recoveryStatus === 'not-observed';
-  const expectedDeltas = [displayedLowDelta === '$0' ? 'Same' : (lowDelta < 0 ? '\u2212' : '+') + displayedLowDelta, visibleSignedYears(pressureDelta), recoveryNotObserved ? '' : historicalFacts.recoveryStatus === 'never' && typicalFacts.recoveryStatus === 'never' ? 'Same' : historicalFacts.recoveryStatus === 'never' || typicalFacts.recoveryStatus === 'never' ? '' : visibleSignedYears(recoveryDelta), displayedBalanceDelta === null ? '' : displayedBalanceDelta === '$0' ? 'Same' : (balanceDelta < 0 ? '\u2212' : '+') + displayedBalanceDelta, visibleSignedYears(fundingDelta)];
-  const expectedDeltaTones = [lowDelta < 0 ? 'negative' : 'muted', pressureDelta > 0 ? 'negative' : 'muted', recoveryNotObserved ? 'muted' : historicalFacts.recoveryStatus === 'never' && typicalFacts.recoveryStatus !== 'never' ? 'negative' : recoveryDelta > 0 ? 'negative' : 'muted', balanceDelta < 0 ? 'negative' : 'muted', fundingDelta < 0 ? 'negative' : 'muted'];
+  const expectedDeltas = [displayedLowDelta === '$0' ? 'Same' : (lowDelta < 0 ? '\u2212' : '+') + displayedLowDelta, visibleSignedPoints(effectiveWithdrawalDelta), recoveryNotObserved ? '' : historicalFacts.recoveryStatus === 'never' && typicalFacts.recoveryStatus === 'never' ? 'Same' : historicalFacts.recoveryStatus === 'never' || typicalFacts.recoveryStatus === 'never' ? '' : visibleSignedYears(recoveryDelta), displayedBalanceDelta === null ? '' : displayedBalanceDelta === '$0' ? 'Same' : (balanceDelta < 0 ? '\u2212' : '+') + displayedBalanceDelta, visibleSignedYears(fundingDelta)];
+  const expectedDeltaTones = [lowDelta < 0 ? 'negative' : 'muted', Math.round(effectiveWithdrawalDelta * 10) / 10 > 0 ? 'negative' : 'muted', recoveryNotObserved ? 'muted' : historicalFacts.recoveryStatus === 'never' && typicalFacts.recoveryStatus !== 'never' ? 'negative' : recoveryDelta > 0 ? 'negative' : 'muted', balanceDelta < 0 ? 'negative' : 'muted', fundingDelta < 0 ? 'negative' : 'muted'];
   if (JSON.stringify(historicalPath.reference.map(metric => metric.value)) !== JSON.stringify(expectedReferenceValues) || JSON.stringify(historicalPath.metrics.map(metric => metric.figure)) !== JSON.stringify(expectedSelectedValues) || JSON.stringify(historicalPath.metrics.map(metric => metric.deltaText)) !== JSON.stringify(expectedDeltas) || JSON.stringify(historicalPath.metrics.map(metric => metric.deltaTone)) !== JSON.stringify(expectedDeltaTones)) {
     throw new Error(`${mode} visible path-metrics inventory does not reconcile to authoritative rows: ${JSON.stringify({
       actualReferenceValues: historicalPath.reference.map(metric => metric.value),

@@ -179,8 +179,8 @@ function formatCashFlowHeaderYears(value, { delta = false } = {}) {
   }
 
 const CASH_FLOW_PATH_RAIL_METRICS = Object.freeze([
-  Object.freeze({ id: 'lowest-balance-first-10-years', label: '10-yr low' }),
-  Object.freeze({ id: 'early-withdrawal-pressure', label: 'WD > 5%' }),
+  Object.freeze({ id: 'lowest-balance-first-10-years', label: '10-year Low' }),
+  Object.freeze({ id: 'average-effective-withdrawal-rate', label: 'Effective WD Rate' }),
   Object.freeze({ id: 'recovery-period', label: 'Recovery' }),
   Object.freeze({ id: 'balance-at-age-80', label: 'Age 80' }),
   Object.freeze({ id: 'funded-through-margin', label: 'Funded through' }),
@@ -198,15 +198,10 @@ function pathRailValue(metric, key) {
         ? 'thisPathRecoveryAge'
         : 'typicalPathRecoveryAge';
       return formatCashFlowHeaderYears(value)
-        + (Number.isFinite(metric[ageKey]) ? ' · age ' + metric[ageKey] : '');
+        + (Number.isFinite(metric[ageKey]) ? ' · Age ' + metric[ageKey] : '');
     }
-    if (metric.id === 'early-withdrawal-pressure') {
-      const windowKey = key === 'thisPath'
-        ? 'thisPathWindowYears'
-        : 'typicalPathWindowYears';
-      return Number.isFinite(value) && Number.isFinite(metric[windowKey])
-        ? value + ' / ' + metric[windowKey]
-        : 'Not modeled';
+    if (metric.id === 'average-effective-withdrawal-rate') {
+      return Number.isFinite(value) ? value.toFixed(1) + '%' : 'Not modeled';
     }
     if (value === null || value === undefined) {
       return metric[key + 'Unavailable'] ?? 'Not modeled';
@@ -220,12 +215,13 @@ function pathRailValue(metric, key) {
 
 function pathRailDelta(metric) {
     const delta = metric.delta;
-    if (metric.id === 'early-withdrawal-pressure') {
+    if (metric.id === 'average-effective-withdrawal-rate') {
       if (!Number.isFinite(delta)) return { text: '', tone: 'muted' };
-      if (delta === 0) return { text: 'Same', tone: 'muted' };
+      const roundedDelta = Math.round(delta * 10) / 10;
+      if (roundedDelta === 0) return { text: 'Same', tone: 'muted' };
       return {
-        text: formatCashFlowHeaderYears(delta, { delta: true }),
-        tone: delta > 0 ? 'negative' : 'muted',
+        text: (roundedDelta < 0 ? '\u2212' : '+') + Math.abs(roundedDelta).toFixed(1) + ' pts',
+        tone: roundedDelta > 0 ? 'negative' : 'muted',
       };
     }
     if (metric.id === 'recovery-period') {

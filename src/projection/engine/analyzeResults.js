@@ -191,6 +191,9 @@ export function pathDigest(sim, params){
   const real    = rows.filter(r => r.source != null);
   const retRows = real.filter(r => r.phase !== 'accum');
   const wdRows  = retRows.filter(r => r.wdRate > 0);
+  const effectiveWdRows = retRows.filter(
+    r => Number.isFinite(r.effectiveWdRate) && r.effectiveWdRate > 0
+  );
   const resolvedPlanEndAges = [
     params?.people?.client?.planEndAgeOnPrimaryTimeline,
     params?.people?.spouse?.planEndAgeOnPrimaryTimeline,
@@ -211,6 +214,9 @@ export function pathDigest(sim, params){
     if(r.wdRate > peakWdRate){ peakWdRate = r.wdRate; peakWdAge = r.age; }
   }
   const avgWdRate = wdRows.length ? wdSum / wdRows.length : 0;
+  const avgEffectiveWdRate = effectiveWdRows.length
+    ? effectiveWdRows.reduce((sum, row) => sum + row.effectiveWdRate, 0) / effectiveWdRows.length
+    : 0;
 
   // Early sequence — the first 10 retirement years, where sequence risk lives.
   const early = retRows.slice(0, 10);
@@ -429,7 +435,7 @@ export function pathDigest(sim, params){
     failed:       !!sim.failed,
     depletionAge: sim.depletionAge != null ? sim.depletionAge : null,
     withdrawalYears: wdRows.length,
-    avgWdRate, peakWdRate, peakWdAge,
+    avgWdRate, avgEffectiveWdRate, peakWdRate, peakWdAge,
     earlyWindowYears: early.length,
     negEarlyYears,
     lowestRealBalanceFirst10Years,

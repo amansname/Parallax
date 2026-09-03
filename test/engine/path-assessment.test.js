@@ -87,6 +87,8 @@ test('pathDigest exposes real portfolio stress and plan-margin metrics from auth
   assert.equal(digest.yearsAboveFivePctWdRateFirst10Years, 3, '5.0% is not above the threshold');
   assert.equal(digest.yearsAboveFivePctEffectiveWdRateFirst10Years, 2,
     'rail pressure must use the same effective rate displayed in the ledger');
+  assert.equal(digest.avgEffectiveWdRate, 5.45,
+    'average effective withdrawal rate uses every modeled retirement year with a draw');
   assert.equal(digest.earlyWindowYears, 4);
   assert.equal(digest.marketRecoveryPeriodStatus, 'never');
   assert.equal(digest.marketRecoveryPeriodYears, null);

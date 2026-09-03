@@ -21,6 +21,7 @@ export async function verifyUnderfundedMatrix({
         fundingShortfall: 0,
         failed: false,
         wdRate: 4,
+        effectiveWdRate: 4,
         taxes: 0,
         people: { client: { age: 95, alive: true }, spouse: { age: 92, alive: true } }
       }, {
@@ -34,6 +35,7 @@ export async function verifyUnderfundedMatrix({
         fundingShortfall: 0,
         failed: false,
         wdRate: 5,
+        effectiveWdRate: 5,
         taxes: 0,
         people: { client: { age: 98, alive: false }, spouse: { age: 95, alive: true } }
       }]
@@ -48,6 +50,7 @@ export async function verifyUnderfundedMatrix({
       fundingShortfall: 0,
       failed: false,
       wdRate: 6,
+      effectiveWdRate: 6,
       taxes: 0,
       people: { client: { age: 95, alive: true }, spouse: { age: 92, alive: true } }
     }, {
@@ -60,6 +63,7 @@ export async function verifyUnderfundedMatrix({
       fundingShortfall: 20000,
       failed: true,
       wdRate: 100,
+      effectiveWdRate: 100,
       taxes: 0,
       people: {
         client: {
@@ -109,6 +113,7 @@ export async function verifyUnderfundedMatrix({
         lowestRealBalanceFirst10Age: 96,
         yearsAboveFivePctWdRateFirst10Years: 2,
         yearsAboveFivePctEffectiveWdRateFirst10Years: 2,
+        avgEffectiveWdRate: 53,
         earlyWindowYears: 2,
         marketRecoveryPeriodStatus: 'not-observed',
         marketRecoveryPeriodYears: null,
@@ -137,6 +142,7 @@ export async function verifyUnderfundedMatrix({
       tax: row.taxes,
       draw: 20000,
       wdRate: row.wdRate,
+      effectiveWdRate: row.effectiveWdRate,
       ending: row.balance,
       fundingShortfall: row.fundingShortfall,
       shortfall: row.fundingShortfall > 0.01,
@@ -163,6 +169,7 @@ export async function verifyUnderfundedMatrix({
         lowestRealBalanceFirst10Age: 95,
         yearsAboveFivePctWdRateFirst10Years: 0,
         yearsAboveFivePctEffectiveWdRateFirst10Years: 0,
+        avgEffectiveWdRate: 4.5,
         earlyWindowYears: 2,
         marketRecoveryPeriodStatus: 'recovered',
         marketRecoveryPeriodYears: 1,
@@ -286,7 +293,7 @@ export async function verifyUnderfundedMatrix({
       liveStatus.id = 'cashflow-path-status';
     }
   });
-  if (underfundedMatrixProof.outcome !== 'underfunded' || JSON.stringify(underfundedMatrixProof.metrics) !== JSON.stringify(['lowest-balance-first-10-years', 'early-withdrawal-pressure', 'recovery-period', 'balance-at-age-80', 'funded-through-margin']) || underfundedMatrixProof.recovery.reference !== '1 yr · age 95' || underfundedMatrixProof.recovery.figure !== 'Not observed' || underfundedMatrixProof.recovery.delta !== '' || underfundedMatrixProof.recovery.tone !== 'muted' || underfundedMatrixProof.recovery.referenceFontSize !== '15px' || underfundedMatrixProof.recovery.figureFontSize !== '22px' || underfundedMatrixProof.recovery.deltaMinHeight !== '12px' || underfundedMatrixProof.recovery.deltaHeight < 12 || underfundedMatrixProof.reverseRecovery.reference !== 'Not observed' || underfundedMatrixProof.reverseRecovery.figure !== '0 yrs' || underfundedMatrixProof.reverseRecovery.delta !== '' || underfundedMatrixProof.reverseRecovery.tone !== 'muted' || underfundedMatrixProof.reverseRecovery.referenceFontSize !== '15px' || underfundedMatrixProof.reverseRecovery.figureFontSize !== '22px' || underfundedMatrixProof.reverseRecovery.deltaMinHeight !== '12px' || underfundedMatrixProof.reverseRecovery.deltaHeight < 12 || underfundedMatrixProof.funding.reference !== 'Age 95' || underfundedMatrixProof.funding.figure !== 'Age 92' || underfundedMatrixProof.funding.delta !== '\u22123 yrs' || underfundedMatrixProof.funding.planEndAge !== 95 || underfundedMatrixProof.funding.thisPath !== 92 || underfundedMatrixProof.funding.typicalPath !== 95 || underfundedMatrixProof.rawTypicalTerminalAge !== 98 || underfundedMatrixProof.rawHistoricalFundedThroughAge !== 95 || underfundedMatrixProof.glyph !== '!' || !/is-underfunded/.test(underfundedMatrixProof.statusClass) || underfundedMatrixProof.statusColor !== underfundedMatrixProof.expectedColor) {
+  if (underfundedMatrixProof.outcome !== 'underfunded' || JSON.stringify(underfundedMatrixProof.metrics) !== JSON.stringify(['lowest-balance-first-10-years', 'average-effective-withdrawal-rate', 'recovery-period', 'balance-at-age-80', 'funded-through-margin']) || underfundedMatrixProof.recovery.reference !== '1 yr · Age 95' || underfundedMatrixProof.recovery.figure !== 'Not observed' || underfundedMatrixProof.recovery.delta !== '' || underfundedMatrixProof.recovery.tone !== 'muted' || underfundedMatrixProof.recovery.referenceFontSize !== '15px' || underfundedMatrixProof.recovery.figureFontSize !== '22px' || underfundedMatrixProof.recovery.deltaMinHeight !== '12px' || underfundedMatrixProof.recovery.deltaHeight < 12 || underfundedMatrixProof.reverseRecovery.reference !== 'Not observed' || underfundedMatrixProof.reverseRecovery.figure !== '0 yrs' || underfundedMatrixProof.reverseRecovery.delta !== '' || underfundedMatrixProof.reverseRecovery.tone !== 'muted' || underfundedMatrixProof.reverseRecovery.referenceFontSize !== '15px' || underfundedMatrixProof.reverseRecovery.figureFontSize !== '22px' || underfundedMatrixProof.reverseRecovery.deltaMinHeight !== '12px' || underfundedMatrixProof.reverseRecovery.deltaHeight < 12 || underfundedMatrixProof.funding.reference !== 'Age 95' || underfundedMatrixProof.funding.figure !== 'Age 92' || underfundedMatrixProof.funding.delta !== '\u22123 yrs' || underfundedMatrixProof.funding.planEndAge !== 95 || underfundedMatrixProof.funding.thisPath !== 92 || underfundedMatrixProof.funding.typicalPath !== 95 || underfundedMatrixProof.rawTypicalTerminalAge !== 98 || underfundedMatrixProof.rawHistoricalFundedThroughAge !== 95 || underfundedMatrixProof.glyph !== '!' || !/is-underfunded/.test(underfundedMatrixProof.statusClass) || underfundedMatrixProof.statusColor !== underfundedMatrixProof.expectedColor) {
     throw new Error(`controlled underfunded Historical matrix is incomplete: ${JSON.stringify(underfundedMatrixProof)}`);
   }
   observedHistoricalOutcomes.add(underfundedMatrixProof.outcome);

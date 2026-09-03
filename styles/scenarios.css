@@ -1231,7 +1231,7 @@
 
 .page[data-page="scenarios"] .cf-path-rail__reference-label {
   color: var(--body);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.3;
 }
 
@@ -1287,7 +1287,7 @@
 
 .page[data-page="scenarios"] .cf-path-rail__metric-name {
   color: var(--body);
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.35;
 }
 
