@@ -69,6 +69,9 @@ export async function verifyFamilyPropagation(page) {
     page,
     '[data-hh-action="select-finance-source"][data-finance-type-id="401k"]',
   );
+  await page.waitForFunction(() => (
+    document.activeElement?.matches?.('[data-finance-amount]') === true
+  ), { timeout: 10000 });
   const amountState = await page.evaluate(() => ({
     count: document.querySelectorAll('[data-finance-amount]').length,
     focused: document.activeElement?.matches?.('[data-finance-amount]') === true,
