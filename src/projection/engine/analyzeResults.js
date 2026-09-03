@@ -227,6 +227,9 @@ export function pathDigest(sim, params){
   const yearsAboveFivePctWdRateFirst10Years = early.filter(
     r => Number.isFinite(r.wdRate) && r.wdRate > 5
   ).length;
+  const yearsAboveFivePctEffectiveWdRateFirst10Years = early.filter(
+    r => Number.isFinite(r.effectiveWdRate) && r.effectiveWdRate > 5
+  ).length;
 
   // Damage window — longest run of retirement years the cumulative return sat
   // below its retirement-day level. Market recovery uses this same real-return
@@ -432,6 +435,7 @@ export function pathDigest(sim, params){
     lowestRealBalanceFirst10Years,
     lowestRealBalanceFirst10Age,
     yearsAboveFivePctWdRateFirst10Years,
+    yearsAboveFivePctEffectiveWdRateFirst10Years,
     underwaterSpellMax,
     marketRecoveryPeriodStatus,
     marketRecoveryPeriodYears,

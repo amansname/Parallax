@@ -34,6 +34,7 @@ function digest(overrides = {}){
     lowestRealBalanceFirst10Years: 1_600_000,
     lowestRealBalanceFirst10Age: 74,
     yearsAboveFivePctWdRateFirst10Years: 1,
+    yearsAboveFivePctEffectiveWdRateFirst10Years: 1,
     earlyWindowYears: 10,
     marketRecoveryPeriodStatus: 'recovered',
     marketRecoveryPeriodYears: 3,
@@ -292,6 +293,7 @@ test('Historical header exposes the fixed five-metric comparison in decision ord
       lowestRealBalanceFirst10Years: 800_000,
       lowestRealBalanceFirst10Age: 72,
       yearsAboveFivePctWdRateFirst10Years: 4,
+      yearsAboveFivePctEffectiveWdRateFirst10Years: 4,
       marketRecoveryPeriodStatus: 'recovered',
       marketRecoveryPeriodYears: 9,
       marketRecoveryAge: 81,
@@ -311,7 +313,7 @@ test('Historical header exposes the fixed five-metric comparison in decision ord
   ]);
   assert.deepEqual(metrics.rows[0], {
     id: 'lowest-balance-first-10-years',
-    label: 'Lowest balance · first 10 yrs',
+    label: '10-yr low',
     format: 'money',
     thisPath: 800_000,
     typicalPath: 1_600_000,
@@ -321,7 +323,7 @@ test('Historical header exposes the fixed five-metric comparison in decision ord
   });
   assert.deepEqual(metrics.rows[1], {
     id: 'early-withdrawal-pressure',
-    label: 'WD rate above 5% · first 10 yrs',
+    label: 'WD > 5%',
     format: 'early-withdrawal-pressure',
     thisPath: 4,
     typicalPath: 1,
@@ -331,7 +333,7 @@ test('Historical header exposes the fixed five-metric comparison in decision ord
   });
   assert.deepEqual(metrics.rows[2], {
     id: 'recovery-period',
-    label: 'Market recovery',
+    label: 'Recovery',
     format: 'recovery',
     thisPath: 9,
     typicalPath: 3,
@@ -343,7 +345,7 @@ test('Historical header exposes the fixed five-metric comparison in decision ord
   });
   assert.deepEqual(metrics.rows[3], {
     id: 'balance-at-age-80',
-    label: 'Real balance at age 80',
+    label: 'Age 80',
     format: 'money',
     thisPath: 800_000,
     typicalPath: 1_600_000,
@@ -353,7 +355,7 @@ test('Historical header exposes the fixed five-metric comparison in decision ord
   });
   assert.deepEqual(metrics.rows[4], {
     id: 'funded-through-margin',
-    label: 'Funded through · margin',
+    label: 'Funded through',
     description: 'If funded through plan end, margin is zero-return years at the final modeled portfolio draw; otherwise it is years short of plan end.',
     format: 'funding',
     thisPath: 95,
@@ -371,12 +373,31 @@ test('Historical header exposes the fixed five-metric comparison in decision ord
   assert.equal(Object.isFrozen(metrics.rows[0]), true);
 });
 
+test('Historical withdrawal pressure follows effective ledger rates, not legacy wdRate', () => {
+  const metrics = buildCashFlowHeaderMetrics({
+    historicalResult: historicalResult('survives', digest({
+      yearsAboveFivePctWdRateFirst10Years: 0,
+      yearsAboveFivePctEffectiveWdRateFirst10Years: 1,
+    })),
+    typicalSimulation: singlePersonSimulation(),
+    typicalDigest: digest({
+      yearsAboveFivePctWdRateFirst10Years: 0,
+      yearsAboveFivePctEffectiveWdRateFirst10Years: 0,
+    }),
+  });
+
+  const pressure = metrics.rows.find(metric => metric.id === 'early-withdrawal-pressure');
+  assert.equal(pressure.thisPath, 1);
+  assert.equal(pressure.typicalPath, 0);
+});
+
 test('underfunded Historical keeps all five metrics and expresses funding margin as years short', () => {
   const metrics = buildCashFlowHeaderMetrics({
     historicalResult: historicalResult('underfunded', digest({
       lowestRealBalanceFirst10Years: 200_000,
       lowestRealBalanceFirst10Age: 80,
       yearsAboveFivePctWdRateFirst10Years: 7,
+      yearsAboveFivePctEffectiveWdRateFirst10Years: 7,
       marketRecoveryPeriodStatus: 'never',
       marketRecoveryPeriodYears: null,
       marketRecoveryAge: null,
@@ -393,7 +414,7 @@ test('underfunded Historical keeps all five metrics and expresses funding margin
   assert.equal(metrics.rows.length, 5);
   assert.deepEqual(metrics.rows[2], {
     id: 'recovery-period',
-    label: 'Market recovery',
+    label: 'Recovery',
     format: 'recovery',
     thisPath: null,
     typicalPath: 3,
@@ -405,7 +426,7 @@ test('underfunded Historical keeps all five metrics and expresses funding margin
   });
   assert.deepEqual(metrics.rows[4], {
     id: 'funded-through-margin',
-    label: 'Funded through · margin',
+    label: 'Funded through',
     description: 'If funded through plan end, margin is zero-return years at the final modeled portfolio draw; otherwise it is years short of plan end.',
     format: 'funding',
     thisPath: 85,
@@ -594,7 +615,7 @@ test('Historical recovery comparison preserves no-dip and both-never engine stat
 
   assert.deepEqual(noDip, {
     id: 'recovery-period',
-    label: 'Market recovery',
+    label: 'Recovery',
     format: 'recovery',
     thisPath: 0,
     typicalPath: 3,
@@ -661,7 +682,7 @@ test('Historical age-80 balance fails closed per metric after earlier underfundi
   const age80 = metrics.rows.find(metric => metric.id === 'balance-at-age-80');
   assert.deepEqual(age80, {
     id: 'balance-at-age-80',
-    label: 'Real balance at age 80',
+    label: 'Age 80',
     format: 'money',
     thisPath: null,
     typicalPath: 1_600_000,

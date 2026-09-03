@@ -2,7 +2,7 @@ export async function verifyTypicalCashFlow({
   page,
   SKIP_SEQUENCING
 }) {
-  const EXPECT = ['Year', 'Age', 'Income', 'RMD', 'Essential', 'Goals', 'Tax', 'Draw', 'Return', 'WD Rate', 'Ending'];
+  const EXPECT = ['Year', 'Age', 'Income', 'RMD', 'Essential', 'Goals', 'Tax', 'Draw', 'Return', 'Eff. WD Rate', 'Ending'];
   const m = await page.evaluate(() => {
     const v = document.querySelector('#scn-view');
     return {
@@ -135,6 +135,40 @@ export async function verifyTypicalCashFlow({
   if (m.hasCfEyebrow) throw new Error('redundant Cash Flow eyebrow still in cf header');
   if (m.hasSummaryName) throw new Error('redundant scenario name still in summary strip');
   if (await page.evaluate(() => !!document.querySelector('#scn-view .cf-phase__name'))) throw new Error('phase header labels should be removed');
+
+  const effectiveWdRateProof = await page.evaluate(async () => {
+    const { scenarios } = await import('./src/state.js');
+    const baseline = scenarios.find(scenario => scenario.base);
+    const view = document.querySelector('#scn-view .cf');
+    const simulation = baseline?.res?.paths?.p50;
+    if (!view || !simulation || view.dataset.simIndex !== String(simulation.simIndex)) {
+      throw new Error('effective withdrawal rate proof must use the displayed Baseline Typical simulation');
+    }
+    const engineRow = simulation.rows.find(row => (
+      row.phase !== 'accum'
+      && row.withdrawal > 0
+      && Math.abs(row.returnRate) > 0.01
+      && Number.isFinite(row.effectiveWdRate)
+    ));
+    if (!engineRow) throw new Error('effective withdrawal rate fixture row is unavailable');
+    const visibleRow = [...view.querySelectorAll('.cf-row')]
+      .find(row => row.dataset.age === String(engineRow.age));
+    if (!visibleRow) throw new Error(`effective withdrawal rate row age ${engineRow.age} is not visible`);
+    return {
+      engine: engineRow.effectiveWdRate,
+      expected: engineRow.withdrawal / (engineRow.startBalance + engineRow.returnDollars) * 100,
+      legacy: engineRow.wdRate,
+      dataEffective: Number(visibleRow.dataset.effectiveWdRate),
+      dataLegacy: Number(visibleRow.dataset.wdRate),
+      visible: visibleRow.querySelector('.cf-cell--wd')?.textContent.trim() || '',
+    };
+  });
+  if (Math.abs(effectiveWdRateProof.engine - effectiveWdRateProof.expected) > 1e-9
+      || Math.abs(effectiveWdRateProof.dataEffective - effectiveWdRateProof.engine) > 1e-9
+      || Math.abs(effectiveWdRateProof.dataLegacy - effectiveWdRateProof.legacy) > 1e-9
+      || effectiveWdRateProof.visible !== `${effectiveWdRateProof.engine.toFixed(1)}%`) {
+    throw new Error(`Cash Flow effective withdrawal rate is not engine-exact: ${JSON.stringify(effectiveWdRateProof)}`);
+  }
 
   // Retirement start = filled dot on the year column of the first non-accum row.
   const retirementStartAge = () => page.evaluate(() => {

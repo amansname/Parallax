@@ -1,6 +1,7 @@
 // Projection Engine implementation; public consumers import engine.js.
 import { TRADITIONAL_PERSON_OWNERS, emptyTraditionalOwnerBuckets } from './traditionalOwners.js';
 import { householdTaxStatusAtAge } from './householdTimeline.js';
+import { effectiveWithdrawalRate } from './withdrawalMetrics.js';
 import { accountBalancesById, addProjectionCash, applyProjectionOwnerRmd, applyProjectionYearReturnsAndWithdrawals, fundProjectionGap, snapshotProjectionAccounts, syncProjectionAggregates, zeroProjectionAccounts } from '../accountLedger.js';
 import { cloneEngineAccounts, emptyFunding, accountTotal, combineAccountAmounts } from './accountFunding.js';
 
@@ -126,6 +127,11 @@ function buildFederalFundingCandidate({
   const wdRate = startBalance > 0.01 && withdrawal > 0
     ? (withdrawal / startBalance) * 100
     : 0;
+  const effectiveWdRate = effectiveWithdrawalRate({
+    withdrawal,
+    startBalance,
+    returnDollars: returnFrame.returnDollars,
+  });
   const taxableGainFraction = funding.breakdown.taxable > 0.01
     ? taxableCapitalGain / funding.breakdown.taxable
     : undefined;
@@ -168,6 +174,7 @@ function buildFederalFundingCandidate({
     lumpSum: lumpY,
     startBalance,
     wdRate,
+    effectiveWdRate,
     netCashflow: (ssInc + oiInc + penInc + saleProceeds)
       - (expenses + goalsY + liabCost + shortcutTax),
     balance: accountTotal(accounts),

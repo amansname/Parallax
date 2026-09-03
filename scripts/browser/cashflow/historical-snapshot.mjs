@@ -28,6 +28,7 @@ export async function readHistoricalPeriod({
       endingBalance: Number(row.dataset.endingBalance),
       withdrawal: Number(row.dataset.withdrawal),
       wdRate: Number(row.dataset.wdRate),
+      effectiveWdRate: Number(row.dataset.effectiveWdRate),
       returnRate: Number(row.dataset.returnRate),
       shortfall: Number(row.dataset.fundingShortfall),
       endingText: row.querySelector('.cf-cell--ending')?.textContent.trim() || ''

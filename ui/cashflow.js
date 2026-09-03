@@ -2,13 +2,6 @@ import { selectedPathIndex } from './sequencing.js';
 
 
 
-export function cfWdColor(wd, shortfall) {
-    if (shortfall) return 'var(--neg)';
-    if (wd < 5) return 'var(--body)';
-    if (wd < 7) return 'var(--neg-soft)';
-    return 'var(--neg)';
-  }
-
 export function goalTagFor(plan, r, age) {
     if (!(r.goals > 0)) return null;
     const g = (Array.isArray(plan.goals) ? plan.goals : [])
@@ -47,6 +40,7 @@ export function buildSimulationRows(sim, { plan, currentYear }) {
         tax: r.taxes || 0,
         draw: r.withdrawal || 0,
         wdRate: (r.wdRate != null) ? r.wdRate : 0,
+        effectiveWdRate: Number.isFinite(r.effectiveWdRate) ? r.effectiveWdRate : null,
         ending: r.balance || 0,
         fundingShortfall: Number.isFinite(r.fundingShortfall) ? r.fundingShortfall : 0,
         shortfall: Number.isFinite(r.fundingShortfall) && r.fundingShortfall > 0.01,
@@ -62,8 +56,8 @@ export function buildCashSummary(s, {
     if (!s.res) return {};
     const sim = simByIndex(s.res, selectedPathIndex(baselineResult()));
     if (!sim) return {};
-    let d = {};
-    try { d = (typeof pathDigest === 'function') ? pathDigest(sim) : {}; } catch (e) { d = {}; }
+    let d;
+    try { d = (typeof pathDigest === 'function') ? pathDigest(sim) : {}; } catch { d = {}; }
     return { peakWdRate: d.peakWdRate, peakWdAge: d.peakWdAge };
   }
 
@@ -185,11 +179,11 @@ function formatCashFlowHeaderYears(value, { delta = false } = {}) {
   }
 
 const CASH_FLOW_PATH_RAIL_METRICS = Object.freeze([
-  Object.freeze({ id: 'lowest-balance-first-10-years', label: 'Lowest balance · first 10 yrs' }),
-  Object.freeze({ id: 'early-withdrawal-pressure', label: 'WD rate above 5% · first 10 yrs' }),
-  Object.freeze({ id: 'recovery-period', label: 'Market recovery' }),
-  Object.freeze({ id: 'balance-at-age-80', label: 'Savings left at age 80' }),
-  Object.freeze({ id: 'funded-through-margin', label: 'Money lasts through' }),
+  Object.freeze({ id: 'lowest-balance-first-10-years', label: '10-yr low' }),
+  Object.freeze({ id: 'early-withdrawal-pressure', label: 'WD > 5%' }),
+  Object.freeze({ id: 'recovery-period', label: 'Recovery' }),
+  Object.freeze({ id: 'balance-at-age-80', label: 'Age 80' }),
+  Object.freeze({ id: 'funded-through-margin', label: 'Funded through' }),
 ]);
 
 function pathRailValue(metric, key) {
@@ -211,7 +205,7 @@ function pathRailValue(metric, key) {
         ? 'thisPathWindowYears'
         : 'typicalPathWindowYears';
       return Number.isFinite(value) && Number.isFinite(metric[windowKey])
-        ? value + ' of ' + metric[windowKey] + ' yrs'
+        ? value + ' / ' + metric[windowKey]
         : 'Not modeled';
     }
     if (value === null || value === undefined) {
@@ -325,9 +319,9 @@ function historicalPathRail(headerMetrics, period, esc) {
       : '';
 
     return (
-      '<aside class="cf-path-rail" data-cash-path-metrics data-outcome="' + esc(headerMetrics.outcome) + '" aria-label="Selected path metrics compared with Typical path">' +
+      '<aside class="cf-path-rail" data-cash-path-metrics data-outcome="' + esc(headerMetrics.outcome) + '" aria-label="Path comparison">' +
         '<div class="cf-path-rail__reference" data-cash-path-reference>' +
-          '<div class="cf-path-rail__reference-title">Typical path</div>' +
+          '<div class="cf-path-rail__reference-title">Typical</div>' +
           typicalRows +
         '</div>' +
         '<div class="cf-path-rail__selected" data-cash-path-selected>' + selectedPeriod + selectedRows + '</div>' +
@@ -459,11 +453,11 @@ export function renderCashflow(scn, allScns, {
         ? '<span class="cf-row__shortfall">Short ' + fmtMoney(r.fundingShortfall) + '</span>'
         : '';
       const returnClass = r.ret == null ? 'cf-cell--zero' : (r.ret < 0 ? 'cf-down' : (r.ret > 0 ? 'cf-up' : ''));
-      const withdrawalColor = cfWdColor(r.wdRate, r.shortfall);
-      const withdrawalClass = !r.accum && r.startPort > 0
-        ? (withdrawalColor === 'var(--neg)'
-            ? 'cf-wd-hi'
-            : (withdrawalColor === 'var(--neg-soft)' ? 'cf-wd-mid' : 'cf-wd-lo'))
+      const hasEffectiveWdRate = !r.accum
+        && r.startPort > 0
+        && Number.isFinite(r.effectiveWdRate);
+      const withdrawalClass = hasEffectiveWdRate
+        ? (r.shortfall ? 'cf-wd-hi' : 'cf-wd-lo')
         : 'cf-cell--zero';
       const isRetStart = retStartAge != null && !r.accum && r.age === retStartAge;
       const isRmdStart = rmdStartAge != null && r.age === rmdStartAge;
@@ -471,7 +465,7 @@ export function renderCashflow(scn, allScns, {
         ? '<span class="cf-row__mark-dot cf-row__mark-dot--ret"></span>'
         : (isRmdStart ? '<span class="cf-row__mark-dot cf-row__mark-dot--rmd"></span>' : '');
       return (
-        '<div class="cf-row cf-grid" data-age="' + esc(r.age) + '" data-living-age="' + esc(r.livingAge ?? '') + '" data-phase="' + (r.accum ? 'accum' : 'retirement') + '" data-source-year="' + esc(r.sourceYear ?? '') + '" data-start-balance="' + r.startPort + '" data-ending-balance="' + r.ending + '" data-withdrawal="' + r.draw + '" data-wd-rate="' + r.wdRate + '" data-return-rate="' + esc(r.ret ?? '') + '" data-funding-shortfall="' + r.fundingShortfall + '">' +
+        '<div class="cf-row cf-grid" data-age="' + esc(r.age) + '" data-living-age="' + esc(r.livingAge ?? '') + '" data-phase="' + (r.accum ? 'accum' : 'retirement') + '" data-source-year="' + esc(r.sourceYear ?? '') + '" data-start-balance="' + r.startPort + '" data-ending-balance="' + r.ending + '" data-withdrawal="' + r.draw + '" data-wd-rate="' + r.wdRate + '" data-effective-wd-rate="' + esc(r.effectiveWdRate ?? '') + '" data-return-rate="' + esc(r.ret ?? '') + '" data-funding-shortfall="' + r.fundingShortfall + '">' +
           '<span class="cf-row__year">' +
             '<span class="cf-row__mark" aria-hidden="true">' + yearMark + '</span>' +
             esc(r.year) +
@@ -487,7 +481,7 @@ export function renderCashflow(scn, allScns, {
           '<span class="cf-cell ' + (tax > 0 ? 'cf-cell--tax' : 'cf-cell--zero') + '">' + fmtMoney(tax) + '</span>' +
           '<span class="cf-cell ' + (r.draw > 0 ? 'cf-cell--draw' : 'cf-cell--zero') + '">' + fmtParenMoney(r.draw, fmtMoney) + '</span>' +
           '<span class="cf-cell cf-cell--ret ' + returnClass + '">' + (r.ret == null ? '—' : (r.ret < 0 ? '−' : '+') + num(Math.abs(r.ret) * 100, 1) + '%') + '</span>' +
-          '<span class="cf-cell cf-cell--wd ' + withdrawalClass + '">' + (!r.accum && r.startPort > 0 ? num(r.wdRate, 1) + '%' : '—') + '</span>' +
+          '<span class="cf-cell cf-cell--wd ' + withdrawalClass + '">' + (hasEffectiveWdRate ? num(r.effectiveWdRate, 1) + '%' : '—') + '</span>' +
           '<span class="cf-cell cf-cell--ending' + (r.shortfall ? ' cf-down' : '') + '"><span>' + ending + '</span>' + shortfallNote + '</span>' +
         '</div>'
       );
@@ -499,13 +493,17 @@ export function renderCashflow(scn, allScns, {
 
     const headCells = cfCols.map((h, i) => {
       const isTax = h === 'Tax';
+      const isEffectiveWdRate = h === 'Eff. WD Rate';
       const label = isTax ? taxColumn.label : h;
       const taxAttrs = isTax
         ? ' data-tax-source="' + esc(taxColumn.source) + '"' +
           (taxColumn.scope ? ' data-tax-scope="' + esc(taxColumn.scope) + '"' : '') +
           ' title="' + esc(taxColumn.title) + '"'
         : '';
-      return '<span class="cf-th ' + (i >= 2 ? 'cf-th--r' : '') + '"' + taxAttrs + '>' + esc(label) + '</span>';
+      const effectiveWdRateAttrs = isEffectiveWdRate
+        ? ' title="Draw divided by the portfolio after this year\'s return, before the draw"'
+        : '';
+      return '<span class="cf-th ' + (i >= 2 ? 'cf-th--r' : '') + '"' + taxAttrs + effectiveWdRateAttrs + '>' + esc(label) + '</span>';
     }).join('');
     const emptyMessage = selected?.error
       ? selected.error

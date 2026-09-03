@@ -39,6 +39,7 @@ export async function verifyHistoricalReload({
       startBalance: Number(row.dataset.startBalance),
       endingBalance: Number(row.dataset.endingBalance),
       wdRate: Number(row.dataset.wdRate),
+      effectiveWdRate: Number(row.dataset.effectiveWdRate),
       shortfall: Number(row.dataset.fundingShortfall)
     }));
     const retirementRows = rows.filter(row => row.phase === 'retirement');
@@ -97,6 +98,7 @@ export async function verifyHistoricalReload({
       startBalance: Number(row.dataset.startBalance),
       endingBalance: Number(row.dataset.endingBalance),
       wdRate: Number(row.dataset.wdRate),
+      effectiveWdRate: Number(row.dataset.effectiveWdRate),
       shortfall: Number(row.dataset.fundingShortfall)
     }));
     const retirementRows = rows.filter(row => row.phase === 'retirement');
@@ -143,6 +145,7 @@ export async function verifyHistoricalReload({
       startBalance: row.startBalance,
       endingBalance: row.endingBalance,
       wdRate: row.wdRate,
+      effectiveWdRate: row.effectiveWdRate,
       shortfall: row.shortfall
     })),
     summary: snapshot.summary,

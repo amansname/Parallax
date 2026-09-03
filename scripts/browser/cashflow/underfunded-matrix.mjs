@@ -108,6 +108,7 @@ export async function verifyUnderfundedMatrix({
         lowestRealBalanceFirst10Years: 0,
         lowestRealBalanceFirst10Age: 96,
         yearsAboveFivePctWdRateFirst10Years: 2,
+        yearsAboveFivePctEffectiveWdRateFirst10Years: 2,
         earlyWindowYears: 2,
         marketRecoveryPeriodStatus: 'not-observed',
         marketRecoveryPeriodYears: null,
@@ -161,6 +162,7 @@ export async function verifyUnderfundedMatrix({
         lowestRealBalanceFirst10Years: 650000,
         lowestRealBalanceFirst10Age: 95,
         yearsAboveFivePctWdRateFirst10Years: 0,
+        yearsAboveFivePctEffectiveWdRateFirst10Years: 0,
         earlyWindowYears: 2,
         marketRecoveryPeriodStatus: 'recovered',
         marketRecoveryPeriodYears: 1,
@@ -208,7 +210,7 @@ export async function verifyUnderfundedMatrix({
           num: value => String(value),
           esc: value => String(value),
           fmtMoney: value => '$' + Math.round(value).toLocaleString('en-US'),
-          cfCols: ['Year', 'Age', 'Income', 'RMD', 'Essential', 'Goals', 'Tax', 'Draw', 'Return', 'WD Rate', 'Ending']
+          cfCols: ['Year', 'Age', 'Income', 'RMD', 'Essential', 'Goals', 'Tax', 'Draw', 'Return', 'Eff. WD Rate', 'Ending']
         });
       };
       const readRecovery = () => {
@@ -284,7 +286,7 @@ export async function verifyUnderfundedMatrix({
       liveStatus.id = 'cashflow-path-status';
     }
   });
-  if (underfundedMatrixProof.outcome !== 'underfunded' || JSON.stringify(underfundedMatrixProof.metrics) !== JSON.stringify(['lowest-balance-first-10-years', 'early-withdrawal-pressure', 'recovery-period', 'balance-at-age-80', 'funded-through-margin']) || underfundedMatrixProof.recovery.reference !== '1 yr · age 95' || underfundedMatrixProof.recovery.figure !== 'Not observed' || underfundedMatrixProof.recovery.delta !== '' || underfundedMatrixProof.recovery.tone !== 'muted' || underfundedMatrixProof.recovery.referenceFontSize !== '15px' || underfundedMatrixProof.recovery.figureFontSize !== '24px' || underfundedMatrixProof.recovery.deltaMinHeight !== '12px' || underfundedMatrixProof.recovery.deltaHeight < 12 || underfundedMatrixProof.reverseRecovery.reference !== 'Not observed' || underfundedMatrixProof.reverseRecovery.figure !== '0 yrs' || underfundedMatrixProof.reverseRecovery.delta !== '' || underfundedMatrixProof.reverseRecovery.tone !== 'muted' || underfundedMatrixProof.reverseRecovery.referenceFontSize !== '15px' || underfundedMatrixProof.reverseRecovery.figureFontSize !== '24px' || underfundedMatrixProof.reverseRecovery.deltaMinHeight !== '12px' || underfundedMatrixProof.reverseRecovery.deltaHeight < 12 || underfundedMatrixProof.funding.reference !== 'Age 95' || underfundedMatrixProof.funding.figure !== 'Age 92' || underfundedMatrixProof.funding.delta !== '\u22123 yrs' || underfundedMatrixProof.funding.planEndAge !== 95 || underfundedMatrixProof.funding.thisPath !== 92 || underfundedMatrixProof.funding.typicalPath !== 95 || underfundedMatrixProof.rawTypicalTerminalAge !== 98 || underfundedMatrixProof.rawHistoricalFundedThroughAge !== 95 || underfundedMatrixProof.glyph !== '!' || !/is-underfunded/.test(underfundedMatrixProof.statusClass) || underfundedMatrixProof.statusColor !== underfundedMatrixProof.expectedColor) {
+  if (underfundedMatrixProof.outcome !== 'underfunded' || JSON.stringify(underfundedMatrixProof.metrics) !== JSON.stringify(['lowest-balance-first-10-years', 'early-withdrawal-pressure', 'recovery-period', 'balance-at-age-80', 'funded-through-margin']) || underfundedMatrixProof.recovery.reference !== '1 yr · age 95' || underfundedMatrixProof.recovery.figure !== 'Not observed' || underfundedMatrixProof.recovery.delta !== '' || underfundedMatrixProof.recovery.tone !== 'muted' || underfundedMatrixProof.recovery.referenceFontSize !== '15px' || underfundedMatrixProof.recovery.figureFontSize !== '22px' || underfundedMatrixProof.recovery.deltaMinHeight !== '12px' || underfundedMatrixProof.recovery.deltaHeight < 12 || underfundedMatrixProof.reverseRecovery.reference !== 'Not observed' || underfundedMatrixProof.reverseRecovery.figure !== '0 yrs' || underfundedMatrixProof.reverseRecovery.delta !== '' || underfundedMatrixProof.reverseRecovery.tone !== 'muted' || underfundedMatrixProof.reverseRecovery.referenceFontSize !== '15px' || underfundedMatrixProof.reverseRecovery.figureFontSize !== '22px' || underfundedMatrixProof.reverseRecovery.deltaMinHeight !== '12px' || underfundedMatrixProof.reverseRecovery.deltaHeight < 12 || underfundedMatrixProof.funding.reference !== 'Age 95' || underfundedMatrixProof.funding.figure !== 'Age 92' || underfundedMatrixProof.funding.delta !== '\u22123 yrs' || underfundedMatrixProof.funding.planEndAge !== 95 || underfundedMatrixProof.funding.thisPath !== 92 || underfundedMatrixProof.funding.typicalPath !== 95 || underfundedMatrixProof.rawTypicalTerminalAge !== 98 || underfundedMatrixProof.rawHistoricalFundedThroughAge !== 95 || underfundedMatrixProof.glyph !== '!' || !/is-underfunded/.test(underfundedMatrixProof.statusClass) || underfundedMatrixProof.statusColor !== underfundedMatrixProof.expectedColor) {
     throw new Error(`controlled underfunded Historical matrix is incomplete: ${JSON.stringify(underfundedMatrixProof)}`);
   }
   observedHistoricalOutcomes.add(underfundedMatrixProof.outcome);
