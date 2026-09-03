@@ -94,6 +94,16 @@ export function resolveInputs(plan, ov){
   if(hasSavingsAnnual && (!Number.isFinite(ov.savingsAnnual) || ov.savingsAnnual < 0)){
     throw new TypeError('savingsAnnual must be a finite non-negative number');
   }
+  const persistedSavingsEntries = Array.isArray(plan.savings?.entries)
+    ? plan.savings.entries.filter(entry => (
+        entry
+          && (entry.owner === 'client' || entry.owner === 'spouse')
+          && typeof entry.typeId === 'string'
+          && ['taxable', 'traditional', 'roth'].includes(entry.bucket)
+          && Number.isFinite(entry.amount)
+          && entry.amount > 0
+      ))
+    : [];
   const spendMult = (1 - Math.max(0, Math.min(0.5, ov.spendCut || 0))) * (1 + Math.max(0, ov.spendBump || 0));
 
   // Typed accounts (401k, SEP, etc.) retain identity and their saved allocation.
@@ -169,8 +179,13 @@ export function resolveInputs(plan, ov){
   // buckets and supplies the year-0 prior-Dec-31 RMD basis.
   const rawTraditionalByOwner = emptyTraditionalOwnerBuckets();
   for(const account of accountFold.accounts){
+    const contributionDestination = persistedSavingsEntries.some(entry => (
+      entry.owner === account.owner
+        && entry.typeId === account.typeId
+        && account.engineBucket === 'traditional'
+    ));
     if(account.engineBucket !== 'traditional' || account.strategyRulesPending
-        || account.balance <= 0) continue;
+        || (account.balance <= 0 && !contributionDestination)) continue;
     if(account.sourceKind === 'legacy-base'){
       traditionalFocusRulesKnown = false;
       traditionalPriorYearEndBalanceAvailable = false;
@@ -269,6 +284,35 @@ export function resolveInputs(plan, ov){
       ? { traditional: _st/_ssum, roth: _sr/_ssum, taxable: _sx/_ssum }
       : { traditional: 1, roth: 0, taxable: 0 };
   }
+  const savedSavingsAnnual = Math.max(0, Number(plan.savings?.annual) || 0);
+  const savedRawSplit = plan.savings?.split || null;
+  const savedSplitValues = savedRawSplit
+    ? {
+        traditional: Math.max(0, Number(savedRawSplit.traditional) || 0),
+        roth: Math.max(0, Number(savedRawSplit.roth) || 0),
+        taxable: Math.max(0, Number(savedRawSplit.taxable) || 0),
+      }
+    : { traditional: 1, roth: 0, taxable: 0 };
+  const savedSplitTotal = savedSplitValues.traditional
+    + savedSplitValues.roth
+    + savedSplitValues.taxable;
+  const normalizedSavedSplit = savedSplitTotal > 0
+    ? Object.fromEntries(Object.entries(savedSplitValues).map(([bucket, value]) => (
+        [bucket, value / savedSplitTotal]
+      )))
+    : { traditional: 1, roth: 0, taxable: 0 };
+  const savingsEntries = persistedSavingsEntries.map(entry => {
+    const savedBucketAnnual = savedSavingsAnnual * normalizedSavedSplit[entry.bucket];
+    const resolvedBucketAnnual = savingsAnnual * savingsSplit[entry.bucket];
+    return Object.freeze({
+      owner: entry.owner,
+      typeId: entry.typeId,
+      bucket: entry.bucket,
+      amount: savedBucketAnnual > 0
+        ? entry.amount * (resolvedBucketAnnual / savedBucketAnnual)
+        : 0,
+    });
+  });
   const traditionalRmdStartAge = traditionalRmdOwner
     ? timeline.people[traditionalRmdOwner]?.rmdStartAge ?? null
     : null;
@@ -460,6 +504,7 @@ export function resolveInputs(plan, ov){
     incomeContractIssues: Object.freeze([...incomeContractIssues]),
     savingsAnnual,
     savingsSplit,
+    savingsEntries: Object.freeze(savingsEntries),
     horizonYears: horizon,
     accounts,  // structured account container
     projectionAccounts: Object.freeze(projectionAccounts.map(account => Object.freeze({ ...account }))),
