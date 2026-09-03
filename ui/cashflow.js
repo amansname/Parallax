@@ -216,8 +216,12 @@ function pathRailValue(metric, key) {
 function pathRailDelta(metric) {
     const delta = metric.delta;
     if (metric.id === 'average-effective-withdrawal-rate') {
-      if (!Number.isFinite(delta)) return { text: '', tone: 'muted' };
-      const roundedDelta = Math.round(delta * 10) / 10;
+      if (!Number.isFinite(metric.thisPath) || !Number.isFinite(metric.typicalPath)) {
+        return { text: '', tone: 'muted' };
+      }
+      const displayedThisPath = Number(metric.thisPath.toFixed(1));
+      const displayedTypicalPath = Number(metric.typicalPath.toFixed(1));
+      const roundedDelta = Math.round((displayedThisPath - displayedTypicalPath) * 10) / 10;
       if (roundedDelta === 0) return { text: 'Same', tone: 'muted' };
       return {
         text: (roundedDelta < 0 ? '\u2212' : '+') + Math.abs(roundedDelta).toFixed(1) + ' pts',

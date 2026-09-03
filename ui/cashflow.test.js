@@ -599,7 +599,8 @@ test('surviving historical Cash Flow renders the Option 3a reference fixture in 
     cfCols: ['Year', 'Age', 'Income', 'RMD', 'Essential', 'Goals', 'Tax', 'Draw', 'Return', 'Eff. WD Rate', 'Ending'],
   });
   const nearZeroHtml = renderMetricRows(nearZeroRows);
-  assert.equal((nearZeroHtml.match(/>Same<\/div>/g) || []).length, 5);
+  assert.match(nearZeroHtml, /data-path-reference-metric="average-effective-withdrawal-rate"[\s\S]*>5\.3%<[\s\S]*data-historical-metric="average-effective-withdrawal-rate"[\s\S]*>5\.2%<[\s\S]*>−0\.1 pts<\/div>/);
+  assert.equal((nearZeroHtml.match(/>Same<\/div>/g) || []).length, 4);
   assert.doesNotMatch(nearZeroHtml, /0\.0 pts|[−+]\$0/);
 
   const bothNeverHtml = renderMetricRows(nearZeroRows.map(metric => (
