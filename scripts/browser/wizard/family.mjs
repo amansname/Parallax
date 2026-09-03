@@ -20,6 +20,37 @@ export async function verifyFamilyPropagation(page) {
   requireCondition(family.people === 2 && family.spouse === 1, `MFJ did not render the co-client: ${JSON.stringify(family)}`);
   await setWizardValue(page, '[data-wizard-field="spouse.birthDate"]', '1961-01-01');
 
+  await openNetWorthCategory(page, 'investment');
+  await clickWizardAction(
+    page,
+    '[data-hh-action="net-worth-pick-type"][data-account-type-id="401k"]',
+  );
+  await setWizardValue(page, '[data-net-worth-draft="name"]', 'Verifier 401(k)', {
+    expectRevision: false,
+    eventType: 'input',
+  });
+  await setWizardValue(page, '[data-net-worth-draft="owner"]', 'client', {
+    expectRevision: false,
+  });
+  await setWizardValue(page, '[data-net-worth-draft="value"]', '0', {
+    expectRevision: false,
+    eventType: 'input',
+  });
+  await clickWizardAction(page, '[data-hh-action="net-worth-save-entry"]');
+  const client401k = await page.evaluate(() => {
+    const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+    const active = localStorage.getItem('parallax.activeHouseholdId');
+    return db?.[active]?.portfolio?.extraAccounts?.find(account => (
+      account.typeId === '401k' && account.owner === 'client'
+    )) || null;
+  });
+  requireCondition(
+    client401k?.id && client401k.balance === 0,
+    `Client-owned 401(k) contribution destination was not saved: ${JSON.stringify(client401k)}`,
+  );
+  await clickWizardAction(page, '[data-net-worth-overlay] .nw-panel-close');
+  await goToWizardStep(page, 'family');
+
   const closedFinanceEntry = await page.evaluate(() => ({
     panels: document.querySelectorAll('[data-finance-entry-panel]').length,
     amounts: document.querySelectorAll('[data-finance-amount]').length,
@@ -138,11 +169,21 @@ export async function verifyFamilyPropagation(page) {
     return {
       savings: saved?.savings?.entries?.filter(entry => entry.owner === 'client') || [],
       income: saved?.income?.other?.filter(entry => entry.owner === 'client') || [],
+      savingsAnnual: saved?.savings?.annual,
+      savingsSplit: saved?.savings?.split,
+      client401k: saved?.portfolio?.extraAccounts?.find(account => (
+        account.typeId === '401k' && account.owner === 'client'
+      )) || null,
     };
   });
   requireCondition(
     persistedFinanceEntries.savings.some(entry => entry.typeId === '401k' && entry.amount === 28300)
-      && persistedFinanceEntries.income.some(entry => entry.typeId === 'rental' && entry.amount === 18000),
+      && persistedFinanceEntries.income.some(entry => entry.typeId === 'rental' && entry.amount === 18000)
+      && persistedFinanceEntries.savingsAnnual === 28300
+      && persistedFinanceEntries.savingsSplit?.traditional === 1
+      && persistedFinanceEntries.savingsSplit?.roth === 0
+      && persistedFinanceEntries.savingsSplit?.taxable === 0
+      && persistedFinanceEntries.client401k?.id === client401k.id,
     `Family finance entries did not survive reload: ${JSON.stringify(persistedFinanceEntries)}`,
   );
   for (const nextStatus of ['single', 'headOfHousehold']) {
@@ -166,7 +207,14 @@ export async function verifyFamilyPropagation(page) {
     eventType: 'input'
   });
   await clickWizardAction(page, '[data-hh-action="net-worth-save-entry"]');
-  const spouseAccountId = await page.$eval('[data-hh-action="net-worth-remove-entry"][data-entry-source="account"]', button => button.dataset.accountId);
+  const spouseAccountId = await page.evaluate(() => {
+    const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+    const active = localStorage.getItem('parallax.activeHouseholdId');
+    return db?.[active]?.portfolio?.extraAccounts?.find(account => (
+      account.typeId === 'roth_ira' && account.owner === 'spouse'
+    ))?.id || '';
+  });
+  requireCondition(spouseAccountId, 'Saved co-client Roth IRA did not expose a stable account ID');
   await clickWizardAction(page, '[data-net-worth-overlay] .nw-panel-close');
   await page.evaluate(() => {
     window.__coClientConfirmCalls = 0;

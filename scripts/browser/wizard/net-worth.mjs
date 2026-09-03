@@ -79,8 +79,10 @@ export async function verifyNetWorthFlow(page) {
   requireCondition(formattedAccount.value === '$250,000.75' && !formattedAccount.saveDisabled, `Net Worth account draft did not become savable: ${JSON.stringify(formattedAccount)}`);
   await clickWizardAction(page, '[data-hh-action="net-worth-save-entry"]');
   const account = await page.evaluate(() => {
-    const remove = document.querySelector('[data-hh-action="net-worth-remove-entry"][data-entry-source="account"]');
-    const row = remove?.closest('.nw-saved-row');
+    const row = [...document.querySelectorAll('.nw-saved-row')].find(candidate => (
+      candidate.querySelector('.nw-saved-name')?.textContent.trim() === 'Verifier checking'
+    ));
+    const remove = row?.querySelector('[data-hh-action="net-worth-remove-entry"][data-entry-source="account"]');
     return {
       id: remove?.dataset.accountId || '',
       count: document.querySelectorAll('[data-hh-action="net-worth-remove-entry"][data-entry-source="account"]').length,
@@ -89,7 +91,7 @@ export async function verifyNetWorthFlow(page) {
       value: row?.querySelector('.nw-saved-actions span')?.textContent.trim() || ''
     };
   });
-  requireCondition(account.count === 1 && account.id && account.name === 'Verifier checking' && account.meta.includes('Checking') && account.meta.includes('Client') && account.value === '$250,001', `Net Worth account did not save canonical truth: ${JSON.stringify(account)}`);
+  requireCondition(account.count === 2 && account.id && account.name === 'Verifier checking' && account.meta.includes('Checking') && account.meta.includes('Client') && account.value === '$250,001', `Net Worth account did not save canonical truth: ${JSON.stringify(account)}`);
   await page.waitForFunction(expectedId => {
     const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
     const active = localStorage.getItem('parallax.activeHouseholdId');
