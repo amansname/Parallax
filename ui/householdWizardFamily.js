@@ -3,12 +3,14 @@ import { renderBirthDateField } from './birthDateField.js';
 export function renderHouseholdWizardFamily(ctx){
   const {
     plan,
+    uiState,
     esc,
     fieldValue,
     moneyFieldValue,
     optionList,
     states,
     ageFor,
+    financeSourceTypes,
   } = ctx;
   const filingStatus = plan.meta?.filingStatus || 'single';
   const supportedFilingStatus = [
@@ -17,6 +19,71 @@ export function renderHouseholdWizardFamily(ctx){
     'headOfHousehold',
   ].includes(filingStatus);
   const hasSpouse = filingStatus === 'marriedFilingJointly' || Boolean(plan.household?.spouse);
+
+  const savedFinanceAmount = (owner, mode, typeId) => {
+    if(mode === 'income' && typeId === 'social_security'){
+      const key = owner === 'spouse' ? 'spouse' : 'primary';
+      return plan.income?.socialSecurity?.[key]?.pia;
+    }
+    const rows = mode === 'income'
+      ? plan.income?.other
+      : plan.savings?.entries;
+    return (Array.isArray(rows) ? rows : []).find(
+      row => row?.owner === owner && row?.typeId === typeId,
+    )?.amount;
+  };
+
+  const financePanel = owner => {
+    if(uiState.financeOwner !== owner) return '';
+    const mode = uiState.financeMode;
+    const selectedTypeId = uiState.financeTypeId;
+    const types = financeSourceTypes(mode);
+    const selectedType = types.find(type => type.id === selectedTypeId) || null;
+    const selectedAmount = selectedType
+      ? savedFinanceAmount(owner, mode, selectedType.id)
+      : null;
+    const ownerName = owner === 'spouse'
+      ? plan.meta?.spouseName || 'Co-client'
+      : plan.meta?.primaryName || 'Client';
+    return `
+      <aside class="hh-finance-entry" id="hh-finance-entry-${owner}"
+        data-finance-entry-panel data-finance-owner="${owner}"
+        aria-label="Add income or savings for ${esc(ownerName)}">
+        <div class="hh-finance-mode" role="group" aria-label="Entry type">
+          ${['savings', 'income'].map(candidate => `
+            <button type="button" class="${candidate === mode ? 'is-active' : ''}"
+              data-hh-action="set-finance-mode" data-finance-mode="${candidate}"
+              aria-pressed="${candidate === mode ? 'true' : 'false'}">
+              ${candidate === 'savings' ? 'Savings' : 'Income'}
+            </button>
+          `).join('')}
+        </div>
+        <div class="hh-finance-source-list" role="group"
+          aria-label="${mode === 'savings' ? 'Savings types' : 'Income sources'}">
+          ${types.map(type => `
+            <button type="button"
+              class="${type.id === selectedTypeId ? 'is-selected' : ''}"
+              data-hh-action="select-finance-source" data-finance-type-id="${esc(type.id)}"
+              aria-pressed="${type.id === selectedTypeId ? 'true' : 'false'}">
+              ${esc(type.label)}
+            </button>
+          `).join('')}
+        </div>
+        ${selectedType ? `
+          <div class="hh-finance-amount-row">
+            <span aria-hidden="true">$</span>
+            <input type="text" inputmode="decimal" autocomplete="off"
+              data-finance-amount aria-label="${esc(selectedType.label)} annual amount"
+              value="${moneyFieldValue(selectedAmount)}"
+              placeholder="0">
+            <span aria-hidden="true">/yr</span>
+            <button type="button" data-hh-action="commit-finance-entry"
+              aria-label="Add ${esc(selectedType.label)}">↵</button>
+          </div>
+        ` : ''}
+      </aside>
+    `;
+  };
 
   const personCard = (owner, label) => {
     const nameField = owner === 'client' ? 'primaryName' : 'spouseName';
@@ -28,15 +95,24 @@ export function renderHouseholdWizardFamily(ctx){
     const birthDate = plan.taxProfiles?.[owner]?.birthDate?.value || '';
     const age = ageFor(owner);
     const status = person.employmentStatus || 'employed';
+    const financeOpen = uiState.financeOwner === owner;
     return `
-      <section class="hh-person-card" data-person-owner="${owner}">
+      <section class="hh-person-card${financeOpen ? ' is-finance-open' : ''}"
+        data-person-owner="${owner}">
         <div class="hh-card-head">
-          <div class="hh-card-kicker">${esc(label)}</div>
+          <button type="button" class="hh-finance-person-trigger"
+            data-hh-action="toggle-finance-entry" data-finance-owner="${owner}"
+            aria-expanded="${financeOpen ? 'true' : 'false'}"
+            aria-controls="hh-finance-entry-${owner}">
+            <span>${esc(name || label)}</span>
+            <small>${esc(label)} · ${age == null ? 'Age —' : `Age ${esc(age)}`}</small>
+          </button>
           ${owner === 'spouse' ? `
             <button type="button" class="hh-card-action"
               data-hh-action="remove-spouse">Remove co-client</button>
           ` : ''}
         </div>
+        ${financePanel(owner)}
         <div class="hh-person-fields">
           <label class="hh-field hh-field--wide">
             <span>Legal name</span>

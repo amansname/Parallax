@@ -173,6 +173,7 @@ export function runSinglePath(p, returnPath, options = {}){
           traditional: p.savingsAnnual * p.savingsSplit.traditional,
           roth: p.savingsAnnual * p.savingsSplit.roth,
         },
+        p.savingsEntries,
       );
       syncProjectionAggregates(projectionAccounts, accounts);
       let rmdForcedA = 0;

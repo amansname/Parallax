@@ -42,6 +42,9 @@ export function createHouseholdWizardController({
   let wizard;
 
   const state = {
+    financeOwner: null,
+    financeMode: 'savings',
+    financeTypeId: null,
     netWorthView: 'entry',
     netWorthPanelCategory: null,
     netWorthMoreOpen: false,
@@ -54,6 +57,12 @@ export function createHouseholdWizardController({
   const uiState = {
     get stepId(){ return stepId; },
     get renderRevision(){ return renderRevision; },
+    get financeOwner(){ return state.financeOwner; },
+    set financeOwner(value){ state.financeOwner = value === 'client' || value === 'spouse' ? value : null; },
+    get financeMode(){ return state.financeMode; },
+    set financeMode(value){ state.financeMode = value === 'income' ? 'income' : 'savings'; },
+    get financeTypeId(){ return state.financeTypeId; },
+    set financeTypeId(value){ state.financeTypeId = value || null; },
     get netWorthView(){ return state.netWorthView; },
     set netWorthView(value){ state.netWorthView = value === 'summary' ? 'summary' : 'entry'; },
     get netWorthPanelCategory(){ return state.netWorthPanelCategory; },
@@ -84,6 +93,9 @@ export function createHouseholdWizardController({
   }
 
   function resetTransient(){
+    state.financeOwner = null;
+    state.financeMode = 'savings';
+    state.financeTypeId = null;
     state.netWorthView = 'entry';
     state.netWorthPanelCategory = null;
     state.netWorthMoreOpen = false;

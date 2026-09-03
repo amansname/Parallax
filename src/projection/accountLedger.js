@@ -410,10 +410,30 @@ function contributionShares(accounts){
   return [];
 }
 
-export function applyProjectionContributions(ledger, frame, annualByBucket){
+export function applyProjectionContributions(ledger, frame, annualByBucket, savingsEntries = []){
   const contributionsById = Object.fromEntries(ledger.map(account => [account.id, 0]));
+  const explicitByBucket = Object.fromEntries(BUCKET_KEYS.map(bucket => [bucket, 0]));
+  for(const entry of savingsEntries){
+    const amount = Number(entry?.amount) || 0;
+    if(amount <= 0) continue;
+    const candidates = ledger.filter(account => (
+      account.bucket === entry.bucket
+        && account.owner === entry.owner
+        && account.typeId === entry.typeId
+    ));
+    if(candidates.length === 0){
+      throw allocationError(
+        'SAVINGS_ACCOUNT_DESTINATION_UNAVAILABLE',
+        `No ${entry.owner} ${entry.typeId} account is available for contributions`,
+      );
+    }
+    for(const [account, share] of contributionShares(candidates)){
+      contributionsById[account.id] += amount * share;
+    }
+    explicitByBucket[entry.bucket] += amount;
+  }
   for(const bucket of BUCKET_KEYS){
-    const annual = annualByBucket[bucket] ?? 0;
+    const annual = Math.max(0, (annualByBucket[bucket] ?? 0) - explicitByBucket[bucket]);
     const candidates = contributionCandidates(ledger, bucket);
     if(annual > 0 && candidates.length === 0){
       throw allocationError(
@@ -422,7 +442,7 @@ export function applyProjectionContributions(ledger, frame, annualByBucket){
       );
     }
     for(const [account, share] of contributionShares(candidates)){
-      contributionsById[account.id] = annual * share;
+      contributionsById[account.id] += annual * share;
     }
   }
   for(const account of ledger){

@@ -138,6 +138,36 @@ export function validateHouseholdRecordSchema(plan, householdId = 'household'){
       ids.add(row.id);
     });
   }
+  if(plan.savings?.entries !== undefined){
+    if(!Array.isArray(plan.savings.entries)){
+      throw new Error(`${householdId}: savings.entries must be an array`);
+    }
+    const ids = new Set();
+    plan.savings.entries.forEach((row, index) => {
+      if(!row || typeof row !== 'object' || Array.isArray(row)){
+        throw new Error(`${householdId}: savings.entries[${index}] must be an object`);
+      }
+      if(typeof row.id !== 'string' || !row.id.trim()){
+        throw new Error(`${householdId}: savings.entries[${index}].id is required`);
+      }
+      if(ids.has(row.id)){
+        throw new Error(`${householdId}: duplicate wizard row id ${row.id}`);
+      }
+      if(typeof row.typeId !== 'string' || !row.typeId.trim()){
+        throw new Error(`${householdId}: savings.entries[${index}].typeId is required`);
+      }
+      if(row.owner !== 'client' && row.owner !== 'spouse'){
+        throw new Error(`${householdId}: savings.entries[${index}].owner is invalid`);
+      }
+      if(!Number.isFinite(row.amount) || row.amount <= 0){
+        throw new Error(`${householdId}: savings.entries[${index}].amount must be positive`);
+      }
+      if(!['taxable', 'traditional', 'roth'].includes(row.bucket)){
+        throw new Error(`${householdId}: savings.entries[${index}].bucket is invalid`);
+      }
+      ids.add(row.id);
+    });
+  }
   for(const [index, account] of (plan.portfolio?.extraAccounts || []).entries()){
     if(typeof account.displayName !== 'string'){
       throw new Error(`${householdId}: portfolio.extraAccounts[${index}].displayName is required`);
