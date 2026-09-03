@@ -1,6 +1,7 @@
 import { getAccountTypeById } from './accountTypes.js';
 import { createAccount, hasSpouseOwnedAccounts } from './createAccount.js';
 import { createBlankTaxProfiles, createFact } from './factEnvelope.js';
+import { addFamilyFinanceEntry } from './familyFinanceEntries.js';
 import { syncHealthcareGoalToHousehold } from './migrateSpendingToGoals.js';
 import { validateCurrentSchemaHousehold } from './migrateAccounts.js';
 import { validateHouseholdRecordSchema } from './householdRecordSchema.js';
@@ -177,6 +178,13 @@ function removeSpouse(plan, command){
       'CO_CLIENT_INCOME_REQUIRES_REASSIGNMENT',
     );
   }
+  if((plan.savings?.entries || []).some(row => row?.owner === 'spouse')){
+    throw wizardEditError(
+      'Reassign or remove co-client savings first.',
+      'filingStatus',
+      'CO_CLIENT_SAVINGS_REQUIRES_REASSIGNMENT',
+    );
+  }
   if(command.confirmed !== true){
     throw wizardEditError(
       'Confirm removal before discarding Co-client information',
@@ -271,6 +279,19 @@ function applyFamilyEdit(plan, command, timestamp){
     }else{
       plan.income.socialSecurity[key].claimAge = integer(command.value, { min: 62, max: 70 });
     }
+  }
+}
+
+function applyFinanceEdit(plan, command){
+  if(command.action !== 'add') throw new Error('Unsupported finance action');
+  addFamilyFinanceEntry(plan, {
+    mode: command.mode,
+    typeId: command.typeId,
+    owner: command.owner,
+    amount: money(command.amount),
+  });
+  if(command.mode === 'income' && plan.incomeTax?.current1040){
+    plan.incomeTax.current1040.incomeSourcesComplete = false;
   }
 }
 
@@ -573,6 +594,8 @@ export function applyHouseholdWizardEdit(plan, command, options = {}){
     }
   }else if(command.scope === 'account'){
     applyAccountEdit(next, command, timestamp);
+  }else if(command.scope === 'finance'){
+    applyFinanceEdit(next, command);
   }else if(command.scope === 'property'){
     applyPropertyEdit(next, command);
   }else if(command.scope === 'mortgage'){

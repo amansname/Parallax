@@ -90,7 +90,9 @@ export function bindHouseholdEditor({
       guardPlanMutation,
       preflightWizardEdit,
       reportError,
-      commit
+      commit,
+      transientState,
+      syncHousehold
     }),
     ...createTaxActions({
       transientState,
@@ -103,11 +105,35 @@ export function bindHouseholdEditor({
   root.addEventListener('focusin', inputHandlers.focusin);
   root.addEventListener('focusout', inputHandlers.focusout);
   root.addEventListener('change', inputHandlers.change);
+  root.addEventListener('keydown', event => {
+    if(event.key === 'Escape' && transientState.financeOwner){
+      event.preventDefault();
+      transientState.financeOwner = null;
+      transientState.financeTypeId = null;
+      syncHousehold();
+      return;
+    }
+    const amount = event.target.closest?.('[data-finance-amount]');
+    if(event.key !== 'Enter' || !amount) return;
+    event.preventDefault();
+    amount.closest('[data-finance-entry-panel]')
+      ?.querySelector('[data-hh-action="commit-finance-entry"]')
+      ?.click();
+  });
   root.addEventListener('click', event => {
     const action = event.target.closest('[data-hh-action]');
     if (!action) return;
     if (action.disabled || action.getAttribute('aria-disabled') === 'true') return;
     const kind = action.dataset.hhAction;
     if (Object.hasOwn(actionHandlers, kind)) actionHandlers[kind](action);
+  });
+  globalThis.document?.addEventListener('click', event => {
+    if(!transientState.financeOwner) return;
+    if(event.target.closest?.('[data-finance-entry-panel], [data-hh-action="toggle-finance-entry"]')){
+      return;
+    }
+    transientState.financeOwner = null;
+    transientState.financeTypeId = null;
+    syncHousehold();
   });
 }

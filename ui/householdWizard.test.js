@@ -93,6 +93,10 @@ function plan(){
 }
 
 function wizard({
+  financeOwner = null,
+  financeMode = 'savings',
+  financeTypeId = null,
+  savingsEntries = null,
   netWorthPanelCategory = null,
   netWorthDraft = null,
   withoutSpouse = false,
@@ -109,6 +113,7 @@ function wizard({
   portfolioTotal = 1450000,
 } = {}){
   const value = plan();
+  if(savingsEntries) value.savings = { entries: savingsEntries };
   if(durableNetWorth){
     value.portfolio.extraAccounts = [];
     value.properties = [{
@@ -158,6 +163,9 @@ function wizard({
     }];
   }
   const uiState = {
+    financeOwner,
+    financeMode,
+    financeTypeId,
     netWorthView: 'entry',
     netWorthPanelCategory,
     netWorthMoreOpen: false,
@@ -271,6 +279,70 @@ test('Family is compact and omits MFS and survivor controls', () => {
   assert.match(html, /value="24,600"/);
   assert.doesNotMatch(html, /Married filing separately/);
   assert.doesNotMatch(html, /Survivor assumption/i);
+});
+
+test('Family finance entry renders only after a person is chosen and keeps the amount conditional', () => {
+  const closed = wizard().render('family');
+  assert.equal((closed.match(/data-hh-action="toggle-finance-entry"/g) || []).length, 2);
+  assert.doesNotMatch(closed, /data-finance-entry-panel/);
+  assert.doesNotMatch(closed, /Income &amp; Savings|Income & Savings|>FINANCES</i);
+
+  const picker = wizard({ financeOwner: 'spouse' }).render('family');
+  assert.equal((picker.match(/data-finance-entry-panel/g) || []).length, 1);
+  assert.match(picker, /data-finance-owner="spouse"/);
+  assert.match(picker, /data-hh-action="set-finance-mode" data-finance-mode="savings"/);
+  assert.match(picker, /data-hh-action="set-finance-mode" data-finance-mode="income"/);
+  assert.match(picker, />\s*401\(k\) deferral\s*</);
+  assert.match(picker, />\s*Roth IRA\s*</);
+  assert.match(picker, />\s*Cash savings\s*</);
+  assert.doesNotMatch(picker, /data-finance-amount/);
+  assert.doesNotMatch(picker, />Save</);
+  assert.doesNotMatch(picker, />\s*529 contribution\s*</);
+
+  const amount = wizard({
+    financeOwner: 'spouse',
+    financeTypeId: '401k',
+  }).render('family');
+  assert.equal((amount.match(/data-finance-amount/g) || []).length, 1);
+  assert.match(amount, /aria-label="401\(k\) deferral annual amount"/);
+  assert.match(amount, /data-finance-amount[^>]*value=""/);
+  assert.match(amount, /data-hh-action="commit-finance-entry"/);
+  assert.doesNotMatch(amount, />Save</);
+
+  const existing = wizard({
+    financeOwner: 'client',
+    financeTypeId: '401k',
+    savingsEntries: [{
+      id: 'savings_client_401k',
+      typeId: '401k',
+      label: '401(k) deferral',
+      owner: 'client',
+      amount: 28_300,
+      bucket: 'traditional',
+    }],
+  }).render('family');
+  assert.match(existing, /data-finance-amount[^>]*value="28,300"/);
+});
+
+test('Family finance income mode exposes the ordered common-source inventory only', () => {
+  const html = wizard({
+    financeOwner: 'client',
+    financeMode: 'income',
+  }).render('family');
+  const labels = [...html.matchAll(/data-finance-type-id="[^"]+"[\s\S]*?>([^<]+)<\/button>/g)]
+    .map(match => match[1].trim());
+  assert.deepEqual(labels, [
+    'Social Security',
+    'Pension',
+    'Wages or salary',
+    'Self-employment',
+    'Rental net income',
+    'Annuity',
+    'Interest',
+    'Dividends',
+    'Deferred compensation',
+    'Other income',
+  ]);
 });
 
 test('Net Worth presents the approved category workflow and canonical portfolio total', () => {

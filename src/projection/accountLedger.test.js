@@ -190,6 +190,41 @@ test('traditional contributions use existing 401(k)s only and preserve their ope
   assert.deepEqual(ledger.map(value => value.balance), [110, 330, 600]);
 });
 
+test('explicit savings entries reach only matching owner and account type', () => {
+  const allocation = oneAssetAllocation('usBonds');
+  const ledger = [
+    { ...account({ id: 'client-401k', bucket: 'traditional', balance: 0, allocation }), typeId: '401k' },
+    { ...account({ id: 'spouse-401k', bucket: 'traditional', owner: 'spouse', balance: 0, allocation }), typeId: '401k' },
+    { ...account({ id: 'client-roth', bucket: 'roth', balance: 0, allocation }), typeId: 'roth_ira' },
+  ];
+  const frame = resolveProjectionReturnFrame(ledger, returnRow(2025), 0);
+  const contributions = applyProjectionContributions(
+    ledger,
+    frame,
+    { taxable: 0, traditional: 28_300, roth: 7_000 },
+    [
+      { owner: 'client', typeId: '401k', bucket: 'traditional', amount: 28_300 },
+      { owner: 'client', typeId: 'roth_ira', bucket: 'roth', amount: 7_000 },
+    ],
+  );
+
+  assert.deepEqual(contributions, {
+    'client-401k': 28_300,
+    'spouse-401k': 0,
+    'client-roth': 7_000,
+  });
+  assert.deepEqual(ledger.map(value => value.balance), [28_300, 0, 7_000]);
+  assert.throws(
+    () => applyProjectionContributions(
+      ledger,
+      frame,
+      { taxable: 0, traditional: 1, roth: 0 },
+      [{ owner: 'spouse', typeId: 'traditional_ira', bucket: 'traditional', amount: 1 }],
+    ),
+    error => error?.code === 'SAVINGS_ACCOUNT_DESTINATION_UNAVAILABLE',
+  );
+});
+
 test('RMD draws remain owner-first and pro rata within each owner', () => {
   const allocation = oneAssetAllocation('usBonds');
   const ledger = [

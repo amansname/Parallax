@@ -79,8 +79,10 @@ export async function verifyNetWorthFlow(page) {
   requireCondition(formattedAccount.value === '$250,000.75' && !formattedAccount.saveDisabled, `Net Worth account draft did not become savable: ${JSON.stringify(formattedAccount)}`);
   await clickWizardAction(page, '[data-hh-action="net-worth-save-entry"]');
   const account = await page.evaluate(() => {
-    const remove = document.querySelector('[data-hh-action="net-worth-remove-entry"][data-entry-source="account"]');
-    const row = remove?.closest('.nw-saved-row');
+    const row = [...document.querySelectorAll('.nw-saved-row')].find(candidate => (
+      candidate.querySelector('.nw-saved-name')?.textContent.trim() === 'Verifier checking'
+    ));
+    const remove = row?.querySelector('[data-hh-action="net-worth-remove-entry"][data-entry-source="account"]');
     return {
       id: remove?.dataset.accountId || '',
       count: document.querySelectorAll('[data-hh-action="net-worth-remove-entry"][data-entry-source="account"]').length,

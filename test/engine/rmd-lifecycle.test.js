@@ -620,3 +620,58 @@ test('young spouses with two contributing 401(k)s keep a full projection after o
   assert.ok(Number.isFinite(simulation.successRate));
   assert.notEqual(simulation.projectionStatus, 'unavailable');
 });
+
+test('a zero-balance owned 401(k) can receive explicit savings and roll to the surviving spouse', () => {
+  const p = structuredClone(defaultPlan);
+  p.meta.filingStatus = 'marriedFilingJointly';
+  p.meta.planningAsOfYear = 2026;
+  p.household.primary = {
+    currentAge: 66, retirementAge: 68, planEndAge: 70, birthYear: 1960,
+  };
+  p.household.spouse = {
+    currentAge: 65, retirementAge: 70, planEndAge: 75, birthYear: 1961,
+  };
+  p.income.socialSecurity = {
+    primary: { pia: 0, claimAge: 67 },
+    spouse: { pia: 0, claimAge: 67 },
+  };
+  p.income.other = [];
+  p.savings = {
+    annual: 28_300,
+    split: { traditional: 1, roth: 0, taxable: 0 },
+    entries: [{
+      id: 'savings_client_401k',
+      typeId: '401k',
+      label: '401(k) deferral',
+      owner: 'client',
+      amount: 28_300,
+      bucket: 'traditional',
+    }],
+  };
+  p.portfolio.accounts = {
+    taxable: { balance: 0, basisPct: 1 },
+    traditional: { balance: 0 },
+    roth: { balance: 0 },
+  };
+  p.portfolio.extraAccounts = [
+    createAccount('401k', { owner: 'client', balance: 0 }),
+  ];
+  p.expenses = {
+    living: 0, housing: 0, debt: 0, healthcare: 0,
+    healthcareRealGrowth: 0, extra: [],
+  };
+
+  const resolved = resolveInputs(p, {});
+  const result = runSinglePath(
+    resolved,
+    Array.from({ length: resolved.horizonYears }, (_, index) => flatAssetReturnRow(2026 + index)),
+  );
+  const firstWorkingRow = result.rows.find(row => row.age === 66);
+  const firstSurvivorRow = result.rows.find(row => row.age === 71);
+
+  assert.equal(firstWorkingRow.accountContributionsById[p.portfolio.extraAccounts[0].id], 28_300);
+  assert.equal(firstSurvivorRow.people.client.alive, false);
+  assert.equal(firstSurvivorRow.people.spouse.alive, true);
+  assert.equal(firstSurvivorRow.accountStates[0].owner, 'spouse');
+  assert.equal(firstSurvivorRow.rmdAvailable, true);
+});

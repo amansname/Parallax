@@ -73,6 +73,31 @@ test('removes only exact historical GPC wage clones and archives every removed r
   assert.equal(new Set(migrated.plan.income.other.map(row => row.id)).size, 2);
 });
 
+test('validates optional savings entry identities without requiring preloaded rows', () => {
+  const migrated = migrateHouseholdRecordSchema(subject()).plan;
+  assert.equal(Object.hasOwn(migrated.savings || {}, 'entries'), false);
+
+  migrated.savings = {
+    annual: 7_000,
+    split: { taxable: 0, traditional: 0, roth: 1 },
+    entries: [{
+      id: 'savings_roth_1',
+      typeId: 'roth_ira',
+      label: 'Roth IRA',
+      owner: 'client',
+      amount: 7_000,
+      bucket: 'roth',
+    }],
+  };
+  assert.equal(validateHouseholdRecordSchema(migrated), true);
+
+  migrated.savings.entries.push({ ...migrated.savings.entries[0] });
+  assert.throws(
+    () => validateHouseholdRecordSchema(migrated),
+    /duplicate wizard row id savings_roth_1/,
+  );
+});
+
 test('preserves legitimate lookalikes, non-wages, and ID-bearing rows', () => {
   const rows = [
     legacyWage(),
