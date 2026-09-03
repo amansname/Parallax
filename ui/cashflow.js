@@ -179,11 +179,11 @@ function formatCashFlowHeaderYears(value, { delta = false } = {}) {
   }
 
 const CASH_FLOW_PATH_RAIL_METRICS = Object.freeze([
-  Object.freeze({ id: 'lowest-balance-first-10-years', label: 'Lowest balance · first 10 yrs' }),
-  Object.freeze({ id: 'early-withdrawal-pressure', label: 'WD rate above 5% · first 10 yrs' }),
-  Object.freeze({ id: 'recovery-period', label: 'Market recovery' }),
-  Object.freeze({ id: 'balance-at-age-80', label: 'Savings left at age 80' }),
-  Object.freeze({ id: 'funded-through-margin', label: 'Money lasts through' }),
+  Object.freeze({ id: 'lowest-balance-first-10-years', label: '10-yr low' }),
+  Object.freeze({ id: 'early-withdrawal-pressure', label: 'WD > 5%' }),
+  Object.freeze({ id: 'recovery-period', label: 'Recovery' }),
+  Object.freeze({ id: 'balance-at-age-80', label: 'Age 80' }),
+  Object.freeze({ id: 'funded-through-margin', label: 'Funded through' }),
 ]);
 
 function pathRailValue(metric, key) {
@@ -205,7 +205,7 @@ function pathRailValue(metric, key) {
         ? 'thisPathWindowYears'
         : 'typicalPathWindowYears';
       return Number.isFinite(value) && Number.isFinite(metric[windowKey])
-        ? value + ' of ' + metric[windowKey] + ' yrs'
+        ? value + ' / ' + metric[windowKey]
         : 'Not modeled';
     }
     if (value === null || value === undefined) {
@@ -319,9 +319,9 @@ function historicalPathRail(headerMetrics, period, esc) {
       : '';
 
     return (
-      '<aside class="cf-path-rail" data-cash-path-metrics data-outcome="' + esc(headerMetrics.outcome) + '" aria-label="Selected path metrics compared with Typical path">' +
+      '<aside class="cf-path-rail" data-cash-path-metrics data-outcome="' + esc(headerMetrics.outcome) + '" aria-label="Path comparison">' +
         '<div class="cf-path-rail__reference" data-cash-path-reference>' +
-          '<div class="cf-path-rail__reference-title">Typical path</div>' +
+          '<div class="cf-path-rail__reference-title">Typical</div>' +
           typicalRows +
         '</div>' +
         '<div class="cf-path-rail__selected" data-cash-path-selected>' + selectedPeriod + selectedRows + '</div>' +

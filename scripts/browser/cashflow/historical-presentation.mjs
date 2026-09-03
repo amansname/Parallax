@@ -35,12 +35,78 @@ export function verifyHistoricalPresentation({
     throw new Error(`${mode} has an unknown historical outcome: ${JSON.stringify(historicalPath.summary)}`);
   }
   const expectedMetricIds = ['lowest-balance-first-10-years', 'early-withdrawal-pressure', 'recovery-period', 'balance-at-age-80', 'funded-through-margin'];
-  const expectedMetricLabels = ['Lowest balance · first 10 yrs', 'WD rate above 5% · first 10 yrs', 'Market recovery', 'Savings left at age 80', 'Money lasts through'];
+  const expectedMetricLabels = ['10-yr low', 'WD > 5%', 'Recovery', 'Age 80', 'Funded through'];
   if (JSON.stringify(historicalPath.metrics.map(metric => metric.id)) !== JSON.stringify(expectedMetricIds) || JSON.stringify(historicalPath.reference.map(metric => metric.id)) !== JSON.stringify(expectedMetricIds) || JSON.stringify(historicalPath.metrics.map(metric => metric.label)) !== JSON.stringify(expectedMetricLabels) || JSON.stringify(historicalPath.reference.map(metric => metric.label)) !== JSON.stringify(expectedMetricLabels) || historicalPath.metrics.some(metric => /Median withdrawal|Ending portfolio|First underfunded/i.test(metric.label))) {
     throw new Error(`${mode} historical metric inventory drifted: ${JSON.stringify(historicalPath.metrics)}`);
   }
   const layout = historicalPath.railLayout;
-  if (!layout || layout.gridDisplay !== 'grid' || !layout.gridTemplateColumns.endsWith(' 280px') || Math.abs(layout.railWidth - 280) > 0.01 || layout.railDisplay !== 'flex' || layout.railDirection !== 'column' || layout.railAlignItems !== 'center' || layout.railGap !== '16px' || layout.railPadding !== '20px 24px 24px' || layout.railBorderLeftWidth !== '1px' || layout.railBorderLeftStyle !== 'solid' || layout.railBackground !== 'rgba(0, 0, 0, 0)' || layout.railRadius !== '0px' || !(layout.baselineDelta <= 1) || layout.reference.display !== 'flex' || layout.reference.direction !== 'column' || layout.reference.alignItems !== 'center' || layout.reference.gap !== '6px' || layout.reference.padding !== '0px 0px 4px' || layout.reference.borderBottomWidth !== '0px' || layout.reference.borderBottomStyle !== 'none' || layout.reference.background !== 'rgba(0, 0, 0, 0)' || layout.reference.radius !== '0px' || layout.title.text !== 'Typical path' || layout.title.fontSize !== '12px' || layout.title.fontWeight !== '600' || layout.title.letterSpacing !== '0.48px' || layout.title.color !== layout.accentColor || layout.title.textShadow !== layout.title.expectedTextShadow || layout.title.textTransform !== 'none' || layout.title.marginBottom !== '2px' || layout.referenceLabel.fontSize !== '13px' || layout.referenceLabel.color !== layout.bodyColor || layout.referenceValue.fontSize !== '15px' || layout.referenceValue.color !== layout.bodyColor || layout.referenceValue.whiteSpace !== 'nowrap' || layout.selected.count !== 1 || layout.selected.display !== 'flex' || layout.selected.direction !== 'column' || layout.selected.alignItems !== 'center' || layout.selected.gap !== '16px' || layout.selected.padding !== '14px 12px' || layout.selected.radius !== '10px' || layout.selected.backgroundColor !== 'rgba(0, 0, 0, 0)' || layout.selected.backgroundImage !== layout.selected.expectedBackgroundImage || layout.selected.boxShadow !== layout.selected.expectedBoxShadow || Math.abs(layout.reference.width - layout.selected.width) > 1 || layout.selectedPeriod.count !== 1 || layout.selectedPeriod.id !== mode || layout.selectedPeriod.text !== `${startYear} · ${periodName}` || layout.selectedPeriod.year !== String(startYear) || layout.selectedPeriod.name !== periodName || layout.selectedPeriod.childIndex !== 0 || layout.selectedPeriod.padding !== '0px 0px 12px' || layout.selectedPeriod.borderBottomWidth !== '1px' || layout.selectedPeriod.borderBottomStyle !== 'solid' || layout.selectedPeriod.background !== 'rgba(0, 0, 0, 0)' || layout.selectedPeriod.radius !== '0px' || layout.selectedPeriod.fontSize !== '13px' || layout.selectedPeriod.fontWeight !== '600' || layout.selectedPeriod.lineHeight !== '17.55px' || layout.selectedPeriod.letterSpacing !== '0.13px' || layout.selectedPeriod.textAlign !== 'center' || layout.selectedPeriod.fontVariantNumeric !== 'tabular-nums' || layout.selectedPeriod.yearColor !== layout.mutedColor || layout.selectedPeriod.nameColor !== layout.accentColor || layout.metric.display !== 'flex' || layout.metric.direction !== 'column' || layout.metric.alignItems !== 'center' || layout.metric.textAlign !== 'center' || layout.metric.gap !== '5px' || layout.metric.nameFontSize !== '12px' || layout.metric.nameColor !== layout.bodyColor || layout.metric.figureFontSize !== '24px' || layout.metric.figureFontWeight !== '300' || layout.metric.figureColor !== layout.inkColor || layout.metric.figureWhiteSpace !== 'nowrap' || layout.metric.deltaFontSize !== '12px' || layout.dividerMetrics.length !== 4 || layout.dividerMetrics.some(metric => metric.paddingTop !== '16px' || metric.borderTopWidth !== '1px' || metric.borderTopStyle !== 'solid') || layout.directChildBackgrounds.some(color => color !== 'rgba(0, 0, 0, 0)') || JSON.stringify(layout.directChildRadii) !== JSON.stringify(['0px', '10px']) || layout.figureColors.some(color => color === layout.accentColor) || layout.deltaColors.some(color => ![layout.negativeColor, layout.mutedColor].includes(color)) || layout.sentenceDeltaCopy || layout.oldSummaryCount !== 0 || layout.extraHeadingCount !== 0 || layout.extraQualifierCopy || layout.deltaPillCount !== 0) {
+  const visualContractHolds = layout
+    && layout.gridDisplay === 'grid'
+    && layout.gridTemplateColumns.endsWith(' 260px')
+    && Math.abs(layout.railWidth - 260) <= 0.01
+    && layout.railDisplay === 'flex'
+    && layout.railDirection === 'column'
+    && layout.railAlignItems === 'center'
+    && layout.railGap === '12px'
+    && layout.railPadding === '16px 20px 20px'
+    && layout.railBorderLeftWidth === '1px'
+    && layout.railBorderLeftStyle === 'solid'
+    && layout.railBackground === 'rgba(0, 0, 0, 0)'
+    && layout.railRadius === '0px'
+    && layout.baselineDelta <= 1
+    && layout.reference.display === 'flex'
+    && layout.reference.direction === 'column'
+    && layout.reference.alignItems === 'center'
+    && layout.reference.gap === '4px'
+    && layout.reference.padding === '0px'
+    && layout.reference.borderBottomWidth === '0px'
+    && layout.title.text === 'Typical'
+    && layout.title.fontSize === '12px'
+    && layout.title.fontWeight === '600'
+    && layout.title.color === layout.accentColor
+    && layout.referenceLabel.fontSize === '13px'
+    && layout.referenceLabel.color === layout.bodyColor
+    && layout.referenceValue.fontSize === '15px'
+    && layout.referenceValue.color === layout.bodyColor
+    && layout.selected.count === 1
+    && layout.selected.display === 'flex'
+    && layout.selected.direction === 'column'
+    && layout.selected.alignItems === 'center'
+    && layout.selected.gap === '12px'
+    && layout.selected.padding === '12px 10px'
+    && layout.selected.radius === '10px'
+    && Math.abs(layout.reference.width - layout.selected.width) <= 1
+    && layout.selectedPeriod.count === 1
+    && layout.selectedPeriod.id === mode
+    && layout.selectedPeriod.text === `${startYear} · ${periodName}`
+    && layout.selectedPeriod.padding === '0px 0px 10px'
+    && layout.metric.display === 'flex'
+    && layout.metric.direction === 'column'
+    && layout.metric.alignItems === 'center'
+    && layout.metric.textAlign === 'center'
+    && layout.metric.gap === '3px'
+    && layout.metric.nameFontSize === '12px'
+    && layout.metric.nameColor === layout.bodyColor
+    && layout.metric.figureFontSize === '22px'
+    && layout.metric.figureFontWeight === '300'
+    && layout.metric.figureColor === layout.inkColor
+    && layout.metric.deltaFontSize === '12px'
+    && layout.dividerMetrics.length === 4
+    && layout.dividerMetrics.every(metric => (
+      metric.paddingTop === '12px'
+      && metric.borderTopWidth === '1px'
+      && metric.borderTopStyle === 'solid'
+    ))
+    && layout.directChildBackgrounds.every(color => color === 'rgba(0, 0, 0, 0)')
+    && JSON.stringify(layout.directChildRadii) === JSON.stringify(['0px', '10px'])
+    && layout.figureColors.every(color => color !== layout.accentColor)
+    && layout.deltaColors.every(color => [layout.negativeColor, layout.mutedColor].includes(color))
+    && !layout.sentenceDeltaCopy
+    && layout.oldSummaryCount === 0
+    && layout.extraHeadingCount === 0
+    && !layout.extraQualifierCopy
+    && layout.deltaPillCount === 0;
+  if (!visualContractHolds) {
     throw new Error(`${mode} path-metrics rail visual contract drifted: ${JSON.stringify(layout)}`);
   }
   if (historicalPath.metrics.some(metric => metric.deltaTone === 'negative' ? metric.deltaColor !== layout.negativeColor : metric.deltaTone === 'muted' ? metric.deltaColor !== layout.mutedColor : true)) {

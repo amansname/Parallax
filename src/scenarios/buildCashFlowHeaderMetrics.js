@@ -226,8 +226,8 @@ function earlyWithdrawalPressureFacts(digest, label){
   });
   const years = finiteMetric(
     digest,
-    'yearsAboveFivePctWdRateFirst10Years',
-    `${label} years above 5% withdrawal rate`,
+    'yearsAboveFivePctEffectiveWdRateFirst10Years',
+    `${label} years above 5% effective withdrawal rate`,
     { integer: true, min: 0, max: windowYears }
   );
   return { years, windowYears };
@@ -374,7 +374,7 @@ function historicalHeader(historicalResult, typicalSimulation, typicalDigest){
     rows: [
       {
         id: 'lowest-balance-first-10-years',
-        label: 'Lowest balance · first 10 yrs',
+        label: '10-yr low',
         format: 'money',
         thisPath: historicalEarlyBalance.balance,
         typicalPath: typicalEarlyBalance.balance,
@@ -384,16 +384,17 @@ function historicalHeader(historicalResult, typicalSimulation, typicalDigest){
       },
       {
         id: 'early-withdrawal-pressure',
-        label: 'WD rate above 5% · first 10 yrs',
+        label: 'WD > 5%',
         format: 'early-withdrawal-pressure',
         thisPath: historicalEarlyPressure.years,
         typicalPath: typicalEarlyPressure.years,
         thisPathWindowYears: historicalEarlyPressure.windowYears,
         typicalPathWindowYears: typicalEarlyPressure.windowYears,
+        delta: historicalEarlyPressure.years - typicalEarlyPressure.years,
       },
       {
         id: 'recovery-period',
-        label: 'Market recovery',
+        label: 'Recovery',
         format: 'recovery',
         thisPath: historicalRecovery.years,
         typicalPath: typicalRecovery.years,
@@ -405,7 +406,7 @@ function historicalHeader(historicalResult, typicalSimulation, typicalDigest){
       },
       {
         id: 'balance-at-age-80',
-        label: 'Real balance at age 80',
+        label: 'Age 80',
         format: 'money',
         thisPath: historicalAge80,
         typicalPath: typicalAge80,
@@ -427,7 +428,7 @@ function historicalHeader(historicalResult, typicalSimulation, typicalDigest){
       },
       {
         id: 'funded-through-margin',
-        label: 'Funded through · margin',
+        label: 'Funded through',
         description: 'If funded through plan end, margin is zero-return years at the final modeled portfolio draw; otherwise it is years short of plan end.',
         format: 'funding',
         thisPath: historicalFunding.fundedThroughAge,

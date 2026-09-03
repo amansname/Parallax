@@ -47,6 +47,7 @@ export async function verifyCashFlowScenarioSelection({
     endingBalance: Number(row.dataset.endingBalance),
     withdrawal: Number(row.dataset.withdrawal),
     wdRate: Number(row.dataset.wdRate),
+    effectiveWdRate: Number(row.dataset.effectiveWdRate),
     returnRate: Number(row.dataset.returnRate),
     shortfall: Number(row.dataset.fundingShortfall)
   })));

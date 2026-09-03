@@ -54,7 +54,7 @@ export function verifyHistoricalMetrics({
       lowestEarlyBalance: lowestEarly?.endingBalance ?? null,
       lowestEarlyAge: lowestEarly?.age ?? null,
       earlyWindowYears: early.length,
-      yearsAboveFiveEarly: early.filter(row => row.wdRate > 5).length,
+      yearsAboveFiveEarly: early.filter(row => row.effectiveWdRate > 5).length,
       recoveryStatus,
       recoveryYears,
       recoveryAge,
@@ -136,7 +136,7 @@ export function verifyHistoricalMetrics({
     : facts.recoveryStatus === 'not-observed'
       ? 'Not observed'
       : visibleYears(facts.recoveryYears) + (Number.isFinite(facts.recoveryLivingAge) ? ' · age ' + facts.recoveryLivingAge : '');
-  const visiblePressure = facts => facts.yearsAboveFiveEarly + ' of ' + facts.earlyWindowYears + ' yrs';
+  const visiblePressure = facts => facts.yearsAboveFiveEarly + ' / ' + facts.earlyWindowYears;
   const lowDelta = historicalFacts.lowestEarlyBalance - typicalFacts.lowestEarlyBalance;
   const balanceDelta = historicalFacts.age80Balance !== null && typicalFacts.age80Balance !== null ? historicalFacts.age80Balance - typicalFacts.age80Balance : null;
   const displayedLowDelta = Number.isFinite(lowDelta) ? visibleMoney(Math.abs(lowDelta)) : null;
