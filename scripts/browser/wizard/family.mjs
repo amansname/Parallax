@@ -20,6 +20,7 @@ export async function verifyFamilyPropagation(page) {
   requireCondition(family.people === 2 && family.spouse === 1, `MFJ did not render the co-client: ${JSON.stringify(family)}`);
   await setWizardValue(page, '[data-wizard-field="spouse.birthDate"]', '1961-01-01');
 
+  const verifyFinanceEntry = async () => {
   await openNetWorthCategory(page, 'investment');
   await clickWizardAction(
     page,
@@ -186,6 +187,7 @@ export async function verifyFamilyPropagation(page) {
       && persistedFinanceEntries.client401k?.id === client401k.id,
     `Family finance entries did not survive reload: ${JSON.stringify(persistedFinanceEntries)}`,
   );
+  };
   for (const nextStatus of ['single', 'headOfHousehold']) {
     await setWizardValue(page, '[data-wizard-field="filingStatus"]', nextStatus, {
       expectRevision: false
@@ -305,6 +307,7 @@ export async function verifyFamilyPropagation(page) {
   await setWizardValue(page, '[data-wizard-field="spouse.socialSecurityBenefit"]', '22000');
   await setWizardValue(page, '[data-wizard-field="client.planEndAge"]', '94');
   await setWizardValue(page, '[data-wizard-field="spouse.planEndAge"]', '101');
+  await verifyFinanceEntry();
   await goToWizardStep(page, 'tax');
   const filing = await page.evaluate(() => document.querySelector('.hh-tax-static strong')?.textContent.trim() || '');
   requireCondition(filing === 'Married filing jointly', `Family filing status did not reach Tax: "${filing}"`);

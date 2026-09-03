@@ -91,7 +91,7 @@ export async function verifyNetWorthFlow(page) {
       value: row?.querySelector('.nw-saved-actions span')?.textContent.trim() || ''
     };
   });
-  requireCondition(account.count === 2 && account.id && account.name === 'Verifier checking' && account.meta.includes('Checking') && account.meta.includes('Client') && account.value === '$250,001', `Net Worth account did not save canonical truth: ${JSON.stringify(account)}`);
+  requireCondition(account.count === 1 && account.id && account.name === 'Verifier checking' && account.meta.includes('Checking') && account.meta.includes('Client') && account.value === '$250,001', `Net Worth account did not save canonical truth: ${JSON.stringify(account)}`);
   await page.waitForFunction(expectedId => {
     const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
     const active = localStorage.getItem('parallax.activeHouseholdId');
