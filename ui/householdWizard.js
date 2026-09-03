@@ -1,4 +1,5 @@
 import { accountDisplayTreatment, getAccountTypeById } from '../src/household/accountTypes.js';
+import { familyFinanceSourceTypes } from '../src/household/familyFinanceEntries.js';
 import { renderHouseholdWizardFamily } from './householdWizardFamily.js';
 import { renderHouseholdWizardNetWorth } from './householdWizardNetWorth.js';
 import { renderHouseholdWizardTax } from './householdWizardTax.js';
@@ -125,6 +126,7 @@ export function createHouseholdWizard(dependencies){
       accountTypes: dependencies.accountTypes,
       accountTreatment: accountDisplayTreatment,
       accountBasis: account => accountBasis(plan, account),
+      financeSourceTypes: mode => familyFinanceSourceTypes(mode),
       ageFor: owner => ageFor(plan, owner),
       taxBucketSnapshot: dependencies.taxBucketSnapshot(),
       taxSummary: dependencies.incomeTaxSummary(),

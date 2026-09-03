@@ -1,6 +1,14 @@
 // Wizard browser contract: family.
 import { requireCondition } from './assertions.mjs';
-import { goToWizardStep, setWizardValue, clickWizardAction, openNetWorthCategory, reloadWizard } from './actions.mjs';
+import {
+  clickWizardAction,
+  goToWizardStep,
+  openNetWorthCategory,
+  reloadWizard,
+  setWizardValue,
+  waitForWizard,
+  wizardState,
+} from './actions.mjs';
 export async function verifyFamilyPropagation(page) {
   await goToWizardStep(page, 'family');
   await setWizardValue(page, '[data-wizard-field="client.birthDate"]', '1960-01-01');
@@ -11,6 +19,129 @@ export async function verifyFamilyPropagation(page) {
   }));
   requireCondition(family.people === 2 && family.spouse === 1, `MFJ did not render the co-client: ${JSON.stringify(family)}`);
   await setWizardValue(page, '[data-wizard-field="spouse.birthDate"]', '1961-01-01');
+
+  const closedFinanceEntry = await page.evaluate(() => ({
+    panels: document.querySelectorAll('[data-finance-entry-panel]').length,
+    amounts: document.querySelectorAll('[data-finance-amount]').length,
+    largeHeaders: [...document.querySelectorAll('#hh-view *')]
+      .filter(node => /^(income\s*&\s*savings|finances)$/i.test(node.textContent.trim())).length,
+  }));
+  requireCondition(
+    closedFinanceEntry.panels === 0
+      && closedFinanceEntry.amounts === 0
+      && closedFinanceEntry.largeHeaders === 0,
+    `Family finance entry was not initially collapsed: ${JSON.stringify(closedFinanceEntry)}`,
+  );
+  await clickWizardAction(
+    page,
+    '[data-hh-action="toggle-finance-entry"][data-finance-owner="client"]',
+  );
+  const savingsPicker = await page.evaluate(() => ({
+    owner: document.querySelector('[data-finance-entry-panel]')?.dataset.financeOwner || '',
+    modes: [...document.querySelectorAll('[data-hh-action="set-finance-mode"]')]
+      .map(button => ({ label: button.textContent.trim(), pressed: button.getAttribute('aria-pressed') })),
+    sources: [...document.querySelectorAll('[data-hh-action="select-finance-source"]')]
+      .map(button => button.textContent.trim()),
+    amounts: document.querySelectorAll('[data-finance-amount]').length,
+    saveLabels: [...document.querySelectorAll('[data-finance-entry-panel] button')]
+      .filter(button => button.textContent.trim() === 'Save').length,
+  }));
+  requireCondition(
+    savingsPicker.owner === 'client'
+      && JSON.stringify(savingsPicker.modes) === JSON.stringify([
+        { label: 'Savings', pressed: 'true' },
+        { label: 'Income', pressed: 'false' },
+      ])
+      && JSON.stringify(savingsPicker.sources) === JSON.stringify([
+        '401(k) deferral',
+        'Roth 401(k) deferral',
+        'Traditional IRA',
+        'Roth IRA',
+        'HSA',
+        'Taxable brokerage',
+        'Cash savings',
+      ])
+      && savingsPicker.amounts === 0
+      && savingsPicker.saveLabels === 0,
+    `Family savings picker inventory changed: ${JSON.stringify(savingsPicker)}`,
+  );
+  await clickWizardAction(
+    page,
+    '[data-hh-action="select-finance-source"][data-finance-type-id="401k"]',
+  );
+  const amountState = await page.evaluate(() => ({
+    count: document.querySelectorAll('[data-finance-amount]').length,
+    focused: document.activeElement?.matches?.('[data-finance-amount]') === true,
+  }));
+  requireCondition(
+    amountState.count === 1 && amountState.focused,
+    `Selecting 401(k) did not reveal and focus one amount field: ${JSON.stringify(amountState)}`,
+  );
+  const beforeSavingsCommit = await wizardState(page);
+  await page.type('[data-finance-amount]', '28300');
+  await page.keyboard.press('Enter');
+  await waitForWizard(page, {
+    step: 'family',
+    afterRevision: beforeSavingsCommit.revision,
+  });
+  await page.waitForFunction(() => {
+    const root = document.querySelector('[data-hh-wizard-root]');
+    const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+    const active = localStorage.getItem('parallax.activeHouseholdId');
+    const saved = db?.[active];
+    return root?.dataset.wizardReady === 'true'
+      && document.querySelectorAll('[data-finance-entry-panel]').length === 0
+      && saved?.savings?.entries?.some(entry => (
+        entry.owner === 'client'
+          && entry.typeId === '401k'
+          && entry.amount === 28300
+      ));
+  }, { timeout: 10000 });
+
+  await clickWizardAction(
+    page,
+    '[data-hh-action="toggle-finance-entry"][data-finance-owner="client"]',
+  );
+  await clickWizardAction(
+    page,
+    '[data-hh-action="set-finance-mode"][data-finance-mode="income"]',
+  );
+  await clickWizardAction(
+    page,
+    '[data-hh-action="select-finance-source"][data-finance-type-id="rental"]',
+  );
+  const beforeIncomeCommit = await wizardState(page);
+  await page.type('[data-finance-amount]', '18000');
+  await page.keyboard.press('Enter');
+  await waitForWizard(page, {
+    step: 'family',
+    afterRevision: beforeIncomeCommit.revision,
+  });
+  await page.waitForFunction(() => {
+    const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+    const active = localStorage.getItem('parallax.activeHouseholdId');
+    return db?.[active]?.income?.other?.some(entry => (
+      entry.owner === 'client'
+        && entry.typeId === 'rental'
+        && entry.amount === 18000
+    ));
+  }, { timeout: 10000 });
+  await reloadWizard(page);
+  await goToWizardStep(page, 'family');
+  const persistedFinanceEntries = await page.evaluate(() => {
+    const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+    const active = localStorage.getItem('parallax.activeHouseholdId');
+    const saved = db?.[active];
+    return {
+      savings: saved?.savings?.entries?.filter(entry => entry.owner === 'client') || [],
+      income: saved?.income?.other?.filter(entry => entry.owner === 'client') || [],
+    };
+  });
+  requireCondition(
+    persistedFinanceEntries.savings.some(entry => entry.typeId === '401k' && entry.amount === 28300)
+      && persistedFinanceEntries.income.some(entry => entry.typeId === 'rental' && entry.amount === 18000),
+    `Family finance entries did not survive reload: ${JSON.stringify(persistedFinanceEntries)}`,
+  );
   for (const nextStatus of ['single', 'headOfHousehold']) {
     await setWizardValue(page, '[data-wizard-field="filingStatus"]', nextStatus, {
       expectRevision: false

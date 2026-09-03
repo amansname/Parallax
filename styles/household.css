@@ -371,21 +371,26 @@
 /* ── step 01 · family ────────────────────────────────────────────────────── */
 .page[data-page="household"] .hh-family-people {
   display: grid;
-  width: min(1200px, 100%); /* reference: two 592px cards plus a 16px gap */
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: min(720px, calc(100% - 340px)); /* leaves room for the anchored entry picker */
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--sp-4);
   margin: 0;
 }
 
 .page[data-page="household"] .hh-family-people.is-single {
-  width: min(592px, 100%);
+  width: min(720px, calc(100% - 340px));
   grid-template-columns: minmax(0, 1fr);
 }
 
 .page[data-page="household"] .hh-person-card {
+  position: relative;
   min-width: 0;
   padding: var(--sp-6);
   box-shadow: none;
+}
+
+.page[data-page="household"] .hh-person-card.is-finance-open {
+  box-shadow: inset 0 0 0 var(--bw) var(--acc-hair);
 }
 
 .page[data-page="household"] .hh-card-head {
@@ -404,6 +409,147 @@
   padding: 0;
   color: var(--neg);
   font-size: var(--fs-caption);
+  cursor: pointer;
+}
+
+.page[data-page="household"] .hh-finance-person-trigger {
+  display: grid;
+  width: max-content;
+  max-width: calc(100% - 120px);
+  min-height: 0;
+  justify-items: start;
+  gap: var(--sp-1);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.page[data-page="household"] .hh-finance-person-trigger > span {
+  overflow: hidden;
+  max-width: 100%;
+  font-size: var(--fs-emphasis);
+  font-weight: var(--fw-emphasis);
+  line-height: var(--lh-emphasis);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.page[data-page="household"] .hh-finance-person-trigger > small {
+  color: var(--body);
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-body);
+}
+
+.page[data-page="household"] .hh-finance-person-trigger:hover > span,
+.page[data-page="household"] .hh-finance-person-trigger[aria-expanded="true"] > span {
+  color: var(--acc);
+}
+
+.page[data-page="household"] .hh-finance-entry {
+  position: absolute;
+  z-index: 30;
+  top: 0;
+  left: calc(100% + var(--sp-3));
+  display: grid;
+  width: 300px; /* geometry: longest source label plus restrained cushion */
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  border: var(--bw) solid var(--line);
+  border-radius: var(--r-panel);
+  background: var(--panel);
+  box-shadow: var(--elev-panel);
+}
+
+.page[data-page="household"] .hh-finance-mode {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  min-height: var(--h-compact);
+}
+
+.page[data-page="household"] .hh-finance-mode button {
+  min-height: var(--h-compact);
+  padding: 0;
+  border: 0;
+  border-bottom: var(--bw) solid transparent;
+  border-radius: 0;
+  background: none;
+  color: var(--body);
+  font-size: var(--fs-body);
+  cursor: pointer;
+}
+
+.page[data-page="household"] .hh-finance-mode button.is-active {
+  border-bottom-color: var(--acc);
+  color: var(--acc);
+}
+
+.page[data-page="household"] .hh-finance-source-list {
+  display: grid;
+  overflow-y: auto;
+  max-height: 280px;
+  padding: var(--sp-1);
+  border: var(--bw) solid var(--rule);
+  border-radius: var(--r-ctl);
+  background: transparent;
+}
+
+.page[data-page="household"] .hh-finance-source-list button {
+  min-height: var(--h-compact);
+  padding: var(--sp-2) var(--sp-3);
+  border: 0;
+  border-radius: var(--r-chip);
+  background: none;
+  color: var(--body);
+  font-size: var(--fs-body);
+  text-align: left;
+  cursor: pointer;
+}
+
+.page[data-page="household"] .hh-finance-source-list button:hover,
+.page[data-page="household"] .hh-finance-source-list button.is-selected {
+  background: var(--sel);
+  color: var(--acc);
+}
+
+.page[data-page="household"] .hh-finance-amount-row {
+  display: grid;
+  grid-template-columns: auto minmax(88px, 1fr) auto var(--h-compact);
+  min-height: var(--h-ctl);
+  align-items: center;
+  gap: var(--sp-2);
+  padding-left: var(--sp-3);
+  border: var(--bw) solid var(--acc-hair);
+  border-radius: var(--r-ctl);
+  color: var(--body);
+  font-size: var(--fs-body);
+}
+
+.page[data-page="household"] .hh-finance-amount-row input {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font-size: var(--fs-emphasis);
+  font-variant-numeric: tabular-nums;
+  outline: 0;
+}
+
+.page[data-page="household"] .hh-finance-amount-row button {
+  width: var(--h-compact);
+  height: var(--h-compact);
+  padding: 0;
+  border: 0;
+  border-left: var(--bw) solid var(--acc-hair);
+  border-radius: 0;
+  background: var(--acc-tint);
+  color: var(--acc);
+  font-size: var(--fs-emphasis);
   cursor: pointer;
 }
 
@@ -1590,13 +1736,25 @@
   }
 
   .page[data-page="household"] .hh-family-people {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr);
   }
 
   /* The total rail drops below the categories so the tile grid keeps the full
      content width — the browser verifier measures that equality here. */
   .page[data-page="household"] .nw-entry-view { grid-template-columns: minmax(0, 1fr); }
   .page[data-page="household"] .nw-rail { width: min(360px, 100%); /* geometry */ }
+}
+
+@media (max-width: 1023px) {
+  .page[data-page="household"] .hh-family-people,
+  .page[data-page="household"] .hh-family-people.is-single { width: 100%; }
+
+  .page[data-page="household"] .hh-finance-entry {
+    position: static;
+    width: min(300px, 100%);
+    margin-bottom: var(--sp-4);
+    box-shadow: none;
+  }
 }
 
 @media (max-width: 760px) {

@@ -314,6 +314,64 @@ test('family preserves each person\'s Social Security amount and live-to age', (
   assert.equal(current.household.spouse.planEndAge, 101);
 });
 
+test('Family finance commits create canonical income and savings inputs atomically', () => {
+  let subject = plan();
+  subject = applyHouseholdWizardEdit(subject, {
+    scope: 'finance',
+    action: 'add',
+    mode: 'income',
+    typeId: 'rental',
+    owner: 'client',
+    amount: '$18,000',
+  });
+  subject = applyHouseholdWizardEdit(subject, {
+    scope: 'finance',
+    action: 'add',
+    mode: 'savings',
+    typeId: '401k',
+    owner: 'client',
+    amount: '$28,300',
+  });
+
+  assert.equal(subject.income.other.length, 1);
+  assert.equal(subject.income.other[0].typeId, 'rental');
+  assert.equal(subject.income.other[0].amount, 18_000);
+  assert.equal(subject.savings.entries.length, 1);
+  assert.equal(subject.savings.entries[0].typeId, '401k');
+  assert.equal(subject.savings.entries[0].amount, 28_300);
+  assert.equal(subject.savings.annual, 28_300);
+  assert.deepEqual(subject.savings.split, {
+    taxable: 0,
+    traditional: 1,
+    roth: 0,
+  });
+});
+
+test('co-client removal blocks on an explicitly owned savings entry', () => {
+  let subject = applyHouseholdWizardEdit(plan(), {
+    scope: 'family',
+    field: 'filingStatus',
+    value: 'marriedFilingJointly',
+  });
+  subject = applyHouseholdWizardEdit(subject, {
+    scope: 'finance',
+    action: 'add',
+    mode: 'savings',
+    typeId: 'roth_ira',
+    owner: 'spouse',
+    amount: 7_000,
+  });
+  const before = structuredClone(subject);
+
+  assert.throws(
+    () => applyHouseholdWizardEdit(subject, {
+      scope: 'family', action: 'remove-spouse', confirmed: true,
+    }),
+    error => error.code === 'CO_CLIENT_SAVINGS_REQUIRES_REASSIGNMENT',
+  );
+  assert.deepEqual(subject, before);
+});
+
 test('family rejects a live-to age before that person\'s current age', () => {
   const subject = plan();
   assert.throws(
