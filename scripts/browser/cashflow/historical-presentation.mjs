@@ -48,7 +48,7 @@ export function verifyHistoricalPresentation({
     && layout.railDirection === 'column'
     && layout.railAlignItems === 'center'
     && layout.railGap === '12px'
-    && layout.railPadding === '16px 20px 20px'
+    && layout.railPadding === '20px'
     && layout.railBorderLeftWidth === '1px'
     && layout.railBorderLeftStyle === 'solid'
     && layout.railBackground === 'rgba(0, 0, 0, 0)'
