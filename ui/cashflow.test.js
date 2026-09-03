@@ -603,6 +603,14 @@ test('surviving historical Cash Flow renders the Option 3a reference fixture in 
   assert.equal((nearZeroHtml.match(/>Same<\/div>/g) || []).length, 4);
   assert.doesNotMatch(nearZeroHtml, /0\.0 pts|[−+]\$0/);
 
+  const unavailableRateHtml = renderMetricRows(nearZeroRows.map(metric => (
+    metric.id === 'average-effective-withdrawal-rate'
+      ? { ...metric, thisPath: null, typicalPath: null, delta: null }
+      : metric
+  )));
+  assert.match(unavailableRateHtml, /data-path-reference-metric="average-effective-withdrawal-rate"[\s\S]*>Not modeled<[\s\S]*data-historical-metric="average-effective-withdrawal-rate"[\s\S]*>Not modeled<[\s\S]*cf-path-rail__delta--muted"><\/div>/);
+  assert.doesNotMatch(unavailableRateHtml, /0\.0%|0\.0 pts/);
+
   const bothNeverHtml = renderMetricRows(nearZeroRows.map(metric => (
     metric.id === 'recovery-period'
       ? {

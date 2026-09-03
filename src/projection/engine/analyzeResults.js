@@ -216,7 +216,7 @@ export function pathDigest(sim, params){
   const avgWdRate = wdRows.length ? wdSum / wdRows.length : 0;
   const avgEffectiveWdRate = effectiveWdRows.length
     ? effectiveWdRows.reduce((sum, row) => sum + row.effectiveWdRate, 0) / effectiveWdRows.length
-    : 0;
+    : null;
 
   // Early sequence — the first 10 retirement years, where sequence risk lives.
   const early = retRows.slice(0, 10);

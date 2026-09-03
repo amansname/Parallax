@@ -144,6 +144,34 @@ test('pathDigest never fabricates age-80 balance or runway after underfunding', 
   assert.equal(digest.fundingMarginKind, 'years-short');
 });
 
+test('pathDigest preserves an unavailable effective withdrawal rate without portfolio capital', () => {
+  const digest = pathDigest({
+    rows: [{
+      year: 1,
+      age: 78,
+      phase: 'ret',
+      source: 1973,
+      returnRate: 0,
+      startBalance: 0,
+      balance: 0,
+      withdrawal: 0,
+      wdRate: 0,
+      effectiveWdRate: null,
+      fundingShortfall: 10_000,
+      failed: true,
+    }],
+    terminalBalance: 0,
+    cagr: 0,
+    first10Cagr: 0,
+    minBalance: 0,
+    failed: true,
+    depletionAge: 78,
+    lifetimeTax: 0,
+  });
+
+  assert.equal(digest.avgEffectiveWdRate, null);
+});
+
 test('pathDigest does not call truncated market evidence Never when failure precedes a later recovery', () => {
   const marketRows = [
     { year: 1, age: 65, phase: 'ret', source: 2000, returnRate: -0.2,

@@ -219,7 +219,7 @@ function earlyBalanceFacts(digest, label){
 }
 
 function effectiveWithdrawalRateFacts(digest, label){
-  const average = finiteMetric(
+  const average = optionalFiniteMetric(
     digest,
     'avgEffectiveWdRate',
     `${label} average effective withdrawal rate`,
@@ -383,7 +383,10 @@ function historicalHeader(historicalResult, typicalSimulation, typicalDigest){
         format: 'percentage',
         thisPath: historicalEffectiveWithdrawal.average,
         typicalPath: typicalEffectiveWithdrawal.average,
-        delta: historicalEffectiveWithdrawal.average - typicalEffectiveWithdrawal.average,
+        delta: Number.isFinite(historicalEffectiveWithdrawal.average)
+            && Number.isFinite(typicalEffectiveWithdrawal.average)
+          ? historicalEffectiveWithdrawal.average - typicalEffectiveWithdrawal.average
+          : null,
       },
       {
         id: 'recovery-period',

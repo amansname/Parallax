@@ -138,6 +138,7 @@ export function verifyHistoricalMetrics({
   const visibleSignedYears = value => value === 0 ? 'Same' : (value < 0 ? '\u2212' : '+') + visibleYears(value);
   const visibleRate = value => Number.isFinite(value) ? value.toFixed(1) + '%' : 'Not modeled';
   const visibleSignedPoints = (thisPathValue, typicalPathValue) => {
+    if (!Number.isFinite(thisPathValue) || !Number.isFinite(typicalPathValue)) return '';
     const displayedThisPath = Number(thisPathValue.toFixed(1));
     const displayedTypicalPath = Number(typicalPathValue.toFixed(1));
     const rounded = Math.round((displayedThisPath - displayedTypicalPath) * 10) / 10;
@@ -153,10 +154,13 @@ export function verifyHistoricalMetrics({
   const displayedLowDelta = Number.isFinite(lowDelta) ? visibleMoney(Math.abs(lowDelta)) : null;
   const displayedBalanceDelta = Number.isFinite(balanceDelta) ? visibleMoney(Math.abs(balanceDelta)) : null;
   const recoveryDelta = Number.isFinite(historicalFacts.recoveryYears) && Number.isFinite(typicalFacts.recoveryYears) ? historicalFacts.recoveryYears - typicalFacts.recoveryYears : null;
-  const displayedEffectiveWithdrawalDelta = Math.round((
-    Number(historicalFacts.averageEffectiveWdRate.toFixed(1))
-    - Number(typicalFacts.averageEffectiveWdRate.toFixed(1))
-  ) * 10) / 10;
+  const displayedEffectiveWithdrawalDelta = Number.isFinite(historicalFacts.averageEffectiveWdRate)
+      && Number.isFinite(typicalFacts.averageEffectiveWdRate)
+    ? Math.round((
+        Number(historicalFacts.averageEffectiveWdRate.toFixed(1))
+        - Number(typicalFacts.averageEffectiveWdRate.toFixed(1))
+      ) * 10) / 10
+    : null;
   const fundingDelta = fundingMetric.thisPath - fundingMetric.typicalPath;
   const expectedReferenceValues = [visibleMoney(typicalFacts.lowestEarlyBalance), visibleRate(typicalFacts.averageEffectiveWdRate), visibleRecovery(typicalFacts), visibleMoney(typicalFacts.age80Balance, typicalFunding.kind === 'years-short' && typicalFunding.timelineFundedThroughAge < 80 ? 'Underfunded before 80' : 'Not modeled'), 'Age ' + fundingMetric.typicalPath];
   const expectedSelectedValues = [visibleMoney(historicalFacts.lowestEarlyBalance), visibleRate(historicalFacts.averageEffectiveWdRate), visibleRecovery(historicalFacts), visibleMoney(historicalFacts.age80Balance, historicalFunding.kind === 'years-short' && historicalFunding.timelineFundedThroughAge < 80 ? 'Underfunded before 80' : 'Not modeled'), 'Age ' + fundingMetric.thisPath];

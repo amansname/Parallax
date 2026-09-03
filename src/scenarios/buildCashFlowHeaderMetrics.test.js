@@ -394,6 +394,50 @@ test('Historical comparison uses average effective withdrawal rate, not the lega
   assert.equal(rate.delta, 1.5);
 });
 
+test('Historical comparison preserves an unavailable effective rate when neither path has capital', () => {
+  const noCapitalSimulation = {
+    rows: [row({
+      year: 1,
+      age: 95,
+      startBalance: 0,
+      balance: 0,
+      fundingShortfall: 10_000,
+      failed: true,
+      people: {
+        client: { age: 95, alive: true },
+        spouse: null,
+      },
+    })],
+  };
+  const noCapitalDigest = digest({
+    lowestRealBalanceFirst10Years: 0,
+    lowestRealBalanceFirst10Age: 95,
+    avgEffectiveWdRate: null,
+    marketRecoveryPeriodStatus: 'no-dip',
+    marketRecoveryPeriodYears: 0,
+    marketRecoveryAge: null,
+    realBalanceAtAge80: null,
+    fundedThroughAge: 95,
+    planEndAge: 95,
+    fundingMarginYears: 0,
+    fundingMarginKind: 'years-short',
+  });
+  const metrics = buildCashFlowHeaderMetrics({
+    historicalResult: historicalResult('underfunded', noCapitalDigest, noCapitalSimulation),
+    typicalSimulation: noCapitalSimulation,
+    typicalDigest: noCapitalDigest,
+  });
+
+  assert.deepEqual(metrics.rows[1], {
+    id: 'average-effective-withdrawal-rate',
+    label: 'Effective WD Rate',
+    format: 'percentage',
+    thisPath: null,
+    typicalPath: null,
+    delta: null,
+  });
+});
+
 test('underfunded Historical keeps all five metrics and expresses funding margin as years short', () => {
   const metrics = buildCashFlowHeaderMetrics({
     historicalResult: historicalResult('underfunded', digest({
