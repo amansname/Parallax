@@ -141,6 +141,18 @@ export async function goToWizardStep(page, step) {
   }
   const selector = `[data-hh-wizard-nav="${step}"]`;
   await requireUnique(page, selector, `wizard navigation ${step}`);
+  const financeRailObscuresNavigation = before.step === 'family' && await page.evaluate(navSelector => {
+    const button = document.querySelector(navSelector);
+    const rail = document.querySelector('.hh-finances-rail.is-open');
+    if (!button || !rail) return false;
+    const rect = button.getBoundingClientRect();
+    const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    return !hit || !button.contains(hit);
+  }, selector);
+  if (financeRailObscuresNavigation) {
+    await clickWizardAction(page, '.hh-finances-rail-toggle');
+    before = await wizardState(page);
+  }
   await page.click(selector);
   return waitForWizard(page, {
     step,
