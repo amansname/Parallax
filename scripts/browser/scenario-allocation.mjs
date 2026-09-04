@@ -226,6 +226,21 @@ export async function verifyScenarioAllocation({
     visible: true,
     timeout: 30000
   });
+  await page.waitForFunction(({
+    allocation,
+    ages
+  }) => {
+    const selectedAllocation = document.querySelector('#scn-view .cmp-lev-select[data-scn-id="1"][data-lever-key="allocationPresetId"]')?.value;
+    return selectedAllocation === allocation && Object.entries(ages).every(([key, expected]) => {
+      const value = document.querySelector(`#scn-view .cmp-step-btn[data-scn-id="1"][data-lever-key="${key}"]`)?.closest('.cmp-lev-row')?.querySelector('.cmp-lev-val')?.textContent.trim();
+      return Number(value) === expected;
+    });
+  }, {
+    timeout: 30000
+  }, {
+    allocation: targetAllocation,
+    ages: editedAges
+  });
   const restored = await page.evaluate(() => {
     const allocation = document.querySelector('#scn-view .cmp-lev-select[data-scn-id="1"][data-lever-key="allocationPresetId"]')?.value;
     const ages = {};
