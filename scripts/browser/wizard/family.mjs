@@ -61,15 +61,8 @@ export async function verifyFamilyPropagation(page) {
   );
   await clickWizardAction(page, '[data-net-worth-overlay] .nw-panel-close');
   await goToWizardStep(page, 'family');
-  await page.waitForFunction(() => (
-    document.querySelector('[data-hh-action="toggle-finances-rail"]')
-      ?.getAttribute('aria-expanded') === 'true'
-      && document.querySelector('[data-finances-person-owner="client"]')
-        ?.getAttribute('aria-pressed') === 'true'
-      && document.querySelector('[data-finance-entry-panel]')?.dataset.financeOwner === 'client'
-  ), { timeout: 10000 });
 
-  const initialFinanceEntry = await page.evaluate(() => {
+  const returnedFinanceRail = await page.evaluate(() => {
     const cards = [...document.querySelectorAll('[data-person-owner]')]
       .map(card => {
         const rect = card.getBoundingClientRect();
@@ -123,50 +116,42 @@ export async function verifyFamilyPropagation(page) {
       viewportWidth: innerWidth,
     };
   });
-  const [firstCard, secondCard] = initialFinanceEntry.cards;
+  const [firstCard, secondCard] = returnedFinanceRail.cards;
   const cardsDoNotOverlap = Boolean(firstCard && secondCard && (
     firstCard.right <= secondCard.left + 1 || firstCard.bottom <= secondCard.top + 1
   ));
-  const desktopReferenceGeometry = initialFinanceEntry.viewportWidth <= 1700 || (
+  const desktopReferenceGeometry = returnedFinanceRail.viewportWidth <= 1700 || (
     Math.abs(firstCard?.width - 592) <= 1
       && Math.abs(secondCard?.width - 592) <= 1
       && Math.abs(firstCard?.top - secondCard?.top) <= 1
   );
   requireCondition(
-    initialFinanceEntry.panels === 1
-      && initialFinanceEntry.amounts === 0
-      && initialFinanceEntry.people === 2
-      && initialFinanceEntry.selectedOwner === 'client'
-      && initialFinanceEntry.selectedMode === 'savings'
-      && initialFinanceEntry.sourceSelect === 'Select savings type'
-      && JSON.stringify(initialFinanceEntry.sources) === JSON.stringify([
-        '401(k) deferral',
-        'Roth 401(k) deferral',
-        'Traditional IRA',
-        'Roth IRA',
-        'HSA',
-        'Taxable brokerage',
-        'Cash savings',
-      ])
-      && initialFinanceEntry.header === 'Savings and Income'
-      && initialFinanceEntry.expanded === 'true'
-      && Math.abs(initialFinanceEntry.railWidth - 326) <= 1
-      && initialFinanceEntry.railHeight > 600
-      && initialFinanceEntry.railBorders.every(width => width === '0px')
-      && initialFinanceEntry.railShadow === 'none'
-      && initialFinanceEntry.railHeadDivider === '0px'
-      && initialFinanceEntry.cards.length === 2
+    returnedFinanceRail.panels === 0
+      && returnedFinanceRail.amounts === 0
+      && returnedFinanceRail.people === 2
+      && returnedFinanceRail.selectedOwner === ''
+      && returnedFinanceRail.selectedMode === ''
+      && returnedFinanceRail.sourceSelect === ''
+      && returnedFinanceRail.sources.length === 0
+      && returnedFinanceRail.header === 'Savings and Income'
+      && returnedFinanceRail.expanded === 'true'
+      && Math.abs(returnedFinanceRail.railWidth - 326) <= 1
+      && returnedFinanceRail.railHeight > 600
+      && returnedFinanceRail.railBorders.every(width => width === '0px')
+      && returnedFinanceRail.railShadow === 'none'
+      && returnedFinanceRail.railHeadDivider === '0px'
+      && returnedFinanceRail.cards.length === 2
       && cardsDoNotOverlap
       && desktopReferenceGeometry
-      && JSON.stringify(initialFinanceEntry.socialSecurityLabels) === JSON.stringify([
+      && JSON.stringify(returnedFinanceRail.socialSecurityLabels) === JSON.stringify([
         'Social Security',
         'Social Security',
       ])
-      && initialFinanceEntry.benefitFields === 0
-      && initialFinanceEntry.benefitCopy === 0
-      && initialFinanceEntry.dependents === 1
-      && initialFinanceEntry.documentOverflow <= 1,
-    `Family form did not begin with the approved primary Savings rail: ${JSON.stringify(initialFinanceEntry)}`,
+      && returnedFinanceRail.benefitFields === 0
+      && returnedFinanceRail.benefitCopy === 0
+      && returnedFinanceRail.dependents === 1
+      && returnedFinanceRail.documentOverflow <= 1,
+    `Family rail did not preserve its open, entry-closed state after Net Worth navigation: ${JSON.stringify(returnedFinanceRail)}`,
   );
   await clickWizardAction(page, '[data-hh-action="toggle-finances-rail"]');
   await page.waitForFunction(() => (
@@ -223,7 +208,7 @@ export async function verifyFamilyPropagation(page) {
       benefitFields: document.querySelectorAll('[data-wizard-field$=".socialSecurityBenefit"]').length,
       documentOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
     };
-  }, initialFinanceEntry.cards);
+  }, returnedFinanceRail.cards);
   requireCondition(
     openRail.cardsUnchanged
       && openRail.expanded === 'true'
