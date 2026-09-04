@@ -89,7 +89,7 @@ export function renderHouseholdWizardFamily(ctx){
               placeholder="0">
             <span aria-hidden="true">/yr</span>
             <button type="button" data-hh-action="commit-finance-entry"
-              aria-label="Add ${esc(selectedType.label)}">↵</button>
+              aria-label="Save ${esc(selectedType.label)}">↵</button>
           </div>
         ` : ''}
       </section>
@@ -142,7 +142,15 @@ export function renderHouseholdWizardFamily(ctx){
             ${open && hasSpouse ? railPerson('spouse', 'Spouse') : ''}
           </div>
           <div class="hh-finances-control">
-            ${hasOwner ? financePanel(uiState.financeOwner) : ''}
+            ${hasOwner ? financePanel(uiState.financeOwner) : uiState.financeSaveStatus === true ? `
+              <p class="hh-finances-save-status" data-finance-save-status
+                role="status" aria-live="polite" aria-atomic="true">
+                <svg viewBox="0 0 14 14" aria-hidden="true">
+                  <path d="m2.5 7 3 3 6-7" />
+                </svg>
+                <span class="hh-sr-only">Saved to plan</span>
+              </p>
+            ` : ''}
           </div>
           <div class="hh-finances-summary" data-finances-summary>
             <span>Savings</span>

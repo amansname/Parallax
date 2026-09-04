@@ -15,7 +15,8 @@ async function replaceFinanceAmount(page, value) {
   await page.keyboard.down('Control');
   await page.keyboard.press('A');
   await page.keyboard.up('Control');
-  await page.type('[data-finance-amount]', value);
+  await page.keyboard.press('Backspace');
+  if(value) await page.type('[data-finance-amount]', value);
 }
 
 export async function verifyFamilyPropagation(page) {
@@ -347,7 +348,64 @@ export async function verifyFamilyPropagation(page) {
       && document.querySelectorAll('[data-finance-entry-panel]').length === 0
       && document.querySelector('[data-hh-action="toggle-finances-rail"]')
         ?.getAttribute('aria-expanded') === 'true'
+      && document.querySelector('[data-finance-save-status]')?.textContent.trim() === 'Saved to plan'
+      && document.querySelector('[data-finance-save-status] .hh-sr-only')
       && document.querySelector('[data-finances-summary] span')?.textContent.trim() === 'Savings'
+      && document.querySelector('[data-finances-summary] strong')?.textContent.trim() === '$28,300/yr'
+      && saved?.savings?.entries?.some(entry => (
+        entry.owner === 'client'
+          && entry.typeId === '401k'
+          && entry.amount === 28300
+      ));
+  }, { timeout: 10000 });
+
+  await clickWizardAction(page, '[data-finances-person-owner="client"]');
+  await clickWizardAction(
+    page,
+    '[data-hh-action="select-finance-source"][data-finance-type-id="401k"]',
+  );
+  const beforeSavingsClear = await wizardState(page);
+  await replaceFinanceAmount(page, '');
+  await page.keyboard.press('Enter');
+  await waitForWizard(page, {
+    step: 'family',
+    afterRevision: beforeSavingsClear.revision,
+  });
+  await page.waitForFunction(() => {
+    const root = document.querySelector('[data-hh-wizard-root]');
+    const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+    const active = localStorage.getItem('parallax.activeHouseholdId');
+    const saved = db?.[active];
+    return root?.dataset.wizardReady === 'true'
+      && !root.dataset.validationCode
+      && document.querySelectorAll('[data-finance-entry-panel]').length === 0
+      && document.querySelector('[data-finance-save-status]')?.textContent.trim() === 'Saved to plan'
+      && document.querySelector('[data-finance-save-status] .hh-sr-only')
+      && document.querySelector('[data-finances-summary] strong')?.textContent.trim() === '$0/yr'
+      && saved?.savings?.annual === 0
+      && !saved?.savings?.entries?.some(entry => (
+        entry.owner === 'client' && entry.typeId === '401k'
+      ));
+  }, { timeout: 10000 });
+
+  await clickWizardAction(page, '[data-finances-person-owner="client"]');
+  await clickWizardAction(
+    page,
+    '[data-hh-action="select-finance-source"][data-finance-type-id="401k"]',
+  );
+  const beforeSavingsRestore = await wizardState(page);
+  await replaceFinanceAmount(page, '28300');
+  await page.keyboard.press('Enter');
+  await waitForWizard(page, {
+    step: 'family',
+    afterRevision: beforeSavingsRestore.revision,
+  });
+  await page.waitForFunction(() => {
+    const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+    const active = localStorage.getItem('parallax.activeHouseholdId');
+    const saved = db?.[active];
+    return document.querySelector('[data-finance-save-status]')?.textContent.trim() === 'Saved to plan'
+      && document.querySelector('[data-finance-save-status] .hh-sr-only')
       && document.querySelector('[data-finances-summary] strong')?.textContent.trim() === '$28,300/yr'
       && saved?.savings?.entries?.some(entry => (
         entry.owner === 'client'
