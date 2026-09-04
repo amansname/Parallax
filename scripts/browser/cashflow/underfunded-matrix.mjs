@@ -13,10 +13,13 @@ export async function verifyUnderfundedMatrix({
       runSinglePath
     }, {
       renderCashflow
+    }, {
+      snapshotLegacyRiskProfileAllocation
     }] = await Promise.all([
       import('./src/scenarios/createCashFlowController.js'),
       import('./engine.js'),
-      import('./ui/cashflow.js')
+      import('./ui/cashflow.js'),
+      import('./src/household/investmentAllocation.js')
     ]);
     const typicalSimulation = {
       simIndex: 7,
@@ -306,32 +309,51 @@ export async function verifyUnderfundedMatrix({
         spendingSchemaVersion: 1
       };
       noCapitalPlan.household.primary = {
-        currentAge: 95,
-        retirementAge: 95,
-        planEndAge: 95
+        currentAge: 64,
+        retirementAge: 65,
+        planEndAge: 65
       };
       noCapitalPlan.household.spouse = null;
+      const noCapitalAllocation = snapshotLegacyRiskProfileAllocation(
+        noCapitalPlan.portfolio.riskProfile
+      );
       noCapitalPlan.portfolio.accounts = {
-        taxable: { balance: 0, basisPct: 1 },
-        traditional: { balance: 0 },
-        roth: { balance: 0 }
+        taxable: { balance: 0, basisPct: 1, investmentAllocation: noCapitalAllocation },
+        traditional: { balance: 0, investmentAllocation: noCapitalAllocation },
+        roth: { balance: 0, investmentAllocation: noCapitalAllocation }
+      };
+      noCapitalPlan.portfolio.extraAccounts = [];
+      noCapitalPlan.expenses = {
+        living: 0,
+        housing: 0,
+        debt: 0,
+        healthcare: 0,
+        extra: [],
+        healthcareRealGrowth: 0
       };
       noCapitalPlan.income.socialSecurity.primary = { pia: 0, claimAge: 67 };
+      noCapitalPlan.income.socialSecurity.spouse = null;
+      noCapitalPlan.income.other = [];
+      noCapitalPlan.income.pension = { benefitByAge: {}, base: 0, startAge: 65, colaPct: 0 };
       noCapitalPlan.goals = [{
         name: 'Required spending',
         system: 'essentials',
         amount: 20000,
-        startAge: 95,
-        endAge: 95,
+        startAge: 65,
+        endAge: 65,
         realGrowth: 0
       }];
       noCapitalPlan.taxes = { ordinary: 0, capitalGains: 0 };
       const noCapitalInputs = resolveInputs(noCapitalPlan, {});
+      const noCapitalReturnRow = sourceYear => ({
+        y: sourceYear,
+        ...Object.fromEntries(ASSET_KEYS.map(key => [key, 0]))
+      });
       const noCapitalSimulation = (simIndex, sourceYear) => ({
-        ...runSinglePath(noCapitalInputs, [{
-          y: sourceYear,
-          ...Object.fromEntries(ASSET_KEYS.map(key => [key, -0.1]))
-        }]),
+        ...runSinglePath(noCapitalInputs, [
+          noCapitalReturnRow(sourceYear - 1),
+          noCapitalReturnRow(sourceYear)
+        ]),
         simIndex
       });
       const noCapitalTypicalSimulation = noCapitalSimulation(9, 1995);
@@ -380,8 +402,8 @@ export async function verifyUnderfundedMatrix({
         reverseRecovery,
         noCapitalEffectiveWithdrawalRate,
         noCapitalEngineRates: {
-          historicalAnnual: noCapitalHistoricalSimulation.rows[0].effectiveWdRate,
-          typicalAnnual: noCapitalTypicalSimulation.rows[0].effectiveWdRate,
+          historicalAnnual: noCapitalHistoricalSimulation.rows[1].effectiveWdRate,
+          typicalAnnual: noCapitalTypicalSimulation.rows[1].effectiveWdRate,
           historical: noCapitalHistorical.digest.avgEffectiveWdRate,
           typical: pathDigest(noCapitalTypicalSimulation).avgEffectiveWdRate,
           controllerHistorical: noCapitalSelected.headerMetrics.rows[1].thisPath,
