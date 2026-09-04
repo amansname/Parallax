@@ -109,6 +109,7 @@ export async function verifyHouseholdDeletion({
   if (afterCancel.active !== before.id || !afterCancel.exists || afterCancel.scenarioBytes !== before.scenarioBytes) {
     throw new Error(`cancelled delete changed persisted state: ${JSON.stringify(afterCancel)}`);
   }
+  if (await page.$eval('#hh-menu-pop', menu => menu.hidden)) await stableClick('#hh-menu-btn');
   page.once('dialog', dialog => dialog.accept());
   await stableClick('#hh-delete');
   await waitForUnselectedWizard(page);
