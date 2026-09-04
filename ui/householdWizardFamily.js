@@ -151,7 +151,7 @@ export function renderHouseholdWizardFamily(ctx){
     `;
   };
 
-  const personCard = (owner, label) => {
+  const personCard = owner => {
     const nameField = owner === 'client' ? 'primaryName' : 'spouseName';
     const name = plan.meta?.[nameField] || '';
     const person = owner === 'client'
@@ -225,8 +225,8 @@ export function renderHouseholdWizardFamily(ctx){
       </header>
       ${financesRail()}
       <div class="hh-family-people${hasSpouse ? '' : ' is-single'}">
-        ${personCard('client', 'Client')}
-        ${hasSpouse ? personCard('spouse', 'Co-client') : ''}
+        ${personCard('client')}
+        ${hasSpouse ? personCard('spouse') : ''}
       </div>
 
       <section class="hh-form-section">
