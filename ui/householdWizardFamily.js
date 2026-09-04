@@ -43,6 +43,7 @@ export function renderHouseholdWizardFamily(ctx){
     const selectedAmount = selectedType
       ? savedFinanceAmount(owner, mode, selectedType.id)
       : null;
+    const selectedAmountValue = moneyFieldValue(selectedAmount);
     const ownerName = owner === 'spouse'
       ? plan.meta?.spouseName || 'Co-client'
       : plan.meta?.primaryName || 'Client';
@@ -83,7 +84,8 @@ export function renderHouseholdWizardFamily(ctx){
             <span aria-hidden="true">$</span>
             <input type="text" inputmode="decimal" autocomplete="off"
               data-finance-amount aria-label="${esc(selectedType.label)} annual amount"
-              value="${moneyFieldValue(selectedAmount)}"
+              value="${selectedAmountValue}"
+              size="${Math.max(1, selectedAmountValue.length)}"
               placeholder="0">
             <span aria-hidden="true">/yr</span>
             <button type="button" data-hh-action="commit-finance-entry"

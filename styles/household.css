@@ -685,9 +685,10 @@
 }
 
 .page[data-page="household"] .hh-finance-amount-row input {
-  width: 64px; /* geometry: compact annual amount, not a ledger column */
-  min-width: 0;
-  flex: 0 0 64px;
+  width: auto;
+  min-width: 1ch;
+  max-width: 96px; /* geometry: content-sized annual amount, not a ledger column */
+  flex: 0 1 auto;
   padding: 0;
   border: 0;
   background: none;

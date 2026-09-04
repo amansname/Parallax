@@ -276,6 +276,7 @@ export async function verifyFamilyPropagation(page) {
       currency: currency?.textContent.trim() || '',
       unit: unit?.textContent.trim() || '',
       inputWidth: inputRect?.width || 0,
+      inputSize: input?.getAttribute('size') || '',
       currencyToInputGap: inputRect && currencyRect ? inputRect.left - currencyRect.right : null,
       inputToUnitGap: unitRect && inputRect ? unitRect.left - inputRect.right : null,
       unitToCommitGap: commitRect && unitRect ? commitRect.left - unitRect.right : null,
@@ -290,7 +291,8 @@ export async function verifyFamilyPropagation(page) {
       && amountState.focused
       && amountState.currency === '$'
       && amountState.unit === '/yr'
-      && amountState.inputWidth <= 65
+      && amountState.inputWidth <= 20
+      && amountState.inputSize === '1'
       && amountState.currencyToInputGap <= 5
       && amountState.inputToUnitGap <= 5
       && amountState.unitToCommitGap >= 20
@@ -301,6 +303,26 @@ export async function verifyFamilyPropagation(page) {
     `Selecting 401(k) did not reveal the compact approved amount control: ${JSON.stringify(amountState)}`,
   );
   const beforeSavingsCommit = await wizardState(page);
+  await page.type('[data-finance-amount]', '16000');
+  const typedAmountState = await page.$eval('[data-finance-amount]', input => {
+    const unit = input.nextElementSibling;
+    const inputRect = input.getBoundingClientRect();
+    const unitRect = unit?.getBoundingClientRect();
+    return {
+      value: input.value,
+      size: input.getAttribute('size'),
+      width: inputRect.width,
+      inputToUnitGap: unitRect ? unitRect.left - inputRect.right : null,
+    };
+  });
+  requireCondition(
+    typedAmountState.value === '16,000'
+      && typedAmountState.size === '6'
+      && typedAmountState.width <= 60
+      && typedAmountState.inputToUnitGap <= 5,
+    `Typed Family amount did not remain tightly grouped: ${JSON.stringify(typedAmountState)}`,
+  );
+  await page.click('[data-finance-amount]', { clickCount: 3 });
   await page.type('[data-finance-amount]', '28300');
   await page.keyboard.press('Enter');
   await waitForWizard(page, {
