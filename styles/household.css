@@ -570,6 +570,28 @@
 
 .page[data-page="household"] .hh-finances-control { min-height: 0; }
 
+.page[data-page="household"] .hh-finances-save-status {
+  display: flex;
+  min-height: var(--h-compact);
+  align-items: center;
+  gap: var(--sp-2);
+  margin: var(--sp-1) var(--sp-3) 0;
+  color: var(--pos);
+  font-size: var(--fs-caption);
+  line-height: var(--lh-caption);
+}
+
+.page[data-page="household"] .hh-finances-save-status svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.5;
+}
+
 .page[data-page="household"] .hh-finance-entry {
   display: grid;
   width: 100%;

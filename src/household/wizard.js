@@ -46,6 +46,7 @@ export function createHouseholdWizardController({
     financeOwner: null,
     financeMode: 'savings',
     financeTypeId: null,
+    financeSaveStatus: false,
     netWorthView: 'entry',
     netWorthPanelCategory: null,
     netWorthMoreOpen: false,
@@ -66,6 +67,8 @@ export function createHouseholdWizardController({
     set financeMode(value){ state.financeMode = value === 'income' ? 'income' : 'savings'; },
     get financeTypeId(){ return state.financeTypeId; },
     set financeTypeId(value){ state.financeTypeId = value || null; },
+    get financeSaveStatus(){ return state.financeSaveStatus; },
+    set financeSaveStatus(value){ state.financeSaveStatus = value === true; },
     get netWorthView(){ return state.netWorthView; },
     set netWorthView(value){ state.netWorthView = value === 'summary' ? 'summary' : 'entry'; },
     get netWorthPanelCategory(){ return state.netWorthPanelCategory; },
@@ -100,6 +103,7 @@ export function createHouseholdWizardController({
     state.financeOwner = null;
     state.financeMode = 'savings';
     state.financeTypeId = null;
+    state.financeSaveStatus = false;
     state.netWorthView = 'entry';
     state.netWorthPanelCategory = null;
     state.netWorthMoreOpen = false;

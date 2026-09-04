@@ -67,6 +67,14 @@ function positiveAmount(value){
   return Math.round(amount);
 }
 
+function nonnegativeAmount(value){
+  const amount = Number(value);
+  if(!Number.isFinite(amount) || amount < 0){
+    throw new Error('Enter zero or a positive annual amount');
+  }
+  return Math.round(amount);
+}
+
 function uniqueMatch(rows, predicate, label){
   const matches = rows.filter(predicate);
   if(matches.length > 1){
@@ -195,6 +203,11 @@ function addSavingsEntry(plan, typeId, owner, amount){
     row => row?.owner === owner && row?.typeId === type.id,
     `${type.label} for this household member`,
   );
+  if(amount === 0){
+    if(existing) entries.splice(entries.indexOf(existing), 1);
+    syncSavingsAggregate(plan);
+    return;
+  }
   if(existing){
     existing.amount = amount;
     existing.bucket = bucket;
@@ -215,7 +228,9 @@ function addSavingsEntry(plan, typeId, owner, amount){
 export function addFamilyFinanceEntry(plan, command){
   const mode = command.mode === 'income' ? 'income' : 'savings';
   const owner = validOwner(plan, command.owner);
-  const amount = positiveAmount(command.amount);
+  const amount = mode === 'savings'
+    ? nonnegativeAmount(command.amount)
+    : positiveAmount(command.amount);
   if(mode === 'income') addIncomeEntry(plan, command.typeId, owner, amount);
   else addSavingsEntry(plan, command.typeId, owner, amount);
   return plan;
