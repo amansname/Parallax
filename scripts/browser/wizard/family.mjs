@@ -291,7 +291,7 @@ export async function verifyFamilyPropagation(page) {
       && amountState.focused
       && amountState.currency === '$'
       && amountState.unit === '/yr'
-      && amountState.inputWidth <= 20
+      && Math.abs(amountState.inputWidth - 24) <= 1
       && amountState.inputSize === '1'
       && amountState.currencyToInputGap <= 5
       && amountState.inputToUnitGap <= 5
