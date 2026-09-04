@@ -574,7 +574,7 @@
   display: flex;
   min-height: var(--h-compact);
   align-items: center;
-  gap: var(--sp-2);
+  justify-content: flex-end;
   margin: var(--sp-1) var(--sp-3) 0;
   color: var(--pos);
   font-size: var(--fs-caption);

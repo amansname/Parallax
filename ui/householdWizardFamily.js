@@ -148,7 +148,7 @@ export function renderHouseholdWizardFamily(ctx){
                 <svg viewBox="0 0 14 14" aria-hidden="true">
                   <path d="m2.5 7 3 3 6-7" />
                 </svg>
-                <span>Saved to plan</span>
+                <span class="hh-sr-only">Saved to plan</span>
               </p>
             ` : ''}
           </div>

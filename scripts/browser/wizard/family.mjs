@@ -349,6 +349,7 @@ export async function verifyFamilyPropagation(page) {
       && document.querySelector('[data-hh-action="toggle-finances-rail"]')
         ?.getAttribute('aria-expanded') === 'true'
       && document.querySelector('[data-finance-save-status]')?.textContent.trim() === 'Saved to plan'
+      && document.querySelector('[data-finance-save-status] .hh-sr-only')
       && document.querySelector('[data-finances-summary] span')?.textContent.trim() === 'Savings'
       && document.querySelector('[data-finances-summary] strong')?.textContent.trim() === '$28,300/yr'
       && saved?.savings?.entries?.some(entry => (
@@ -379,6 +380,7 @@ export async function verifyFamilyPropagation(page) {
       && !root.dataset.validationCode
       && document.querySelectorAll('[data-finance-entry-panel]').length === 0
       && document.querySelector('[data-finance-save-status]')?.textContent.trim() === 'Saved to plan'
+      && document.querySelector('[data-finance-save-status] .hh-sr-only')
       && document.querySelector('[data-finances-summary] strong')?.textContent.trim() === '$0/yr'
       && saved?.savings?.annual === 0
       && !saved?.savings?.entries?.some(entry => (
@@ -403,6 +405,7 @@ export async function verifyFamilyPropagation(page) {
     const active = localStorage.getItem('parallax.activeHouseholdId');
     const saved = db?.[active];
     return document.querySelector('[data-finance-save-status]')?.textContent.trim() === 'Saved to plan'
+      && document.querySelector('[data-finance-save-status] .hh-sr-only')
       && document.querySelector('[data-finances-summary] strong')?.textContent.trim() === '$28,300/yr'
       && saved?.savings?.entries?.some(entry => (
         entry.owner === 'client'

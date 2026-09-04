@@ -363,7 +363,8 @@ test('Family finance entry renders only after a person is chosen and keeps the a
   }).render('family');
   assert.match(saved, /data-finance-save-status/);
   assert.match(saved, /role="status" aria-live="polite" aria-atomic="true"/);
-  assert.match(saved, />Saved to plan</);
+  assert.match(saved, /class="hh-sr-only">Saved to plan</);
+  assert.doesNotMatch(saved, /<span>Saved to plan<\/span>/);
   assert.doesNotMatch(saved, /data-finance-entry-panel/);
 });
 
