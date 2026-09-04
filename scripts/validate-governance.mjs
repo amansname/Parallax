@@ -273,8 +273,9 @@ const workflow = requireText('.github/workflows/test.yml', [
   'name: Build deployable site artifact',
   'run: npm run site:build',
   'run: npm run site:verify',
-  'needs: artifact',
+  'needs: [artifact, unit]',
   'PARALLAX_ARTIFACT_ROOT: .parallax-artifact',
+  "PARALLAX_VERIFY_SKIP_UNIT_TESTS: '1'",
   'PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome',
   'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a',
 ]);
@@ -305,6 +306,19 @@ if(lintJob?.name !== 'ESLint'
   || lintCheckout?.with?.['fetch-depth'] !== 0
   || !lintJob?.steps?.some(step => step?.run === 'npm run lint:changed')){
   failures.push('.github/workflows/test.yml ESLint must lint the full PR merge-base range in its own pull-request job');
+}
+const unitJob = workflowConfig?.jobs?.unit;
+const browserJob = workflowConfig?.jobs?.browser;
+if(!unitJob?.steps?.some(step => step?.run === 'npm test')
+  || !Array.isArray(browserJob?.needs)
+  || browserJob.needs.length !== 2
+  || !browserJob.needs.includes('artifact')
+  || !browserJob.needs.includes('unit')
+  || browserJob?.['timeout-minutes'] !== 30
+  || browserJob?.env?.PARALLAX_VERIFY_SKIP_UNIT_TESTS !== '1'
+  || !browserJob?.steps?.some(step => step?.run === 'npm run verify')
+  || browserJob?.steps?.some(step => step?.run === 'npm test')){
+  failures.push('.github/workflows/test.yml must prove units once, then run the measured browser verifier with a 30-minute ceiling');
 }
 for(const forbidden of ['npm run governance:check', 'npm run governance:pr', 'validate-pr-authorship.mjs']){
   if(workflow.includes(forbidden)){

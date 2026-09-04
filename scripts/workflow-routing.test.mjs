@@ -30,6 +30,24 @@ test('the full quality campaign never validates reviewer evidence from the opene
   assert.doesNotMatch(source, /validate-pr-authorship\.mjs/);
 });
 
+test('the browser job reuses unit proof and keeps a measured full verifier', () => {
+  const { config } = readWorkflow('test.yml');
+  const unitRuns = config.jobs.unit.steps
+    .map(step => step.run)
+    .filter(Boolean);
+  const browser = config.jobs.browser;
+  const browserRuns = browser.steps
+    .map(step => step.run)
+    .filter(Boolean);
+
+  assert.ok(unitRuns.includes('npm test'));
+  assert.deepEqual(browser.needs, ['artifact', 'unit']);
+  assert.equal(browser['timeout-minutes'], 30);
+  assert.equal(browser.env.PARALLAX_VERIFY_SKIP_UNIT_TESTS, '1');
+  assert.ok(browserRuns.includes('npm run verify'));
+  assert.ok(!browserRuns.includes('npm test'));
+});
+
 test('the lightweight reviewer event owns the required governance context without full-suite commands', () => {
   const { source, config } = readWorkflow('pr-evidence.yml');
 

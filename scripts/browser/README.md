@@ -1,9 +1,12 @@
 # Browser verification
 
 Run `npm run verify` from the repository root. `scripts/verify.mjs` owns the
-ordered campaign, immutable-artifact setup, unit-test invocation, and final
-browser-error check. The canonical origin remains `http://127.0.0.1:8825/`.
-No feature module is a standalone preview server or an alternative gate.
+ordered campaign, immutable-artifact setup, unit-test invocation, per-contract
+timing, and final browser-error check. The required CI browser job may set
+`PARALLAX_VERIFY_SKIP_UNIT_TESTS=1` only after its required Unit tests dependency
+passes; local `npm run verify` retains the complete unit-plus-browser gate. The
+canonical origin remains `http://127.0.0.1:8825/`. No feature module is a
+standalone preview server or an alternative gate.
 
 The campaign is deliberately sequential. Later checks depend on household,
 scenario, and browser state created by earlier checks. Do not parallelize the

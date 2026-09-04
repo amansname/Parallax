@@ -44,13 +44,16 @@ import { verifyHouseholdDeletion } from './browser/persistence-deletion.mjs';
 
 import { mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { runPublicUrlBrowserContract } from './public-url-browser-contract.mjs';
 import { runGoalsPresentationContract } from './goals-presentation-browser-contract.mjs';
 import { runRolloverErrorBrowserContract } from './rollover-error-browser-contract.mjs';
 import { runWizardBrowserContract } from './wizard-browser-contract.mjs';
+import { formatDuration, shouldRunUnitSuite } from './browser/verification-runtime.mjs';
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
+const verificationStartedAt = performance.now();
 const OUT = join(ROOT, 'verify-out');
 const VERIFIED_ARTIFACT = prepareVerifiedArtifact(ROOT);
 const WITHDRAWAL_PLANNER_FIXTURE = JSON.parse(readFileSync(join(ROOT, 'test', 'fixtures', 'withdrawal-planner-visible-entry.v1.json'), 'utf8'));
@@ -63,12 +66,15 @@ if (requestedPort !== PORT) {
   process.exit(1);
 }
 const SKIP_SEQUENCING = process.env.PARALLAX_VERIFY_SKIP_SEQUENCING === '1';
+const RUN_UNIT_TESTS = shouldRunUnitSuite();
 function step(name, fn) {
+  const startedAt = performance.now();
+  console.log(`  START ${name}`);
   return fn().then(r => {
-    console.log(`  OK ${name}`);
+    console.log(`  OK ${name} (${formatDuration(performance.now() - startedAt)})`);
     return r;
   }, e => {
-    console.error(`  FAIL ${name}\n${e.stack || e.message || e}`);
+    console.error(`  FAIL ${name} (${formatDuration(performance.now() - startedAt)})\n${e.stack || e.message || e}`);
     process.exit(1);
   });
 }
@@ -92,18 +98,24 @@ rmSync(OUT, {
 mkdirSync(OUT, {
   recursive: true
 });
-console.log('full test suite (npm test)');
-const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-const test = process.platform === 'win32' ? spawnSync('cmd.exe', ['/d', '/s', '/c', npmCmd, 'test'], {
-  cwd: ROOT,
-  stdio: 'inherit'
-}) : spawnSync(npmCmd, ['test'], {
-  cwd: ROOT,
-  stdio: 'inherit'
-});
-if (test.status !== 0) {
-  console.error('npm test failed');
-  process.exit(1);
+if (RUN_UNIT_TESTS) {
+  const unitStartedAt = performance.now();
+  console.log('full test suite (npm test)');
+  const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  const test = process.platform === 'win32' ? spawnSync('cmd.exe', ['/d', '/s', '/c', npmCmd, 'test'], {
+    cwd: ROOT,
+    stdio: 'inherit'
+  }) : spawnSync(npmCmd, ['test'], {
+    cwd: ROOT,
+    stdio: 'inherit'
+  });
+  if (test.status !== 0) {
+    console.error(`npm test failed (${formatDuration(performance.now() - unitStartedAt)})`);
+    process.exit(1);
+  }
+  console.log(`  OK full test suite (${formatDuration(performance.now() - unitStartedAt)})`);
+} else {
+  console.log('full test suite skipped (covered by the required CI Unit tests job)');
 }
 console.log('Tax Buckets contract (static)');
 verifyTaxBuckets(ROOT, SKIP_SEQUENCING);
@@ -356,7 +368,7 @@ try {
     throw new Error(`${errs.length} page/console error(s) — verify must fail on application errors`);
   }
   await browser.close();
-  console.log(`\nOK verify passed - screenshots in ${OUT}`);
+  console.log(`\nOK verify passed in ${formatDuration(performance.now() - verificationStartedAt)} - screenshots in ${OUT}`);
 } finally {
   await closeServer(srv);
 }
