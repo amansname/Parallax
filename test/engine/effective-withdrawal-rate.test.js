@@ -16,6 +16,21 @@ test('effective withdrawal rate uses return-adjusted capital', () => {
     startBalance: 2_000_000,
     returnDollars: -400_000,
   }), 11.25);
+  assert.equal(effectiveWithdrawalRate({
+    withdrawal: 0,
+    startBalance: 2_000_000,
+    returnDollars: 400_000,
+  }), 0, 'a no-draw year with available capital is a modeled zero rate');
+  assert.equal(effectiveWithdrawalRate({
+    withdrawal: 0,
+    startBalance: 0,
+    returnDollars: 0,
+  }), null, 'a no-capital year has no withdrawal-rate denominator');
+  assert.equal(effectiveWithdrawalRate({
+    withdrawal: 0,
+    startBalance: 2_000_000,
+    returnDollars: -2_000_000,
+  }), null, 'a total-loss year has no return-adjusted denominator');
 });
 
 test('single-path rows expose effective withdrawal rate without changing legacy wdRate', () => {

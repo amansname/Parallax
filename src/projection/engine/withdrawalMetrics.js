@@ -4,7 +4,6 @@
  */
 export function effectiveWithdrawalRate({ withdrawal, startBalance, returnDollars }){
   const returnAdjustedBalance = startBalance + returnDollars;
-  return returnAdjustedBalance > 0.01 && withdrawal > 0
-    ? (withdrawal / returnAdjustedBalance) * 100
-    : 0;
+  if(!(returnAdjustedBalance > 0.01)) return null;
+  return withdrawal > 0 ? (withdrawal / returnAdjustedBalance) * 100 : 0;
 }

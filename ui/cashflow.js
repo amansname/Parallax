@@ -41,6 +41,7 @@ export function buildSimulationRows(sim, { plan, currentYear }) {
         draw: r.withdrawal || 0,
         wdRate: (r.wdRate != null) ? r.wdRate : 0,
         effectiveWdRate: Number.isFinite(r.effectiveWdRate) ? r.effectiveWdRate : null,
+        returnDollars: Number.isFinite(r.returnDollars) ? r.returnDollars : null,
         ending: r.balance || 0,
         fundingShortfall: Number.isFinite(r.fundingShortfall) ? r.fundingShortfall : 0,
         shortfall: Number.isFinite(r.fundingShortfall) && r.fundingShortfall > 0.01,
@@ -465,7 +466,7 @@ export function renderCashflow(scn, allScns, {
         ? '<span class="cf-row__mark-dot cf-row__mark-dot--ret"></span>'
         : (isRmdStart ? '<span class="cf-row__mark-dot cf-row__mark-dot--rmd"></span>' : '');
       return (
-        '<div class="cf-row cf-grid" data-age="' + esc(r.age) + '" data-living-age="' + esc(r.livingAge ?? '') + '" data-phase="' + (r.accum ? 'accum' : 'retirement') + '" data-source-year="' + esc(r.sourceYear ?? '') + '" data-start-balance="' + r.startPort + '" data-ending-balance="' + r.ending + '" data-withdrawal="' + r.draw + '" data-wd-rate="' + r.wdRate + '" data-effective-wd-rate="' + esc(r.effectiveWdRate ?? '') + '" data-return-rate="' + esc(r.ret ?? '') + '" data-funding-shortfall="' + r.fundingShortfall + '">' +
+        '<div class="cf-row cf-grid" data-age="' + esc(r.age) + '" data-living-age="' + esc(r.livingAge ?? '') + '" data-phase="' + (r.accum ? 'accum' : 'retirement') + '" data-source-year="' + esc(r.sourceYear ?? '') + '" data-start-balance="' + r.startPort + '" data-ending-balance="' + r.ending + '" data-withdrawal="' + r.draw + '" data-wd-rate="' + r.wdRate + '" data-effective-wd-rate="' + esc(r.effectiveWdRate ?? '') + '" data-return-rate="' + esc(r.ret ?? '') + '" data-return-dollars="' + esc(r.returnDollars ?? '') + '" data-funding-shortfall="' + r.fundingShortfall + '">' +
           '<span class="cf-row__year">' +
             '<span class="cf-row__mark" aria-hidden="true">' + yearMark + '</span>' +
             esc(r.year) +

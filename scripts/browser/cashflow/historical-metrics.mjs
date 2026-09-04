@@ -7,9 +7,13 @@ export function verifyHistoricalMetrics({
     const retirement = rows.filter(row => row.phase === 'retirement' && row.sourceYear !== null);
     const firstUnderfunded = retirement.find(row => row.shortfall > 0.01) || null;
     const early = retirement.slice(0, 10);
-    const effectiveWithdrawalRows = retirement.filter(
-      row => Number.isFinite(row.effectiveWdRate) && row.effectiveWdRate > 0
-    );
+    const effectiveWithdrawalRows = retirement.filter(row => {
+      const returnAdjustedCapital = row.startBalance + row.returnDollars;
+      return Number.isFinite(row.effectiveWdRate)
+        && row.effectiveWdRate >= 0
+        && Number.isFinite(returnAdjustedCapital)
+        && returnAdjustedCapital > 0.01;
+    });
     const lowestEarly = early.reduce((lowest, row) => (
       lowest === null || row.endingBalance < lowest.endingBalance ? row : lowest
     ), null);

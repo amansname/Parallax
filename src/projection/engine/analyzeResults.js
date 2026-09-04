@@ -191,9 +191,13 @@ export function pathDigest(sim, params){
   const real    = rows.filter(r => r.source != null);
   const retRows = real.filter(r => r.phase !== 'accum');
   const wdRows  = retRows.filter(r => r.wdRate > 0);
-  const effectiveWdRows = retRows.filter(
-    r => Number.isFinite(r.effectiveWdRate) && r.effectiveWdRate > 0
-  );
+  const effectiveWdRows = retRows.filter(r => {
+    const returnAdjustedCapital = r.startBalance + r.returnDollars;
+    return Number.isFinite(r.effectiveWdRate)
+      && r.effectiveWdRate >= 0
+      && Number.isFinite(returnAdjustedCapital)
+      && returnAdjustedCapital > 0.01;
+  });
   const resolvedPlanEndAges = [
     params?.people?.client?.planEndAgeOnPrimaryTimeline,
     params?.people?.spouse?.planEndAgeOnPrimaryTimeline,

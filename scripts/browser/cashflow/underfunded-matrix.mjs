@@ -28,6 +28,7 @@ export async function verifyUnderfundedMatrix({
         failed: false,
         wdRate: 4,
         effectiveWdRate: 4,
+        returnDollars: 0,
         taxes: 0,
         people: { client: { age: 95, alive: true }, spouse: { age: 92, alive: true } }
       }, {
@@ -42,6 +43,7 @@ export async function verifyUnderfundedMatrix({
         failed: false,
         wdRate: 5,
         effectiveWdRate: 5,
+        returnDollars: 0,
         taxes: 0,
         people: { client: { age: 98, alive: false }, spouse: { age: 95, alive: true } }
       }]
@@ -57,6 +59,7 @@ export async function verifyUnderfundedMatrix({
       failed: false,
       wdRate: 6,
       effectiveWdRate: 6,
+      returnDollars: 0,
       taxes: 0,
       people: { client: { age: 95, alive: true }, spouse: { age: 92, alive: true } }
     }, {
@@ -70,6 +73,7 @@ export async function verifyUnderfundedMatrix({
       failed: true,
       wdRate: 100,
       effectiveWdRate: 100,
+      returnDollars: 0,
       taxes: 0,
       people: {
         client: {
@@ -149,6 +153,7 @@ export async function verifyUnderfundedMatrix({
       draw: 20000,
       wdRate: row.wdRate,
       effectiveWdRate: row.effectiveWdRate,
+      returnDollars: row.returnDollars,
       ending: row.balance,
       fundingShortfall: row.fundingShortfall,
       shortfall: row.fundingShortfall > 0.01,
@@ -302,6 +307,7 @@ export async function verifyUnderfundedMatrix({
         failed: false,
         wdRate: 0,
         effectiveWdRate: null,
+        returnDollars: 0,
         returnRate: 0,
         taxes: 0,
         people: { client: { age: 94, alive: true }, spouse: { age: 91, alive: true } }
@@ -317,6 +323,7 @@ export async function verifyUnderfundedMatrix({
         failed: true,
         wdRate: 0,
         effectiveWdRate: null,
+        returnDollars: 0,
         returnRate: -0.1,
         taxes: 0,
         people: { client: { age: 95, alive: true }, spouse: { age: 92, alive: true } }
