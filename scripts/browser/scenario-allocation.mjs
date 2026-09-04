@@ -74,7 +74,12 @@ export async function verifyScenarioAllocation({
   });
   await page.waitForFunction(() => {
     const probabilities = [...document.querySelectorAll('#scn-view .scol__prob')].map(element => element.textContent.trim());
-    return probabilities.length === 3 && probabilities.every(value => value && value !== '—%');
+    const medians = [...document.querySelectorAll('#scn-view .scol__median b')].map(element => element.textContent.trim());
+    return probabilities.length === 3
+      && medians.length === 3
+      && probabilities.every(value => value && value !== '—%')
+      && probabilities[1] === probabilities[2]
+      && medians[1] === medians[2];
   }, {
     timeout: 30000
   });
