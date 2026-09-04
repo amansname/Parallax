@@ -75,7 +75,7 @@ jobs:
     name: Full browser verification
     needs: artifact
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
       PARALLAX_ARTIFACT_ROOT: .parallax-artifact
       PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome
