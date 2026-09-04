@@ -10,11 +10,15 @@ export function createFamilyActions({
     transientState.financeOwner = null;
     transientState.financeTypeId = null;
   };
+  const clearFinanceSaveStatus = () => {
+    transientState.financeSaveStatus = false;
+  };
   const focusFinanceControl = selector => {
     requestAnimationFrame(() => document.querySelector(selector)?.focus());
   };
   return {
     'toggle-finances-rail': () => {
+      clearFinanceSaveStatus();
       transientState.financeRailOpen = !transientState.financeRailOpen;
       if(!transientState.financeRailOpen) closeFinanceEntry();
       syncHousehold();
@@ -24,6 +28,7 @@ export function createFamilyActions({
     },
     'toggle-finance-entry': action => {
       const owner = action.dataset.financeOwner;
+      clearFinanceSaveStatus();
       transientState.financeRailOpen = true;
       if(transientState.financeOwner === owner){
         closeFinanceEntry();
@@ -38,12 +43,14 @@ export function createFamilyActions({
       }
     },
     'set-finance-mode': action => {
+      clearFinanceSaveStatus();
       transientState.financeMode = action.dataset.financeMode;
       transientState.financeTypeId = null;
       syncHousehold();
       focusFinanceControl('[data-finance-entry-panel] [data-hh-action="select-finance-source"]');
     },
     'select-finance-source': action => {
+      clearFinanceSaveStatus();
       transientState.financeTypeId = action.dataset.financeTypeId;
       syncHousehold();
       focusFinanceControl('[data-finance-amount]');
@@ -62,6 +69,7 @@ export function createFamilyActions({
       }, amount);
       if(!applied) return;
       closeFinanceEntry();
+      transientState.financeSaveStatus = true;
       syncHousehold();
     },
     'remove-spouse': action => {

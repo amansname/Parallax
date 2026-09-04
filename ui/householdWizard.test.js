@@ -97,6 +97,7 @@ function wizard({
   financeOwner = null,
   financeMode = 'savings',
   financeTypeId = null,
+  financeSaveStatus = false,
   savingsEntries = null,
   savingsAnnual = 68_300,
   netWorthPanelCategory = null,
@@ -169,6 +170,7 @@ function wizard({
     financeOwner,
     financeMode,
     financeTypeId,
+    financeSaveStatus,
     netWorthView: 'entry',
     netWorthPanelCategory,
     netWorthMoreOpen: false,
@@ -354,6 +356,15 @@ test('Family finance entry renders only after a person is chosen and keeps the a
     }],
   }).render('family');
   assert.match(existing, /data-finance-amount[^>]*value="28,300"/);
+
+  const saved = wizard({
+    financeRailOpen: true,
+    financeSaveStatus: true,
+  }).render('family');
+  assert.match(saved, /data-finance-save-status/);
+  assert.match(saved, /role="status" aria-live="polite" aria-atomic="true"/);
+  assert.match(saved, />Saved to plan</);
+  assert.doesNotMatch(saved, /data-finance-entry-panel/);
 });
 
 test('Family finance income mode exposes the ordered common-source inventory only', () => {

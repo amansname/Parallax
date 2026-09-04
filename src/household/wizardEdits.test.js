@@ -347,6 +347,34 @@ test('Family finance commits create canonical income and savings inputs atomical
   });
 });
 
+test('Family savings can be cleared back to zero without creating a zero entry', () => {
+  let subject = plan();
+  subject = applyHouseholdWizardEdit(subject, {
+    scope: 'finance',
+    action: 'add',
+    mode: 'savings',
+    typeId: '401k',
+    owner: 'client',
+    amount: '$28,300',
+  });
+  subject = applyHouseholdWizardEdit(subject, {
+    scope: 'finance',
+    action: 'add',
+    mode: 'savings',
+    typeId: '401k',
+    owner: 'client',
+    amount: '',
+  });
+
+  assert.deepEqual(subject.savings.entries, []);
+  assert.equal(subject.savings.annual, 0);
+  assert.deepEqual(subject.savings.split, {
+    taxable: 0,
+    traditional: 1,
+    roth: 0,
+  });
+});
+
 test('co-client removal blocks on an explicitly owned savings entry', () => {
   let subject = applyHouseholdWizardEdit(plan(), {
     scope: 'family',
