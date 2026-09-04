@@ -51,7 +51,12 @@ import { runPublicUrlBrowserContract } from './public-url-browser-contract.mjs';
 import { runGoalsPresentationContract } from './goals-presentation-browser-contract.mjs';
 import { runRolloverErrorBrowserContract } from './rollover-error-browser-contract.mjs';
 import { runWizardBrowserContract } from './wizard-browser-contract.mjs';
-import { formatDuration, shouldRunUnitSuite } from './browser/verification-runtime.mjs';
+import {
+  formatDuration,
+  selectedBrowserShard,
+  shouldRunBrowserShard,
+  shouldRunUnitSuite
+} from './browser/verification-runtime.mjs';
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const verificationStartedAt = performance.now();
 const OUT = join(ROOT, 'verify-out');
@@ -67,6 +72,8 @@ if (requestedPort !== PORT) {
 }
 const SKIP_SEQUENCING = process.env.PARALLAX_VERIFY_SKIP_SEQUENCING === '1';
 const RUN_UNIT_TESTS = shouldRunUnitSuite();
+const BROWSER_SHARD = selectedBrowserShard();
+const runsShard = (...shards) => shouldRunBrowserShard(BROWSER_SHARD, ...shards);
 function step(name, fn) {
   const startedAt = performance.now();
   console.log(`  START ${name}`);
@@ -151,57 +158,68 @@ try {
     artifactResponses,
     stableClick
   }));
-  await step('public URL stays clean while artifact requests remain versioned', async () => {
-    await runPublicUrlBrowserContract(browser, {
-      baseUrl: `http://127.0.0.1:${PORT}/`,
-      artifactId: VERIFIED_ARTIFACT.manifest.artifactId
+  if (runsShard('startup')) {
+    await step('public URL stays clean while artifact requests remain versioned', async () => {
+      await runPublicUrlBrowserContract(browser, {
+        baseUrl: `http://127.0.0.1:${PORT}/`,
+        artifactId: VERIFIED_ARTIFACT.manifest.artifactId
+      });
     });
-  });
-  await step('Cash Flow renders the actual projection failure without false tax or handoff claims', async () => {
-    await runRolloverErrorBrowserContract(browser, `http://127.0.0.1:${PORT}/`);
-  });
+    await step('Cash Flow renders the actual projection failure without false tax or handoff claims', async () => {
+      await runRolloverErrorBrowserContract(browser, `http://127.0.0.1:${PORT}/`);
+    });
 
-  await step('Graphite Aubergine design contracts render at governed viewports', () => verifyDesign({
-    VERIFIED_ARTIFACT,
-    page,
-    stableEvaluate,
-    stableClick,
-    setCashFlow
-  }));
-  await step('Tax wizard: saved Wages reach Withdrawal Planner without Continue', () => verifySavedWages({
-    page,
-    plannerDiagnosticState,
-    stableClick,
-    waitForPlannerState,
-    WITHDRAWAL_PLANNER_FIXTURE
-  }));
-  withdrawalPlannerFixtureHouseholdId = await step('enter funded Withdrawal Planner household through visible production controls', () => enterWithdrawalFixture({
-    stableClick,
-    page,
-    WITHDRAWAL_PLANNER_FIXTURE,
-    stableReload
-  }));
-  await step('Tax Buckets: production household loads with funded limits and live tax output', () => verifyWithdrawalResults({
-    page,
-    plannerDiagnosticState,
-    stableClick,
-    waitForPlannerState,
-    withdrawalPlannerFixtureHouseholdId,
-    WITHDRAWAL_PLANNER_FIXTURE,
-    WITHDRAWAL_PLANNER_ORACLE,
-    OUT
-  }));
-  await step('Tax Buckets: rapid slider approvals preserve both changes', () => verifyRapidApprovals({
-    page
-  }));
-  await step('Tax Buckets: production RMD floor and shared IRA limits reach the controls', () => verifyRmdControls({
-    page
-  }));
-  await step('household wizard: semantic four-step contract', async () => {
-    await runWizardBrowserContract(page, {
-      outDir: OUT
+    await step('Graphite Aubergine design contracts render at governed viewports', () => verifyDesign({
+      VERIFIED_ARTIFACT,
+      page,
+      stableEvaluate,
+      stableClick,
+      setCashFlow
+    }));
+    await step('Tax wizard: saved Wages reach Withdrawal Planner without Continue', () => verifySavedWages({
+      page,
+      plannerDiagnosticState,
+      stableClick,
+      waitForPlannerState,
+      WITHDRAWAL_PLANNER_FIXTURE
+    }));
+  }
+  if (runsShard('startup', 'planning')) {
+    withdrawalPlannerFixtureHouseholdId = await step('enter funded Withdrawal Planner household through visible production controls', () => enterWithdrawalFixture({
+      stableClick,
+      page,
+      WITHDRAWAL_PLANNER_FIXTURE,
+      stableReload
+    }));
+  }
+  if (runsShard('startup')) {
+    await step('Tax Buckets: production household loads with funded limits and live tax output', () => verifyWithdrawalResults({
+      page,
+      plannerDiagnosticState,
+      stableClick,
+      waitForPlannerState,
+      withdrawalPlannerFixtureHouseholdId,
+      WITHDRAWAL_PLANNER_FIXTURE,
+      WITHDRAWAL_PLANNER_ORACLE,
+      OUT
+    }));
+    await step('Tax Buckets: rapid slider approvals preserve both changes', () => verifyRapidApprovals({
+      page
+    }));
+    await step('Tax Buckets: production RMD floor and shared IRA limits reach the controls', () => verifyRmdControls({
+      page
+    }));
+  }
+  if (runsShard('wizard')) {
+    const wizardProfile = BROWSER_SHARD === 'all' ? 'full' : 'smoke';
+    await step(`household wizard: semantic four-step contract (${wizardProfile})`, async () => {
+      await runWizardBrowserContract(page, {
+        outDir: OUT,
+        profile: wizardProfile
+      });
     });
-  });
+  }
+  if (runsShard('planning')) {
   await step('goals Horizon: timeline, glass card, lanes, and no lifetime aggregate', () => verifyGoalsTimeline({
     stableClick,
     page,
@@ -322,13 +340,15 @@ try {
     setCashFlow,
     waitCashRows
   }));
+  }
 
   // ── Multi-household persistence & bootstrapping ────────────────────────────
   // These run LAST (they clear storage and reload) so they can't disturb the
   // earlier contracts above. They prove the state-management contract:
   // startup hydrates Joe, shipped templates remain explicit choices, saved
   // values survive reload, and scenario storage remains household-scoped.
-  await step('persistence: first load hydrates Joe with approved shipped options', () => verifyJoeStartupPersistence({
+  if (runsShard('persistence')) {
+    await step('persistence: first load hydrates Joe with approved shipped options', () => verifyJoeStartupPersistence({
     page,
     stableReload,
     WITHDRAWAL_PLANNER_ORACLE
@@ -362,6 +382,7 @@ try {
     stableReload,
     stableClick
   }));
+  }
   if (errs.length) {
     console.error('PAGE/CONSOLE ERRORS:');
     errs.forEach(e => console.error('  ' + e));
