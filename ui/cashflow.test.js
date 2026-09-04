@@ -116,7 +116,7 @@ test('Cash Flow renders the engine effective withdrawal rate and preserves legac
   assert.equal(row.returnDollars, 400_000);
   assert.match(html, /data-wd-rate="9"/);
   assert.match(html, /data-effective-wd-rate="7\.5"/);
-  assert.match(html, /data-return-dollars="400000"/);
+  assert.ok(html.includes('data-return-dollars="400000"'));
   assert.match(html, /cf-cell--wd[^>]*>7\.5%<\/span>/);
   assert.doesNotMatch(html, /cf-cell--wd[^>]*>9%<\/span>/);
   assert.match(html, /title="Draw divided by the portfolio after this year's return, before the draw"/);
