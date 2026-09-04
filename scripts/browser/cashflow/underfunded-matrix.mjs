@@ -6,7 +6,11 @@ export async function verifyUnderfundedMatrix({
     const [{
       createCashFlowController
     }, {
-      pathDigest
+      ASSET_KEYS,
+      defaultPlan,
+      pathDigest,
+      resolveInputs,
+      runSinglePath
     }, {
       renderCashflow
     }] = await Promise.all([
@@ -295,48 +299,40 @@ export async function verifyUnderfundedMatrix({
         }
       });
       const reverseRecovery = readRecovery();
-      const noCapitalRows = sourceYear => [{
-        year: 0,
-        age: 94,
-        phase: 'accum',
-        source: sourceYear - 1,
-        startBalance: 0,
-        balance: 0,
-        withdrawal: 0,
-        fundingShortfall: 0,
-        failed: false,
-        wdRate: 0,
-        effectiveWdRate: null,
-        returnDollars: 0,
-        returnRate: 0,
-        taxes: 0,
-        people: { client: { age: 94, alive: true }, spouse: { age: 91, alive: true } }
-      }, {
-        year: 1,
-        age: 95,
-        phase: 'ret',
-        source: sourceYear,
-        startBalance: 0,
-        balance: 0,
-        withdrawal: 0,
-        fundingShortfall: 20000,
-        failed: true,
-        wdRate: 0,
-        effectiveWdRate: null,
-        returnDollars: 0,
-        returnRate: -0.1,
-        taxes: 0,
-        people: { client: { age: 95, alive: true }, spouse: { age: 92, alive: true } }
+      const noCapitalPlan = structuredClone(defaultPlan);
+      noCapitalPlan.meta = {
+        ...noCapitalPlan.meta,
+        planningAsOfYear: 2026,
+        spendingSchemaVersion: 1
+      };
+      noCapitalPlan.household.primary = {
+        currentAge: 95,
+        retirementAge: 95,
+        planEndAge: 95
+      };
+      noCapitalPlan.household.spouse = null;
+      noCapitalPlan.portfolio.accounts = {
+        taxable: { balance: 0, basisPct: 1 },
+        traditional: { balance: 0 },
+        roth: { balance: 0 }
+      };
+      noCapitalPlan.income.socialSecurity.primary = { pia: 0, claimAge: 67 };
+      noCapitalPlan.goals = [{
+        name: 'Required spending',
+        system: 'essentials',
+        amount: 20000,
+        startAge: 95,
+        endAge: 95,
+        realGrowth: 0
       }];
+      noCapitalPlan.taxes = { ordinary: 0, capitalGains: 0 };
+      const noCapitalInputs = resolveInputs(noCapitalPlan, {});
       const noCapitalSimulation = (simIndex, sourceYear) => ({
-        simIndex,
-        terminalBalance: 0,
-        cagr: -0.1,
-        first10Cagr: -0.1,
-        minBalance: 0,
-        failed: true,
-        depletionAge: 95,
-        rows: noCapitalRows(sourceYear)
+        ...runSinglePath(noCapitalInputs, [{
+          y: sourceYear,
+          ...Object.fromEntries(ASSET_KEYS.map(key => [key, -0.1]))
+        }]),
+        simIndex
       });
       const noCapitalTypicalSimulation = noCapitalSimulation(9, 1995);
       const noCapitalHistoricalSimulation = noCapitalSimulation(10, 1973);
@@ -384,6 +380,8 @@ export async function verifyUnderfundedMatrix({
         reverseRecovery,
         noCapitalEffectiveWithdrawalRate,
         noCapitalEngineRates: {
+          historicalAnnual: noCapitalHistoricalSimulation.rows[0].effectiveWdRate,
+          typicalAnnual: noCapitalTypicalSimulation.rows[0].effectiveWdRate,
           historical: noCapitalHistorical.digest.avgEffectiveWdRate,
           typical: pathDigest(noCapitalTypicalSimulation).avgEffectiveWdRate,
           controllerHistorical: noCapitalSelected.headerMetrics.rows[1].thisPath,
