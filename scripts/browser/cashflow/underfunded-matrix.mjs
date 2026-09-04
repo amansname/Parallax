@@ -6,8 +6,14 @@ export async function verifyUnderfundedMatrix({
     const [{
       createCashFlowController
     }, {
+      buildCashFlowHeaderMetrics
+    }, {
       renderCashflow
-    }] = await Promise.all([import('./src/scenarios/createCashFlowController.js'), import('./ui/cashflow.js')]);
+    }] = await Promise.all([
+      import('./src/scenarios/createCashFlowController.js'),
+      import('./src/scenarios/buildCashFlowHeaderMetrics.js'),
+      import('./ui/cashflow.js')
+    ]);
     const typicalSimulation = {
       simIndex: 7,
       rows: [{
@@ -152,6 +158,22 @@ export async function verifyUnderfundedMatrix({
     const selection = {
       id: 'historical-1973'
     };
+    const typicalDigest = {
+      lowestRealBalanceFirst10Years: 650000,
+      lowestRealBalanceFirst10Age: 95,
+      yearsAboveFivePctWdRateFirst10Years: 0,
+      yearsAboveFivePctEffectiveWdRateFirst10Years: 0,
+      avgEffectiveWdRate: 4.5,
+      earlyWindowYears: 2,
+      marketRecoveryPeriodStatus: 'recovered',
+      marketRecoveryPeriodYears: 1,
+      marketRecoveryAge: 98,
+      realBalanceAtAge80: null,
+      fundedThroughAge: 98,
+      planEndAge: 98,
+      fundingMarginYears: 18.46153846153846,
+      fundingMarginKind: 'zero-return-runway'
+    };
     const controller = createCashFlowController({
       getScenarios: () => [scenario],
       scenarioInputsByResult: new WeakMap([[scenario.res, {
@@ -164,22 +186,7 @@ export async function verifyUnderfundedMatrix({
         peek: args => args.analysis === scenario.res && args.periodId === selection.id ? historical : null
       },
       buildRows,
-      digest: () => ({
-        lowestRealBalanceFirst10Years: 650000,
-        lowestRealBalanceFirst10Age: 95,
-        yearsAboveFivePctWdRateFirst10Years: 0,
-        yearsAboveFivePctEffectiveWdRateFirst10Years: 0,
-        avgEffectiveWdRate: 4.5,
-        earlyWindowYears: 2,
-        marketRecoveryPeriodStatus: 'recovered',
-        marketRecoveryPeriodYears: 1,
-        marketRecoveryAge: 98,
-        realBalanceAtAge80: null,
-        fundedThroughAge: 98,
-        planEndAge: 98,
-        fundingMarginYears: 18.46153846153846,
-        fundingMarginKind: 'zero-return-runway'
-      })
+      digest: () => typicalDigest
     });
     const liveStatus = document.querySelector('#cashflow-path-status');
     const scenarioPage = document.querySelector('.page[data-page="scenarios"]');
@@ -247,6 +254,16 @@ export async function verifyUnderfundedMatrix({
           typicalPath: Number(funding?.dataset.typicalPath)
         };
       };
+      const readEffectiveWithdrawalRate = () => {
+        const metric = host.querySelector('[data-historical-metric="average-effective-withdrawal-rate"]');
+        const reference = host.querySelector('[data-path-reference-metric="average-effective-withdrawal-rate"]');
+        return {
+          reference: reference?.querySelector('.cf-path-rail__reference-value')?.textContent.trim() || '',
+          figure: metric?.querySelector('.cf-path-rail__figure')?.textContent.trim() || '',
+          delta: metric?.querySelector('.cf-path-rail__delta')?.textContent.trim() || '',
+          tone: metric?.dataset.deltaTone || ''
+        };
+      };
       renderSelected(selected);
       const summary = host.querySelector('[data-cash-path-metrics]');
       const probe = document.createElement('span');
@@ -273,6 +290,25 @@ export async function verifyUnderfundedMatrix({
         }
       });
       const reverseRecovery = readRecovery();
+      const noCapitalHeaderMetrics = buildCashFlowHeaderMetrics({
+        historicalResult: {
+          ...historical,
+          digest: {
+            ...historical.digest,
+            avgEffectiveWdRate: null
+          }
+        },
+        typicalSimulation,
+        typicalDigest: {
+          ...typicalDigest,
+          avgEffectiveWdRate: null
+        }
+      });
+      renderSelected({
+        ...selected,
+        headerMetrics: noCapitalHeaderMetrics
+      });
+      const noCapitalEffectiveWithdrawalRate = readEffectiveWithdrawalRate();
       return {
         outcome: summary?.dataset.outcome || '',
         metrics: [...host.querySelectorAll('[data-historical-metric]')].map(metric => metric.dataset.historicalMetric),
@@ -282,6 +318,7 @@ export async function verifyUnderfundedMatrix({
         expectedColor,
         recovery,
         reverseRecovery,
+        noCapitalEffectiveWithdrawalRate,
         funding,
         rawTypicalTerminalAge: typicalSimulation.rows.at(-1).age,
         rawHistoricalFundedThroughAge: historical.digest.fundedThroughAge
@@ -293,7 +330,7 @@ export async function verifyUnderfundedMatrix({
       liveStatus.id = 'cashflow-path-status';
     }
   });
-  if (underfundedMatrixProof.outcome !== 'underfunded' || JSON.stringify(underfundedMatrixProof.metrics) !== JSON.stringify(['lowest-balance-first-10-years', 'average-effective-withdrawal-rate', 'recovery-period', 'balance-at-age-80', 'funded-through-margin']) || underfundedMatrixProof.recovery.reference !== '1 yr · Age 95' || underfundedMatrixProof.recovery.figure !== 'Not observed' || underfundedMatrixProof.recovery.delta !== '' || underfundedMatrixProof.recovery.tone !== 'muted' || underfundedMatrixProof.recovery.referenceFontSize !== '15px' || underfundedMatrixProof.recovery.figureFontSize !== '22px' || underfundedMatrixProof.recovery.deltaMinHeight !== '12px' || underfundedMatrixProof.recovery.deltaHeight < 12 || underfundedMatrixProof.reverseRecovery.reference !== 'Not observed' || underfundedMatrixProof.reverseRecovery.figure !== '0 yrs' || underfundedMatrixProof.reverseRecovery.delta !== '' || underfundedMatrixProof.reverseRecovery.tone !== 'muted' || underfundedMatrixProof.reverseRecovery.referenceFontSize !== '15px' || underfundedMatrixProof.reverseRecovery.figureFontSize !== '22px' || underfundedMatrixProof.reverseRecovery.deltaMinHeight !== '12px' || underfundedMatrixProof.reverseRecovery.deltaHeight < 12 || underfundedMatrixProof.funding.reference !== 'Age 95' || underfundedMatrixProof.funding.figure !== 'Age 92' || underfundedMatrixProof.funding.delta !== '\u22123 yrs' || underfundedMatrixProof.funding.planEndAge !== 95 || underfundedMatrixProof.funding.thisPath !== 92 || underfundedMatrixProof.funding.typicalPath !== 95 || underfundedMatrixProof.rawTypicalTerminalAge !== 98 || underfundedMatrixProof.rawHistoricalFundedThroughAge !== 95 || underfundedMatrixProof.glyph !== '!' || !/is-underfunded/.test(underfundedMatrixProof.statusClass) || underfundedMatrixProof.statusColor !== underfundedMatrixProof.expectedColor) {
+  if (underfundedMatrixProof.outcome !== 'underfunded' || JSON.stringify(underfundedMatrixProof.metrics) !== JSON.stringify(['lowest-balance-first-10-years', 'average-effective-withdrawal-rate', 'recovery-period', 'balance-at-age-80', 'funded-through-margin']) || underfundedMatrixProof.recovery.reference !== '1 yr · Age 95' || underfundedMatrixProof.recovery.figure !== 'Not observed' || underfundedMatrixProof.recovery.delta !== '' || underfundedMatrixProof.recovery.tone !== 'muted' || underfundedMatrixProof.recovery.referenceFontSize !== '15px' || underfundedMatrixProof.recovery.figureFontSize !== '22px' || underfundedMatrixProof.recovery.deltaMinHeight !== '12px' || underfundedMatrixProof.recovery.deltaHeight < 12 || underfundedMatrixProof.reverseRecovery.reference !== 'Not observed' || underfundedMatrixProof.reverseRecovery.figure !== '0 yrs' || underfundedMatrixProof.reverseRecovery.delta !== '' || underfundedMatrixProof.reverseRecovery.tone !== 'muted' || underfundedMatrixProof.reverseRecovery.referenceFontSize !== '15px' || underfundedMatrixProof.reverseRecovery.figureFontSize !== '22px' || underfundedMatrixProof.reverseRecovery.deltaMinHeight !== '12px' || underfundedMatrixProof.reverseRecovery.deltaHeight < 12 || underfundedMatrixProof.noCapitalEffectiveWithdrawalRate.reference !== 'Not modeled' || underfundedMatrixProof.noCapitalEffectiveWithdrawalRate.figure !== 'Not modeled' || underfundedMatrixProof.noCapitalEffectiveWithdrawalRate.delta !== '' || underfundedMatrixProof.noCapitalEffectiveWithdrawalRate.tone !== 'muted' || underfundedMatrixProof.funding.reference !== 'Age 95' || underfundedMatrixProof.funding.figure !== 'Age 92' || underfundedMatrixProof.funding.delta !== '\u22123 yrs' || underfundedMatrixProof.funding.planEndAge !== 95 || underfundedMatrixProof.funding.thisPath !== 92 || underfundedMatrixProof.funding.typicalPath !== 95 || underfundedMatrixProof.rawTypicalTerminalAge !== 98 || underfundedMatrixProof.rawHistoricalFundedThroughAge !== 95 || underfundedMatrixProof.glyph !== '!' || !/is-underfunded/.test(underfundedMatrixProof.statusClass) || underfundedMatrixProof.statusColor !== underfundedMatrixProof.expectedColor) {
     throw new Error(`controlled underfunded Historical matrix is incomplete: ${JSON.stringify(underfundedMatrixProof)}`);
   }
   observedHistoricalOutcomes.add(underfundedMatrixProof.outcome);
