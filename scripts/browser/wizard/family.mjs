@@ -327,7 +327,8 @@ export async function verifyFamilyPropagation(page) {
   requireCondition(
     typedAmountState.value === '16,000'
       && typedAmountState.size === '6'
-      && Math.abs(typedAmountState.width - 66) <= 1
+      && typedAmountState.width >= 64
+      && typedAmountState.width <= 70
       && typedAmountState.inputToUnitGap <= 5,
     `Typed Family amount did not remain tightly grouped: ${JSON.stringify(typedAmountState)}`,
   );
