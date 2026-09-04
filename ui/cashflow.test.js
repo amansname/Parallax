@@ -599,8 +599,15 @@ test('surviving historical Cash Flow renders the Option 3a reference fixture in 
     cfCols: ['Year', 'Age', 'Income', 'RMD', 'Essential', 'Goals', 'Tax', 'Draw', 'Return', 'Eff. WD Rate', 'Ending'],
   });
   const nearZeroHtml = renderMetricRows(nearZeroRows);
-  assert.match(nearZeroHtml, /data-path-reference-metric="average-effective-withdrawal-rate"[\s\S]*>5\.3%<[\s\S]*data-historical-metric="average-effective-withdrawal-rate"[\s\S]*>5\.2%<[\s\S]*>−0\.1 pts<\/div>/);
-  assert.equal((nearZeroHtml.match(/>Same<\/div>/g) || []).length, 4);
+  const roundedRateReference = '<span class="cf-path-rail__reference-value">5.3%</span>';
+  const roundedRateSelected = '<div class="cf-path-rail__figure">5.2%</div>';
+  const roundedRateDelta = '<div class="cf-path-rail__delta cf-path-rail__delta--muted">−0.1 pts</div>';
+  assert.ok(nearZeroHtml.includes(roundedRateReference));
+  assert.ok(nearZeroHtml.includes(roundedRateSelected));
+  assert.ok(nearZeroHtml.includes(roundedRateDelta));
+  assert.ok(nearZeroHtml.indexOf(roundedRateReference) < nearZeroHtml.indexOf(roundedRateSelected));
+  assert.ok(nearZeroHtml.indexOf(roundedRateSelected) < nearZeroHtml.indexOf(roundedRateDelta));
+  assert.equal(nearZeroHtml.split('>Same</div>').length - 1, 4);
   assert.doesNotMatch(nearZeroHtml, /0\.0 pts|[−+]\$0/);
 
   const unavailableRateHtml = renderMetricRows(nearZeroRows.map(metric => (
@@ -608,7 +615,14 @@ test('surviving historical Cash Flow renders the Option 3a reference fixture in 
       ? { ...metric, thisPath: null, typicalPath: null, delta: null }
       : metric
   )));
-  assert.match(unavailableRateHtml, /data-path-reference-metric="average-effective-withdrawal-rate"[\s\S]*>Not modeled<[\s\S]*data-historical-metric="average-effective-withdrawal-rate"[\s\S]*>Not modeled<[\s\S]*cf-path-rail__delta--muted"><\/div>/);
+  const unavailableRateReference = '<span class="cf-path-rail__reference-value">Not modeled</span>';
+  const unavailableRateSelected = '<div class="cf-path-rail__figure">Not modeled</div>';
+  const unavailableRateDelta = '<div class="cf-path-rail__delta cf-path-rail__delta--muted"></div>';
+  assert.ok(unavailableRateHtml.includes(unavailableRateReference));
+  assert.ok(unavailableRateHtml.includes(unavailableRateSelected));
+  assert.ok(unavailableRateHtml.includes(unavailableRateDelta));
+  assert.ok(unavailableRateHtml.indexOf(unavailableRateReference) < unavailableRateHtml.indexOf(unavailableRateSelected));
+  assert.ok(unavailableRateHtml.indexOf(unavailableRateSelected) < unavailableRateHtml.indexOf(unavailableRateDelta));
   assert.doesNotMatch(unavailableRateHtml, /0\.0%|0\.0 pts/);
 
   const bothNeverHtml = renderMetricRows(nearZeroRows.map(metric => (
