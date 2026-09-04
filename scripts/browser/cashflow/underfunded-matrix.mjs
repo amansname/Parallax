@@ -355,7 +355,7 @@ export async function verifyUnderfundedMatrix({
       const noCapitalController = createCashFlowController({
         getScenarios: () => [noCapitalScenario],
         scenarioInputsByResult: new WeakMap([[noCapitalScenario.res, {
-          plan,
+          plan: noCapitalPlan,
           overrides: {}
         }]]),
         selection: { id: 'historical-1973' },
