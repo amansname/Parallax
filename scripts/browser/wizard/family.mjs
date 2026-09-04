@@ -66,6 +66,9 @@ export async function verifyFamilyPropagation(page) {
       });
     const rail = document.querySelector('[data-finances-rail]');
     const railRect = rail?.getBoundingClientRect();
+    const railStyle = rail ? getComputedStyle(rail) : null;
+    const railHead = document.querySelector('.hh-finances-rail-head');
+    const railHeadStyle = railHead ? getComputedStyle(railHead) : null;
     const toggle = document.querySelector('[data-hh-action="toggle-finances-rail"]');
     const socialSecurityLabels = [...document.querySelectorAll('[data-wizard-field$=".socialSecurityAge"]')]
       .map(control => control.closest('label')?.querySelector('span')?.textContent.trim() || '');
@@ -77,6 +80,14 @@ export async function verifyFamilyPropagation(page) {
       expanded: toggle?.getAttribute('aria-expanded'),
       railWidth: railRect?.width || 0,
       railHeight: railRect?.height || 0,
+      railBorders: railStyle ? [
+        railStyle.borderTopWidth,
+        railStyle.borderRightWidth,
+        railStyle.borderBottomWidth,
+        railStyle.borderLeftWidth,
+      ] : [],
+      railShadow: railStyle?.boxShadow || '',
+      railHeadDivider: railHeadStyle?.borderBottomWidth || '',
       cards,
       socialSecurityLabels,
       benefitFields: document.querySelectorAll('[data-wizard-field$=".socialSecurityBenefit"]').length,
@@ -104,6 +115,9 @@ export async function verifyFamilyPropagation(page) {
       && closedFinanceEntry.expanded === 'false'
       && Math.abs(closedFinanceEntry.railWidth - 326) <= 1
       && Math.abs(closedFinanceEntry.railHeight - 72) <= 1
+      && closedFinanceEntry.railBorders.every(width => width === '0px')
+      && closedFinanceEntry.railShadow === 'none'
+      && closedFinanceEntry.railHeadDivider === '0px'
       && closedFinanceEntry.cards.length === 2
       && cardsDoNotOverlap
       && desktopReferenceGeometry

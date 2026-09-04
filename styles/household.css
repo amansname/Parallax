@@ -419,8 +419,7 @@
   width: 326px; /* geometry: approved compact rail */
   height: 72px;
   overflow: hidden;
-  border: var(--bw) solid var(--rule);
-  border-right: 0;
+  border: 0;
   background: var(--page);
   transition: height 160ms ease;
 }
@@ -428,8 +427,7 @@
 .page[data-page="household"] .hh-finances-rail.is-open {
   height: calc(100vh - 80px); /* geometry: rail runs from its header to the viewport floor */
   min-height: 680px;
-  border-bottom: 0;
-  box-shadow: var(--elev-panel);
+  box-shadow: none;
 }
 
 .page[data-page="household"] .hh-finances-rail-head {
@@ -439,7 +437,7 @@
   justify-content: space-between;
   gap: var(--sp-4);
   padding: 0 21px 0 30px; /* geometry: approved header alignment */
-  border-bottom: var(--bw) solid var(--rule);
+  border-bottom: 0;
 }
 
 .page[data-page="household"] .hh-finances-rail-head > span {
