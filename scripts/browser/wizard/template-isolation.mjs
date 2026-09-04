@@ -151,7 +151,10 @@ export async function verifyRuntimeTemplateSessionIsolation(page) {
         timeout: 15000
       });
     }
-    await page.click('.htab[data-page="scenarios"]');
+    const scenariosActive = await page.evaluate(() => (
+      document.querySelector('.page.on')?.dataset.page === 'scenarios'
+    ));
+    if(!scenariosActive) await page.click('.htab[data-page="scenarios"]');
     await page.waitForFunction(() => document.querySelector('.page.on')?.dataset.page === 'scenarios' && document.querySelectorAll('#scn-view .scol__name').length > 0, {
       timeout: 10000
     });
