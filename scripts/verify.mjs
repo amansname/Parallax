@@ -184,6 +184,15 @@ try {
       WITHDRAWAL_PLANNER_FIXTURE
     }));
   }
+  if (BROWSER_SHARD === 'planning') {
+    await step('Tax wizard: prepare saved Wages for the planning shard', () => verifySavedWages({
+      page,
+      plannerDiagnosticState,
+      stableClick,
+      waitForPlannerState,
+      WITHDRAWAL_PLANNER_FIXTURE
+    }));
+  }
   if (runsShard('startup', 'planning')) {
     withdrawalPlannerFixtureHouseholdId = await step('enter funded Withdrawal Planner household through visible production controls', () => enterWithdrawalFixture({
       stableClick,
