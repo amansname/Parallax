@@ -34,8 +34,8 @@ export function verifyHistoricalPresentation({
   if (!['underfunded', 'survives'].includes(historicalPath.summary?.outcome)) {
     throw new Error(`${mode} has an unknown historical outcome: ${JSON.stringify(historicalPath.summary)}`);
   }
-  const expectedMetricIds = ['lowest-balance-first-10-years', 'early-withdrawal-pressure', 'recovery-period', 'balance-at-age-80', 'funded-through-margin'];
-  const expectedMetricLabels = ['10-yr low', 'WD > 5%', 'Recovery', 'Age 80', 'Funded through'];
+  const expectedMetricIds = ['lowest-balance-first-10-years', 'average-effective-withdrawal-rate', 'recovery-period', 'balance-at-age-80', 'funded-through-margin'];
+  const expectedMetricLabels = ['10-year Low', 'Effective WD Rate', 'Recovery', 'Age 80', 'Funded through'];
   if (JSON.stringify(historicalPath.metrics.map(metric => metric.id)) !== JSON.stringify(expectedMetricIds) || JSON.stringify(historicalPath.reference.map(metric => metric.id)) !== JSON.stringify(expectedMetricIds) || JSON.stringify(historicalPath.metrics.map(metric => metric.label)) !== JSON.stringify(expectedMetricLabels) || JSON.stringify(historicalPath.reference.map(metric => metric.label)) !== JSON.stringify(expectedMetricLabels) || historicalPath.metrics.some(metric => /Median withdrawal|Ending portfolio|First underfunded/i.test(metric.label))) {
     throw new Error(`${mode} historical metric inventory drifted: ${JSON.stringify(historicalPath.metrics)}`);
   }
@@ -64,7 +64,7 @@ export function verifyHistoricalPresentation({
     && layout.title.fontSize === '12px'
     && layout.title.fontWeight === '600'
     && layout.title.color === layout.accentColor
-    && layout.referenceLabel.fontSize === '13px'
+    && layout.referenceLabel.fontSize === '14px'
     && layout.referenceLabel.color === layout.bodyColor
     && layout.referenceValue.fontSize === '15px'
     && layout.referenceValue.color === layout.bodyColor
@@ -85,7 +85,7 @@ export function verifyHistoricalPresentation({
     && layout.metric.alignItems === 'center'
     && layout.metric.textAlign === 'center'
     && layout.metric.gap === '3px'
-    && layout.metric.nameFontSize === '12px'
+    && layout.metric.nameFontSize === '14px'
     && layout.metric.nameColor === layout.bodyColor
     && layout.metric.figureFontSize === '22px'
     && layout.metric.figureFontWeight === '300'

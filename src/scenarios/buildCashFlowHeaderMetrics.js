@@ -218,19 +218,14 @@ function earlyBalanceFacts(digest, label){
   return { balance, age };
 }
 
-function earlyWithdrawalPressureFacts(digest, label){
-  const windowYears = finiteMetric(digest, 'earlyWindowYears', `${label} early window`, {
-    integer: true,
-    min: 1,
-    max: 10,
-  });
-  const years = finiteMetric(
+function effectiveWithdrawalRateFacts(digest, label){
+  const average = optionalFiniteMetric(
     digest,
-    'yearsAboveFivePctEffectiveWdRateFirst10Years',
-    `${label} years above 5% effective withdrawal rate`,
-    { integer: true, min: 0, max: windowYears }
+    'avgEffectiveWdRate',
+    `${label} average effective withdrawal rate`,
+    { min: 0 }
   );
-  return { years, windowYears };
+  return { average };
 }
 
 function recoveryFacts(digest, simulation, label){
@@ -340,8 +335,8 @@ function historicalHeader(historicalResult, typicalSimulation, typicalDigest){
 
   const historicalEarlyBalance = earlyBalanceFacts(historicalDigest, 'Historical');
   const typicalEarlyBalance = earlyBalanceFacts(typicalDigest, 'Typical');
-  const historicalEarlyPressure = earlyWithdrawalPressureFacts(historicalDigest, 'Historical');
-  const typicalEarlyPressure = earlyWithdrawalPressureFacts(typicalDigest, 'Typical');
+  const historicalEffectiveWithdrawal = effectiveWithdrawalRateFacts(historicalDigest, 'Historical');
+  const typicalEffectiveWithdrawal = effectiveWithdrawalRateFacts(typicalDigest, 'Typical');
   const historicalRecovery = recoveryFacts(
     historicalDigest,
     historicalResult?.simulation,
@@ -374,7 +369,7 @@ function historicalHeader(historicalResult, typicalSimulation, typicalDigest){
     rows: [
       {
         id: 'lowest-balance-first-10-years',
-        label: '10-yr low',
+        label: '10-year Low',
         format: 'money',
         thisPath: historicalEarlyBalance.balance,
         typicalPath: typicalEarlyBalance.balance,
@@ -383,14 +378,15 @@ function historicalHeader(historicalResult, typicalSimulation, typicalDigest){
         typicalPathAge: typicalEarlyBalance.age,
       },
       {
-        id: 'early-withdrawal-pressure',
-        label: 'WD > 5%',
-        format: 'early-withdrawal-pressure',
-        thisPath: historicalEarlyPressure.years,
-        typicalPath: typicalEarlyPressure.years,
-        thisPathWindowYears: historicalEarlyPressure.windowYears,
-        typicalPathWindowYears: typicalEarlyPressure.windowYears,
-        delta: historicalEarlyPressure.years - typicalEarlyPressure.years,
+        id: 'average-effective-withdrawal-rate',
+        label: 'Effective WD Rate',
+        format: 'percentage',
+        thisPath: historicalEffectiveWithdrawal.average,
+        typicalPath: typicalEffectiveWithdrawal.average,
+        delta: Number.isFinite(historicalEffectiveWithdrawal.average)
+            && Number.isFinite(typicalEffectiveWithdrawal.average)
+          ? historicalEffectiveWithdrawal.average - typicalEffectiveWithdrawal.average
+          : null,
       },
       {
         id: 'recovery-period',

@@ -56,16 +56,16 @@ test('pathDigest damage window: 1973 grinds longer than 1995', () => {
 test('pathDigest exposes real portfolio stress and plan-margin metrics from authoritative retirement rows', () => {
   const rows = [
     { year: 1, age: 78, phase: 'ret', source: 1973, returnRate: 0.1,
-      startBalance: 1_000, balance: 1_100, withdrawal: 50, wdRate: 5, effectiveWdRate: 4.5,
+      startBalance: 1_000, returnDollars: 100, balance: 1_100, withdrawal: 50, wdRate: 5, effectiveWdRate: 4.5,
       fundingShortfall: 0, failed: false },
     { year: 2, age: 79, phase: 'ret', source: 1974, returnRate: -0.1,
-      startBalance: 1_100, balance: 880, withdrawal: 67.1, wdRate: 6.1, effectiveWdRate: 5.4,
+      startBalance: 1_100, returnDollars: -110, balance: 880, withdrawal: 67.1, wdRate: 6.1, effectiveWdRate: 5.4,
       fundingShortfall: 0, failed: false },
     { year: 3, age: 80, phase: 'ret', source: 1975, returnRate: -0.2,
-      startBalance: 880, balance: 660, withdrawal: 52.8, wdRate: 6, effectiveWdRate: 4.9,
+      startBalance: 880, returnDollars: -176, balance: 660, withdrawal: 52.8, wdRate: 6, effectiveWdRate: 4.9,
       fundingShortfall: 0, failed: false },
     { year: 4, age: 81, phase: 'ret', source: 1976, returnRate: 0.2,
-      startBalance: 660, balance: 770, withdrawal: 77, wdRate: 8, effectiveWdRate: 7,
+      startBalance: 660, returnDollars: 132, balance: 770, withdrawal: 77, wdRate: 8, effectiveWdRate: 7,
       fundingShortfall: 0, failed: false },
   ];
   const digest = pathDigest({
@@ -87,6 +87,8 @@ test('pathDigest exposes real portfolio stress and plan-margin metrics from auth
   assert.equal(digest.yearsAboveFivePctWdRateFirst10Years, 3, '5.0% is not above the threshold');
   assert.equal(digest.yearsAboveFivePctEffectiveWdRateFirst10Years, 2,
     'rail pressure must use the same effective rate displayed in the ledger');
+  assert.equal(digest.avgEffectiveWdRate, 5.45,
+    'average effective withdrawal rate uses every modeled retirement year with a draw');
   assert.equal(digest.earlyWindowYears, 4);
   assert.equal(digest.marketRecoveryPeriodStatus, 'never');
   assert.equal(digest.marketRecoveryPeriodYears, null);
@@ -140,6 +142,65 @@ test('pathDigest never fabricates age-80 balance or runway after underfunding', 
   assert.equal(digest.planEndAge, 81);
   assert.equal(digest.fundingMarginYears, -3);
   assert.equal(digest.fundingMarginKind, 'years-short');
+});
+
+test('pathDigest preserves an unavailable effective withdrawal rate without portfolio capital', () => {
+  const digest = pathDigest({
+    rows: [{
+      year: 1,
+      age: 78,
+      phase: 'ret',
+      source: 1973,
+      returnRate: 0,
+      startBalance: 0,
+      returnDollars: 0,
+      balance: 0,
+      withdrawal: 0,
+      wdRate: 0,
+      effectiveWdRate: null,
+      fundingShortfall: 10_000,
+      failed: true,
+    }],
+    terminalBalance: 0,
+    cagr: 0,
+    first10Cagr: 0,
+    minBalance: 0,
+    failed: true,
+    depletionAge: 78,
+    lifetimeTax: 0,
+  });
+
+  assert.equal(digest.avgEffectiveWdRate, null);
+});
+
+test('pathDigest includes modeled zero-rate years in all-zero and mixed averages', () => {
+  const simulation = effectiveWdRates => ({
+    rows: effectiveWdRates.map((effectiveWdRate, index) => ({
+      year: index + 1,
+      age: 78 + index,
+      phase: 'ret',
+      source: 1973 + index,
+      returnRate: 0,
+      startBalance: 1_000,
+      returnDollars: 0,
+      balance: 1_000,
+      withdrawal: effectiveWdRate === 0 ? 0 : 100,
+      wdRate: effectiveWdRate,
+      effectiveWdRate,
+      fundingShortfall: 0,
+      failed: false,
+    })),
+    terminalBalance: 1_000,
+    cagr: 0,
+    first10Cagr: 0,
+    minBalance: 1_000,
+    failed: false,
+    depletionAge: null,
+    lifetimeTax: 0,
+  });
+
+  assert.equal(pathDigest(simulation([0, 0])).avgEffectiveWdRate, 0);
+  assert.equal(pathDigest(simulation([0, 10])).avgEffectiveWdRate, 5);
 });
 
 test('pathDigest does not call truncated market evidence Never when failure precedes a later recovery', () => {

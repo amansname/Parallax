@@ -35,6 +35,7 @@ function digest(overrides = {}){
     lowestRealBalanceFirst10Age: 74,
     yearsAboveFivePctWdRateFirst10Years: 1,
     yearsAboveFivePctEffectiveWdRateFirst10Years: 1,
+    avgEffectiveWdRate: 5.25,
     earlyWindowYears: 10,
     marketRecoveryPeriodStatus: 'recovered',
     marketRecoveryPeriodYears: 3,
@@ -294,6 +295,7 @@ test('Historical header exposes the fixed five-metric comparison in decision ord
       lowestRealBalanceFirst10Age: 72,
       yearsAboveFivePctWdRateFirst10Years: 4,
       yearsAboveFivePctEffectiveWdRateFirst10Years: 4,
+      avgEffectiveWdRate: 7.75,
       marketRecoveryPeriodStatus: 'recovered',
       marketRecoveryPeriodYears: 9,
       marketRecoveryAge: 81,
@@ -306,14 +308,14 @@ test('Historical header exposes the fixed five-metric comparison in decision ord
 
   assert.deepEqual(metrics.rows.map(metric => metric.id), [
     'lowest-balance-first-10-years',
-    'early-withdrawal-pressure',
+    'average-effective-withdrawal-rate',
     'recovery-period',
     'balance-at-age-80',
     'funded-through-margin',
   ]);
   assert.deepEqual(metrics.rows[0], {
     id: 'lowest-balance-first-10-years',
-    label: '10-yr low',
+    label: '10-year Low',
     format: 'money',
     thisPath: 800_000,
     typicalPath: 1_600_000,
@@ -322,14 +324,12 @@ test('Historical header exposes the fixed five-metric comparison in decision ord
     typicalPathAge: 74,
   });
   assert.deepEqual(metrics.rows[1], {
-    id: 'early-withdrawal-pressure',
-    label: 'WD > 5%',
-    format: 'early-withdrawal-pressure',
-    thisPath: 4,
-    typicalPath: 1,
-    thisPathWindowYears: 10,
-    typicalPathWindowYears: 10,
-    delta: 3,
+    id: 'average-effective-withdrawal-rate',
+    label: 'Effective WD Rate',
+    format: 'percentage',
+    thisPath: 7.75,
+    typicalPath: 5.25,
+    delta: 2.5,
   });
   assert.deepEqual(metrics.rows[2], {
     id: 'recovery-period',
@@ -373,22 +373,69 @@ test('Historical header exposes the fixed five-metric comparison in decision ord
   assert.equal(Object.isFrozen(metrics.rows[0]), true);
 });
 
-test('Historical withdrawal pressure follows effective ledger rates, not legacy wdRate', () => {
+test('Historical comparison uses average effective withdrawal rate, not the legacy threshold count', () => {
   const metrics = buildCashFlowHeaderMetrics({
     historicalResult: historicalResult('survives', digest({
       yearsAboveFivePctWdRateFirst10Years: 0,
       yearsAboveFivePctEffectiveWdRateFirst10Years: 1,
+      avgEffectiveWdRate: 6.4,
     })),
     typicalSimulation: singlePersonSimulation(),
     typicalDigest: digest({
       yearsAboveFivePctWdRateFirst10Years: 0,
       yearsAboveFivePctEffectiveWdRateFirst10Years: 0,
+      avgEffectiveWdRate: 4.9,
     }),
   });
 
-  const pressure = metrics.rows.find(metric => metric.id === 'early-withdrawal-pressure');
-  assert.equal(pressure.thisPath, 1);
-  assert.equal(pressure.typicalPath, 0);
+  const rate = metrics.rows.find(metric => metric.id === 'average-effective-withdrawal-rate');
+  assert.equal(rate.thisPath, 6.4);
+  assert.equal(rate.typicalPath, 4.9);
+  assert.equal(rate.delta, 1.5);
+});
+
+test('Historical comparison preserves an unavailable effective rate when neither path has capital', () => {
+  const noCapitalSimulation = {
+    rows: [row({
+      year: 1,
+      age: 95,
+      startBalance: 0,
+      balance: 0,
+      fundingShortfall: 10_000,
+      failed: true,
+      people: {
+        client: { age: 95, alive: true },
+        spouse: null,
+      },
+    })],
+  };
+  const noCapitalDigest = digest({
+    lowestRealBalanceFirst10Years: 0,
+    lowestRealBalanceFirst10Age: 95,
+    avgEffectiveWdRate: null,
+    marketRecoveryPeriodStatus: 'no-dip',
+    marketRecoveryPeriodYears: 0,
+    marketRecoveryAge: null,
+    realBalanceAtAge80: null,
+    fundedThroughAge: 95,
+    planEndAge: 95,
+    fundingMarginYears: 0,
+    fundingMarginKind: 'years-short',
+  });
+  const metrics = buildCashFlowHeaderMetrics({
+    historicalResult: historicalResult('underfunded', noCapitalDigest, noCapitalSimulation),
+    typicalSimulation: noCapitalSimulation,
+    typicalDigest: noCapitalDigest,
+  });
+
+  assert.deepEqual(metrics.rows[1], {
+    id: 'average-effective-withdrawal-rate',
+    label: 'Effective WD Rate',
+    format: 'percentage',
+    thisPath: null,
+    typicalPath: null,
+    delta: null,
+  });
 });
 
 test('underfunded Historical keeps all five metrics and expresses funding margin as years short', () => {

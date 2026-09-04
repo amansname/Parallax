@@ -41,6 +41,7 @@ export function buildSimulationRows(sim, { plan, currentYear }) {
         draw: r.withdrawal || 0,
         wdRate: (r.wdRate != null) ? r.wdRate : 0,
         effectiveWdRate: Number.isFinite(r.effectiveWdRate) ? r.effectiveWdRate : null,
+        returnDollars: Number.isFinite(r.returnDollars) ? r.returnDollars : null,
         ending: r.balance || 0,
         fundingShortfall: Number.isFinite(r.fundingShortfall) ? r.fundingShortfall : 0,
         shortfall: Number.isFinite(r.fundingShortfall) && r.fundingShortfall > 0.01,
@@ -179,8 +180,8 @@ function formatCashFlowHeaderYears(value, { delta = false } = {}) {
   }
 
 const CASH_FLOW_PATH_RAIL_METRICS = Object.freeze([
-  Object.freeze({ id: 'lowest-balance-first-10-years', label: '10-yr low' }),
-  Object.freeze({ id: 'early-withdrawal-pressure', label: 'WD > 5%' }),
+  Object.freeze({ id: 'lowest-balance-first-10-years', label: '10-year Low' }),
+  Object.freeze({ id: 'average-effective-withdrawal-rate', label: 'Effective WD Rate' }),
   Object.freeze({ id: 'recovery-period', label: 'Recovery' }),
   Object.freeze({ id: 'balance-at-age-80', label: 'Age 80' }),
   Object.freeze({ id: 'funded-through-margin', label: 'Funded through' }),
@@ -198,15 +199,10 @@ function pathRailValue(metric, key) {
         ? 'thisPathRecoveryAge'
         : 'typicalPathRecoveryAge';
       return formatCashFlowHeaderYears(value)
-        + (Number.isFinite(metric[ageKey]) ? ' · age ' + metric[ageKey] : '');
+        + (Number.isFinite(metric[ageKey]) ? ' · Age ' + metric[ageKey] : '');
     }
-    if (metric.id === 'early-withdrawal-pressure') {
-      const windowKey = key === 'thisPath'
-        ? 'thisPathWindowYears'
-        : 'typicalPathWindowYears';
-      return Number.isFinite(value) && Number.isFinite(metric[windowKey])
-        ? value + ' / ' + metric[windowKey]
-        : 'Not modeled';
+    if (metric.id === 'average-effective-withdrawal-rate') {
+      return Number.isFinite(value) ? value.toFixed(1) + '%' : 'Not modeled';
     }
     if (value === null || value === undefined) {
       return metric[key + 'Unavailable'] ?? 'Not modeled';
@@ -220,12 +216,17 @@ function pathRailValue(metric, key) {
 
 function pathRailDelta(metric) {
     const delta = metric.delta;
-    if (metric.id === 'early-withdrawal-pressure') {
-      if (!Number.isFinite(delta)) return { text: '', tone: 'muted' };
-      if (delta === 0) return { text: 'Same', tone: 'muted' };
+    if (metric.id === 'average-effective-withdrawal-rate') {
+      if (!Number.isFinite(metric.thisPath) || !Number.isFinite(metric.typicalPath)) {
+        return { text: '', tone: 'muted' };
+      }
+      const displayedThisPath = Number(metric.thisPath.toFixed(1));
+      const displayedTypicalPath = Number(metric.typicalPath.toFixed(1));
+      const roundedDelta = Math.round((displayedThisPath - displayedTypicalPath) * 10) / 10;
+      if (roundedDelta === 0) return { text: 'Same', tone: 'muted' };
       return {
-        text: formatCashFlowHeaderYears(delta, { delta: true }),
-        tone: delta > 0 ? 'negative' : 'muted',
+        text: (roundedDelta < 0 ? '\u2212' : '+') + Math.abs(roundedDelta).toFixed(1) + ' pts',
+        tone: roundedDelta > 0 ? 'negative' : 'muted',
       };
     }
     if (metric.id === 'recovery-period') {
@@ -465,7 +466,7 @@ export function renderCashflow(scn, allScns, {
         ? '<span class="cf-row__mark-dot cf-row__mark-dot--ret"></span>'
         : (isRmdStart ? '<span class="cf-row__mark-dot cf-row__mark-dot--rmd"></span>' : '');
       return (
-        '<div class="cf-row cf-grid" data-age="' + esc(r.age) + '" data-living-age="' + esc(r.livingAge ?? '') + '" data-phase="' + (r.accum ? 'accum' : 'retirement') + '" data-source-year="' + esc(r.sourceYear ?? '') + '" data-start-balance="' + r.startPort + '" data-ending-balance="' + r.ending + '" data-withdrawal="' + r.draw + '" data-wd-rate="' + r.wdRate + '" data-effective-wd-rate="' + esc(r.effectiveWdRate ?? '') + '" data-return-rate="' + esc(r.ret ?? '') + '" data-funding-shortfall="' + r.fundingShortfall + '">' +
+        '<div class="cf-row cf-grid" data-age="' + esc(r.age) + '" data-living-age="' + esc(r.livingAge ?? '') + '" data-phase="' + (r.accum ? 'accum' : 'retirement') + '" data-source-year="' + esc(r.sourceYear ?? '') + '" data-start-balance="' + r.startPort + '" data-ending-balance="' + r.ending + '" data-withdrawal="' + r.draw + '" data-wd-rate="' + r.wdRate + '" data-effective-wd-rate="' + esc(r.effectiveWdRate ?? '') + '" data-return-rate="' + esc(r.ret ?? '') + '" data-return-dollars="' + esc(r.returnDollars ?? '') + '" data-funding-shortfall="' + r.fundingShortfall + '">' +
           '<span class="cf-row__year">' +
             '<span class="cf-row__mark" aria-hidden="true">' + yearMark + '</span>' +
             esc(r.year) +
