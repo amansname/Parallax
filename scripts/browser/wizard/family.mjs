@@ -9,6 +9,15 @@ import {
   waitForWizard,
   wizardState,
 } from './actions.mjs';
+
+async function replaceFinanceAmount(page, value) {
+  await page.focus('[data-finance-amount]');
+  await page.keyboard.down('Control');
+  await page.keyboard.press('A');
+  await page.keyboard.up('Control');
+  await page.type('[data-finance-amount]', value);
+}
+
 export async function verifyFamilyPropagation(page) {
   await goToWizardStep(page, 'family');
   await setWizardValue(page, '[data-wizard-field="client.birthDate"]', '1960-01-01');
@@ -322,8 +331,7 @@ export async function verifyFamilyPropagation(page) {
       && typedAmountState.inputToUnitGap <= 5,
     `Typed Family amount did not remain tightly grouped: ${JSON.stringify(typedAmountState)}`,
   );
-  await page.click('[data-finance-amount]', { clickCount: 3 });
-  await page.type('[data-finance-amount]', '28300');
+  await replaceFinanceAmount(page, '28300');
   await page.keyboard.press('Enter');
   await waitForWizard(page, {
     step: 'family',
@@ -356,9 +364,8 @@ export async function verifyFamilyPropagation(page) {
     page,
     '[data-hh-action="select-finance-source"][data-finance-type-id="social_security"]',
   );
-  await page.click('[data-finance-amount]', { clickCount: 3 });
   const beforePrimarySocialSecurityCommit = await wizardState(page);
-  await page.type('[data-finance-amount]', '32000');
+  await replaceFinanceAmount(page, '32000');
   await page.keyboard.press('Enter');
   await waitForWizard(page, {
     step: 'family',
@@ -380,9 +387,8 @@ export async function verifyFamilyPropagation(page) {
     page,
     '[data-hh-action="select-finance-source"][data-finance-type-id="social_security"]',
   );
-  await page.click('[data-finance-amount]', { clickCount: 3 });
   const beforeSpouseSocialSecurityCommit = await wizardState(page);
-  await page.type('[data-finance-amount]', '22000');
+  await replaceFinanceAmount(page, '22000');
   await page.keyboard.press('Enter');
   await waitForWizard(page, {
     step: 'family',
