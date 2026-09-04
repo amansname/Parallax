@@ -113,6 +113,12 @@ export function bindHouseholdEditor({
       syncHousehold();
       return;
     }
+    if(event.key === 'Escape' && transientState.financeRailOpen){
+      event.preventDefault();
+      transientState.financeRailOpen = false;
+      syncHousehold();
+      return;
+    }
     const amount = event.target.closest?.('[data-finance-amount]');
     if(event.key !== 'Enter' || !amount) return;
     event.preventDefault();
@@ -129,7 +135,7 @@ export function bindHouseholdEditor({
   });
   globalThis.document?.addEventListener('click', event => {
     if(!transientState.financeOwner) return;
-    if(event.target.closest?.('[data-finance-entry-panel], [data-hh-action="toggle-finance-entry"]')){
+    if(event.target.closest?.('[data-finances-rail]')){
       return;
     }
     transientState.financeOwner = null;

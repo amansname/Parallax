@@ -9,6 +9,15 @@ import {
   waitForWizard,
   wizardState,
 } from './actions.mjs';
+
+async function replaceFinanceAmount(page, value) {
+  await page.focus('[data-finance-amount]');
+  await page.keyboard.down('Control');
+  await page.keyboard.press('A');
+  await page.keyboard.up('Control');
+  await page.type('[data-finance-amount]', value);
+}
+
 export async function verifyFamilyPropagation(page) {
   await goToWizardStep(page, 'family');
   await setWizardValue(page, '[data-wizard-field="client.birthDate"]', '1960-01-01');
@@ -52,32 +61,186 @@ export async function verifyFamilyPropagation(page) {
   await clickWizardAction(page, '[data-net-worth-overlay] .nw-panel-close');
   await goToWizardStep(page, 'family');
 
-  const closedFinanceEntry = await page.evaluate(() => ({
-    panels: document.querySelectorAll('[data-finance-entry-panel]').length,
-    amounts: document.querySelectorAll('[data-finance-amount]').length,
-    largeHeaders: [...document.querySelectorAll('#hh-view *')]
-      .filter(node => /^(income\s*&\s*savings|finances)$/i.test(node.textContent.trim())).length,
-  }));
+  const closedFinanceEntry = await page.evaluate(() => {
+    const cards = [...document.querySelectorAll('[data-person-owner]')]
+      .map(card => {
+        const rect = card.getBoundingClientRect();
+        return {
+          left: rect.left,
+          right: rect.right,
+          top: rect.top,
+          bottom: rect.bottom,
+          width: rect.width,
+        };
+      });
+    const rail = document.querySelector('[data-finances-rail]');
+    const railRect = rail?.getBoundingClientRect();
+    const railStyle = rail ? getComputedStyle(rail) : null;
+    const railHead = document.querySelector('.hh-finances-rail-head');
+    const railHeadStyle = railHead ? getComputedStyle(railHead) : null;
+    const toggle = document.querySelector('[data-hh-action="toggle-finances-rail"]');
+    const socialSecurityLabels = [...document.querySelectorAll('[data-wizard-field$=".socialSecurityAge"]')]
+      .map(control => control.closest('label')?.querySelector('span')?.textContent.trim() || '');
+    return {
+      panels: document.querySelectorAll('[data-finance-entry-panel]').length,
+      amounts: document.querySelectorAll('[data-finance-amount]').length,
+      people: document.querySelectorAll('[data-finances-person-owner]').length,
+      header: document.querySelector('.hh-finances-rail-head > span')?.textContent.trim() || '',
+      expanded: toggle?.getAttribute('aria-expanded'),
+      railWidth: railRect?.width || 0,
+      railHeight: railRect?.height || 0,
+      railBorders: railStyle ? [
+        railStyle.borderTopWidth,
+        railStyle.borderRightWidth,
+        railStyle.borderBottomWidth,
+        railStyle.borderLeftWidth,
+      ] : [],
+      railShadow: railStyle?.boxShadow || '',
+      railHeadDivider: railHeadStyle?.borderBottomWidth || '',
+      cards,
+      socialSecurityLabels,
+      benefitFields: document.querySelectorAll('[data-wizard-field$=".socialSecurityBenefit"]').length,
+      benefitCopy: [...document.querySelectorAll('[data-person-owner] span')]
+        .filter(node => /Annual Social Security at full retirement age/i.test(node.textContent)).length,
+      dependents: document.querySelectorAll('[data-wizard-field="dependents"]').length,
+      documentOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      viewportWidth: innerWidth,
+    };
+  });
+  const [firstCard, secondCard] = closedFinanceEntry.cards;
+  const cardsDoNotOverlap = Boolean(firstCard && secondCard && (
+    firstCard.right <= secondCard.left + 1 || firstCard.bottom <= secondCard.top + 1
+  ));
+  const desktopReferenceGeometry = closedFinanceEntry.viewportWidth <= 1700 || (
+    Math.abs(firstCard?.width - 592) <= 1
+      && Math.abs(secondCard?.width - 592) <= 1
+      && Math.abs(firstCard?.top - secondCard?.top) <= 1
+  );
   requireCondition(
     closedFinanceEntry.panels === 0
       && closedFinanceEntry.amounts === 0
-      && closedFinanceEntry.largeHeaders === 0,
-    `Family finance entry was not initially collapsed: ${JSON.stringify(closedFinanceEntry)}`,
+      && closedFinanceEntry.people === 0
+      && closedFinanceEntry.header === 'Savings and Income'
+      && closedFinanceEntry.expanded === 'false'
+      && Math.abs(closedFinanceEntry.railWidth - 326) <= 1
+      && Math.abs(closedFinanceEntry.railHeight - 72) <= 1
+      && closedFinanceEntry.railBorders.every(width => width === '0px')
+      && closedFinanceEntry.railShadow === 'none'
+      && closedFinanceEntry.railHeadDivider === '0px'
+      && closedFinanceEntry.cards.length === 2
+      && cardsDoNotOverlap
+      && desktopReferenceGeometry
+      && JSON.stringify(closedFinanceEntry.socialSecurityLabels) === JSON.stringify([
+        'Social Security',
+        'Social Security',
+      ])
+      && closedFinanceEntry.benefitFields === 0
+      && closedFinanceEntry.benefitCopy === 0
+      && closedFinanceEntry.dependents === 1
+      && closedFinanceEntry.documentOverflow <= 1,
+    `Family form and compact rail did not begin in the approved collapsed composition: ${JSON.stringify(closedFinanceEntry)}`,
   );
-  await clickWizardAction(
-    page,
-    '[data-hh-action="toggle-finance-entry"][data-finance-owner="client"]',
+  await clickWizardAction(page, '[data-hh-action="toggle-finances-rail"]');
+  await page.waitForFunction(() => {
+    const rail = document.querySelector('[data-finances-rail]');
+    const expectedHeight = innerWidth <= 1023
+      ? innerHeight - 68
+      : Math.max(680, innerHeight - 80);
+    return document.querySelector('[data-hh-action="toggle-finances-rail"]')
+      ?.getAttribute('aria-expanded') === 'true'
+      && Math.abs((rail?.getBoundingClientRect().height || 0) - expectedHeight) <= 1;
+  }, { timeout: 10000 });
+  const openRail = await page.evaluate(beforeCards => {
+    const cards = [...document.querySelectorAll('[data-person-owner]')]
+      .map(card => {
+        const rect = card.getBoundingClientRect();
+        return {
+          left: rect.left,
+          right: rect.right,
+          top: rect.top,
+          bottom: rect.bottom,
+          width: rect.width,
+        };
+      });
+    const rail = document.querySelector('[data-finances-rail]');
+    const railRect = rail?.getBoundingClientRect();
+    const summary = document.querySelector('[data-finances-summary]');
+    const people = [...document.querySelectorAll('[data-finances-person-owner]')]
+      .map(button => ({
+        owner: button.dataset.financesPersonOwner,
+        name: button.querySelector('.hh-finances-person-name')?.textContent.trim() || '',
+        detail: button.querySelector('small')?.textContent.trim() || '',
+        fontSize: getComputedStyle(button.querySelector('.hh-finances-person-name')).fontSize,
+      }));
+    return {
+      cards,
+      cardsUnchanged: JSON.stringify(cards) === JSON.stringify(beforeCards),
+      expanded: document.querySelector('[data-hh-action="toggle-finances-rail"]')
+        ?.getAttribute('aria-expanded'),
+      header: document.querySelector('.hh-finances-rail-head > span')?.textContent.trim() || '',
+      railWidth: railRect?.width || 0,
+      railHeight: railRect?.height || 0,
+      railLeft: railRect?.left || 0,
+      people,
+      summaryLabel: summary?.querySelector('span')?.textContent.trim() || '',
+      summaryValue: summary?.querySelector('strong')?.textContent.trim() || '',
+      panels: document.querySelectorAll('[data-finance-entry-panel]').length,
+      benefitFields: document.querySelectorAll('[data-wizard-field$=".socialSecurityBenefit"]').length,
+      documentOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    };
+  }, closedFinanceEntry.cards);
+  requireCondition(
+    openRail.cardsUnchanged
+      && openRail.expanded === 'true'
+      && openRail.header === 'Savings and Income'
+      && Math.abs(openRail.railWidth - 326) <= 1
+      && openRail.railHeight > 600
+      && Math.max(...openRail.cards.map(card => card.right)) <= openRail.railLeft + 1
+      && JSON.stringify(openRail.people.map(person => person.owner)) === JSON.stringify(['client', 'spouse'])
+      && openRail.people.every(person => person.name && person.detail && person.fontSize === '14px')
+      && openRail.summaryLabel === 'Savings'
+      && /^\$[\d,]+\/yr$/.test(openRail.summaryValue)
+      && openRail.panels === 0
+      && openRail.benefitFields === 0
+      && openRail.documentOverflow <= 1,
+    `Open Family rail did not preserve the approved compact composition: ${JSON.stringify(openRail)}`,
   );
-  const savingsPicker = await page.evaluate(() => ({
-    owner: document.querySelector('[data-finance-entry-panel]')?.dataset.financeOwner || '',
-    modes: [...document.querySelectorAll('[data-hh-action="set-finance-mode"]')]
-      .map(button => ({ label: button.textContent.trim(), pressed: button.getAttribute('aria-pressed') })),
-    sources: [...document.querySelectorAll('[data-hh-action="select-finance-source"]')]
-      .map(button => button.textContent.trim()),
-    amounts: document.querySelectorAll('[data-finance-amount]').length,
-    saveLabels: [...document.querySelectorAll('[data-finance-entry-panel] button')]
-      .filter(button => button.textContent.trim() === 'Save').length,
-  }));
+  await clickWizardAction(page, '[data-hh-action="toggle-finances-rail"]');
+  await page.waitForFunction(() => (
+    document.querySelector('[data-hh-action="toggle-finances-rail"]')?.getAttribute('aria-expanded') === 'false'
+      && Math.abs((document.querySelector('[data-finances-rail]')?.getBoundingClientRect().height || 0) - 72) <= 1
+      && document.querySelectorAll('[data-finances-person-owner]').length === 0
+  ), { timeout: 10000 });
+  await clickWizardAction(page, '[data-hh-action="toggle-finances-rail"]');
+  await page.waitForFunction(() => {
+    const rail = document.querySelector('[data-finances-rail]');
+    const expectedHeight = innerWidth <= 1023
+      ? innerHeight - 68
+      : Math.max(680, innerHeight - 80);
+    return document.querySelector('[data-hh-action="toggle-finances-rail"]')
+      ?.getAttribute('aria-expanded') === 'true'
+      && Math.abs((rail?.getBoundingClientRect().height || 0) - expectedHeight) <= 1
+      && document.querySelectorAll('[data-finances-person-owner]').length === 2;
+  }, { timeout: 10000 });
+  await clickWizardAction(page, '[data-finances-person-owner="client"]');
+  const savingsPicker = await page.evaluate(() => {
+    const list = document.querySelector('.hh-finance-source-list');
+    const lastSource = list?.querySelector('button:last-child');
+    const listRect = list?.getBoundingClientRect();
+    const lastSourceRect = lastSource?.getBoundingClientRect();
+    return {
+      owner: document.querySelector('[data-finance-entry-panel]')?.dataset.financeOwner || '',
+      modes: [...document.querySelectorAll('[data-hh-action="set-finance-mode"]')]
+        .map(button => ({ label: button.textContent.trim(), pressed: button.getAttribute('aria-pressed') })),
+      sourceSelect: document.querySelector('[data-finance-source-select] span')?.textContent.trim() || '',
+      sources: [...document.querySelectorAll('[data-hh-action="select-finance-source"]')]
+        .map(button => button.textContent.trim()),
+      allSourcesVisible: Boolean(listRect && lastSourceRect && lastSourceRect.bottom <= listRect.bottom + 1),
+      amounts: document.querySelectorAll('[data-finance-amount]').length,
+      saveLabels: [...document.querySelectorAll('[data-finance-entry-panel] button')]
+        .filter(button => button.textContent.trim() === 'Save').length,
+    };
+  });
   requireCondition(
     savingsPicker.owner === 'client'
       && JSON.stringify(savingsPicker.modes) === JSON.stringify([
@@ -93,6 +256,8 @@ export async function verifyFamilyPropagation(page) {
         'Taxable brokerage',
         'Cash savings',
       ])
+      && savingsPicker.sourceSelect === 'Select savings type'
+      && savingsPicker.allSourcesVisible
       && savingsPicker.amounts === 0
       && savingsPicker.saveLabels === 0,
     `Family savings picker inventory changed: ${JSON.stringify(savingsPicker)}`,
@@ -104,16 +269,70 @@ export async function verifyFamilyPropagation(page) {
   await page.waitForFunction(() => (
     document.activeElement?.matches?.('[data-finance-amount]') === true
   ), { timeout: 10000 });
-  const amountState = await page.evaluate(() => ({
-    count: document.querySelectorAll('[data-finance-amount]').length,
-    focused: document.activeElement?.matches?.('[data-finance-amount]') === true,
-  }));
+  const amountState = await page.evaluate(() => {
+    const row = document.querySelector('.hh-finance-amount-row');
+    const [currency, input, unit, commitButton] = row ? [...row.children] : [];
+    const rect = element => element?.getBoundingClientRect() || null;
+    const currencyRect = rect(currency);
+    const inputRect = rect(input);
+    const unitRect = rect(unit);
+    const commitRect = rect(commitButton);
+    const rowRect = rect(row);
+    const commitStyle = commitButton ? getComputedStyle(commitButton) : null;
+    return {
+      count: document.querySelectorAll('[data-finance-amount]').length,
+      focused: document.activeElement?.matches?.('[data-finance-amount]') === true,
+      currency: currency?.textContent.trim() || '',
+      unit: unit?.textContent.trim() || '',
+      inputWidth: inputRect?.width || 0,
+      inputSize: input?.getAttribute('size') || '',
+      currencyToInputGap: inputRect && currencyRect ? inputRect.left - currencyRect.right : null,
+      inputToUnitGap: unitRect && inputRect ? unitRect.left - inputRect.right : null,
+      unitToCommitGap: commitRect && unitRect ? commitRect.left - unitRect.right : null,
+      commitRightGap: rowRect && commitRect ? rowRect.right - commitRect.right : null,
+      commitBorder: commitStyle?.borderLeftWidth || '',
+      commitBackground: commitStyle?.backgroundColor || '',
+      sourceSelect: document.querySelector('[data-finance-source-select] span')?.textContent.trim() || '',
+    };
+  });
   requireCondition(
-    amountState.count === 1 && amountState.focused,
-    `Selecting 401(k) did not reveal and focus one amount field: ${JSON.stringify(amountState)}`,
+    amountState.count === 1
+      && amountState.focused
+      && amountState.currency === '$'
+      && amountState.unit === '/yr'
+      && Math.abs(amountState.inputWidth - 24) <= 1
+      && amountState.inputSize === '1'
+      && amountState.currencyToInputGap <= 5
+      && amountState.inputToUnitGap <= 5
+      && amountState.unitToCommitGap >= 20
+      && amountState.commitRightGap <= 2
+      && amountState.commitBorder === '0px'
+      && amountState.commitBackground === 'rgba(0, 0, 0, 0)'
+      && amountState.sourceSelect === '401(k) deferral',
+    `Selecting 401(k) did not reveal the compact approved amount control: ${JSON.stringify(amountState)}`,
   );
   const beforeSavingsCommit = await wizardState(page);
-  await page.type('[data-finance-amount]', '28300');
+  await page.type('[data-finance-amount]', '16000');
+  const typedAmountState = await page.$eval('[data-finance-amount]', input => {
+    const unit = input.nextElementSibling;
+    const inputRect = input.getBoundingClientRect();
+    const unitRect = unit?.getBoundingClientRect();
+    return {
+      value: input.value,
+      size: input.getAttribute('size'),
+      width: inputRect.width,
+      inputToUnitGap: unitRect ? unitRect.left - inputRect.right : null,
+    };
+  });
+  requireCondition(
+    typedAmountState.value === '16,000'
+      && typedAmountState.size === '6'
+      && typedAmountState.width >= 64
+      && typedAmountState.width <= 70
+      && typedAmountState.inputToUnitGap <= 5,
+    `Typed Family amount did not remain tightly grouped: ${JSON.stringify(typedAmountState)}`,
+  );
+  await replaceFinanceAmount(page, '28300');
   await page.keyboard.press('Enter');
   await waitForWizard(page, {
     step: 'family',
@@ -126,6 +345,10 @@ export async function verifyFamilyPropagation(page) {
     const saved = db?.[active];
     return root?.dataset.wizardReady === 'true'
       && document.querySelectorAll('[data-finance-entry-panel]').length === 0
+      && document.querySelector('[data-hh-action="toggle-finances-rail"]')
+        ?.getAttribute('aria-expanded') === 'true'
+      && document.querySelector('[data-finances-summary] span')?.textContent.trim() === 'Savings'
+      && document.querySelector('[data-finances-summary] strong')?.textContent.trim() === '$28,300/yr'
       && saved?.savings?.entries?.some(entry => (
         entry.owner === 'client'
           && entry.typeId === '401k'
@@ -133,10 +356,53 @@ export async function verifyFamilyPropagation(page) {
       ));
   }, { timeout: 10000 });
 
+  await clickWizardAction(page, '[data-finances-person-owner="client"]');
   await clickWizardAction(
     page,
-    '[data-hh-action="toggle-finance-entry"][data-finance-owner="client"]',
+    '[data-hh-action="set-finance-mode"][data-finance-mode="income"]',
   );
+  await clickWizardAction(
+    page,
+    '[data-hh-action="select-finance-source"][data-finance-type-id="social_security"]',
+  );
+  const beforePrimarySocialSecurityCommit = await wizardState(page);
+  await replaceFinanceAmount(page, '32000');
+  await page.keyboard.press('Enter');
+  await waitForWizard(page, {
+    step: 'family',
+    afterRevision: beforePrimarySocialSecurityCommit.revision,
+  });
+  await page.waitForFunction(() => {
+    const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+    const active = localStorage.getItem('parallax.activeHouseholdId');
+    return db?.[active]?.income?.socialSecurity?.primary?.pia === 32000
+      && document.querySelectorAll('[data-finance-entry-panel]').length === 0;
+  }, { timeout: 10000 });
+
+  await clickWizardAction(page, '[data-finances-person-owner="spouse"]');
+  await clickWizardAction(
+    page,
+    '[data-hh-action="set-finance-mode"][data-finance-mode="income"]',
+  );
+  await clickWizardAction(
+    page,
+    '[data-hh-action="select-finance-source"][data-finance-type-id="social_security"]',
+  );
+  const beforeSpouseSocialSecurityCommit = await wizardState(page);
+  await replaceFinanceAmount(page, '22000');
+  await page.keyboard.press('Enter');
+  await waitForWizard(page, {
+    step: 'family',
+    afterRevision: beforeSpouseSocialSecurityCommit.revision,
+  });
+  await page.waitForFunction(() => {
+    const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+    const active = localStorage.getItem('parallax.activeHouseholdId');
+    return db?.[active]?.income?.socialSecurity?.spouse?.pia === 22000
+      && document.querySelectorAll('[data-finance-entry-panel]').length === 0;
+  }, { timeout: 10000 });
+
+  await clickWizardAction(page, '[data-finances-person-owner="client"]');
   await clickWizardAction(
     page,
     '[data-hh-action="set-finance-mode"][data-finance-mode="income"]',
@@ -172,6 +438,8 @@ export async function verifyFamilyPropagation(page) {
       income: saved?.income?.other?.filter(entry => entry.owner === 'client') || [],
       savingsAnnual: saved?.savings?.annual,
       savingsSplit: saved?.savings?.split,
+      primarySocialSecurity: saved?.income?.socialSecurity?.primary?.pia,
+      spouseSocialSecurity: saved?.income?.socialSecurity?.spouse?.pia,
       client401k: saved?.portfolio?.extraAccounts?.find(account => (
         account.typeId === '401k' && account.owner === 'client'
       )) || null,
@@ -184,6 +452,8 @@ export async function verifyFamilyPropagation(page) {
       && persistedFinanceEntries.savingsSplit?.traditional === 1
       && persistedFinanceEntries.savingsSplit?.roth === 0
       && persistedFinanceEntries.savingsSplit?.taxable === 0
+      && persistedFinanceEntries.primarySocialSecurity === 32000
+      && persistedFinanceEntries.spouseSocialSecurity === 22000
       && persistedFinanceEntries.client401k?.id === client401k.id,
     `Family finance entries did not survive reload: ${JSON.stringify(persistedFinanceEntries)}`,
   );
@@ -303,8 +573,6 @@ export async function verifyFamilyPropagation(page) {
   await setWizardValue(page, '[data-wizard-field="spouse.retirementAge"]', '70');
   await setWizardValue(page, '[data-wizard-field="client.socialSecurityAge"]', '67');
   await setWizardValue(page, '[data-wizard-field="spouse.socialSecurityAge"]', '69');
-  await setWizardValue(page, '[data-wizard-field="client.socialSecurityBenefit"]', '32000');
-  await setWizardValue(page, '[data-wizard-field="spouse.socialSecurityBenefit"]', '22000');
   await setWizardValue(page, '[data-wizard-field="client.planEndAge"]', '94');
   await setWizardValue(page, '[data-wizard-field="spouse.planEndAge"]', '101');
   await verifyFinanceEntry();

@@ -62,7 +62,10 @@ export function createHouseholdInputHandlers({
       if (event.target.classList.contains('hh-tax-amount')) {
         if (event.target.dataset.signed !== 'true') liveCommas(event.target);
       }
-      if (event.target.matches?.('[data-finance-amount]')) liveCommas(event.target);
+      if (event.target.matches?.('[data-finance-amount]')) {
+        liveCommas(event.target);
+        event.target.size = Math.max(1, event.target.value.length);
+      }
     },
     'focusin': event => {
       const control = event.target.closest?.('.hh-tax-amount');

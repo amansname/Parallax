@@ -369,16 +369,18 @@
 }
 
 /* ── step 01 · family ────────────────────────────────────────────────────── */
+.page[data-page="household"] .hh-family-screen { position: relative; }
+
 .page[data-page="household"] .hh-family-people {
   display: grid;
-  width: min(720px, calc(100% - 340px)); /* leaves room for the anchored entry picker */
-  grid-template-columns: minmax(0, 1fr);
+  width: min(1200px, 100%); /* geometry: two 592px cards plus a 16px gap */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--sp-4);
   margin: 0;
 }
 
 .page[data-page="household"] .hh-family-people.is-single {
-  width: min(720px, calc(100% - 340px));
+  width: min(592px, 100%);
   grid-template-columns: minmax(0, 1fr);
 }
 
@@ -389,72 +391,188 @@
   box-shadow: none;
 }
 
-.page[data-page="household"] .hh-person-card.is-finance-open {
-  box-shadow: inset 0 0 0 var(--bw) var(--acc-hair);
-}
-
-.page[data-page="household"] .hh-card-head {
-  display: flex;
-  min-height: 0;
-  align-items: center;
-  margin-bottom: var(--sp-4);
-  padding: 0;
-  border: 0;
-}
-
 .page[data-page="household"] .hh-card-action {
+  position: absolute;
+  z-index: 1;
+  top: var(--sp-3);
+  right: var(--sp-3);
   height: auto;
   min-height: 0;
-  margin-left: auto;
   padding: 0;
   color: var(--neg);
   font-size: var(--fs-caption);
   cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease;
 }
 
-.page[data-page="household"] .hh-finance-person-trigger {
-  display: grid;
-  width: max-content;
-  max-width: calc(100% - 120px);
-  min-height: 0;
-  justify-items: start;
-  gap: var(--sp-1);
-  padding: 0;
+.page[data-page="household"] .hh-person-card:hover .hh-card-action,
+.page[data-page="household"] .hh-card-action:focus-visible {
+  opacity: 1;
+}
+
+.page[data-page="household"] .hh-finances-rail {
+  position: absolute;
+  z-index: 40;
+  top: -20px; /* geometry: aligns the rail header with the top-right page edge */
+  right: -44px; /* geometry: consumes the workspace's right gutter */
+  width: 326px; /* geometry: approved compact rail */
+  height: 72px;
+  overflow: hidden;
   border: 0;
-  background: none;
+  background: var(--page);
+  transition: height 160ms ease;
+}
+
+.page[data-page="household"] .hh-finances-rail.is-open {
+  height: calc(100vh - 80px); /* geometry: rail runs from its header to the viewport floor */
+  min-height: 680px;
+  box-shadow: none;
+}
+
+.page[data-page="household"] .hh-finances-rail-head {
+  display: flex;
+  height: 72px;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  padding: 0 21px 0 30px; /* geometry: approved header alignment */
+  border-bottom: 0;
+}
+
+.page[data-page="household"] .hh-finances-rail-head > span {
   color: var(--ink);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-eyebrow);
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.page[data-page="household"] .hh-finances-rail-toggle {
+  display: grid;
+  width: var(--h-prominent);
+  height: var(--h-prominent);
+  flex: 0 0 auto;
+  place-items: center;
+  padding: 0;
+  border: var(--bw) solid var(--acc);
+  border-radius: var(--r-ctl);
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.page[data-page="household"] .hh-finances-rail-toggle:hover,
+.page[data-page="household"] .hh-finances-rail-toggle:focus-visible {
+  background: var(--sel);
+  color: var(--acc);
+}
+
+.page[data-page="household"] .hh-finances-rail-toggle svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.5;
+}
+
+.page[data-page="household"] .hh-finances-rail-body {
+  display: flex;
+  height: calc(100% - 72px);
+  min-height: 0;
+  flex-direction: column;
+  padding: var(--sp-2) 20px 20px; /* geometry: approved 20px rail inset */
+}
+
+.page[data-page="household"] .hh-finances-rail-body[hidden] { display: none; }
+
+.page[data-page="household"] .hh-finances-people {
+  display: grid;
+  gap: var(--sp-3);
+  padding-bottom: var(--sp-3);
+}
+
+.page[data-page="household"] .hh-finances-person {
+  display: grid;
+  width: 100%;
+  min-height: 64px; /* geometry: approved compact household-member row */
+  grid-template-columns: 40px minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: 10px var(--sp-3);
+  border: var(--bw) solid transparent;
+  border-radius: var(--r-ctl);
+  background: transparent;
+  color: var(--body);
   text-align: left;
   cursor: pointer;
 }
 
-.page[data-page="household"] .hh-finance-person-trigger > span {
+.page[data-page="household"] .hh-finances-person:hover { background: var(--raised); }
+
+.page[data-page="household"] .hh-finances-person.is-selected {
+  border-color: var(--acc);
+  background: var(--sel);
+}
+
+.page[data-page="household"] .hh-finances-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-pill);
+  background: var(--sel);
+}
+
+.page[data-page="household"] .hh-finances-person-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px; /* geometry: compact name-to-detail rhythm */
+}
+
+.page[data-page="household"] .hh-finances-person-name {
   overflow: hidden;
-  max-width: 100%;
-  font-size: var(--fs-emphasis);
-  font-weight: var(--fw-emphasis);
-  line-height: var(--lh-emphasis);
+  color: var(--ink);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-body);
+  line-height: var(--lh-body);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.page[data-page="household"] .hh-finance-person-trigger > small {
+.page[data-page="household"] .hh-finances-person-copy small {
   color: var(--body);
   font-size: var(--fs-caption);
   font-weight: var(--fw-body);
+  line-height: var(--lh-caption);
+  white-space: nowrap;
 }
 
-.page[data-page="household"] .hh-finance-person-trigger:hover > span,
-.page[data-page="household"] .hh-finance-person-trigger[aria-expanded="true"] > span {
-  color: var(--acc);
+.page[data-page="household"] .hh-finances-person-check {
+  width: 14px;
+  height: 14px;
+  color: var(--ink);
+  opacity: 0;
 }
+
+.page[data-page="household"] .hh-finances-person.is-selected .hh-finances-person-check { opacity: 1; }
+
+.page[data-page="household"] .hh-finances-person-check svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.5;
+}
+
+.page[data-page="household"] .hh-finances-control { min-height: 0; }
 
 .page[data-page="household"] .hh-finance-entry {
-  position: absolute;
-  z-index: 30;
-  top: 0;
-  left: calc(100% + var(--sp-3));
   display: grid;
-  width: 300px; /* geometry: longest source label plus restrained cushion */
+  width: 100%;
   gap: var(--sp-2);
   padding: var(--sp-3);
   border: var(--bw) solid var(--line);
@@ -463,15 +581,19 @@
   box-shadow: var(--elev-panel);
 }
 
+.page[data-page="household"] .hh-finance-entry > * { min-width: 0; }
+
 .page[data-page="household"] .hh-finance-mode {
   display: flex;
-  align-items: center;
-  gap: var(--sp-5);
   min-height: var(--h-compact);
+  align-items: center;
+  gap: var(--sp-4);
 }
 
 .page[data-page="household"] .hh-finance-mode button {
+  height: var(--h-compact);
   min-height: var(--h-compact);
+  justify-content: flex-start;
   padding: 0;
   border: 0;
   border-bottom: var(--bw) solid transparent;
@@ -487,19 +609,53 @@
   color: var(--acc);
 }
 
+.page[data-page="household"] .hh-finance-source-select {
+  display: flex;
+  width: 100%;
+  height: var(--h-ctl);
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding: 0 var(--sp-3);
+  border: var(--bw) solid var(--rule);
+  border-radius: var(--r-ctl);
+  color: var(--body);
+  font-size: var(--fs-body);
+}
+
+.page[data-page="household"] .hh-finance-source-select span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.page[data-page="household"] .hh-finance-source-select svg {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.5;
+}
+
 .page[data-page="household"] .hh-finance-source-list {
   display: grid;
   overflow-y: auto;
-  max-height: 280px;
-  padding: var(--sp-1);
+  max-height: 280px; /* geometry: complete seven-row savings inventory */
+  margin-top: calc(-1 * var(--sp-2));
+  padding: 0;
   border: var(--bw) solid var(--rule);
   border-radius: var(--r-ctl);
   background: transparent;
 }
 
 .page[data-page="household"] .hh-finance-source-list button {
-  min-height: var(--h-compact);
-  padding: var(--sp-2) var(--sp-3);
+  width: 100%;
+  min-height: var(--h-ctl);
+  justify-content: flex-start;
+  padding: 0 var(--sp-3);
   border: 0;
   border-radius: var(--r-chip);
   background: none;
@@ -516,11 +672,11 @@
 }
 
 .page[data-page="household"] .hh-finance-amount-row {
-  display: grid;
-  grid-template-columns: auto minmax(88px, 1fr) auto var(--h-compact);
+  display: flex;
+  width: 100%;
   min-height: var(--h-ctl);
   align-items: center;
-  gap: var(--sp-2);
+  gap: var(--sp-1);
   padding-left: var(--sp-3);
   border: var(--bw) solid var(--acc-hair);
   border-radius: var(--r-ctl);
@@ -529,8 +685,10 @@
 }
 
 .page[data-page="household"] .hh-finance-amount-row input {
-  width: 100%;
-  min-width: 0;
+  width: auto;
+  min-width: 1ch;
+  max-width: 96px; /* geometry: content-sized annual amount, not a ledger column */
+  flex: 0 1 auto;
   padding: 0;
   border: 0;
   background: none;
@@ -538,19 +696,47 @@
   font-size: var(--fs-emphasis);
   font-variant-numeric: tabular-nums;
   outline: 0;
+  text-align: left;
 }
 
 .page[data-page="household"] .hh-finance-amount-row button {
   width: var(--h-compact);
   height: var(--h-compact);
+  margin-left: auto;
   padding: 0;
   border: 0;
-  border-left: var(--bw) solid var(--acc-hair);
   border-radius: 0;
-  background: var(--acc-tint);
+  background: transparent;
   color: var(--acc);
   font-size: var(--fs-emphasis);
   cursor: pointer;
+}
+
+.page[data-page="household"] .hh-finances-summary {
+  display: flex;
+  min-width: 0;
+  min-height: 68px;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-6);
+  margin-top: auto;
+  border-top: var(--bw) solid var(--rule);
+}
+
+.page[data-page="household"] .hh-finances-summary span {
+  color: var(--body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-eyebrow);
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.page[data-page="household"] .hh-finances-summary strong {
+  color: var(--acc);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-body);
+  white-space: nowrap;
 }
 
 .page[data-page="household"] .hh-person-fields {
@@ -570,6 +756,7 @@
 .page[data-page="household"] .hh-field--date { grid-column: auto; }
 
 .page[data-page="household"] .hh-form-section {
+  width: min(1200px, 100%);
   margin-top: var(--sp-8);
   padding-top: var(--sp-6);
   border-top: var(--bw) solid var(--rule);
@@ -580,7 +767,7 @@
 /* Two controls, each sized to what it holds — not stretched to the page. */
 .page[data-page="household"] .hh-family-filing {
   display: grid;
-  grid-template-columns: 224px 184px; /* geometry: filing status, state */
+  grid-template-columns: 224px 184px 92px; /* geometry: filing status, state, children */
   gap: var(--sp-4);
   max-width: 100%;
   margin: 0;
@@ -1707,6 +1894,25 @@
    Two governed steps, matching the rest of the system: a narrowed desktop and
    a single-column phone layout. The rail keeps its place until there is no
    room for it. */
+@media (max-width: 1700px) {
+  .page[data-page="household"] .hh-family-people,
+  .page[data-page="household"] .hh-form-section {
+    width: min(900px, calc(100% - 356px)); /* geometry: reserve the compact rail without overlap */
+  }
+}
+
+@media (max-width: 1500px) {
+  .page[data-page="household"] .hh-family-people,
+  .page[data-page="household"] .hh-family-people.is-single,
+  .page[data-page="household"] .hh-form-section {
+    width: min(592px, calc(100% - 356px));
+  }
+
+  .page[data-page="household"] .hh-family-people {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 @media (max-width: 1279px) {
   .page[data-page="household"] .hh-stage { grid-template-columns: 260px minmax(0, 1fr); /* geometry */ }
 
@@ -1735,8 +1941,9 @@
     padding-right: var(--sp-6);
   }
 
-  .page[data-page="household"] .hh-family-people {
-    grid-template-columns: minmax(0, 1fr);
+  .page[data-page="household"] .hh-finances-rail {
+    top: -12px;
+    right: calc(-1 * var(--sp-6));
   }
 
   /* The total rail drops below the categories so the tile grid keeps the full
@@ -1747,13 +1954,18 @@
 
 @media (max-width: 1023px) {
   .page[data-page="household"] .hh-family-people,
-  .page[data-page="household"] .hh-family-people.is-single { width: 100%; }
+  .page[data-page="household"] .hh-family-people.is-single,
+  .page[data-page="household"] .hh-form-section { width: 100%; }
 
-  .page[data-page="household"] .hh-finance-entry {
-    position: static;
-    width: min(300px, 100%);
-    margin-bottom: var(--sp-4);
-    box-shadow: none;
+  .page[data-page="household"] .hh-finances-rail {
+    position: fixed;
+    top: 68px;
+    right: 0;
+  }
+
+  .page[data-page="household"] .hh-finances-rail.is-open {
+    height: calc(100vh - 68px);
+    min-height: 0;
   }
 }
 
@@ -1787,6 +1999,14 @@
   .page[data-page="household"] .hh-summary-metrics,
   .page[data-page="household"] .hh-form-grid,
   .page[data-page="household"] .nw-form-grid { grid-template-columns: minmax(0, 1fr); }
+
+  .page[data-page="household"] .hh-finances-rail {
+    width: min(326px, 100vw);
+  }
+
+  .page[data-page="household"] .hh-finances-rail-body {
+    overflow-y: auto;
+  }
 
   .page[data-page="household"] .hh-field--social-security-benefit > span {
     white-space: normal;
@@ -1873,4 +2093,6 @@
 
 @media (prefers-reduced-motion: reduce) {
   .page[data-page="household"] .nw-panel { animation: none; }
+  .page[data-page="household"] .hh-finances-rail,
+  .page[data-page="household"] .hh-card-action { transition: none; }
 }

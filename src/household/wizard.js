@@ -42,6 +42,7 @@ export function createHouseholdWizardController({
   let wizard;
 
   const state = {
+    financeRailOpen: false,
     financeOwner: null,
     financeMode: 'savings',
     financeTypeId: null,
@@ -57,6 +58,8 @@ export function createHouseholdWizardController({
   const uiState = {
     get stepId(){ return stepId; },
     get renderRevision(){ return renderRevision; },
+    get financeRailOpen(){ return state.financeRailOpen; },
+    set financeRailOpen(value){ state.financeRailOpen = value === true; },
     get financeOwner(){ return state.financeOwner; },
     set financeOwner(value){ state.financeOwner = value === 'client' || value === 'spouse' ? value : null; },
     get financeMode(){ return state.financeMode; },
@@ -93,6 +96,7 @@ export function createHouseholdWizardController({
   }
 
   function resetTransient(){
+    state.financeRailOpen = false;
     state.financeOwner = null;
     state.financeMode = 'savings';
     state.financeTypeId = null;
