@@ -2,7 +2,7 @@
 import { waitForWizard } from '../wizard-browser-contract.mjs';
 import { goToWizardStep } from '../wizard-browser-contract.mjs';
 import { openNetWorthCategory } from '../wizard-browser-contract.mjs';
-import { waitForUnselectedWizard } from '../wizard-browser-contract.mjs';
+import { selectHouseholdVisible } from '../wizard-browser-contract.mjs';
 export async function enterWithdrawalFixture({
   stableClick,
   page,
@@ -158,11 +158,10 @@ export async function enterWithdrawalFixture({
     waitUntil: 'networkidle2',
     timeout: 20000
   });
-  await waitForUnselectedWizard(page);
-  await page.select('#hh-switch', fixture.householdId);
   await waitForWizard(page, {
-    householdId: fixture.householdId
+    householdId: 'joe-household'
   });
+  await selectHouseholdVisible(page, fixture.householdId);
   await assertFixtureTaxAutosave('after reload');
   return withdrawalPlannerFixtureHouseholdId;
 }

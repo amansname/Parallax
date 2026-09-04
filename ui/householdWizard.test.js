@@ -260,6 +260,35 @@ function wizard({
   });
 }
 
+test('Household controller initially opens the primary Savings rail', () => {
+  const controller = createHouseholdWizardController({
+    getPlan: () => ({}),
+    getHouseholdsDb: () => ({}),
+    getActiveHouseholdId: () => 'joe-household',
+    isStorageBlocked: () => false,
+    renderBlockedRecoverySurfaces: () => {},
+    syncRecoveryControls: () => {},
+    onSwitchHousehold: () => {},
+    onNewHousehold: () => {},
+  });
+
+  assert.equal(controller.uiState.financeRailOpen, true);
+  assert.equal(controller.uiState.financeOwner, 'client');
+  assert.equal(controller.uiState.financeMode, 'savings');
+  assert.equal(controller.uiState.financeTypeId, null);
+
+  controller.uiState.financeRailOpen = false;
+  controller.uiState.financeOwner = null;
+  controller.uiState.financeMode = 'income';
+  controller.uiState.financeTypeId = 'wages';
+  controller.resetForPlan();
+
+  assert.equal(controller.uiState.financeRailOpen, true);
+  assert.equal(controller.uiState.financeOwner, 'client');
+  assert.equal(controller.uiState.financeMode, 'savings');
+  assert.equal(controller.uiState.financeTypeId, null);
+});
+
 test('production wizard exposes exactly the four approved semantic steps', () => {
   assert.deepEqual(
     HOUSEHOLD_WIZARD_STEPS.map(step => step.id),

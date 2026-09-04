@@ -1,5 +1,5 @@
 import { selectHouseholdVisible } from '../../wizard-browser-contract.mjs';
-import { waitForUnselectedWizard } from '../../wizard-browser-contract.mjs';
+import { waitForWizard } from '../../wizard-browser-contract.mjs';
 export async function verifyHistoricalReload({
   stableClick,
   page,
@@ -69,7 +69,9 @@ export async function verifyHistoricalReload({
     waitUntil: 'networkidle2',
     timeout: 20000
   });
-  await waitForUnselectedWizard(page);
+  await waitForWizard(page, {
+    householdId: 'joe-household'
+  });
   await stableClick('.htab[data-page="household"]');
   await selectHouseholdVisible(page, historicalReloadHouseholdId);
   await page.waitForFunction(() => /Plan updated|Partial run/i.test(document.querySelector('#status')?.textContent || ''), {

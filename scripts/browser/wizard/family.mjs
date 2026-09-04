@@ -61,8 +61,15 @@ export async function verifyFamilyPropagation(page) {
   );
   await clickWizardAction(page, '[data-net-worth-overlay] .nw-panel-close');
   await goToWizardStep(page, 'family');
+  await page.waitForFunction(() => (
+    document.querySelector('[data-hh-action="toggle-finances-rail"]')
+      ?.getAttribute('aria-expanded') === 'true'
+      && document.querySelector('[data-finances-person-owner="client"]')
+        ?.getAttribute('aria-pressed') === 'true'
+      && document.querySelector('[data-finance-entry-panel]')?.dataset.financeOwner === 'client'
+  ), { timeout: 10000 });
 
-  const closedFinanceEntry = await page.evaluate(() => {
+  const initialFinanceEntry = await page.evaluate(() => {
     const cards = [...document.querySelectorAll('[data-person-owner]')]
       .map(card => {
         const rect = card.getBoundingClientRect();
@@ -86,6 +93,14 @@ export async function verifyFamilyPropagation(page) {
       panels: document.querySelectorAll('[data-finance-entry-panel]').length,
       amounts: document.querySelectorAll('[data-finance-amount]').length,
       people: document.querySelectorAll('[data-finances-person-owner]').length,
+      selectedOwner: document.querySelector('[data-finances-person-owner][aria-pressed="true"]')
+        ?.dataset.financesPersonOwner || '',
+      selectedMode: document.querySelector('[data-hh-action="set-finance-mode"][aria-pressed="true"]')
+        ?.dataset.financeMode || '',
+      sourceSelect: document.querySelector('[data-finance-source-select] span')
+        ?.textContent.trim() || '',
+      sources: [...document.querySelectorAll('[data-hh-action="select-finance-source"]')]
+        .map(button => button.textContent.trim()),
       header: document.querySelector('.hh-finances-rail-head > span')?.textContent.trim() || '',
       expanded: toggle?.getAttribute('aria-expanded'),
       railWidth: railRect?.width || 0,
@@ -108,39 +123,58 @@ export async function verifyFamilyPropagation(page) {
       viewportWidth: innerWidth,
     };
   });
-  const [firstCard, secondCard] = closedFinanceEntry.cards;
+  const [firstCard, secondCard] = initialFinanceEntry.cards;
   const cardsDoNotOverlap = Boolean(firstCard && secondCard && (
     firstCard.right <= secondCard.left + 1 || firstCard.bottom <= secondCard.top + 1
   ));
-  const desktopReferenceGeometry = closedFinanceEntry.viewportWidth <= 1700 || (
+  const desktopReferenceGeometry = initialFinanceEntry.viewportWidth <= 1700 || (
     Math.abs(firstCard?.width - 592) <= 1
       && Math.abs(secondCard?.width - 592) <= 1
       && Math.abs(firstCard?.top - secondCard?.top) <= 1
   );
   requireCondition(
-    closedFinanceEntry.panels === 0
-      && closedFinanceEntry.amounts === 0
-      && closedFinanceEntry.people === 0
-      && closedFinanceEntry.header === 'Savings and Income'
-      && closedFinanceEntry.expanded === 'false'
-      && Math.abs(closedFinanceEntry.railWidth - 326) <= 1
-      && Math.abs(closedFinanceEntry.railHeight - 72) <= 1
-      && closedFinanceEntry.railBorders.every(width => width === '0px')
-      && closedFinanceEntry.railShadow === 'none'
-      && closedFinanceEntry.railHeadDivider === '0px'
-      && closedFinanceEntry.cards.length === 2
+    initialFinanceEntry.panels === 1
+      && initialFinanceEntry.amounts === 0
+      && initialFinanceEntry.people === 2
+      && initialFinanceEntry.selectedOwner === 'client'
+      && initialFinanceEntry.selectedMode === 'savings'
+      && initialFinanceEntry.sourceSelect === 'Select savings type'
+      && JSON.stringify(initialFinanceEntry.sources) === JSON.stringify([
+        '401(k) deferral',
+        'Roth 401(k) deferral',
+        'Traditional IRA',
+        'Roth IRA',
+        'HSA',
+        'Taxable brokerage',
+        'Cash savings',
+      ])
+      && initialFinanceEntry.header === 'Savings and Income'
+      && initialFinanceEntry.expanded === 'true'
+      && Math.abs(initialFinanceEntry.railWidth - 326) <= 1
+      && initialFinanceEntry.railHeight > 600
+      && initialFinanceEntry.railBorders.every(width => width === '0px')
+      && initialFinanceEntry.railShadow === 'none'
+      && initialFinanceEntry.railHeadDivider === '0px'
+      && initialFinanceEntry.cards.length === 2
       && cardsDoNotOverlap
       && desktopReferenceGeometry
-      && JSON.stringify(closedFinanceEntry.socialSecurityLabels) === JSON.stringify([
+      && JSON.stringify(initialFinanceEntry.socialSecurityLabels) === JSON.stringify([
         'Social Security',
         'Social Security',
       ])
-      && closedFinanceEntry.benefitFields === 0
-      && closedFinanceEntry.benefitCopy === 0
-      && closedFinanceEntry.dependents === 1
-      && closedFinanceEntry.documentOverflow <= 1,
-    `Family form and compact rail did not begin in the approved collapsed composition: ${JSON.stringify(closedFinanceEntry)}`,
+      && initialFinanceEntry.benefitFields === 0
+      && initialFinanceEntry.benefitCopy === 0
+      && initialFinanceEntry.dependents === 1
+      && initialFinanceEntry.documentOverflow <= 1,
+    `Family form did not begin with the approved primary Savings rail: ${JSON.stringify(initialFinanceEntry)}`,
   );
+  await clickWizardAction(page, '[data-hh-action="toggle-finances-rail"]');
+  await page.waitForFunction(() => (
+    document.querySelector('[data-hh-action="toggle-finances-rail"]')?.getAttribute('aria-expanded') === 'false'
+      && Math.abs((document.querySelector('[data-finances-rail]')?.getBoundingClientRect().height || 0) - 72) <= 1
+      && document.querySelectorAll('[data-finances-person-owner]').length === 0
+      && document.querySelectorAll('[data-finance-entry-panel]').length === 0
+  ), { timeout: 10000 });
   await clickWizardAction(page, '[data-hh-action="toggle-finances-rail"]');
   await page.waitForFunction(() => {
     const rail = document.querySelector('[data-finances-rail]');
@@ -189,7 +223,7 @@ export async function verifyFamilyPropagation(page) {
       benefitFields: document.querySelectorAll('[data-wizard-field$=".socialSecurityBenefit"]').length,
       documentOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
     };
-  }, closedFinanceEntry.cards);
+  }, initialFinanceEntry.cards);
   requireCondition(
     openRail.cardsUnchanged
       && openRail.expanded === 'true'

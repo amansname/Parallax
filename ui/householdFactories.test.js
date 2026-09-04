@@ -3,29 +3,219 @@ import { test } from 'node:test';
 
 import { defaultPlan, resolveInputs } from '../engine.js';
 import { buildCurrentAnnualFederalTaxBaseline } from '../src/household/buildWizardIncomeTaxSummary.js';
+import { buildCurrent1040Intake } from '../src/planning/tax/buildCurrent1040Intake.js';
 import { prepareHouseholdRecordForSave } from '../src/household/persistence.js';
-import { snapshotLegacyRiskProfileAllocation } from '../src/household/investmentAllocation.js';
+import {
+  snapshotLegacyRiskProfileAllocation,
+  snapshotPresetAllocation,
+} from '../src/household/investmentAllocation.js';
 import { resolveTaxableStartingBasis } from '../src/household/resolveTaxableStartingBasis.js';
 import {
+  DEFAULT_STARTUP_HOUSEHOLD_ID,
   SHIPPED_DEFAULT_HOUSEHOLD_IDS,
   createSelectableDefaultHouseholds,
+  getDefaultStartupHousehold,
 } from './householdFactories.js';
 
-test('the selector ships only the approved Now and Future households', () => {
+test('the selector ships the approved households with Joe as the startup template', () => {
   const defaults = createSelectableDefaultHouseholds(defaultPlan, 2026);
 
   assert.deepEqual(SHIPPED_DEFAULT_HOUSEHOLD_IDS, [
     'now-household',
     'future-household',
+    'joe-household',
   ]);
   assert.deepEqual(defaults.map(value => value.meta.householdId), [
     'now-household',
     'future-household',
+    'joe-household',
   ]);
   assert.deepEqual(defaults.map(value => value.meta.name), [
     'Now Household',
     'Future Household',
+    'Joe Household',
   ]);
+  assert.equal(DEFAULT_STARTUP_HOUSEHOLD_ID, 'joe-household');
+  const householdsById = Object.fromEntries(
+    defaults.map(household => [household.meta.householdId, household]),
+  );
+  assert.equal(getDefaultStartupHousehold(householdsById), defaults[2]);
+  assert.throws(
+    () => getDefaultStartupHousehold({}),
+    /Startup household joe-household is unavailable/,
+  );
+});
+
+test('Joe Household carries the requested deterministic planning facts', () => {
+  const defaults = createSelectableDefaultHouseholds(defaultPlan, 2026);
+  const household = defaults.find(value => value.meta.householdId === 'joe-household');
+
+  assert.ok(household);
+  assert.deepEqual({
+    name: household.meta.name,
+    primaryName: household.meta.primaryName,
+    spouseName: household.meta.spouseName,
+    filingStatus: household.meta.filingStatus,
+    planningAsOfYear: household.meta.planningAsOfYear,
+    selectable: household.meta.isSelectableDefault,
+  }, {
+    name: 'Joe Household',
+    primaryName: 'Joe',
+    spouseName: 'Jane',
+    filingStatus: 'marriedFilingJointly',
+    planningAsOfYear: 2026,
+    selectable: true,
+  });
+  assert.deepEqual(household.household, {
+    primary: {
+      currentAge: 60,
+      retirementAge: 64,
+      planEndAge: 95,
+      birthYear: 1966,
+      employmentStatus: 'employed',
+    },
+    spouse: {
+      currentAge: 60,
+      retirementAge: 64,
+      planEndAge: 95,
+      birthYear: 1966,
+      employmentStatus: 'employed',
+    },
+    children: [],
+  });
+  assert.equal(household.taxProfiles.client.birthDate.value, '1966-01-15');
+  assert.equal(household.taxProfiles.spouse.birthDate.value, '1966-03-15');
+  assert.deepEqual(household.income.socialSecurity, {
+    primary: { pia: 50_000, claimAge: 67 },
+    spouse: { pia: 50_000, claimAge: 67 },
+  });
+  assert.deepEqual(
+    household.income.other.map(({ id, typeId, owner, amount, startAge, endAge }) => ({
+      id, typeId, owner, amount, startAge, endAge,
+    })),
+    [
+      {
+        id: 'joe-client-wages', typeId: 'wages', owner: 'client',
+        amount: 210_000, startAge: undefined, endAge: undefined,
+      },
+      {
+        id: 'joe-spouse-wages', typeId: 'wages', owner: 'spouse',
+        amount: 210_000, startAge: undefined, endAge: undefined,
+      },
+    ],
+  );
+  assert.equal(buildCurrent1040Intake(household).intake.income.wages, 420_000);
+  assert.equal(household.incomeTax.current1040.incomeSourcesComplete, true);
+  assert.equal(buildCurrentAnnualFederalTaxBaseline(household).status, 'ready');
+
+  const accounts = household.portfolio.extraAccounts;
+  assert.deepEqual(
+    accounts.map(({ id, typeId, owner, balance, investmentAllocation }) => ({
+      id, typeId, owner, balance, allocation: investmentAllocation.presetId,
+    })),
+    [
+      { id: 'joe-client-401k', typeId: '401k', owner: 'client', balance: 1_300_000, allocation: 'growth' },
+      { id: 'joe-client-roth-ira', typeId: 'roth_ira', owner: 'client', balance: 350_000, allocation: 'all-equity' },
+      { id: 'joe-joint-brokerage', typeId: 'joint_brokerage', owner: 'joint', balance: 675_000, allocation: 'balanced' },
+      { id: 'joe-spouse-401k', typeId: '401k', owner: 'spouse', balance: 700_000, allocation: 'growth' },
+      { id: 'joe-spouse-roth-ira', typeId: 'roth_ira', owner: 'spouse', balance: 122_000, allocation: 'all-equity' },
+      { id: 'joe-spouse-tod-brokerage', typeId: 'tod_brokerage', owner: 'spouse', balance: 266_000, allocation: 'balanced' },
+    ],
+  );
+  assert.equal(accounts.reduce((sum, account) => sum + account.balance, 0), 3_413_000);
+  assert.deepEqual(accounts[0].investmentAllocation, snapshotPresetAllocation('growth'));
+  assert.deepEqual(accounts[1].investmentAllocation, snapshotPresetAllocation('all-equity'));
+  assert.deepEqual(accounts[2].investmentAllocation, snapshotPresetAllocation('balanced'));
+  for(const account of accounts.filter(value => value.typeId === '401k')){
+    assert.equal(account.employerPlanFacts.afterTaxContributionBasis.value, 0);
+    assert.equal(account.employerPlanFacts.afterTaxContributionBasis.status, 'confirmed');
+    assert.equal(account.employerPlanFacts.planSubtypeConfirmed.value, true);
+    assert.equal(account.employerPlanFacts.planSubtypeConfirmed.status, 'confirmed');
+  }
+  const taxableBasis = resolveTaxableStartingBasis(household);
+  assert.equal(taxableBasis.status, 'assumed-50-50');
+  assert.equal(taxableBasis.taxableBalance, 941_000);
+  assert.equal(taxableBasis.basisOverride, 470_500);
+
+  assert.deepEqual(household.savings, {
+    annual: 60_000,
+    split: { taxable: 0, traditional: 1, roth: 0 },
+    entries: [
+      {
+        id: 'joe-client-401k-savings', typeId: '401k', label: '401(k) deferral',
+        owner: 'client', amount: 30_000, bucket: 'traditional',
+      },
+      {
+        id: 'joe-spouse-401k-savings', typeId: '401k', label: '401(k) deferral',
+        owner: 'spouse', amount: 30_000, bucket: 'traditional',
+      },
+    ],
+  });
+  assert.deepEqual(household.properties, [{
+    name: 'Primary Home',
+    value: 1_000_000,
+    purchasePrice: 0,
+    netWorthMeta: { type: 'Primary Home', owner: 'joint' },
+    mortgage: {
+      balance: 400_000,
+      rate: 0,
+      termYears: 0,
+      netWorthMeta: {
+        present: true,
+        name: 'Mortgage',
+        type: 'Mortgage',
+        owner: 'joint',
+      },
+    },
+  }]);
+  assert.deepEqual(household.goals, [
+    {
+      id: 'system:essentials', system: 'essentials', name: 'Essentials',
+      amount: 156_000, startsAtRetirement: true, endAge: 999,
+      realGrowth: 0, flexesWithSpending: true, per: 'mo',
+    },
+    {
+      id: 'system:healthcare', system: 'healthcare', name: 'Healthcare',
+      amount: 11_000, startsAtRetirement: true, endAge: 999, realGrowth: 0.02,
+    },
+    {
+      id: 'joe-travel', name: 'Travel', cat: 'travel', area: 'travel', per: 'yr',
+      amount: 20_000, startAge: 64, endAge: 78, realGrowth: 0, flexesWithSpending: true,
+    },
+    {
+      id: 'joe-kitchen', name: 'Kitchen', cat: 'home', area: 'home', per: 'yr',
+      amount: 50_000, startAge: 61, endAge: 61, realGrowth: 0,
+    },
+    {
+      id: 'joe-pool', name: 'Pool', cat: 'home', area: 'home', per: 'yr',
+      amount: 100_000, startAge: 65, endAge: 65, realGrowth: 0,
+    },
+  ]);
+
+  const resolved = resolveInputs(household, {});
+  assert.equal(resolved.simulationAvailable, true);
+  assert.equal(resolved.incomeContractAvailable, true);
+  assert.deepEqual(resolved.savingsEntries, [
+    { owner: 'client', typeId: '401k', bucket: 'traditional', amount: 30_000 },
+    { owner: 'spouse', typeId: '401k', bucket: 'traditional', amount: 30_000 },
+  ]);
+  assert.deepEqual(
+    resolved.goals.map(({ id, amount, startAge, endAge }) => ({ id, amount, startAge, endAge })),
+    [
+      { id: 'system:essentials', amount: 156_000, startAge: 64, endAge: 999 },
+      { id: 'system:healthcare', amount: 11_000, startAge: 64, endAge: 999 },
+      { id: 'joe-travel', amount: 20_000, startAge: 64, endAge: 78 },
+      { id: 'joe-kitchen', amount: 50_000, startAge: 61, endAge: 61 },
+      { id: 'joe-pool', amount: 100_000, startAge: 65, endAge: 65 },
+    ],
+  );
+  assert.doesNotThrow(() => prepareHouseholdRecordForSave(
+    household,
+    household.meta.householdId,
+  ));
+  const second = createSelectableDefaultHouseholds(defaultPlan, 2026)
+    .find(value => value.meta.householdId === 'joe-household');
+  assert.deepEqual(second, household);
 });
 
 test('Now Household carries the approved plan facts', () => {

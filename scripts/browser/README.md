@@ -13,7 +13,7 @@ steps or reset saved state to make an assertion pass.
   identity, server boundaries, browser setup, and transport diagnostics.
 - `withdrawal-*.mjs`, `goals.mjs`, `scenario-*.mjs`, `funding.mjs`, `design.mjs`,
   and `sequencing.mjs` own their existing feature checks.
-- `persistence-*.mjs` retain blank startup, saved selection, migration, corrupt
+- `persistence-*.mjs` retain Joe startup, saved selection, migration, corrupt
   bytes, read-only behavior, and explicit deletion checks.
 - `cashflow/campaign.mjs` sequences fixture setup, Typical view, scenario
   selection, historical checks, disclosures, and restoration. Historical

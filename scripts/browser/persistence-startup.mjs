@@ -1,22 +1,26 @@
 // Existing browser assertions; run by scripts/verify.mjs in campaign order.
-import { waitForUnselectedWizard } from '../wizard-browser-contract.mjs';
 import { waitForWizard } from '../wizard-browser-contract.mjs';
 import { goToWizardStep } from '../wizard-browser-contract.mjs';
-export async function verifyBlankPersistence({
+const RUNTIME_HOUSEHOLD_IDS = Object.freeze([
+  'now-household',
+  'future-household',
+  'joe-household'
+]);
+export async function verifyJoeStartupPersistence({
   page,
   stableReload,
   WITHDRAWAL_PLANNER_ORACLE
 }) {
   await page.evaluate(() => {
-    try {
-      localStorage.clear();
-    } catch (e) {}
+    localStorage.clear();
   });
   await stableReload({
     waitUntil: 'networkidle2',
     timeout: 20000
   });
-  await waitForUnselectedWizard(page);
+  await waitForWizard(page, {
+    householdId: 'joe-household'
+  });
   const s = await page.evaluate(() => ({
     db: JSON.parse(localStorage.getItem('parallax.households.v1') || 'null'),
     active: localStorage.getItem('parallax.activeHouseholdId'),
@@ -31,10 +35,15 @@ export async function verifyBlankPersistence({
     newBtn: Boolean(document.querySelector('#hh-menu-pop #hh-new')),
     deleteDisabled: Boolean(document.querySelector('#hh-menu-pop #hh-delete')?.disabled),
     loadDemoBtn: Boolean(document.querySelector('#hh-load-demo')),
-    screenCount: document.querySelectorAll('[data-hh-wizard-screen]').length
+    screenCount: document.querySelectorAll('[data-hh-wizard-screen]').length,
+    rootId: document.querySelector('[data-hh-wizard-root]')?.dataset.householdId || '',
+    primaryName: document.querySelector('[data-wizard-field="primaryName"]')?.value || '',
+    spouseName: document.querySelector('[data-wizard-field="spouseName"]')?.value || '',
+    primaryAge: document.querySelector('[data-hh-age="client"]')?.textContent.trim() || '',
+    spouseAge: document.querySelector('[data-hh-age="spouse"]')?.textContent.trim() || ''
   }));
   if (!s.db || typeof s.db !== 'object') throw new Error('households store not created on first load');
-  const expectedFirstLoadIds = Object.keys(WITHDRAWAL_PLANNER_ORACLE.households).sort();
+  const expectedFirstLoadIds = [...Object.keys(WITHDRAWAL_PLANNER_ORACLE.households), 'joe-household'].sort();
   const actualFirstLoadIds = Object.keys(s.db).sort();
   if (JSON.stringify(actualFirstLoadIds) !== JSON.stringify(expectedFirstLoadIds)) {
     throw new Error(`first-load household set is wrong: ${JSON.stringify({
@@ -42,7 +51,8 @@ export async function verifyBlankPersistence({
       expectedFirstLoadIds
     })}`);
   }
-  // Selection and New household are visible directly while no record is active.
+  // Joe is selected on load; the shipped and saved options remain available
+  // behind the household menu.
   const visibleOptions = s.options.slice(1).map(({
     value,
     label
@@ -50,14 +60,17 @@ export async function verifyBlankPersistence({
     value,
     label
   }));
-  if (s.active !== null || s.selected || s.railName || s.options[0]?.value !== '' || s.options[0]?.disabled !== true || JSON.stringify(visibleOptions) !== JSON.stringify([{
+  if (s.active !== null || s.selected !== 'joe-household' || s.railName !== 'Joe Household' || s.options[0]?.value !== '' || s.options[0]?.disabled !== true || JSON.stringify(visibleOptions) !== JSON.stringify([{
     value: 'now-household',
     label: 'Now Household'
   }, {
     value: 'future-household',
     label: 'Future Household'
-  }]) || s.menuHidden !== false || !s.newBtn || !s.deleteDisabled || s.loadDemoBtn || s.screenCount !== 0) {
-    throw new Error(`first-load blank selector contract failed: ${JSON.stringify(s)}`);
+  }, {
+    value: 'joe-household',
+    label: 'Joe Household'
+  }]) || s.menuHidden !== true || !s.newBtn || !s.deleteDisabled || s.loadDemoBtn || s.screenCount !== 1 || s.rootId !== 'joe-household' || s.primaryName !== 'Joe' || s.spouseName !== 'Jane' || s.primaryAge !== '60' || s.spouseAge !== '60') {
+    throw new Error(`first-load Joe selector contract failed: ${JSON.stringify(s)}`);
   }
 }
 export async function verifySavedHouseholdSelection({
@@ -97,6 +110,10 @@ export async function verifySavedHouseholdSelection({
       scenarioBytes: JSON.stringify(Object.entries(localStorage).filter(([key]) => key.startsWith('parallax.scenarios.')).sort(([left], [right]) => left.localeCompare(right)))
     };
   });
+  await stableClick('#hh-menu-btn');
+  await page.waitForSelector('#hh-menu-pop:not([hidden]) #hh-switch', {
+    visible: true
+  });
   await page.select('#hh-switch', 'now-household');
   await waitForWizard(page, {
     householdId: 'now-household'
@@ -130,9 +147,9 @@ export async function verifySavedHouseholdSelection({
       dbUnchanged: localStorage.getItem('parallax.households.v1') === expectedDb,
       sourceUnchanged: JSON.stringify(db?.['now-household'] || null) === expectedSource,
       ids: Object.keys(db || {}).sort(),
-      derivedIds: Object.entries(db || {}).filter(([, household]) => ['now-household', 'future-household'].includes(household?.meta?.runtimeSourceHouseholdId)).map(([id]) => id),
+      derivedIds: Object.entries(db || {}).filter(([, household]) => ['now-household', 'future-household', 'joe-household'].includes(household?.meta?.runtimeSourceHouseholdId)).map(([id]) => id),
       scenarioBytesUnchanged: JSON.stringify(Object.entries(localStorage).filter(([key]) => key.startsWith('parallax.scenarios.')).sort(([left], [right]) => left.localeCompare(right))) === expectedScenarios,
-      runtimeScenarioKeys: ['now-household', 'future-household'].filter(id => localStorage.getItem(`parallax.scenarios.${id}.v1`) !== null)
+      runtimeScenarioKeys: ['now-household', 'future-household', 'joe-household'].filter(id => localStorage.getItem(`parallax.scenarios.${id}.v1`) !== null)
     };
   }, {
     expectedDb: runtimeBaseline.dbBytes,
@@ -163,9 +180,9 @@ export async function verifySavedHouseholdSelection({
       dbUnchanged: localStorage.getItem('parallax.households.v1') === expectedDb,
       sourceUnchanged: JSON.stringify(db?.['now-household'] || null) === expectedSource,
       ids: Object.keys(db || {}).sort(),
-      derivedIds: Object.entries(db || {}).filter(([, household]) => ['now-household', 'future-household'].includes(household?.meta?.runtimeSourceHouseholdId)).map(([id]) => id),
+      derivedIds: Object.entries(db || {}).filter(([, household]) => ['now-household', 'future-household', 'joe-household'].includes(household?.meta?.runtimeSourceHouseholdId)).map(([id]) => id),
       scenarioBytesUnchanged: JSON.stringify(Object.entries(localStorage).filter(([key]) => key.startsWith('parallax.scenarios.')).sort(([left], [right]) => left.localeCompare(right))) === expectedScenarios,
-      runtimeScenarioKeys: ['now-household', 'future-household'].filter(id => localStorage.getItem(`parallax.scenarios.${id}.v1`) !== null)
+      runtimeScenarioKeys: ['now-household', 'future-household', 'joe-household'].filter(id => localStorage.getItem(`parallax.scenarios.${id}.v1`) !== null)
     };
   }, {
     expectedDb: runtimeBaseline.dbBytes,
@@ -205,7 +222,7 @@ export async function verifySavedHouseholdSelection({
     timeout: 10000
   }, customId);
   const savedCustomBytes = await page.evaluate(id => JSON.stringify(JSON.parse(localStorage.getItem('parallax.households.v1') || 'null')?.[id]), customId);
-  const expectedCreatedIds = [...Object.keys(WITHDRAWAL_PLANNER_ORACLE.households), customId].sort();
+  const expectedCreatedIds = [...Object.keys(WITHDRAWAL_PLANNER_ORACLE.households), 'joe-household', customId].sort();
   const actualCreatedIds = Object.keys(created.db).sort();
   if (JSON.stringify(actualCreatedIds) !== JSON.stringify(expectedCreatedIds)) {
     throw new Error(`household set after New is wrong: ${JSON.stringify({
@@ -223,30 +240,36 @@ export async function verifySavedHouseholdSelection({
     throw new Error(`removed global controls still rendered: ${JSON.stringify(removedGlobalControls)}`);
   }
 
-  // Reload must always return to the current-build blank state. The saved
-  // household remains available only through an explicit selector action.
+  // Reload must always return to the shipped Joe template. The saved household
+  // remains available only through an explicit selector action.
   await stableReload({
     waitUntil: 'networkidle2',
     timeout: 20000
   });
-  await waitForUnselectedWizard(page);
+  await waitForWizard(page, {
+    householdId: 'joe-household'
+  });
   const afterReload = await page.evaluate(() => ({
     active: localStorage.getItem('parallax.activeHouseholdId'),
     db: JSON.parse(localStorage.getItem('parallax.households.v1') || 'null'),
     selected: document.querySelector('#hh-switch')?.value || '',
     railName: document.querySelector('#hh-rail-name')?.textContent.trim() || '',
-    runtimeScenarioKeys: ['now-household', 'future-household'].filter(id => localStorage.getItem(`parallax.scenarios.${id}.v1`) !== null)
+    runtimeScenarioKeys: ['now-household', 'future-household', 'joe-household'].filter(id => localStorage.getItem(`parallax.scenarios.${id}.v1`) !== null)
   }));
-  if (afterReload.active !== null || afterReload.selected || afterReload.railName) {
-    throw new Error(`reload did not return to the private blank state: ${JSON.stringify(afterReload)}`);
+  if (afterReload.active !== null || afterReload.selected !== 'joe-household' || afterReload.railName !== 'Joe Household') {
+    throw new Error(`reload did not return to Joe Household: ${JSON.stringify(afterReload)}`);
   }
   if (afterReload.db[customId].meta.isDemo !== false) throw new Error('custom record overwritten on reload');
-  if (JSON.stringify(afterReload.db[customId]) !== savedCustomBytes) throw new Error('saved custom household bytes changed during blank startup');
-  if (JSON.stringify(afterReload.db['now-household']) !== runtimeBaseline.sourceBytes) throw new Error('shipped Now household bytes changed during blank startup');
-  if (Object.values(afterReload.db).some(household => ['now-household', 'future-household'].includes(household?.meta?.runtimeSourceHouseholdId))) throw new Error('runtime-derived household survived blank startup');
+  if (JSON.stringify(afterReload.db[customId]) !== savedCustomBytes) throw new Error('saved custom household bytes changed during Joe startup');
+  if (JSON.stringify(afterReload.db['now-household']) !== runtimeBaseline.sourceBytes) throw new Error('shipped Now household bytes changed during Joe startup');
+  if (Object.values(afterReload.db).some(household => RUNTIME_HOUSEHOLD_IDS.includes(household?.meta?.runtimeSourceHouseholdId))) throw new Error('runtime-derived household survived Joe startup');
   if (afterReload.runtimeScenarioKeys.length !== 0) {
     throw new Error('runtime template scenarios entered persistent storage');
   }
+  await stableClick('#hh-menu-btn');
+  await page.waitForSelector('#hh-menu-pop:not([hidden]) #hh-switch', {
+    visible: true
+  });
   const visibleSwitcher = await page.$eval('#hh-switch', selector => {
     const menu = selector.closest('#hh-menu-pop');
     return menu?.hidden === false;
@@ -272,8 +295,9 @@ export async function verifyScenarioStorageScope({
   const keys = await page.evaluate(() => Object.keys(localStorage));
   const nowKey = 'parallax.scenarios.now-household.v1';
   const futureKey = 'parallax.scenarios.future-household.v1';
+  const joeKey = 'parallax.scenarios.joe-household.v1';
   const customKey = `parallax.scenarios.${customId}.v1`;
-  if (keys.includes(nowKey) || keys.includes(futureKey)) {
+  if (keys.includes(nowKey) || keys.includes(futureKey) || keys.includes(joeKey)) {
     throw new Error(`runtime template scenarios entered persistent storage: ${JSON.stringify(keys)}`);
   }
   if (!keys.includes(customKey)) throw new Error(`custom scenarios not scoped by id (missing ${customKey}): ${JSON.stringify(keys)}`);

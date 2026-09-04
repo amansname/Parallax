@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
-import { selectHouseholdVisible, waitForUnselectedWizard } from './wizard-browser-contract.mjs';
+import { selectHouseholdVisible, waitForWizard } from './wizard-browser-contract.mjs';
 
 const goalName = 'Goals precision check';
 
@@ -72,8 +72,9 @@ export async function runGoalsPresentationContract(page,{householdId,outDir}={})
   assert.ok(initial.some(row => row.name === 'Essentials'),'Essentials fixture is required');
   assert.ok(initial.some(row => row.name === 'Healthcare'),'Healthcare fixture is required');
   await checkGlows(page,initial,failures,'initial load');
-  await clickUnique(page,'.gh-add-toggle');
   await page.waitForSelector('.gh-starter',{visible:true});
+  assert.equal(await page.$eval('.gh-add-toggle',node => node.getAttribute('aria-expanded')),'true');
+  assert.equal(await page.$$eval('[data-goal-rail]',nodes => nodes.length),0);
   assert.deepEqual(await page.$$eval('.gh-starter',nodes => nodes.map(node => node.dataset.addCategory)),
     ['travel','home','vehicle','education','family','giving','health','custom']);
   await clickUnique(page,'.gh-starter[data-add-category="travel"]');
@@ -110,7 +111,7 @@ export async function runGoalsPresentationContract(page,{householdId,outDir}={})
     JSON.parse(localStorage.getItem('parallax.households.v1'))[id].goals.find(item => item.id === goalId),
   {id:householdId,goalId});
   await page.reload({waitUntil:'domcontentloaded'});
-  await waitForUnselectedWizard(page);
+  await waitForWizard(page,{householdId:'joe-household'});
   await selectHouseholdVisible(page,householdId);
   await clickUnique(page,'.htab[data-sub-target="goals"]');
   await page.waitForSelector(selector,{visible:true});

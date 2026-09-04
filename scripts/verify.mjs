@@ -29,7 +29,7 @@ import { verifyPageBackgrounds } from './browser/design.mjs';
 import { verifyRetiredAgeLever } from './browser/scenario-timing.mjs';
 import { verifyFundingAcrossGoals } from './browser/funding.mjs';
 import { verifyTaxFundedProbability } from './browser/funding.mjs';
-import { verifyBlankPersistence } from './browser/persistence-startup.mjs';
+import { verifyJoeStartupPersistence } from './browser/persistence-startup.mjs';
 import { verifySavedHouseholdSelection } from './browser/persistence-startup.mjs';
 import { verifyScenarioStorageScope } from './browser/persistence-startup.mjs';
 import { verifySchemaMerge } from './browser/persistence-migration.mjs';
@@ -314,14 +314,14 @@ try {
   // ── Multi-household persistence & bootstrapping ────────────────────────────
   // These run LAST (they clear storage and reload) so they can't disturb the
   // earlier contracts above. They prove the state-management contract:
-  // startup remains unselected, shipped templates are explicit choices, saved
+  // startup hydrates Joe, shipped templates remain explicit choices, saved
   // values survive reload, and scenario storage remains household-scoped.
-  await step('persistence: first load is blank with only approved shipped options', () => verifyBlankPersistence({
+  await step('persistence: first load hydrates Joe with approved shipped options', () => verifyJoeStartupPersistence({
     page,
     stableReload,
     WITHDRAWAL_PLANNER_ORACLE
   }));
-  await step('persistence: reload starts blank while saved households remain selectable', () => verifySavedHouseholdSelection({
+  await step('persistence: reload returns to Joe while saved households remain selectable', () => verifySavedHouseholdSelection({
     page,
     stableClick,
     WITHDRAWAL_PLANNER_ORACLE,

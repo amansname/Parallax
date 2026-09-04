@@ -63,7 +63,7 @@ export async function waitForWizard(page, {
       expectedHousehold: householdId
     });
   } catch (error) {
-    let observed = null;
+    let observed;
     try {
       observed = await wizardState(page);
     } catch (stateError) {
@@ -225,14 +225,16 @@ export async function reloadWizard(page) {
     waitUntil: 'networkidle2',
     timeout: 20000
   });
-  await waitForUnselectedWizard(page);
+  const startup = await waitForWizard(page, {
+    householdId: 'joe-household'
+  });
   if (priorHouseholdId) {
     const available = await page.$$eval('#hh-switch option', (options, householdId) => options.some(option => option.value === householdId), priorHouseholdId);
     if (available) {
       return selectHouseholdVisible(page, priorHouseholdId);
     }
   }
-  return waitForUnselectedWizard(page);
+  return startup;
 }
 export async function selectHouseholdVisible(page, householdId) {
   const before = await wizardState(page);

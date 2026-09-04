@@ -2,9 +2,9 @@
 import { mkdirSync } from 'node:fs';
 import { WIZARD_STEP_IDS } from './browser/wizard/selectors.mjs';
 import { requireCondition } from './browser/wizard/assertions.mjs';
-import { waitForUnselectedWizard, openWizard, selectHouseholdVisible } from './browser/wizard/actions.mjs';
+import { waitForWizard, openWizard, selectHouseholdVisible } from './browser/wizard/actions.mjs';
 import { snapshotStorage, restoreStorage, stableStorageSnapshot } from './browser/wizard/storage.mjs';
-import { seedStaleCopyMigrationFixture, verifyBlankStartupAndNowSelection, prepareContractFixture } from './browser/wizard/startup.mjs';
+import { seedStaleCopyMigrationFixture, verifyJoeStartupAndNowSelection, prepareContractFixture } from './browser/wizard/startup.mjs';
 import { attachBrowserDiagnostics } from './browser/wizard/diagnostics.mjs';
 import { verifyRuntimeTemplateSessionIsolation } from './browser/wizard/template-isolation.mjs';
 import { assertFourStepStructure, assertViewport } from './browser/wizard/structure.mjs';
@@ -38,8 +38,10 @@ export async function runWizardBrowserContract(page, {
       waitUntil: 'networkidle2',
       timeout: 20000
     });
-    await waitForUnselectedWizard(page);
-    await verifyBlankStartupAndNowSelection(page, expectedNameOnlyBytes);
+    await waitForWizard(page, {
+      householdId: 'joe-household'
+    });
+    await verifyJoeStartupAndNowSelection(page, expectedNameOnlyBytes);
     await verifyRuntimeTemplateSessionIsolation(page);
     await prepareContractFixture(page);
     await assertFourStepStructure(page);
@@ -78,7 +80,9 @@ export async function runWizardBrowserContract(page, {
           waitUntil: 'networkidle2',
           timeout: 20000
         });
-        await waitForUnselectedWizard(page);
+        await waitForWizard(page, {
+          householdId: 'joe-household'
+        });
         if (originalHouseholdId) {
           const available = await page.$$eval('#hh-switch option', (options, householdId) => options.some(option => option.value === householdId), originalHouseholdId);
           if (available) await selectHouseholdVisible(page, originalHouseholdId);

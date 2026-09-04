@@ -105,7 +105,8 @@ function periodValue(age, plan, lens){
 
 function tickAges(span){
   const ages=[span.retirementAge];
-  for(let age=Math.ceil((span.retirementAge + 1) / 5) * 5; age<=span.planEndAge; age+=5) ages.push(age);
+  const firstRegularTick=Math.ceil((span.retirementAge + 3) / 5) * 5;
+  for(let age=firstRegularTick; age<=span.planEndAge; age+=5) ages.push(age);
   if(ages[ages.length-1] !== span.planEndAge) ages.push(span.planEndAge);
   return [...new Set(ages)];
 }
@@ -264,7 +265,7 @@ function liveCommas(input){
 }
 
 export function createGoalsHorizonController(deps){
-  const state={ selectedId:null, addOpen:false, initialSelectionResolved:false, flashId:null, toast:null, drag:null, timingLens:new Map() };
+  const state={ selectedId:null, addOpen:true, initialSelectionResolved:false, flashId:null, toast:null, drag:null, timingLens:new Map() };
   let root=null;
   let abortController=null;
   let toastTimer=null;

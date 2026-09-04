@@ -1,9 +1,13 @@
 import { ACCOUNT_SCHEMA_VERSION } from '../src/household/accountTypes.js';
 import { createAccount } from '../src/household/createAccount.js';
-import { snapshotLegacyRiskProfileAllocation } from '../src/household/investmentAllocation.js';
+import {
+  snapshotLegacyRiskProfileAllocation,
+  snapshotPresetAllocation,
+} from '../src/household/investmentAllocation.js';
 import { LEGACY_BASE_ACCOUNT_IDS } from '../src/household/migrateAccounts.js';
 import { createBlankTaxProfiles, createFact } from '../src/household/factEnvelope.js';
 import { createIncomeTaxInputs } from '../src/household/incomeTaxModel.js';
+import { addFamilyFinanceEntry } from '../src/household/familyFinanceEntries.js';
 import { HOUSEHOLD_RECORD_SCHEMA_VERSION } from '../src/household/householdRecordSchema.js';
 import { createEmptyNetWorthRecords } from '../src/household/netWorthRecords.js';
 import { setWizardTaxField } from '../src/household/wizardTaxMutations.js';
@@ -20,15 +24,39 @@ const clonePristinePlan = pristinePlan => JSON.parse(JSON.stringify(pristinePlan
 export const SHIPPED_DEFAULT_HOUSEHOLD_IDS = Object.freeze([
   'now-household',
   'future-household',
+  'joe-household',
 ]);
 
+export const DEFAULT_STARTUP_HOUSEHOLD_ID = 'joe-household';
+
 function addDefaultAccount(plan, {
-  id, typeId, displayName, owner, balance,
+  id, typeId, displayName, owner, balance, investmentAllocation,
 }){
-  const account = createAccount(typeId, { displayName, owner, balance });
+  const account = createAccount(typeId, {
+    displayName,
+    owner,
+    balance,
+    ...(investmentAllocation ? { investmentAllocation } : {}),
+  });
   account.id = id;
   plan.portfolio.extraAccounts.push(account);
   return account;
+}
+
+function confirmEmployerPlanIsPretax(account){
+  const confirmedAt = '2026-09-04T12:00:00Z';
+  account.employerPlanFacts.afterTaxContributionBasis = createFact(
+    0,
+    'confirmed',
+    'household-entry',
+    confirmedAt,
+  );
+  account.employerPlanFacts.planSubtypeConfirmed = createFact(
+    true,
+    'confirmed',
+    'household-entry',
+    confirmedAt,
+  );
 }
 
 function applyLegacyFixtureAllocation(plan, riskProfile){
@@ -376,11 +404,197 @@ function createFutureHousehold(pristinePlan, currentYear){
   return plan;
 }
 
+function createJoeHousehold(pristinePlan, currentYear){
+  const plan = createBlankHousehold(
+    pristinePlan,
+    DEFAULT_STARTUP_HOUSEHOLD_ID,
+    currentYear,
+  );
+  plan.meta.name = 'Joe Household';
+  plan.meta.primaryName = 'Joe';
+  plan.meta.spouseName = 'Jane';
+  plan.meta.filingStatus = 'marriedFilingJointly';
+  plan.meta.planningAsOfYear = 2026;
+  plan.meta.isSelectableDefault = true;
+  plan.household.primary = {
+    currentAge: 60,
+    retirementAge: 64,
+    planEndAge: 95,
+    birthYear: 1966,
+    employmentStatus: 'employed',
+  };
+  plan.household.spouse = {
+    currentAge: 60,
+    retirementAge: 64,
+    planEndAge: 95,
+    birthYear: 1966,
+    employmentStatus: 'employed',
+  };
+  plan.income.socialSecurity = {
+    primary: { pia: 50_000, claimAge: 67 },
+    spouse: { pia: 50_000, claimAge: 67 },
+  };
+  setConfirmedBirthDate(plan, 'client', '1966-01-15');
+  setConfirmedBirthDate(plan, 'spouse', '1966-03-15');
+
+  const growth = snapshotPresetAllocation('growth');
+  const allEquity = snapshotPresetAllocation('all-equity');
+  const balanced = snapshotPresetAllocation('balanced');
+  const client401k = addDefaultAccount(plan, {
+    id: 'joe-client-401k',
+    typeId: '401k',
+    displayName: 'Joe 401(k)',
+    owner: 'client',
+    balance: 1_300_000,
+    investmentAllocation: growth,
+  });
+  confirmEmployerPlanIsPretax(client401k);
+  addDefaultAccount(plan, {
+    id: 'joe-client-roth-ira',
+    typeId: 'roth_ira',
+    displayName: 'Joe Roth IRA',
+    owner: 'client',
+    balance: 350_000,
+    investmentAllocation: allEquity,
+  });
+  const jointBrokerage = addDefaultAccount(plan, {
+    id: 'joe-joint-brokerage',
+    typeId: 'joint_brokerage',
+    displayName: 'Joint Brokerage',
+    owner: 'joint',
+    balance: 675_000,
+    investmentAllocation: balanced,
+  });
+  jointBrokerage.taxReporting = {
+    inclusion: 'household-return',
+    reportingTaxpayer: 'return-level',
+    householdReturnShare: 1,
+  };
+  const spouse401k = addDefaultAccount(plan, {
+    id: 'joe-spouse-401k',
+    typeId: '401k',
+    displayName: 'Jane 401(k)',
+    owner: 'spouse',
+    balance: 700_000,
+    investmentAllocation: growth,
+  });
+  confirmEmployerPlanIsPretax(spouse401k);
+  addDefaultAccount(plan, {
+    id: 'joe-spouse-roth-ira',
+    typeId: 'roth_ira',
+    displayName: 'Jane Roth IRA',
+    owner: 'spouse',
+    balance: 122_000,
+    investmentAllocation: allEquity,
+  });
+  addDefaultAccount(plan, {
+    id: 'joe-spouse-tod-brokerage',
+    typeId: 'tod_brokerage',
+    displayName: 'Jane TOD Brokerage',
+    owner: 'spouse',
+    balance: 266_000,
+    investmentAllocation: balanced,
+  });
+
+  plan.properties = [{
+    name: 'Primary Home',
+    value: 1_000_000,
+    purchasePrice: 0,
+    netWorthMeta: { type: 'Primary Home', owner: 'joint' },
+    mortgage: {
+      balance: 400_000,
+      rate: 0,
+      termYears: 0,
+      netWorthMeta: {
+        present: true,
+        name: 'Mortgage',
+        type: 'Mortgage',
+        owner: 'joint',
+      },
+    },
+  }];
+
+  setWizardTaxField(plan, 'taxYear', 2026);
+  setWizardTaxField(plan, 'deductionMode', 'standard');
+  setWizardTaxField(plan, 'income.wages.client', 210_000);
+  setWizardTaxField(plan, 'income.wages.spouse', 210_000);
+  plan.income.other.find(row => row.owner === 'client' && row.typeId === 'wages').id = 'joe-client-wages';
+  plan.income.other.find(row => row.owner === 'spouse' && row.typeId === 'wages').id = 'joe-spouse-wages';
+  confirmWizardTaxInputs(plan);
+
+  addFamilyFinanceEntry(plan, {
+    mode: 'savings',
+    typeId: '401k',
+    owner: 'client',
+    amount: 30_000,
+  });
+  addFamilyFinanceEntry(plan, {
+    mode: 'savings',
+    typeId: '401k',
+    owner: 'spouse',
+    amount: 30_000,
+  });
+  plan.savings.entries.find(entry => entry.owner === 'client').id = 'joe-client-401k-savings';
+  plan.savings.entries.find(entry => entry.owner === 'spouse').id = 'joe-spouse-401k-savings';
+
+  plan.goals = [
+    {
+      ...makeEssentialsGoal(156_000),
+      per: 'mo',
+    },
+    makeHealthcareGoal(11_000),
+    {
+      id: 'joe-travel',
+      name: 'Travel',
+      cat: 'travel',
+      area: 'travel',
+      per: 'yr',
+      amount: 20_000,
+      startAge: 64,
+      endAge: 78,
+      realGrowth: 0,
+      flexesWithSpending: true,
+    },
+    {
+      id: 'joe-kitchen',
+      name: 'Kitchen',
+      cat: 'home',
+      area: 'home',
+      per: 'yr',
+      amount: 50_000,
+      startAge: 61,
+      endAge: 61,
+      realGrowth: 0,
+    },
+    {
+      id: 'joe-pool',
+      name: 'Pool',
+      cat: 'home',
+      area: 'home',
+      per: 'yr',
+      amount: 100_000,
+      startAge: 65,
+      endAge: 65,
+      realGrowth: 0,
+    },
+  ];
+  return plan;
+}
+
 export function createSelectableDefaultHouseholds(pristinePlan, currentYear){
   return [
     createNowHousehold(pristinePlan, currentYear),
     createFutureHousehold(pristinePlan, currentYear),
+    createJoeHousehold(pristinePlan, currentYear),
   ];
+}
+
+export function getDefaultStartupHousehold(householdsById){
+  const startupHousehold = householdsById?.[DEFAULT_STARTUP_HOUSEHOLD_ID];
+  if(!startupHousehold){
+    throw new Error(`Startup household ${DEFAULT_STARTUP_HOUSEHOLD_ID} is unavailable`);
+  }
+  return startupHousehold;
 }
 
 /* Empty household record with nondeterministic inputs supplied by the caller. */

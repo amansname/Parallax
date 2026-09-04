@@ -1,6 +1,6 @@
 // Wizard browser contract: template isolation.
 import { requireCondition, countMatches, requireUnique } from './assertions.mjs';
-import { waitForWizard, waitForUnselectedWizard, openWizard, goToWizardStep, setWizardValue, clickWizardAction, openNetWorthCategory, selectNetWorthAllocation, selectHouseholdVisible } from './actions.mjs';
+import { waitForWizard, openWizard, goToWizardStep, setWizardValue, clickWizardAction, openNetWorthCategory, selectNetWorthAllocation, selectHouseholdVisible } from './actions.mjs';
 async function historicalCashFlowSnapshot(page, {
   pathId = 'historical-1973',
   previousEndingBalance = null
@@ -47,7 +47,7 @@ async function historicalCashFlowSnapshot(page, {
   }, pathId);
 }
 export async function verifyRuntimeTemplateSessionIsolation(page) {
-  const runtimeIds = ['now-household', 'future-household'];
+  const runtimeIds = ['now-household', 'future-household', 'joe-household'];
   await openWizard(page);
   const baseline = await page.evaluate(ids => {
     const dbBytes = localStorage.getItem('parallax.households.v1');
@@ -218,7 +218,9 @@ export async function verifyRuntimeTemplateSessionIsolation(page) {
     waitUntil: 'networkidle2',
     timeout: 20000
   });
-  await waitForUnselectedWizard(page);
+  await waitForWizard(page, {
+    householdId: 'joe-household'
+  });
   await requireUnchangedPersistence('runtime reload');
   for (const householdId of runtimeIds) {
     await selectHouseholdVisible(page, householdId);
@@ -253,7 +255,7 @@ export async function verifyRuntimeTemplateSessionIsolation(page) {
       expectedIds
     }) => {
       const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
-      return localStorage.getItem('parallax.activeHouseholdId') === expectedId && document.querySelector('[data-hh-wizard-root]')?.dataset.householdId === expectedId && document.querySelector('#hh-switch')?.value === expectedId && db?.[expectedId]?.meta?.primaryName === expectedName && JSON.stringify(Object.keys(db || {}).sort()) === JSON.stringify(expectedIds) && !Object.values(db || {}).some(household => ['now-household', 'future-household'].includes(household?.meta?.runtimeSourceHouseholdId));
+      return localStorage.getItem('parallax.activeHouseholdId') === expectedId && document.querySelector('[data-hh-wizard-root]')?.dataset.householdId === expectedId && document.querySelector('#hh-switch')?.value === expectedId && db?.[expectedId]?.meta?.primaryName === expectedName && JSON.stringify(Object.keys(db || {}).sort()) === JSON.stringify(expectedIds) && !Object.values(db || {}).some(household => ['now-household', 'future-household', 'joe-household'].includes(household?.meta?.runtimeSourceHouseholdId));
     }, {
       timeout: 10000
     }, {
@@ -288,7 +290,9 @@ export async function verifyRuntimeTemplateSessionIsolation(page) {
     waitUntil: 'networkidle2',
     timeout: 20000
   });
-  await waitForUnselectedWizard(page);
+  await waitForWizard(page, {
+    householdId: 'joe-household'
+  });
   await selectHouseholdVisible(page, customId);
   await goToWizardStep(page, 'family');
   const restoredCustom = await page.evaluate(({
