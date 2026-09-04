@@ -14,8 +14,17 @@ export function createFamilyActions({
     requestAnimationFrame(() => document.querySelector(selector)?.focus());
   };
   return {
+    'toggle-finances-rail': () => {
+      transientState.financeRailOpen = !transientState.financeRailOpen;
+      if(!transientState.financeRailOpen) closeFinanceEntry();
+      syncHousehold();
+      if(transientState.financeRailOpen){
+        focusFinanceControl('[data-finances-person-owner]');
+      }
+    },
     'toggle-finance-entry': action => {
       const owner = action.dataset.financeOwner;
+      transientState.financeRailOpen = true;
       if(transientState.financeOwner === owner){
         closeFinanceEntry();
       }else{

@@ -93,10 +93,12 @@ function plan(){
 }
 
 function wizard({
+  financeRailOpen = false,
   financeOwner = null,
   financeMode = 'savings',
   financeTypeId = null,
   savingsEntries = null,
+  savingsAnnual = 68_300,
   netWorthPanelCategory = null,
   netWorthDraft = null,
   withoutSpouse = false,
@@ -113,7 +115,7 @@ function wizard({
   portfolioTotal = 1450000,
 } = {}){
   const value = plan();
-  if(savingsEntries) value.savings = { entries: savingsEntries };
+  value.savings = { annual: savingsAnnual, entries: savingsEntries || [] };
   if(durableNetWorth){
     value.portfolio.extraAccounts = [];
     value.properties = [{
@@ -163,6 +165,7 @@ function wizard({
     }];
   }
   const uiState = {
+    financeRailOpen,
     financeOwner,
     financeMode,
     financeTypeId,
@@ -262,7 +265,7 @@ test('production wizard exposes exactly the four approved semantic steps', () =>
   );
 });
 
-test('Family is compact and omits MFS and survivor controls', () => {
+test('Family preserves its demographic fields and routes Social Security amounts through the rail', () => {
   const html = wizard().render('family');
   assert.match(html, /data-hh-wizard-screen="family"/);
   assert.match(html, /Johnny Calloway/);
@@ -270,24 +273,51 @@ test('Family is compact and omits MFS and survivor controls', () => {
   assert.match(html, /Married filing jointly/);
   assert.match(html, /data-hh-action="remove-spouse"/);
   assert.match(html, /Remove co-client/);
-  assert.match(html, /data-wizard-field="client\.socialSecurityBenefit"/);
-  assert.match(html, /data-wizard-field="spouse\.socialSecurityBenefit"/);
+  assert.match(html, /data-wizard-field="client\.socialSecurityAge"/);
+  assert.match(html, /data-wizard-field="spouse\.socialSecurityAge"/);
   assert.match(html, /data-wizard-field="client\.planEndAge"/);
   assert.match(html, /data-wizard-field="spouse\.planEndAge"/);
-  assert.match(html, /Annual Social Security at full retirement age/);
-  assert.match(html, /value="31,200"/);
-  assert.match(html, /value="24,600"/);
+  assert.equal((html.match(/<span>Social Security<\/span>/g) || []).length, 2);
+  assert.match(html, /<span>Children\?<\/span>/);
+  assert.match(html, /data-wizard-field="dependents"/);
+  assert.doesNotMatch(html, /Social Security at/);
+  assert.doesNotMatch(html, /Annual Social Security at full retirement age/);
+  assert.doesNotMatch(html, /data-wizard-field="(?:client|spouse)\.socialSecurityBenefit"/);
   assert.doesNotMatch(html, /Married filing separately/);
   assert.doesNotMatch(html, /Survivor assumption/i);
 });
 
+test('Family preserves the locked two-card composition and labeled compact rail', () => {
+  const closed = wizard().render('family');
+  assert.equal((closed.match(/data-person-owner=/g) || []).length, 2);
+  assert.match(closed, /data-finances-rail/);
+  assert.match(closed, />Savings and Income</);
+  assert.match(closed, /data-hh-action="toggle-finances-rail"/);
+  assert.match(closed, /id="hh-finances-rail-body" hidden/);
+  assert.doesNotMatch(closed, /data-finances-person-owner/);
+  assert.doesNotMatch(closed, /data-finance-entry-panel/);
+  assert.doesNotMatch(closed, />\s*Finances\s*</i);
+
+  const open = wizard({ financeRailOpen: true }).render('family');
+  assert.equal((open.match(/data-finances-person-owner=/g) || []).length, 2);
+  assert.match(open, /Johnny Calloway/);
+  assert.match(open, /Joanie Calloway/);
+  assert.match(open, /class="hh-finances-person-name"/);
+  assert.match(open, /data-finances-summary/);
+  assert.match(open, />\s*Savings\s*</i);
+  assert.match(open, />\s*\$68,300\/yr\s*</);
+  assert.doesNotMatch(open, /Savings while working/i);
+  assert.doesNotMatch(open, /data-finance-entry-panel/);
+});
+
 test('Family finance entry renders only after a person is chosen and keeps the amount conditional', () => {
   const closed = wizard().render('family');
-  assert.equal((closed.match(/data-hh-action="toggle-finance-entry"/g) || []).length, 2);
+  assert.equal((closed.match(/data-hh-action="toggle-finance-entry"/g) || []).length, 0);
   assert.doesNotMatch(closed, /data-finance-entry-panel/);
   assert.doesNotMatch(closed, /Income &amp; Savings|Income & Savings|>FINANCES</i);
 
-  const picker = wizard({ financeOwner: 'spouse' }).render('family');
+  const picker = wizard({ financeRailOpen: true, financeOwner: 'spouse' }).render('family');
+  assert.equal((picker.match(/data-hh-action="toggle-finance-entry"/g) || []).length, 2);
   assert.equal((picker.match(/data-finance-entry-panel/g) || []).length, 1);
   assert.match(picker, /data-finance-owner="spouse"/);
   assert.match(picker, /data-hh-action="set-finance-mode" data-finance-mode="savings"/);
@@ -300,6 +330,7 @@ test('Family finance entry renders only after a person is chosen and keeps the a
   assert.doesNotMatch(picker, />\s*529 contribution\s*</);
 
   const amount = wizard({
+    financeRailOpen: true,
     financeOwner: 'spouse',
     financeTypeId: '401k',
   }).render('family');
@@ -310,6 +341,7 @@ test('Family finance entry renders only after a person is chosen and keeps the a
   assert.doesNotMatch(amount, />Save</);
 
   const existing = wizard({
+    financeRailOpen: true,
     financeOwner: 'client',
     financeTypeId: '401k',
     savingsEntries: [{
@@ -326,6 +358,7 @@ test('Family finance entry renders only after a person is chosen and keeps the a
 
 test('Family finance income mode exposes the ordered common-source inventory only', () => {
   const html = wizard({
+    financeRailOpen: true,
     financeOwner: 'client',
     financeMode: 'income',
   }).render('family');
@@ -343,6 +376,28 @@ test('Family finance income mode exposes the ordered common-source inventory onl
     'Deferred compensation',
     'Other income',
   ]);
+});
+
+test('Family rail edits each person Social Security reference benefit independently', () => {
+  const primary = wizard({
+    financeRailOpen: true,
+    financeOwner: 'client',
+    financeMode: 'income',
+    financeTypeId: 'social_security',
+  }).render('family');
+  assert.match(primary, /data-finance-owner="client"/);
+  assert.match(primary, /aria-label="Social Security annual amount"/);
+  assert.match(primary, /data-finance-amount[^>]*value="31,200"/);
+
+  const spouse = wizard({
+    financeRailOpen: true,
+    financeOwner: 'spouse',
+    financeMode: 'income',
+    financeTypeId: 'social_security',
+  }).render('family');
+  assert.match(spouse, /data-finance-owner="spouse"/);
+  assert.match(spouse, /data-finance-amount[^>]*value="24,600"/);
+  assert.doesNotMatch(spouse, /data-wizard-field="(?:client|spouse)\.socialSecurityBenefit"/);
 });
 
 test('Net Worth presents the approved category workflow and canonical portfolio total', () => {
