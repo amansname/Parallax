@@ -145,8 +145,12 @@ export async function verifyReadOnlyPersistence({
       lev: {}
     }]));
   });
+  // Navigation only establishes the document. The exact Joe/wizard and pinned
+  // recovery-state assertions below establish application readiness; waiting
+  // for network idle also charges synchronous startup projection work to the
+  // navigation deadline on a slower runner.
   await stableReload({
-    waitUntil: 'networkidle2',
+    waitUntil: 'domcontentloaded',
     timeout: 20000
   });
   await waitForWizard(page, {
@@ -523,7 +527,7 @@ export async function verifyReadOnlyPersistence({
   await assertPinned('switch to Future');
   await assertBytesUnchanged('switch to Future');
   await stableReload({
-    waitUntil: 'networkidle2',
+    waitUntil: 'domcontentloaded',
     timeout: 20000
   });
   await waitForWizard(page, {
