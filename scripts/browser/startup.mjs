@@ -4,23 +4,16 @@ export async function verifyStartup({
   stableGoto,
   PORT,
   page,
-  stableReload,
   VERIFIED_ARTIFACT,
   artifactRequests,
   artifactResponses,
   stableClick
 }) {
-  // Deterministic seed: clear browser-local state, prove the shipped Joe
-  // startup, then create a blank durable household through the same visible
-  // action an advisor uses. Later contracts continue from it.
+  // createBrowserSession supplies a fresh, ephemeral browser profile. Prove
+  // that first startup directly, then create the durable household used by
+  // later contracts. Reload behavior has its own persistence assertions; an
+  // unasserted clear/reload here repeated the entire Joe projection.
   await stableGoto(`http://127.0.0.1:${PORT}/index.html`, {
-    waitUntil: 'networkidle2',
-    timeout: 20000
-  });
-  await page.evaluate(() => {
-    localStorage.clear();
-  });
-  await stableReload({
     waitUntil: 'networkidle2',
     timeout: 20000
   });
