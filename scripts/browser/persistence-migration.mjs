@@ -1,13 +1,18 @@
 // Existing browser assertions; run by scripts/verify.mjs in campaign order.
 import { waitForWizard } from '../wizard-browser-contract.mjs';
 import { goToWizardStep } from '../wizard-browser-contract.mjs';
+import { legacyHiddenSavingsAggregate } from '../../test/fixtures/familySavings.js';
+
+function approximatelyEqual(actual, expected, tolerance = 1e-12){
+  return Number.isFinite(actual) && Math.abs(actual - expected) <= tolerance;
+}
 
 export async function verifyFamilySavingsRepair({
   page,
   stableReload,
 }) {
   const fixtureId = 'hh_family_savings_repair';
-  const source = await page.evaluate(id => {
+  const source = await page.evaluate(({ id, savings }) => {
     const databaseKey = 'parallax.households.v1';
     const database = JSON.parse(localStorage.getItem(databaseKey) || 'null');
     const shipped = database?.['now-household'];
@@ -20,30 +25,7 @@ export async function verifyFamilySavingsRepair({
     record.meta.isDemo = false;
     record.meta.householdRecordSchemaVersion = 2;
     delete record.meta.runtimeSourceHouseholdId;
-    record.savings = {
-      annual: 105_000,
-      split: {
-        taxable: 12_000 / 105_000,
-        traditional: 93_000 / 105_000,
-        roth: 0,
-      },
-      unallocatedAnnual: 46_000,
-      unallocatedSplit: { taxable: 0, traditional: 1, roth: 0 },
-      entries: [
-        {
-          id: 'client-401k-saving', typeId: '401k', label: '401(k) deferral',
-          owner: 'client', amount: 23_500, bucket: 'traditional',
-        },
-        {
-          id: 'spouse-401k-saving', typeId: '401k', label: '401(k) deferral',
-          owner: 'spouse', amount: 23_500, bucket: 'traditional',
-        },
-        {
-          id: 'client-brokerage-saving', typeId: 'brokerage_taxable', label: 'Taxable brokerage',
-          owner: 'client', amount: 12_000, bucket: 'taxable',
-        },
-      ],
-    };
+    record.savings = savings;
     database[id] = record;
     localStorage.setItem(databaseKey, JSON.stringify(database));
     localStorage.setItem(`parallax.scenarios.${id}.v1`, JSON.stringify([
@@ -56,7 +38,7 @@ export async function verifyFamilySavingsRepair({
     ]));
     localStorage.setItem('parallax.activeHouseholdId', id);
     return { portfolioBytes: JSON.stringify(record.portfolio) };
-  }, fixtureId);
+  }, { id: fixtureId, savings: legacyHiddenSavingsAggregate() });
 
   await stableReload({ waitUntil: 'networkidle2', timeout: 20000 });
   await waitForWizard(page, { householdId: 'joe-household' });
@@ -96,8 +78,8 @@ export async function verifyFamilySavingsRepair({
       || repair.hiddenSplitPresent
       || !repair.portfolioUnchanged
       || !repair.archived
-      || repair.split?.traditional !== 47_000 / 59_000
-      || repair.split?.taxable !== 12_000 / 59_000){
+      || !approximatelyEqual(repair.split?.traditional, 47_000 / 59_000)
+      || !approximatelyEqual(repair.split?.taxable, 12_000 / 59_000)){
     throw new Error(`saved Family savings were not repaired exactly once: ${JSON.stringify(repair)}`);
   }
 
