@@ -98,6 +98,58 @@ test('validates optional savings entry identities without requiring preloaded ro
   );
 });
 
+test('repairs the persisted hidden savings aggregate without losing its source evidence', () => {
+  const current = migrateHouseholdRecordSchema(subject()).plan;
+  current.meta.householdRecordSchemaVersion = 2;
+  current.savings = {
+    annual: 105_000,
+    split: {
+      taxable: 12_000 / 105_000,
+      traditional: 93_000 / 105_000,
+      roth: 0,
+    },
+    unallocatedAnnual: 46_000,
+    unallocatedSplit: { taxable: 0, traditional: 1, roth: 0 },
+    entries: [
+      {
+        id: 'client-401k-saving', typeId: '401k', label: '401(k) deferral',
+        owner: 'client', amount: 23_500, bucket: 'traditional',
+      },
+      {
+        id: 'spouse-401k-saving', typeId: '401k', label: '401(k) deferral',
+        owner: 'spouse', amount: 23_500, bucket: 'traditional',
+      },
+      {
+        id: 'client-brokerage-saving', typeId: 'brokerage_taxable', label: 'Taxable brokerage',
+        owner: 'client', amount: 12_000, bucket: 'taxable',
+      },
+    ],
+  };
+  const sourceBytes = JSON.stringify(current);
+
+  const first = migrateHouseholdRecordSchema(current, 'hh-savings-regression');
+  assert.equal(JSON.stringify(current), sourceBytes);
+  assert.equal(first.changed, true);
+  assert.equal(first.plan.savings.annual, 59_000);
+  assert.deepEqual(first.plan.savings.split, {
+    taxable: 12_000 / 59_000,
+    traditional: 47_000 / 59_000,
+    roth: 0,
+  });
+  assert.equal(Object.hasOwn(first.plan.savings, 'unallocatedAnnual'), false);
+  assert.equal(Object.hasOwn(first.plan.savings, 'unallocatedSplit'), false);
+  assert.ok(first.plan.meta.legacyRepairArchive.some(entry => (
+    entry.code === 'HIDDEN_SAVINGS_AGGREGATE_RECONCILED'
+      && entry.priorAnnual === 105_000
+      && entry.itemizedAnnual === 59_000
+      && entry.unallocatedAnnual === 46_000
+  )));
+
+  const second = migrateHouseholdRecordSchema(first.plan, 'hh-savings-regression');
+  assert.equal(second.changed, false);
+  assert.deepEqual(second.plan, first.plan);
+});
+
 test('preserves legitimate lookalikes, non-wages, and ID-bearing rows', () => {
   const rows = [
     legacyWage(),

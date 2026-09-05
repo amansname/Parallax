@@ -5,11 +5,18 @@ import { defaultPlan, resolveInputs } from '../engine.js';
 import { buildCurrentAnnualFederalTaxBaseline } from '../src/household/buildWizardIncomeTaxSummary.js';
 import { buildCurrent1040Intake } from '../src/planning/tax/buildCurrent1040Intake.js';
 import { prepareHouseholdRecordForSave } from '../src/household/persistence.js';
+import { addFamilyFinanceEntry } from '../src/household/familyFinanceEntries.js';
 import {
+  ASSET_KEYS,
   snapshotLegacyRiskProfileAllocation,
   snapshotPresetAllocation,
 } from '../src/household/investmentAllocation.js';
 import { resolveTaxableStartingBasis } from '../src/household/resolveTaxableStartingBasis.js';
+import {
+  applyProjectionContributions,
+  cloneProjectionAccountLedger,
+  resolveProjectionReturnFrame,
+} from '../src/projection/accountLedger.js';
 import {
   DEFAULT_STARTUP_HOUSEHOLD_ID,
   SHIPPED_DEFAULT_HOUSEHOLD_IDS,
@@ -341,6 +348,65 @@ test('Now Household carries the approved plan facts', () => {
     household,
     household.meta.householdId,
   ));
+});
+
+test('Now Household itemized savings total once and reach the compatible joint brokerage', () => {
+  const [household] = createSelectableDefaultHouseholds(defaultPlan, 2026);
+  const storedPortfolio = JSON.stringify(household.portfolio);
+
+  addFamilyFinanceEntry(household, {
+    mode: 'savings', typeId: '401k', owner: 'client', amount: 23_500,
+  });
+  addFamilyFinanceEntry(household, {
+    mode: 'savings', typeId: '401k', owner: 'spouse', amount: 23_500,
+  });
+  addFamilyFinanceEntry(household, {
+    mode: 'savings', typeId: 'brokerage_taxable', owner: 'client', amount: 12_000,
+  });
+
+  assert.equal(household.savings.annual, 59_000);
+  assert.deepEqual(household.savings.split, {
+    taxable: 12_000 / 59_000,
+    traditional: 47_000 / 59_000,
+    roth: 0,
+  });
+
+  const resolved = resolveInputs(household, {});
+  assert.deepEqual(resolved.savingsEntries, [
+    { owner: 'client', typeId: '401k', bucket: 'traditional', amount: 23_500 },
+    { owner: 'spouse', typeId: '401k', bucket: 'traditional', amount: 23_500 },
+    { owner: 'client', typeId: 'brokerage_taxable', bucket: 'taxable', amount: 12_000 },
+  ]);
+
+  const ledger = cloneProjectionAccountLedger(resolved.projectionAccounts);
+  const returnRow = {
+    y: 2026,
+    ...Object.fromEntries(ASSET_KEYS.map(key => [key, 0])),
+  };
+  const frame = resolveProjectionReturnFrame(ledger, returnRow, 0);
+  const contributions = applyProjectionContributions(
+    ledger,
+    frame,
+    { taxable: 12_000, traditional: 47_000, roth: 0 },
+    resolved.savingsEntries,
+  );
+  const accountBy = (typeId, owner) => ledger.find(account => (
+    account.typeId === typeId && account.owner === owner
+  ));
+  const client401k = accountBy('401k', 'client');
+  const spouse401k = accountBy('401k', 'spouse');
+  const jointBrokerage = accountBy('joint_brokerage', 'unattributed');
+  const spouseTod = accountBy('tod_brokerage', 'spouse');
+
+  assert.equal(contributions[client401k.id], 23_500);
+  assert.equal(contributions[spouse401k.id], 23_500);
+  assert.equal(contributions[jointBrokerage.id], 12_000);
+  assert.equal(contributions[spouseTod.id], 0);
+  assert.equal(jointBrokerage.balance, 52_000);
+  assert.equal(jointBrokerage.basis, 32_000);
+  assert.equal(spouseTod.balance, 40_000);
+  assert.equal(spouseTod.basis, 20_000);
+  assert.equal(JSON.stringify(household.portfolio), storedPortfolio);
 });
 
 test('Future Household carries the approved current-age retirement facts', () => {

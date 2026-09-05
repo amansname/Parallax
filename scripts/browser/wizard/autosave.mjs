@@ -1,6 +1,7 @@
 // Wizard browser contract: autosave.
 import { requireCondition } from './assertions.mjs';
 import { goToWizardStep, reloadWizard } from './actions.mjs';
+import { HOUSEHOLD_RECORD_SCHEMA_VERSION } from '../../../src/household/householdRecordSchema.js';
 async function waitForAutoSave(page) {
   const saveCount = await page.$$eval('#save-btn', elements => elements.length);
   requireCondition(saveCount === 0, 'Manual Save control still rendered');
@@ -119,7 +120,7 @@ export async function verifyDuplicateRepair(page) {
       version: plan?.meta?.householdRecordSchemaVersion
     };
   });
-  requireCondition(repaired.rows.length === 1 && typeof repaired.rows[0]?.id === 'string' && repaired.archive.length === 1 && repaired.archive[0]?.code === 'LEGACY_GPC_DUPLICATE_WAGE_REMOVED' && repaired.version === 2, `Legacy duplicate repair was not narrow/recoverable: ${JSON.stringify(repaired)}`);
+  requireCondition(repaired.rows.length === 1 && typeof repaired.rows[0]?.id === 'string' && repaired.archive.length === 1 && repaired.archive[0]?.code === 'LEGACY_GPC_DUPLICATE_WAGE_REMOVED' && repaired.version === HOUSEHOLD_RECORD_SCHEMA_VERSION, `Legacy duplicate repair was not narrow/recoverable: ${JSON.stringify(repaired)}`);
   await reloadWizard(page);
   const secondRaw = await page.evaluate(() => localStorage.getItem('parallax.households.v1'));
   requireCondition(secondRaw === repaired.raw, 'Legacy duplicate repair was not byte-stable on the second reload');
