@@ -1,6 +1,119 @@
 // Existing browser assertions; run by scripts/verify.mjs in campaign order.
 import { waitForWizard } from '../wizard-browser-contract.mjs';
 import { goToWizardStep } from '../wizard-browser-contract.mjs';
+import { legacyHiddenSavingsAggregate } from '../../test/fixtures/familySavings.js';
+
+function approximatelyEqual(actual, expected, tolerance = 1e-12){
+  return Number.isFinite(actual) && Math.abs(actual - expected) <= tolerance;
+}
+
+export async function verifyFamilySavingsRepair({
+  page,
+  stableReload,
+}) {
+  const fixtureId = 'hh_family_savings_repair';
+  const source = await page.evaluate(({ id, savings }) => {
+    const databaseKey = 'parallax.households.v1';
+    const database = JSON.parse(localStorage.getItem(databaseKey) || 'null');
+    const shipped = database?.['now-household'];
+    if(!shipped) throw new Error('Now Household is unavailable for savings repair setup');
+
+    const record = structuredClone(shipped);
+    record.meta.householdId = id;
+    record.meta.name = 'Savings Repair Household';
+    record.meta.isSelectableDefault = false;
+    record.meta.isDemo = false;
+    record.meta.householdRecordSchemaVersion = 2;
+    delete record.meta.runtimeSourceHouseholdId;
+    record.savings = savings;
+    database[id] = record;
+    localStorage.setItem(databaseKey, JSON.stringify(database));
+    localStorage.setItem(`parallax.scenarios.${id}.v1`, JSON.stringify([
+      { name: 'Baseline', base: true, lev: { savings: 105_000 } },
+      { name: 'Scenario B', base: false, lev: { savings: 105_000 } },
+      {
+        name: 'Aggressive', base: false,
+        lev: { savings: 105_000, allocationPresetId: 'aggressive' },
+      },
+    ]));
+    localStorage.setItem('parallax.activeHouseholdId', id);
+    return { portfolioBytes: JSON.stringify(record.portfolio) };
+  }, { id: fixtureId, savings: legacyHiddenSavingsAggregate() });
+
+  await stableReload({ waitUntil: 'networkidle2', timeout: 20000 });
+  await waitForWizard(page, { householdId: 'joe-household' });
+  await page.select('#hh-switch', fixtureId);
+  await waitForWizard(page, { householdId: fixtureId });
+  await goToWizardStep(page, 'family');
+  await page.waitForFunction(id => {
+    const database = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+    const record = database?.[id];
+    return record?.savings?.annual === 59_000
+      && !Object.hasOwn(record.savings, 'unallocatedAnnual')
+      && !Object.hasOwn(record.savings, 'unallocatedSplit')
+      && document.querySelector('[data-finances-summary] strong')?.textContent.trim() === '$59,000/yr';
+  }, { timeout: 15000 }, fixtureId);
+
+  const repair = await page.evaluate(({ id, portfolioBytes }) => {
+    const database = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+    const record = database?.[id];
+    return {
+      annual: record?.savings?.annual,
+      split: record?.savings?.split,
+      entriesTotal: record?.savings?.entries?.reduce((sum, entry) => sum + entry.amount, 0),
+      hiddenAnnualPresent: Object.hasOwn(record?.savings || {}, 'unallocatedAnnual'),
+      hiddenSplitPresent: Object.hasOwn(record?.savings || {}, 'unallocatedSplit'),
+      portfolioUnchanged: JSON.stringify(record?.portfolio) === portfolioBytes,
+      archived: record?.meta?.legacyRepairArchive?.some(item => (
+        item.code === 'HIDDEN_SAVINGS_AGGREGATE_RECONCILED'
+          && item.priorAnnual === 105_000
+          && item.itemizedAnnual === 59_000
+          && item.unallocatedAnnual === 46_000
+      )),
+    };
+  }, { id: fixtureId, portfolioBytes: source.portfolioBytes });
+  if(repair.annual !== 59_000
+      || repair.entriesTotal !== 59_000
+      || repair.hiddenAnnualPresent
+      || repair.hiddenSplitPresent
+      || !repair.portfolioUnchanged
+      || !repair.archived
+      || !approximatelyEqual(repair.split?.traditional, 47_000 / 59_000)
+      || !approximatelyEqual(repair.split?.taxable, 12_000 / 59_000)){
+    throw new Error(`saved Family savings were not repaired exactly once: ${JSON.stringify(repair)}`);
+  }
+
+  await page.click('.htab[data-page="scenarios"]');
+  await page.waitForFunction(() => {
+    const probabilities = [...document.querySelectorAll('#scn-view .scol__prob')]
+      .map(element => element.textContent.trim());
+    const medians = [...document.querySelectorAll('#scn-view .scol__median b')]
+      .map(element => element.textContent.trim());
+    const savings = [...document.querySelectorAll('#scn-view .cmp-lev-in[data-key="savings"]')]
+      .map(input => Number.parseFloat(input.value.replaceAll(',', '')));
+    return probabilities.length === 3
+      && probabilities.every(value => /\d/.test(value))
+      && medians.length === 3
+      && medians.every(value => value && value !== '—')
+      && savings.length === 3
+      && savings.every(value => value === 59_000)
+      && document.querySelectorAll('#scn-view .scn-issue').length === 0;
+  }, { timeout: 30000 });
+  const scenarios = await page.evaluate(() => ({
+    names: [...document.querySelectorAll('#scn-view .scol__name')]
+      .map(element => element.textContent.trim()),
+    probabilities: [...document.querySelectorAll('#scn-view .scol__prob')]
+      .map(element => element.textContent.trim()),
+    medians: [...document.querySelectorAll('#scn-view .scol__median b')]
+      .map(element => element.textContent.trim()),
+    issues: document.querySelectorAll('#scn-view .scn-issue').length,
+  }));
+  if(JSON.stringify(scenarios.names) !== JSON.stringify(['Baseline', 'Scenario B', 'Aggressive'])
+      || scenarios.issues !== 0){
+    throw new Error(`repaired Family savings did not produce all Scenarios: ${JSON.stringify(scenarios)}`);
+  }
+}
+
 export async function verifySchemaMerge({
   page,
   stableReload,

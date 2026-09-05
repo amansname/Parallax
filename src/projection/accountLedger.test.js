@@ -225,6 +225,53 @@ test('explicit savings entries reach only matching owner and account type', () =
   );
 });
 
+test('a client taxable-brokerage saving uses the joint brokerage and reaches engine basis', () => {
+  const allocation = oneAssetAllocation('usLarge');
+  const ledger = [
+    {
+      ...account({
+        id: 'joint-brokerage',
+        bucket: 'taxable',
+        owner: 'unattributed',
+        balance: 40_000,
+        basis: 20_000,
+        allocation,
+      }),
+      typeId: 'joint_brokerage',
+      taxCharacter: 'capital_asset',
+    },
+    {
+      ...account({
+        id: 'spouse-tod',
+        bucket: 'taxable',
+        owner: 'spouse',
+        balance: 40_000,
+        basis: 20_000,
+        allocation,
+      }),
+      typeId: 'tod_brokerage',
+      taxCharacter: 'capital_asset',
+    },
+  ];
+  const frame = resolveProjectionReturnFrame(ledger, returnRow(2025), 0);
+
+  const contributions = applyProjectionContributions(
+    ledger,
+    frame,
+    { taxable: 12_000, traditional: 0, roth: 0 },
+    [{ owner: 'client', typeId: 'brokerage_taxable', bucket: 'taxable', amount: 12_000 }],
+  );
+
+  assert.deepEqual(contributions, {
+    'joint-brokerage': 12_000,
+    'spouse-tod': 0,
+  });
+  assert.equal(ledger[0].balance, 52_000);
+  assert.equal(ledger[0].basis, 32_000);
+  assert.equal(ledger[1].balance, 40_000);
+  assert.equal(ledger[1].basis, 20_000);
+});
+
 test('RMD draws remain owner-first and pro rata within each owner', () => {
   const allocation = oneAssetAllocation('usBonds');
   const ledger = [

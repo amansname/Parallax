@@ -6,6 +6,7 @@ import {
   migrateHouseholdRecordSchema,
   validateHouseholdRecordSchema,
 } from './householdRecordSchema.js';
+import { legacyHiddenSavingsAggregate } from '../../test/fixtures/familySavings.js';
 
 function legacyWage(overrides = {}){
   return {
@@ -96,6 +97,35 @@ test('validates optional savings entry identities without requiring preloaded ro
     () => validateHouseholdRecordSchema(migrated),
     /duplicate wizard row id savings_roth_1/,
   );
+});
+
+test('repairs the persisted hidden savings aggregate without losing its source evidence', () => {
+  const current = migrateHouseholdRecordSchema(subject()).plan;
+  current.meta.householdRecordSchemaVersion = 2;
+  current.savings = legacyHiddenSavingsAggregate();
+  const sourceBytes = JSON.stringify(current);
+
+  const first = migrateHouseholdRecordSchema(current, 'hh-savings-regression');
+  assert.equal(JSON.stringify(current), sourceBytes);
+  assert.equal(first.changed, true);
+  assert.equal(first.plan.savings.annual, 59_000);
+  assert.deepEqual(first.plan.savings.split, {
+    taxable: 12_000 / 59_000,
+    traditional: 47_000 / 59_000,
+    roth: 0,
+  });
+  assert.equal(Object.hasOwn(first.plan.savings, 'unallocatedAnnual'), false);
+  assert.equal(Object.hasOwn(first.plan.savings, 'unallocatedSplit'), false);
+  assert.ok(first.plan.meta.legacyRepairArchive.some(entry => (
+    entry.code === 'HIDDEN_SAVINGS_AGGREGATE_RECONCILED'
+      && entry.priorAnnual === 105_000
+      && entry.itemizedAnnual === 59_000
+      && entry.unallocatedAnnual === 46_000
+  )));
+
+  const second = migrateHouseholdRecordSchema(first.plan, 'hh-savings-regression');
+  assert.equal(second.changed, false);
+  assert.deepEqual(second.plan, first.plan);
 });
 
 test('preserves legitimate lookalikes, non-wages, and ID-bearing rows', () => {

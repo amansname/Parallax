@@ -3,8 +3,10 @@ import {
   migrateNetWorthRecords,
   validateNetWorthRecords,
 } from './netWorthRecords.js';
+import { reconcilePersistedItemizedSavings } from './savingsPlan.js';
 
-export const HOUSEHOLD_RECORD_SCHEMA_VERSION = 2;
+export const HOUSEHOLD_RECORD_SCHEMA_VERSION = 3;
+const SUPPORTED_PRIOR_HOUSEHOLD_RECORD_SCHEMA_VERSIONS = Object.freeze([1, 2]);
 
 const ROW_COLLECTIONS = Object.freeze([
   Object.freeze({ path: ['income', 'other'], prefix: 'income' }),
@@ -182,7 +184,7 @@ export function migrateHouseholdRecordSchema(plan, householdId = plan?.meta?.hou
   const repairs = [];
   const priorVersion = migrated.meta?.householdRecordSchemaVersion;
   if(priorVersion != null
-      && priorVersion !== 1
+      && !SUPPORTED_PRIOR_HOUSEHOLD_RECORD_SCHEMA_VERSIONS.includes(priorVersion)
       && priorVersion !== HOUSEHOLD_RECORD_SCHEMA_VERSION){
     throw new Error(`${householdId}: unsupported householdRecordSchemaVersion`);
   }
@@ -275,6 +277,12 @@ export function migrateHouseholdRecordSchema(plan, householdId = plan?.meta?.hou
       repairs.push({ code: 'NET_WORTH_RECORDS_INITIALIZED' });
       changed = true;
     }
+  }
+
+  const savings = reconcilePersistedItemizedSavings(migrated, householdId);
+  if(savings.changed){
+    repairs.push(savings.repair);
+    changed = true;
   }
 
   migrated.meta.householdRecordSchemaVersion = HOUSEHOLD_RECORD_SCHEMA_VERSION;

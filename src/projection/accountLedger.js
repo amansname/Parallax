@@ -410,17 +410,39 @@ function contributionShares(accounts){
   return [];
 }
 
+function savingsEntryCandidates(ledger, entry){
+  const exact = ledger.filter(account => (
+    account.bucket === entry.bucket
+      && account.owner === entry.owner
+      && account.typeId === entry.typeId
+  ));
+  if(exact.length > 0) return exact;
+
+  if(entry.bucket !== 'taxable') return [];
+  if(entry.typeId === 'brokerage_taxable'){
+    const ownedBrokerages = ledger.filter(account => (
+      account.bucket === 'taxable'
+        && account.owner === entry.owner
+        && account.taxCharacter === 'capital_asset'
+    ));
+    if(ownedBrokerages.length > 0) return ownedBrokerages;
+    return ledger.filter(account => (
+      account.bucket === 'taxable'
+        && account.owner === 'unattributed'
+        && account.typeId === 'joint_brokerage'
+        && account.taxCharacter === 'capital_asset'
+    ));
+  }
+  return [];
+}
+
 export function applyProjectionContributions(ledger, frame, annualByBucket, savingsEntries = []){
   const contributionsById = Object.fromEntries(ledger.map(account => [account.id, 0]));
   const explicitByBucket = Object.fromEntries(BUCKET_KEYS.map(bucket => [bucket, 0]));
   for(const entry of savingsEntries){
     const amount = Number(entry?.amount) || 0;
     if(amount <= 0) continue;
-    const candidates = ledger.filter(account => (
-      account.bucket === entry.bucket
-        && account.owner === entry.owner
-        && account.typeId === entry.typeId
-    ));
+    const candidates = savingsEntryCandidates(ledger, entry);
     if(candidates.length === 0){
       throw allocationError(
         'SAVINGS_ACCOUNT_DESTINATION_UNAVAILABLE',

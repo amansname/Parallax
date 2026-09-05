@@ -43,7 +43,10 @@ import { buildSimulationRows } from '../ui/cashflow.js';
 import { createCashFlowController } from './scenarios/createCashFlowController.js';
 import { HISTORICAL_PERIODS } from './scenarios/historicalPeriods.js';
 
-import { withoutRemovedScenarioLevers } from './scenarios/scenarioLevers.js';
+import {
+  baselineSnapshotForScenarios,
+  withoutRemovedScenarioLevers,
+} from './scenarios/scenarioLevers.js';
 import { installDesignSystemPrimitives } from '../ui/designSystemPrimitives.js';
 import { scenarios, sharedPaths, plansDirty, baseSnapshot, pathReplay, refreshPathSeed, cashFlowPathSelection, saveCashFlowPathSelection, uiState } from './state.js';
 /* ╔══════════════════════════════════════════════════════════════╗
@@ -414,7 +417,7 @@ if(isHouseholdStorageBlocked() || !activeHouseholdId){
   uiState.scenarios = loadScenarios() || defaultScenarios();
 }
 
-uiState.baseSnapshot=defaultLevers();   // base lever values; used to preserve deltas
+uiState.baseSnapshot=baselineSnapshotForScenarios(defaultLevers(), scenarios);
 
 // Re-seed scenarios from the current base, keeping each scenario's adjustment.
 // Every plan edit funnels through here, then persists the plan and scenarios.
@@ -601,7 +604,7 @@ function switchHousehold(id){
   if(!readOnly) persistActiveId();
   hydratePlan(householdsDb[id]);
   uiState.scenarios = loadScenarios(id) || defaultScenarios();
-  uiState.baseSnapshot = defaultLevers();
+  uiState.baseSnapshot = baselineSnapshotForScenarios(defaultLevers(), uiState.scenarios);
   if(!readOnly) saveScenarios();
   hhLoadRecord('Loaded ' + ((plan.meta && plan.meta.name) || 'household'));
 }

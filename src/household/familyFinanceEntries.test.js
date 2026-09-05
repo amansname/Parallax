@@ -156,7 +156,7 @@ test('savings entries preserve ownership while feeding the existing annual and s
   assert.equal(resolved.savingsSplit.taxable, 24_000 / 68_300);
 });
 
-test('the first explicit savings entry preserves a legacy aggregate as unallocated savings', () => {
+test('the first explicit savings entry replaces an invisible legacy aggregate', () => {
   const value = subject();
   value.savings = {
     annual: 10_000,
@@ -166,31 +166,40 @@ test('the first explicit savings entry preserves a legacy aggregate as unallocat
     mode: 'savings', typeId: 'roth_ira', owner: 'spouse', amount: 6_000,
   });
 
-  assert.equal(value.savings.unallocatedAnnual, 10_000);
-  assert.deepEqual(value.savings.unallocatedSplit, {
-    taxable: 0.25,
-    traditional: 0.75,
-    roth: 0,
+  assert.equal(Object.hasOwn(value.savings, 'unallocatedAnnual'), false);
+  assert.equal(Object.hasOwn(value.savings, 'unallocatedSplit'), false);
+  assert.equal(value.savings.annual, 6_000);
+  assert.deepEqual(value.savings.split, {
+    taxable: 0,
+    traditional: 0,
+    roth: 1,
   });
-  assert.equal(value.savings.annual, 16_000);
-  assert.equal(value.savings.split.taxable, 2_500 / 16_000);
-  assert.equal(value.savings.split.traditional, 7_500 / 16_000);
-  assert.equal(value.savings.split.roth, 6_000 / 16_000);
 });
 
-test('an empty explicit collection still preserves a legacy aggregate before the first entry', () => {
+test('editing a persisted itemized entry removes the hidden aggregate from PR 259', () => {
   const value = subject();
   value.savings = {
-    annual: 10_000,
-    split: { taxable: 0.25, traditional: 0.75, roth: 0 },
-    entries: [],
+    annual: 16_000,
+    split: { taxable: 0.25, traditional: 0.375, roth: 0.375 },
+    unallocatedAnnual: 10_000,
+    unallocatedSplit: { taxable: 0.4, traditional: 0.6, roth: 0 },
+    entries: [{
+      id: 'savings_spouse_roth',
+      typeId: 'roth_ira',
+      label: 'Roth IRA',
+      owner: 'spouse',
+      amount: 6_000,
+      bucket: 'roth',
+    }],
   };
   addFamilyFinanceEntry(value, {
-    mode: 'savings', typeId: 'roth_ira', owner: 'spouse', amount: 6_000,
+    mode: 'savings', typeId: 'roth_ira', owner: 'spouse', amount: 7_000,
   });
 
-  assert.equal(value.savings.unallocatedAnnual, 10_000);
-  assert.equal(value.savings.annual, 16_000);
+  assert.equal(Object.hasOwn(value.savings, 'unallocatedAnnual'), false);
+  assert.equal(Object.hasOwn(value.savings, 'unallocatedSplit'), false);
+  assert.equal(value.savings.annual, 7_000);
+  assert.deepEqual(value.savings.split, { taxable: 0, traditional: 0, roth: 1 });
 });
 
 test('unsupported and zero-value entries fail closed without changing the plan', () => {

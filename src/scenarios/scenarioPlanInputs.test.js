@@ -12,7 +12,10 @@ import {
   applyScenarioPlanInputs,
   resolveCurrentScenarioAllocation,
 } from './scenarioPlanInputs.js';
-import { withoutRemovedScenarioLevers } from './scenarioLevers.js';
+import {
+  baselineSnapshotForScenarios,
+  withoutRemovedScenarioLevers,
+} from './scenarioLevers.js';
 
 function account(id, typeId, balance, investmentAllocation){
   return { id, typeId, balance, investmentAllocation };
@@ -78,6 +81,21 @@ test('removed Scenarios decisions are stripped without mutating retained levers'
   assert.equal(saved.sellAge, 72);
   assert.deepEqual(withoutRemovedScenarioLevers(null), {});
   assert.deepEqual(withoutRemovedScenarioLevers([]), {});
+});
+
+test('a repaired household preserves scenario deltas against its saved baseline', () => {
+  const defaultsAfterRepair = { savings: 59_000, retireAge: 65, risk: 3 };
+  const savedScenarios = [
+    { base: true, lev: { savings: 105_000, retireAge: 70, risk: 5 } },
+    { base: false, lev: { savings: 105_000, retireAge: 67, risk: 5 } },
+  ];
+
+  assert.deepEqual(
+    baselineSnapshotForScenarios(defaultsAfterRepair, savedScenarios),
+    { savings: 105_000, retireAge: 65, risk: 3 },
+  );
+  assert.deepEqual(defaultsAfterRepair, { savings: 59_000, retireAge: 65, risk: 3 });
+  assert.equal(savedScenarios[0].lev.savings, 105_000);
 });
 
 test('Scenario allocation selection reports one shared preset and preserves a mixed current plan', () => {

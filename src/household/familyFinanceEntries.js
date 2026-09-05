@@ -5,6 +5,7 @@ import {
   retirementAgeForOwner,
 } from './incomeTaxModel.js';
 import { newWizardRowId } from './householdRecordSchema.js';
+import { writeItemizedSavingsAggregate } from './savingsPlan.js';
 
 const freezeRows = rows => Object.freeze(
   rows.map(row => Object.freeze({ ...row })),
@@ -121,21 +122,6 @@ function addIncomeEntry(plan, typeId, owner, amount){
   plan.income.other.push(row);
 }
 
-function normalizedLegacySplit(split){
-  const values = {
-    taxable: Math.max(0, Number(split?.taxable) || 0),
-    traditional: Math.max(0, Number(split?.traditional) || 0),
-    roth: Math.max(0, Number(split?.roth) || 0),
-  };
-  const total = values.taxable + values.traditional + values.roth;
-  if(total <= 0) return { taxable: 0, traditional: 1, roth: 0 };
-  return {
-    taxable: values.taxable / total,
-    traditional: values.traditional / total,
-    roth: values.roth / total,
-  };
-}
-
 function ensureSavingsEntries(plan){
   if(!plan.savings || typeof plan.savings !== 'object'){
     plan.savings = {
@@ -143,52 +129,12 @@ function ensureSavingsEntries(plan){
       split: { taxable: 0, traditional: 1, roth: 0 },
     };
   }
-  if(Array.isArray(plan.savings.entries)){
-    if(plan.savings.entries.length === 0
-        && plan.savings.unallocatedAnnual == null
-        && Math.max(0, Number(plan.savings.annual) || 0) > 0){
-      plan.savings.unallocatedAnnual = Math.max(0, Number(plan.savings.annual) || 0);
-      plan.savings.unallocatedSplit = normalizedLegacySplit(plan.savings.split);
-    }
-    return plan.savings.entries;
-  }
-
-  const legacyAnnual = Math.max(0, Number(plan.savings.annual) || 0);
-  plan.savings.entries = [];
-  if(legacyAnnual > 0){
-    plan.savings.unallocatedAnnual = legacyAnnual;
-    plan.savings.unallocatedSplit = normalizedLegacySplit(plan.savings.split);
-  }
+  if(!Array.isArray(plan.savings.entries)) plan.savings.entries = [];
   return plan.savings.entries;
 }
 
 export function syncSavingsAggregate(plan){
-  const entries = Array.isArray(plan.savings?.entries)
-    ? plan.savings.entries
-    : [];
-  const legacyAnnual = Math.max(0, Number(plan.savings?.unallocatedAnnual) || 0);
-  const legacySplit = normalizedLegacySplit(plan.savings?.unallocatedSplit);
-  const totals = {
-    taxable: legacyAnnual * legacySplit.taxable,
-    traditional: legacyAnnual * legacySplit.traditional,
-    roth: legacyAnnual * legacySplit.roth,
-  };
-  for(const entry of entries){
-    if(!Object.hasOwn(totals, entry.bucket)){
-      throw new Error(`Unsupported savings bucket: ${entry.bucket}`);
-    }
-    totals[entry.bucket] += positiveAmount(entry.amount);
-  }
-  const annual = totals.taxable + totals.traditional + totals.roth;
-  plan.savings.annual = annual;
-  plan.savings.split = annual > 0
-    ? {
-        taxable: totals.taxable / annual,
-        traditional: totals.traditional / annual,
-        roth: totals.roth / annual,
-      }
-    : { taxable: 0, traditional: 1, roth: 0 };
-  return { annual, totals };
+  return writeItemizedSavingsAggregate(plan);
 }
 
 function addSavingsEntry(plan, typeId, owner, amount){

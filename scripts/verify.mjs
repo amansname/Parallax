@@ -33,6 +33,7 @@ import { verifyJoeStartupPersistence } from './browser/persistence-startup.mjs';
 import { verifySavedHouseholdSelection } from './browser/persistence-startup.mjs';
 import { verifyScenarioStorageScope } from './browser/persistence-startup.mjs';
 import { verifySchemaMerge } from './browser/persistence-migration.mjs';
+import { verifyFamilySavingsRepair } from './browser/persistence-migration.mjs';
 import { verifyCorruptStorage } from './browser/persistence-migration.mjs';
 import { verifyReadOnlyPersistence } from './browser/persistence-read-only.mjs';
 import { verifyHouseholdDeletion } from './browser/persistence-deletion.mjs';
@@ -373,6 +374,10 @@ try {
     page,
     stableReload,
     stableClick
+  }));
+  await step('persistence: Family savings repair restores totals and all Scenarios', () => verifyFamilySavingsRepair({
+    page,
+    stableReload
   }));
   await step('persistence: corrupt origin bytes are preserved while current defaults remain usable', () => verifyCorruptStorage({
     page,
