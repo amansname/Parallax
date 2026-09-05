@@ -43,7 +43,7 @@ export async function verifyJoeStartupPersistence({
     spouseAge: document.querySelector('[data-hh-age="spouse"]')?.textContent.trim() || ''
   }));
   if (!s.db || typeof s.db !== 'object') throw new Error('households store not created on first load');
-  const expectedFirstLoadIds = [...Object.keys(WITHDRAWAL_PLANNER_ORACLE.households), 'joe-household'].sort();
+  const expectedFirstLoadIds = [...Object.keys(WITHDRAWAL_PLANNER_ORACLE.households), 'joe-household'].sort((left, right) => left.localeCompare(right));
   const actualFirstLoadIds = Object.keys(s.db).sort();
   if (JSON.stringify(actualFirstLoadIds) !== JSON.stringify(expectedFirstLoadIds)) {
     throw new Error(`first-load household set is wrong: ${JSON.stringify({
@@ -222,7 +222,7 @@ export async function verifySavedHouseholdSelection({
     timeout: 10000
   }, customId);
   const savedCustomBytes = await page.evaluate(id => JSON.stringify(JSON.parse(localStorage.getItem('parallax.households.v1') || 'null')?.[id]), customId);
-  const expectedCreatedIds = [...Object.keys(WITHDRAWAL_PLANNER_ORACLE.households), 'joe-household', customId].sort();
+  const expectedCreatedIds = [...Object.keys(WITHDRAWAL_PLANNER_ORACLE.households), 'joe-household', customId].sort((left, right) => left.localeCompare(right));
   const actualCreatedIds = Object.keys(created.db).sort();
   if (JSON.stringify(actualCreatedIds) !== JSON.stringify(expectedCreatedIds)) {
     throw new Error(`household set after New is wrong: ${JSON.stringify({

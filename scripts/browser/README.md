@@ -2,22 +2,15 @@
 
 Run `npm run verify` from the repository root. `scripts/verify.mjs` owns the
 ordered campaign, immutable-artifact setup, unit-test invocation, per-contract
-timing, and final browser-error check. Required CI browser jobs set
-`PARALLAX_VERIFY_SKIP_UNIT_TESTS=1` only after their required Unit tests dependency
-passes. Pull requests always select the short `startup` smoke shard and add only
-the affected `wizard`, `planning`, or `persistence` shards from the merge-base
-diff. Main, scheduled, and manually dispatched runs select all four shards.
-The isolated shards run in parallel through `PARALLAX_VERIFY_SHARD`, have a
-five-minute ceiling, and feed the single required `Full browser verification`
-aggregate. The CI `wizard` shard uses the focused semantic smoke profile; Local
-`npm run verify` selects no shard and retains the complete unit-plus-browser gate. The
+timing, and final browser-error check. The required CI browser job may set
+`PARALLAX_VERIFY_SKIP_UNIT_TESTS=1` only after its required Unit tests dependency
+passes; local `npm run verify` retains the complete unit-plus-browser gate. The
 canonical origin remains `http://127.0.0.1:8825/`. No feature module is a
 standalone preview server or an alternative gate.
 
-Checks inside each shard are deliberately sequential because later checks can
-depend on state created earlier in that shard. CI may parallelize only the four
-documented shards, each of which starts with its own browser and saved state. Do
-not parallelize individual steps or reset saved state to make an assertion pass.
+The campaign is deliberately sequential. Later checks depend on household,
+scenario, and browser state created by earlier checks. Do not parallelize the
+steps or reset saved state to make an assertion pass.
 
 - `artifact.mjs`, `artifact-server.mjs`, and `browser-session.mjs` retain artifact
   identity, server boundaries, browser setup, and transport diagnostics.

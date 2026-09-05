@@ -19,10 +19,8 @@ export { captureWizardScreens } from './browser/wizard/capture.mjs';
 export { attachBrowserDiagnostics } from './browser/wizard/diagnostics.mjs';
 export async function runWizardBrowserContract(page, {
   outDir = null,
-  restoreStorageAfter = true,
-  profile = 'full'
+  restoreStorageAfter = true
 } = {}) {
-  requireCondition(['full', 'smoke'].includes(profile), `Unsupported wizard browser profile "${profile}"`);
   if (outDir) mkdirSync(outDir, {
     recursive: true
   });
@@ -35,45 +33,40 @@ export async function runWizardBrowserContract(page, {
     await openWizard(page);
     originalStorage = await snapshotStorage(page);
     originalHouseholdId = await page.$eval('#hh-switch', selector => selector.value || null);
-    if (profile === 'smoke') {
-      await prepareContractFixture(page);
-      await assertFourStepStructure(page);
-    } else {
-      const expectedNameOnlyBytes = await seedStaleCopyMigrationFixture(page);
-      await page.reload({
-        waitUntil: 'networkidle2',
-        timeout: 20000
-      });
-      await waitForWizard(page, {
-        householdId: 'joe-household'
-      });
-      await verifyJoeStartupAndNowSelection(page, expectedNameOnlyBytes);
-      await verifyRuntimeTemplateSessionIsolation(page);
-      await prepareContractFixture(page);
-      await assertFourStepStructure(page);
-      await verifyFamilyPropagation(page);
-      await verifyNetWorthFlow(page);
-      await verifyPlanningSourceAndTaxFlow(page);
-      await verifyAssetAllocationPersistenceFlow(page);
-      await verifyAutoSaveReloadAndMemberWages(page);
-      await verifyDuplicateRepair(page);
-      const viewports = [{
-        label: 'desktop',
-        width: 1440,
-        height: 900
-      }, {
-        label: 'narrow',
-        width: 1180,
-        height: 850
-      }, {
-        label: 'mobile',
-        width: 390,
-        height: 844
-      }];
-      for (const viewport of viewports) {
-        for (const step of WIZARD_STEP_IDS) {
-          await assertViewport(page, viewport, step, outDir, `wizard-${step}-${viewport.label}.png`);
-        }
+    const expectedNameOnlyBytes = await seedStaleCopyMigrationFixture(page);
+    await page.reload({
+      waitUntil: 'networkidle2',
+      timeout: 20000
+    });
+    await waitForWizard(page, {
+      householdId: 'joe-household'
+    });
+    await verifyJoeStartupAndNowSelection(page, expectedNameOnlyBytes);
+    await verifyRuntimeTemplateSessionIsolation(page);
+    await prepareContractFixture(page);
+    await assertFourStepStructure(page);
+    await verifyFamilyPropagation(page);
+    await verifyNetWorthFlow(page);
+    await verifyPlanningSourceAndTaxFlow(page);
+    await verifyAssetAllocationPersistenceFlow(page);
+    await verifyAutoSaveReloadAndMemberWages(page);
+    await verifyDuplicateRepair(page);
+    const viewports = [{
+      label: 'desktop',
+      width: 1440,
+      height: 900
+    }, {
+      label: 'narrow',
+      width: 1180,
+      height: 850
+    }, {
+      label: 'mobile',
+      width: 390,
+      height: 844
+    }];
+    for (const viewport of viewports) {
+      for (const step of WIZARD_STEP_IDS) {
+        await assertViewport(page, viewport, step, outDir, `wizard-${step}-${viewport.label}.png`);
       }
     }
   } catch (error) {

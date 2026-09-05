@@ -273,12 +273,9 @@ const workflow = requireText('.github/workflows/test.yml', [
   'name: Build deployable site artifact',
   'run: npm run site:build',
   'run: npm run site:verify',
-  'needs: [artifact, unit, browser_plan]',
-  'name: Browser verification plan',
-  'shard: ${{ fromJSON(needs.browser_plan.outputs.shards) }}',
+  'needs: [artifact, unit]',
   'PARALLAX_ARTIFACT_ROOT: .parallax-artifact',
   "PARALLAX_VERIFY_SKIP_UNIT_TESTS: '1'",
-  'PARALLAX_VERIFY_SHARD: ${{ matrix.shard }}',
   'PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome',
   'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a',
 ]);
@@ -297,9 +294,9 @@ if(!Array.isArray(configuredPushBranches)
   failures.push('.github/workflows/test.yml must run push quality only on main; feature branches use the pull_request run');
 }
 const qualityJobs = Object.keys(workflowConfig?.jobs || {}).sort();
-if(qualityJobs.length !== 6
-  || ['artifact', 'browser', 'browser_plan', 'browser_shard', 'lint', 'unit'].some(job => !qualityJobs.includes(job))){
-  failures.push('.github/workflows/test.yml must contain only lint, unit, artifact, browser_plan, browser_shard, and browser jobs; reviewer governance belongs to PR evidence');
+if(qualityJobs.length !== 4
+  || ['artifact', 'browser', 'lint', 'unit'].some(job => !qualityJobs.includes(job))){
+  failures.push('.github/workflows/test.yml must contain only lint, unit, artifact, and browser jobs; reviewer governance belongs to PR evidence');
 }
 const lintJob = workflowConfig?.jobs?.lint;
 const lintCheckout = lintJob?.steps?.find(step => String(step?.uses || '').startsWith('actions/checkout@'));
@@ -311,31 +308,17 @@ if(lintJob?.name !== 'ESLint'
   failures.push('.github/workflows/test.yml ESLint must lint the full PR merge-base range in its own pull-request job');
 }
 const unitJob = workflowConfig?.jobs?.unit;
-const browserPlanJob = workflowConfig?.jobs?.browser_plan;
-const browserShardJob = workflowConfig?.jobs?.browser_shard;
 const browserJob = workflowConfig?.jobs?.browser;
 if(!unitJob?.steps?.some(step => step?.run === 'npm test')
-  || browserPlanJob?.name !== 'Browser verification plan'
-  || browserPlanJob?.outputs?.shards !== '${{ steps.plan.outputs.shards }}'
-  || !browserPlanJob?.steps?.some(step => step?.run === 'echo "shards=$(node scripts/browser/verification-plan.mjs)" >> "$GITHUB_OUTPUT"')
-  || !Array.isArray(browserShardJob?.needs)
-  || browserShardJob.needs.length !== 3
-  || !browserShardJob.needs.includes('artifact')
-  || !browserShardJob.needs.includes('unit')
-  || !browserShardJob.needs.includes('browser_plan')
-  || browserShardJob?.['timeout-minutes'] !== 5
-  || browserShardJob?.strategy?.['fail-fast'] !== false
-  || browserShardJob?.strategy?.matrix?.shard !== '${{ fromJSON(needs.browser_plan.outputs.shards) }}'
-  || browserShardJob?.env?.PARALLAX_VERIFY_SKIP_UNIT_TESTS !== '1'
-  || browserShardJob?.env?.PARALLAX_VERIFY_SHARD !== '${{ matrix.shard }}'
-  || !browserShardJob?.steps?.some(step => step?.run === 'npm run verify')
-  || browserShardJob?.steps?.some(step => step?.run === 'npm test')
-  || browserJob?.name !== 'Full browser verification'
-  || browserJob?.if !== 'always()'
-  || JSON.stringify(browserJob?.needs) !== JSON.stringify(['browser_shard'])
-  || browserJob?.['timeout-minutes'] !== 2
-  || !browserJob?.steps?.some(step => step?.run === 'test "$SHARD_RESULT" = "success"')){
-  failures.push('.github/workflows/test.yml must prove units once, run four change-aware browser shards in parallel with a five-minute ceiling, and aggregate their result');
+  || !Array.isArray(browserJob?.needs)
+  || browserJob.needs.length !== 2
+  || !browserJob.needs.includes('artifact')
+  || !browserJob.needs.includes('unit')
+  || browserJob?.['timeout-minutes'] !== 30
+  || browserJob?.env?.PARALLAX_VERIFY_SKIP_UNIT_TESTS !== '1'
+  || !browserJob?.steps?.some(step => step?.run === 'npm run verify')
+  || browserJob?.steps?.some(step => step?.run === 'npm test')){
+  failures.push('.github/workflows/test.yml must prove units once, then run the measured browser verifier with a 30-minute ceiling');
 }
 for(const forbidden of ['npm run governance:check', 'npm run governance:pr', 'validate-pr-authorship.mjs']){
   if(workflow.includes(forbidden)){
