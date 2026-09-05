@@ -273,8 +273,9 @@ const workflow = requireText('.github/workflows/test.yml', [
   'name: Build deployable site artifact',
   'run: npm run site:build',
   'run: npm run site:verify',
-  'needs: artifact',
+  'needs: [artifact, unit]',
   'PARALLAX_ARTIFACT_ROOT: .parallax-artifact',
+  "PARALLAX_VERIFY_SKIP_UNIT_TESTS: '1'",
   'PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome',
   'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a',
 ]);
@@ -293,9 +294,9 @@ if(!Array.isArray(configuredPushBranches)
   failures.push('.github/workflows/test.yml must run push quality only on main; feature branches use the pull_request run');
 }
 const qualityJobs = Object.keys(workflowConfig?.jobs || {}).sort();
-if(qualityJobs.length !== 4
-  || ['artifact', 'browser', 'lint', 'unit'].some(job => !qualityJobs.includes(job))){
-  failures.push('.github/workflows/test.yml must contain only lint, unit, artifact, and browser jobs; reviewer governance belongs to PR evidence');
+if(qualityJobs.length !== 5
+  || ['artifact', 'browser', 'browser-groups', 'lint', 'unit'].some(job => !qualityJobs.includes(job))){
+  failures.push('.github/workflows/test.yml must contain only lint, unit, artifact, browser-groups, and the browser aggregate; reviewer governance belongs to PR evidence');
 }
 const lintJob = workflowConfig?.jobs?.lint;
 const lintCheckout = lintJob?.steps?.find(step => String(step?.uses || '').startsWith('actions/checkout@'));
@@ -305,6 +306,47 @@ if(lintJob?.name !== 'ESLint'
   || lintCheckout?.with?.['fetch-depth'] !== 0
   || !lintJob?.steps?.some(step => step?.run === 'npm run lint:changed')){
   failures.push('.github/workflows/test.yml ESLint must lint the full PR merge-base range in its own pull-request job');
+}
+const unitJob = workflowConfig?.jobs?.unit;
+const browserJob = workflowConfig?.jobs?.browser;
+const browserGroups = workflowConfig?.jobs?.['browser-groups'];
+const requiredBrowserGroups = ['entry', 'wizard-runtime', 'wizard-forms', 'scenarios', 'cashflow', 'persistence'];
+const browserVerify = browserGroups?.steps?.find(step => step?.run === 'npm run verify');
+const browserCheckout = browserGroups?.steps?.find(step => String(step?.uses || '').startsWith('actions/checkout@'));
+const browserDownload = browserGroups?.steps?.find(step => String(step?.uses || '').startsWith('actions/download-artifact@'));
+const browserUpload = browserGroups?.steps?.find(step => String(step?.uses || '').startsWith('actions/upload-artifact@'));
+if(!unitJob?.steps?.some(step => step?.run === 'npm test')
+  || JSON.stringify(browserGroups?.needs) !== JSON.stringify(['artifact', 'unit'])
+  || browserGroups?.['timeout-minutes'] !== 15
+  || browserGroups?.['runs-on'] !== 'ubuntu-latest'
+  || browserGroups?.if !== undefined
+  || browserGroups?.strategy?.['fail-fast'] !== false
+  || JSON.stringify(browserGroups?.strategy?.matrix) !== JSON.stringify({ group: requiredBrowserGroups })
+  || browserGroups?.env?.PARALLAX_VERIFY_SKIP_UNIT_TESTS !== '1'
+  || browserGroups?.env?.PARALLAX_VERIFY_BROWSER_GROUP !== '${{ matrix.group }}'
+  || browserGroups?.env?.PARALLAX_ARTIFACT_ROOT !== '.parallax-artifact'
+  || !browserVerify || browserVerify.if !== undefined
+  || browserGroups?.steps?.some(step => step?.run === 'npm test')
+  || browserCheckout?.with?.ref !== '${{ env.CANDIDATE_SHA }}'
+  || browserDownload?.with?.name !== 'parallax-site-${{ env.CANDIDATE_SHA }}'
+  || browserDownload?.with?.path !== '.parallax-artifact'
+  || !browserGroups?.steps?.some(step => step?.run === 'npm run site:verify')
+  || browserUpload?.if !== 'always()'
+  || browserUpload?.with?.name !== 'parallax-browser-verification-${{ env.CANDIDATE_SHA }}-${{ matrix.group }}'){
+  failures.push('.github/workflows/test.yml must run all six browser groups on the same verified candidate artifact after unit proof, with 15-minute ceilings and distinct evidence artifacts');
+}
+const browserGate = browserJob?.steps?.[0];
+if(browserJob?.name !== 'Full browser verification'
+  || JSON.stringify(browserJob?.needs) !== JSON.stringify(['artifact', 'unit', 'browser-groups'])
+  || browserJob?.if !== 'always()'
+  || browserJob?.steps?.length !== 1
+  || browserGate?.if !== undefined
+  || browserGate?.env?.NEEDS_RESULTS !== '${{ toJSON(needs) }}'
+  || !browserGate?.run?.includes("for (const job of ['artifact', 'unit', 'browser-groups'])")
+  || !browserGate?.run?.includes("results[job]?.result !== 'success'")
+  || !browserGate?.run?.includes('process.exitCode = 1;')
+  || /npm|verify\.mjs/.test(browserGate?.run || '')){
+  failures.push('.github/workflows/test.yml Full browser verification must reject every non-success prerequisite or browser group result without repeating the campaign');
 }
 for(const forbidden of ['npm run governance:check', 'npm run governance:pr', 'validate-pr-authorship.mjs']){
   if(workflow.includes(forbidden)){

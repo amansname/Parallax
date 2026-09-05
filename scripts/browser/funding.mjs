@@ -1,5 +1,5 @@
 // Existing browser assertions; run by scripts/verify.mjs in campaign order.
-import { waitForUnselectedWizard } from '../wizard-browser-contract.mjs';
+import { waitForWizard } from '../wizard-browser-contract.mjs';
 import { selectHouseholdVisible } from '../wizard-browser-contract.mjs';
 import { join } from 'node:path';
 import { resetSeed } from '../../engine.js';
@@ -129,7 +129,9 @@ export async function verifyFundingAcrossGoals({
   await stableReload({
     waitUntil: 'networkidle0'
   });
-  await waitForUnselectedWizard(page);
+  await waitForWizard(page, {
+    householdId: 'joe-household'
+  });
   await stableClick('.htab[data-page="household"]');
   await selectHouseholdVisible(page, withdrawalPlannerFixtureHouseholdId);
   const openFundingGoal = async ({
@@ -506,7 +508,9 @@ export async function verifyTaxFundedProbability({
   await stableReload({
     waitUntil: 'networkidle0'
   });
-  await waitForUnselectedWizard(page);
+  await waitForWizard(page, {
+    householdId: 'joe-household'
+  });
   await stableClick('.htab[data-page="household"]');
   await selectHouseholdVisible(page, withdrawalPlannerFixtureHouseholdId);
   await sleep(1200);

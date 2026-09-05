@@ -1,6 +1,6 @@
 // Existing browser assertions; run by scripts/verify.mjs in campaign order.
 import { join } from 'node:path';
-import { waitForUnselectedWizard } from '../wizard-browser-contract.mjs';
+import { waitForWizard } from '../wizard-browser-contract.mjs';
 import { selectHouseholdVisible } from '../wizard-browser-contract.mjs';
 export async function verifyCompareView({
   page,
@@ -235,7 +235,9 @@ export async function verifyZeroBaseSavings({
     waitUntil: 'networkidle2',
     timeout: 20000
   });
-  await waitForUnselectedWizard(page);
+  await waitForWizard(page, {
+    householdId: 'joe-household'
+  });
   await stableClick('.htab[data-page="household"]');
   await selectHouseholdVisible(page, withdrawalPlannerFixtureHouseholdId);
   await stableClick('button[data-page="scenarios"]');

@@ -6,8 +6,7 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
 
-permissions:
-  contents: read
+permissions: {}
 
 env:
   CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -16,6 +15,8 @@ env:
 jobs:
   lint:
     name: ESLint
+    permissions:
+      contents: read
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     env:
@@ -35,6 +36,8 @@ jobs:
 
   unit:
     name: Unit tests
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -50,6 +53,8 @@ jobs:
 
   artifact:
     name: Build deployable site artifact
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -71,13 +76,21 @@ jobs:
           include-hidden-files: true
           retention-days: 14
 
-  browser:
-    name: Full browser verification
-    needs: artifact
+  browser-groups:
+    name: Browser contracts (${{ matrix.group }})
+    permissions:
+      contents: read
+    needs: [artifact, unit]
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [entry, wizard-runtime, wizard-forms, scenarios, cashflow, persistence]
     env:
       PARALLAX_ARTIFACT_ROOT: .parallax-artifact
+      PARALLAX_VERIFY_SKIP_UNIT_TESTS: '1'
+      PARALLAX_VERIFY_BROWSER_GROUP: ${{ matrix.group }}
       PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -101,7 +114,29 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: parallax-browser-verification-${{ env.CANDIDATE_SHA }}
+          name: parallax-browser-verification-${{ env.CANDIDATE_SHA }}-${{ matrix.group }}
           path: verify-out/
           if-no-files-found: warn
           retention-days: 14
+
+  browser:
+    name: Full browser verification
+    permissions:
+      contents: read
+    needs: [artifact, unit, browser-groups]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every browser group and its prerequisites
+        env:
+          NEEDS_RESULTS: ${{ toJSON(needs) }}
+        run: |
+          node <<'NODE'
+          const results = JSON.parse(process.env.NEEDS_RESULTS);
+          for (const job of ['artifact', 'unit', 'browser-groups']) {
+            if (results[job]?.result !== 'success') {
+              console.error(`${job}: ${results[job]?.result ?? 'missing'}`);
+              process.exitCode = 1;
+            }
+          }
+          NODE

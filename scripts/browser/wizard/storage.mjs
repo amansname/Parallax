@@ -22,8 +22,8 @@ export async function restoreStorage(page, snapshot) {
   }, snapshot);
 }
 export function stableStorageSnapshot(snapshot) {
-  const runtimeRecordIds = new Set(['demo', 'default-pre-retirement-solo', 'default-pre-retirement-couple', 'now-household', 'future-household']);
-  const runtimeScenarioIds = new Set(['now-household', 'future-household']);
+  const runtimeRecordIds = new Set(['demo', 'default-pre-retirement-solo', 'default-pre-retirement-couple', 'now-household', 'future-household', 'joe-household']);
+  const runtimeScenarioIds = new Set(['now-household', 'future-household', 'joe-household']);
   const ownerStorage = Object.fromEntries(Object.entries(snapshot || {}).flatMap(([key, value]) => {
     if (key === 'parallax.activeHouseholdId') return [];
     if (key.startsWith('parallax.scenarios.')) {

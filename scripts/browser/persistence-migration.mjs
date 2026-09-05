@@ -1,5 +1,4 @@
 // Existing browser assertions; run by scripts/verify.mjs in campaign order.
-import { waitForUnselectedWizard } from '../wizard-browser-contract.mjs';
 import { waitForWizard } from '../wizard-browser-contract.mjs';
 import { goToWizardStep } from '../wizard-browser-contract.mjs';
 export async function verifySchemaMerge({
@@ -23,7 +22,9 @@ export async function verifySchemaMerge({
     waitUntil: 'networkidle2',
     timeout: 20000
   });
-  await waitForUnselectedWizard(page);
+  await waitForWizard(page, {
+    householdId: 'joe-household'
+  });
   const merged = await page.evaluate(id => {
     const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
     return {
@@ -34,8 +35,8 @@ export async function verifySchemaMerge({
   }, customId);
   if (merged.active !== null || merged.record?.meta?.primaryName !== 'Custom Saved' || merged.record?.income?.socialSecurity?.primary?.pia !== 7777) throw new Error(`schema merge overwrote saved custom values: ${JSON.stringify(merged)}`);
   if (merged.record.income.socialSecurity.primary.claimAge !== 67) throw new Error(`schema merge did not add missing claimAge=67: ${JSON.stringify(merged.record.income.socialSecurity)}`);
-  if (merged.db['now-household']?.meta?.primaryName !== 'Aboysname' || merged.db['future-household']?.meta?.primaryName !== 'amansname') {
-    throw new Error(`bootstrap did not refresh both shipped templates: ${JSON.stringify(merged.db)}`);
+  if (merged.db['now-household']?.meta?.primaryName !== 'Aboysname' || merged.db['future-household']?.meta?.primaryName !== 'amansname' || merged.db['joe-household']?.meta?.primaryName !== 'Joe') {
+    throw new Error(`bootstrap did not refresh all shipped templates: ${JSON.stringify(merged.db)}`);
   }
   await page.select('#hh-switch', customId);
   await waitForWizard(page, {
@@ -92,7 +93,9 @@ export async function verifyCorruptStorage({
     waitUntil: 'networkidle2',
     timeout: 20000
   });
-  await waitForUnselectedWizard(page);
+  await waitForWizard(page, {
+    householdId: 'joe-household'
+  });
   await page.waitForFunction(expected => document.querySelector('#status')?.textContent.trim() === expected, {
     timeout: 10000
   }, readOnly);
@@ -126,12 +129,12 @@ export async function verifyCorruptStorage({
     newDisabled: Boolean(document.querySelector('#hh-new')?.disabled),
     enabledFields: document.querySelectorAll('#hh-view input:not(:disabled), #hh-view select:not(:disabled), #hh-view textarea:not(:disabled)').length
   }));
-  for (const expected of [['now-household', 'Now Household'], ['future-household', 'Future Household']]) {
+  for (const expected of [['now-household', 'Now Household'], ['future-household', 'Future Household'], ['joe-household', 'Joe Household']]) {
     if (!startup.options.some(option => option.value === expected[0] && option.label === expected[1])) {
       throw new Error(`corrupt-origin recovery omitted current default ${expected[0]}: ${JSON.stringify(startup)}`);
     }
   }
-  if (startup.status !== readOnly || startup.selected || startup.switchDisabled || startup.loadDemoExists || !startup.newDisabled || startup.enabledFields) {
+  if (startup.status !== readOnly || startup.selected !== 'joe-household' || startup.switchDisabled || startup.loadDemoExists || !startup.newDisabled || startup.enabledFields) {
     throw new Error(`corrupt-origin runtime state is not safely usable: ${JSON.stringify(startup)}`);
   }
   await page.select('#hh-switch', 'now-household');

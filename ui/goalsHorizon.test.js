@@ -24,8 +24,20 @@ test('Goals horizon renders retirement-linked goals from the effective retiremen
     getPlan: () => plan,
     isReadOnly: () => false,
   });
+  const handlers = {};
+  const root = {
+    innerHTML: controller.render(),
+    addEventListener(type, handler){ handlers[type] = handler; },
+    querySelector(){ return null; },
+  };
+  controller.bind(root);
+  const chip = { dataset: { goalChip: goal.id } };
+  handlers.click({
+    detail: 0,
+    target: { closest: selector => selector === '[data-goal-chip]' ? chip : null },
+  });
 
-  const html = controller.render();
+  const html = root.innerHTML;
 
   assert.doesNotMatch(html, /NaN|undefined/);
   assert.doesNotMatch(html, /Always part of the plan/);
@@ -104,7 +116,7 @@ test('Goals horizon resolves the live goal after the mutation guard replaces the
   assert.notEqual(plan.goals[0], runtimeGoal);
 });
 
-test('Goals horizon opens the first existing goal once and respects a later close', () => {
+test('Goals horizon opens the goal category chooser first and respects a later close', () => {
   const plan = {
     household: {
       primary: { currentAge: 65, retirementAge: 67, planEndAge: 95 },
@@ -133,20 +145,43 @@ test('Goals horizon opens the first existing goal once and respects a later clos
 
   root.innerHTML = controller.render();
   controller.bind(root);
-  assert.match(root.innerHTML, /data-goal-rail="goal_essentials"/);
+  assert.match(root.innerHTML, /class="gh-rail gh-add-rail"/);
+  assert.match(root.innerHTML, /data-action="toggle-add"[^>]*aria-expanded="true"/);
+  assert.deepEqual(
+    [...root.innerHTML.matchAll(/data-add-category="([^"]+)"/g)].map(match => match[1]),
+    ['travel', 'home', 'vehicle', 'education', 'family', 'giving', 'health', 'custom'],
+  );
+  assert.doesNotMatch(root.innerHTML, /data-goal-rail=/);
 
   handlers.click({
     detail: 1,
     target: {
       closest(selector){
-        if(selector === '[data-action]') return { dataset: { action: 'done' } };
+        if(selector === '[data-action]') return { dataset: { action: 'close' } };
         return null;
       },
     },
   });
 
-  assert.doesNotMatch(root.innerHTML, /data-goal-rail=/);
-  assert.doesNotMatch(controller.render(), /data-goal-rail=/);
+  assert.doesNotMatch(root.innerHTML, /class="gh-rail/);
+  assert.doesNotMatch(controller.render(), /class="gh-rail/);
+});
+
+test('Goals horizon keeps the retirement label clear of the next five-year tick', () => {
+  const controller = createGoalsHorizonController({
+    getPlan: () => ({
+      household: {
+        primary: { currentAge: 60, retirementAge: 64, planEndAge: 95 },
+      },
+      goals: [],
+    }),
+    isReadOnly: () => false,
+  });
+  const tickLabels = [...controller.render().matchAll(
+    /class="gh-tick[^"]*"[^>]*>([^<]+)<\/span>/g,
+  )].map(match => match[1]);
+
+  assert.deepEqual(tickLabels, ['64 · retire', '70', '75', '80', '85', '90', '95']);
 });
 
 test('Goals horizon switches between client or co-client ages and calendar years without changing the saved shape', () => {
@@ -179,6 +214,11 @@ test('Goals horizon switches between client or co-client ages and calendar years
 
   root.innerHTML=controller.render();
   controller.bind(root);
+  const chip={dataset:{goalChip:'goal_travel'}};
+  handlers.click({
+    detail:0,
+    target:{closest:selector=>selector==='[data-goal-chip]' ? chip : null},
+  });
   assert.match(root.innerHTML,/data-action="timing-age"[^>]*aria-pressed="true"/);
   assert.match(root.innerHTML,/data-field="timing-owner"/);
   assert.match(root.innerHTML,/data-field="start-age"[^>]*value="67"/);

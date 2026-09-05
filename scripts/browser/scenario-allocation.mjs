@@ -1,5 +1,5 @@
 // Existing browser assertions; run by scripts/verify.mjs in campaign order.
-import { waitForUnselectedWizard } from '../wizard-browser-contract.mjs';
+import { waitForWizard } from '../wizard-browser-contract.mjs';
 import { selectHouseholdVisible } from '../wizard-browser-contract.mjs';
 export async function verifyScenarioAllocation({
   page,
@@ -48,7 +48,9 @@ export async function verifyScenarioAllocation({
     waitUntil: 'networkidle2',
     timeout: 20000
   });
-  await waitForUnselectedWizard(page);
+  await waitForWizard(page, {
+    householdId: 'joe-household'
+  });
   await page.evaluate(({
     key
   }) => {
@@ -72,7 +74,12 @@ export async function verifyScenarioAllocation({
   });
   await page.waitForFunction(() => {
     const probabilities = [...document.querySelectorAll('#scn-view .scol__prob')].map(element => element.textContent.trim());
-    return probabilities.length === 3 && probabilities.every(value => value && value !== '—%');
+    const medians = [...document.querySelectorAll('#scn-view .scol__median b')].map(element => element.textContent.trim());
+    return probabilities.length === 3
+      && medians.length === 3
+      && probabilities.every(value => value && value !== '—%')
+      && probabilities[1] === probabilities[2]
+      && medians[1] === medians[2];
   }, {
     timeout: 30000
   });
@@ -209,13 +216,30 @@ export async function verifyScenarioAllocation({
     waitUntil: 'networkidle2',
     timeout: 20000
   });
-  await waitForUnselectedWizard(page);
+  await waitForWizard(page, {
+    householdId: 'joe-household'
+  });
   await stableClick('.htab[data-page="household"]');
   await selectHouseholdVisible(page, withdrawalPlannerFixtureHouseholdId);
   await stableClick('button[data-page="scenarios"]');
   await page.waitForSelector('#scn-view .compare', {
     visible: true,
     timeout: 30000
+  });
+  await page.waitForFunction(({
+    allocation,
+    ages
+  }) => {
+    const selectedAllocation = document.querySelector('#scn-view .cmp-lev-select[data-scn-id="1"][data-lever-key="allocationPresetId"]')?.value;
+    return selectedAllocation === allocation && Object.entries(ages).every(([key, expected]) => {
+      const value = document.querySelector(`#scn-view .cmp-step-btn[data-scn-id="1"][data-lever-key="${key}"]`)?.closest('.cmp-lev-row')?.querySelector('.cmp-lev-val')?.textContent.trim();
+      return Number(value) === expected;
+    });
+  }, {
+    timeout: 30000
+  }, {
+    allocation: targetAllocation,
+    ages: editedAges
   });
   const restored = await page.evaluate(() => {
     const allocation = document.querySelector('#scn-view .cmp-lev-select[data-scn-id="1"][data-lever-key="allocationPresetId"]')?.value;

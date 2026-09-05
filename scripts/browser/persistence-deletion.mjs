@@ -1,6 +1,7 @@
 // Existing browser assertions; run by scripts/verify.mjs in campaign order.
 import { waitForUnselectedWizard } from '../wizard-browser-contract.mjs';
 import { waitForWizard } from '../wizard-browser-contract.mjs';
+import { selectHouseholdVisible } from '../wizard-browser-contract.mjs';
 export async function verifyHouseholdDeletion({
   page,
   stableReload,
@@ -11,11 +12,10 @@ export async function verifyHouseholdDeletion({
     waitUntil: 'networkidle2',
     timeout: 20000
   });
-  await waitForUnselectedWizard(page);
-  await page.select('#hh-switch', 'now-household');
   await waitForWizard(page, {
-    householdId: 'now-household'
+    householdId: 'joe-household'
   });
+  await selectHouseholdVisible(page, 'now-household');
   if (await page.$eval('#hh-menu-pop', menu => menu.hidden)) await stableClick('#hh-menu-btn');
   const shippedDelete = await page.evaluate(() => ({
     disabled: Boolean(document.querySelector('#hh-delete')?.disabled),
@@ -94,11 +94,10 @@ export async function verifyHouseholdDeletion({
     waitUntil: 'networkidle2',
     timeout: 20000
   });
-  await waitForUnselectedWizard(page);
-  await page.select('#hh-switch', before.id);
   await waitForWizard(page, {
-    householdId: before.id
+    householdId: 'joe-household'
   });
+  await selectHouseholdVisible(page, before.id);
   if (await page.$eval('#hh-menu-pop', menu => menu.hidden)) await stableClick('#hh-menu-btn');
   page.once('dialog', dialog => dialog.dismiss());
   await stableClick('#hh-delete');
@@ -110,6 +109,7 @@ export async function verifyHouseholdDeletion({
   if (afterCancel.active !== before.id || !afterCancel.exists || afterCancel.scenarioBytes !== before.scenarioBytes) {
     throw new Error(`cancelled delete changed persisted state: ${JSON.stringify(afterCancel)}`);
   }
+  if (await page.$eval('#hh-menu-pop', menu => menu.hidden)) await stableClick('#hh-menu-btn');
   page.once('dialog', dialog => dialog.accept());
   await stableClick('#hh-delete');
   await waitForUnselectedWizard(page);

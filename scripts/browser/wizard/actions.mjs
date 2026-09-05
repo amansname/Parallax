@@ -63,7 +63,7 @@ export async function waitForWizard(page, {
       expectedHousehold: householdId
     });
   } catch (error) {
-    let observed = null;
+    let observed;
     try {
       observed = await wizardState(page);
     } catch (stateError) {
@@ -141,6 +141,18 @@ export async function goToWizardStep(page, step) {
   }
   const selector = `[data-hh-wizard-nav="${step}"]`;
   await requireUnique(page, selector, `wizard navigation ${step}`);
+  const financeRailObscuresNavigation = before.step === 'family' && await page.evaluate(navSelector => {
+    const button = document.querySelector(navSelector);
+    const rail = document.querySelector('.hh-finances-rail.is-open');
+    if (!button || !rail) return false;
+    const rect = button.getBoundingClientRect();
+    const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    return !hit || !button.contains(hit);
+  }, selector);
+  if (financeRailObscuresNavigation) {
+    await clickWizardAction(page, '.hh-finances-rail-toggle');
+    before = await wizardState(page);
+  }
   await page.click(selector);
   return waitForWizard(page, {
     step,
@@ -225,15 +237,28 @@ export async function reloadWizard(page) {
     waitUntil: 'networkidle2',
     timeout: 20000
   });
-  await waitForUnselectedWizard(page);
+  const startup = await waitForWizard(page, {
+    householdId: 'joe-household'
+  });
   if (priorHouseholdId) {
     const available = await page.$$eval('#hh-switch option', (options, householdId) => options.some(option => option.value === householdId), priorHouseholdId);
     if (available) {
       return selectHouseholdVisible(page, priorHouseholdId);
     }
   }
-  return waitForUnselectedWizard(page);
+  return startup;
 }
+export async function waitForPlanCalculation(page) {
+  // Household switches and Scenarios navigation start a synchronous Monte
+  // Carlo run. Give that operation its existing calculation budget before
+  // starting the shorter render/interaction assertion deadline.
+  await page.waitForFunction(() => {
+    const buttons = document.querySelectorAll('#run-btn');
+    return document.querySelector('[data-hh-wizard-root]')?.dataset.wizardReady === 'true'
+      && buttons.length === 1 && buttons[0].disabled === false;
+  }, { timeout: 30000 });
+}
+
 export async function selectHouseholdVisible(page, householdId) {
   const before = await wizardState(page);
   if (before.householdId === householdId) return before;
@@ -248,6 +273,7 @@ export async function selectHouseholdVisible(page, householdId) {
   requireCondition(optionCount === 1, `Household ${householdId} must be selectable exactly once; found ${optionCount}`);
   const selected = await page.select('#hh-switch', householdId);
   requireCondition(selected.length === 1 && selected[0] === householdId, `Visible household switch did not select ${householdId}: ${JSON.stringify(selected)}`);
+  await waitForPlanCalculation(page);
   return waitForWizard(page, {
     householdId,
     afterRevision: before.revision

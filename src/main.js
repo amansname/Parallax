@@ -10,9 +10,11 @@ import { runHistoricalPathWithFederalTax } from './planning/tax/runHistoricalPat
 import { seqChartSvg } from '../ui/charts.js';
 import { escHtml } from '../ui/dom.js';
 import {
+  DEFAULT_STARTUP_HOUSEHOLD_ID,
   SHIPPED_DEFAULT_HOUSEHOLD_IDS,
   createBlankHousehold,
   createSelectableDefaultHouseholds,
+  getDefaultStartupHousehold,
 } from '../ui/householdFactories.js';
 import { bindHouseholdEditor } from './household/commit.js';
 import {
@@ -50,9 +52,9 @@ import { scenarios, sharedPaths, plansDirty, baseSnapshot, pathReplay, refreshPa
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 installDesignSystemPrimitives();
 /* ── Household model: pure factories + multi-household persistence ──────────
-   The app boots without an active household. The advisor explicitly selects a
-   shipped template or saved household; browser state never chooses the startup
-   record.
+   The app boots into the shipped Joe template. Saved households remain
+   available for explicit selection, while browser state never chooses the
+   startup record.
 
    `plan` is the engine's default plan object (imported live). It cannot be
    reassigned (const import binding), so hydratePlan() mutates it in place —
@@ -264,10 +266,8 @@ function bootstrapHouseholds(){
   }
 
   householdsDb = prepared.db;
-  activeHouseholdId = prepared.activeHouseholdId;
-  if(prepared.hydrate){
-    hydratePlan(householdsDb[activeHouseholdId]);
-  }
+  activeHouseholdId = DEFAULT_STARTUP_HOUSEHOLD_ID;
+  hydratePlan(getDefaultStartupHousehold(householdsDb));
   if(accountMigrationState.readOnly){
     syncRecoveryStatus(getReadOnlyMessage());
   }
@@ -404,7 +404,7 @@ function removeScenario(ci){
   saveScenarios(); uiState.plansDirty=true; runAll();
 }
 
-// Seed/hydrate the blank current-build record BEFORE scenarios seed. Saved
+// Seed/hydrate the shipped startup record BEFORE scenarios seed. Saved
 // households remain available, but reload never grants browser state authority
 // to choose one on localhost or the deployed origin.
 bootstrapHouseholds();

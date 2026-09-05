@@ -42,8 +42,8 @@ export function createHouseholdWizardController({
   let wizard;
 
   const state = {
-    financeRailOpen: false,
-    financeOwner: null,
+    financeRailOpen: true,
+    financeOwner: 'client',
     financeMode: 'savings',
     financeTypeId: null,
     financeSaveStatus: false,
@@ -99,8 +99,8 @@ export function createHouseholdWizardController({
   }
 
   function resetTransient(){
-    state.financeRailOpen = false;
-    state.financeOwner = null;
+    state.financeRailOpen = true;
+    state.financeOwner = 'client';
     state.financeMode = 'savings';
     state.financeTypeId = null;
     state.financeSaveStatus = false;

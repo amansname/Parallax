@@ -1,5 +1,4 @@
 // Existing browser assertions; run by scripts/verify.mjs in campaign order.
-import { waitForUnselectedWizard } from '../wizard-browser-contract.mjs';
 import { waitForWizard } from '../wizard-browser-contract.mjs';
 import { goToWizardStep } from '../wizard-browser-contract.mjs';
 import { openNetWorthCategory } from '../wizard-browser-contract.mjs';
@@ -146,19 +145,25 @@ export async function verifyReadOnlyPersistence({
       lev: {}
     }]));
   });
+  // Navigation only establishes the document. The exact Joe/wizard and pinned
+  // recovery-state assertions below establish application readiness; waiting
+  // for network idle also charges synchronous startup projection work to the
+  // navigation deadline on a slower runner.
   await stableReload({
-    waitUntil: 'networkidle2',
+    waitUntil: 'domcontentloaded',
     timeout: 20000
   });
-  await waitForUnselectedWizard(page);
-  const readOnlyBlank = await page.evaluate(() => ({
+  await waitForWizard(page, {
+    householdId: 'joe-household'
+  });
+  const readOnlyStartup = await page.evaluate(() => ({
     selected: document.querySelector('#hh-switch')?.value || '',
     railName: document.querySelector('#hh-rail-name')?.textContent.trim() || '',
     screenCount: document.querySelectorAll('[data-hh-wizard-screen]').length,
     options: [...document.querySelectorAll('#hh-switch option')].map(option => option.value)
   }));
-  if (readOnlyBlank.selected || readOnlyBlank.railName || readOnlyBlank.screenCount || !readOnlyBlank.options.includes('now-household') || !readOnlyBlank.options.includes('future-household') || !readOnlyBlank.options.includes('other') || readOnlyBlank.options.includes('demo')) {
-    throw new Error(`read-only startup did not render the private blank selector: ${JSON.stringify(readOnlyBlank)}`);
+  if (readOnlyStartup.selected !== 'joe-household' || readOnlyStartup.railName !== 'Joe Household' || readOnlyStartup.screenCount !== 1 || !readOnlyStartup.options.includes('now-household') || !readOnlyStartup.options.includes('future-household') || !readOnlyStartup.options.includes('joe-household') || !readOnlyStartup.options.includes('other') || readOnlyStartup.options.includes('demo')) {
+    throw new Error(`read-only startup did not render Joe with the preserved selector: ${JSON.stringify(readOnlyStartup)}`);
   }
   const beforeSaved = await page.$eval('[data-hh-wizard-root]', element => Number(element.dataset.renderRevision));
   await page.select('#hh-switch', 'other');
@@ -441,7 +446,7 @@ export async function verifyReadOnlyPersistence({
     disabled: document.querySelector('#hh-switch')?.disabled,
     values: [...document.querySelectorAll('#hh-switch option')].map(el => el.value)
   }));
-  if (switchState.disabled || !switchState.values.includes('now-household') || !switchState.values.includes('future-household') || !switchState.values.includes('other') || switchState.values.includes('demo')) {
+  if (switchState.disabled || !switchState.values.includes('now-household') || !switchState.values.includes('future-household') || !switchState.values.includes('joe-household') || !switchState.values.includes('other') || switchState.values.includes('demo')) {
     throw new Error(`read-only household switch is unavailable: ${JSON.stringify(switchState)}`);
   }
   const beforeNow = await page.$eval('[data-hh-wizard-root]', element => Number(element.dataset.renderRevision));
@@ -522,10 +527,12 @@ export async function verifyReadOnlyPersistence({
   await assertPinned('switch to Future');
   await assertBytesUnchanged('switch to Future');
   await stableReload({
-    waitUntil: 'networkidle2',
+    waitUntil: 'domcontentloaded',
     timeout: 20000
   });
-  await waitForUnselectedWizard(page);
+  await waitForWizard(page, {
+    householdId: 'joe-household'
+  });
   await assertPinned('read-only reload');
   await assertBytesUnchanged('read-only reload');
   await page.removeScriptToEvaluateOnNewDocument(readOnlyStorageHook.identifier);

@@ -3,13 +3,27 @@ import { join } from 'node:path';
 import { waitForWizard } from '../wizard-browser-contract.mjs';
 import { goToWizardStep } from '../wizard-browser-contract.mjs';
 import { selectHouseholdVisible } from '../wizard-browser-contract.mjs';
+async function ensureGoalChooserOpen(page) {
+  const expanded = await page.$eval(
+    '.gh-add-toggle',
+    button => button.getAttribute('aria-expanded'),
+  );
+  if(expanded !== 'true') await page.click('.gh-add-toggle');
+  await page.waitForSelector('.gh-starter', {
+    visible: true,
+    timeout: 10000,
+  });
+}
 export async function verifyGoalsTimeline({
   stableClick,
   page,
   OUT
 }) {
   await stableClick('.htab[data-sub-target="goals"]');
-  await page.waitForFunction(() => document.querySelector('.gh-page .gh-card') && document.querySelector('.gh-page .gh-lane') && document.querySelector('.gh-page .gh-add-toggle'), {
+  await page.waitForFunction(() => document.querySelector('.gh-page .gh-card')
+    && document.querySelector('.gh-page .gh-lane')
+    && document.querySelector('.gh-add-toggle[aria-expanded="true"]')
+    && document.querySelector('.gh-add-rail'), {
     timeout: 10000
   });
   const m = await page.evaluate(() => {
@@ -24,6 +38,10 @@ export async function verifyGoalsTimeline({
       marks: document.querySelectorAll('.gh-band, .gh-diamond').length,
       ticks: document.querySelectorAll('.gh-tick').length,
       add: !!document.querySelector('.gh-add-toggle'),
+      addExpanded: document.querySelector('.gh-add-toggle')?.getAttribute('aria-expanded'),
+      addRail: !!document.querySelector('.gh-add-rail[aria-label="Add a goal"]'),
+      editorRails: document.querySelectorAll('[data-goal-rail]').length,
+      starters: [...document.querySelectorAll('.gh-starter')].map(element => element.dataset.addCategory),
       lifetime: /Lifetime goal spend|Lifetime total|Lifetime/i.test(text),
       legacy: !!document.querySelector('#gl-ledger, .glx-row, .glc-card, .ga-board'),
       overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth
@@ -33,6 +51,9 @@ export async function verifyGoalsTimeline({
   if (m.redundantTitle) throw new Error('Goals Horizon rendered a redundant standalone title');
   if (m.lanes < 1 || m.chips !== m.lanes || m.marks !== m.lanes) throw new Error(`Goals Horizon lanes incomplete (${JSON.stringify(m)})`);
   if (m.ticks < 5 || !m.add) throw new Error(`Goals Horizon axis/add control incomplete (${JSON.stringify(m)})`);
+  if (m.addExpanded !== 'true' || !m.addRail || m.editorRails !== 0 || JSON.stringify(m.starters) !== JSON.stringify(['travel', 'home', 'vehicle', 'education', 'family', 'giving', 'health', 'custom'])) {
+    throw new Error(`Goals Horizon did not open with the exact goal category chooser (${JSON.stringify(m)})`);
+  }
   if (m.lifetime) throw new Error('Goals Horizon must not render Lifetime goal spend');
   if (m.legacy) throw new Error('retired Goals implementation still renders');
   if (m.overflow > 2) throw new Error(`Goals Horizon caused ${m.overflow}px document overflow`);
@@ -56,10 +77,7 @@ export async function verifyGoalsEditing({
     visible: true
   });
   const before = await page.evaluate(() => document.querySelectorAll('.gh-lane').length);
-  await page.click('.gh-add-toggle');
-  await page.waitForSelector('.gh-starter', {
-    visible: true
-  });
+  await ensureGoalChooserOpen(page);
   const starters = await page.evaluate(() => document.querySelectorAll('.gh-starter').length);
   if (starters !== 8) throw new Error(`expected 8 goal starters, got ${starters}`);
   await page.click('.gh-starter[data-add-category="travel"]');
@@ -160,7 +178,7 @@ export async function verifyGoalsEditing({
     timeout: 10000
   }, restoredLaneCount);
 }
-export async function verifyGoalsDrag({
+export async function prepareScenarioFamily({
   stableClick,
   page,
   withdrawalPlannerFixtureHouseholdId
@@ -228,6 +246,11 @@ export async function verifyGoalsDrag({
   await commitFamilyValue('[data-wizard-field="spouse.retirementAge"]', 68);
   await commitFamilyValue('[data-wizard-field="spouse.planEndAge"]', 96);
   await assertFixtureTiming('after visible Family edits');
+  return assertFixtureTiming;
+}
+
+export async function verifyGoalsDrag({ stableClick, page, withdrawalPlannerFixtureHouseholdId }) {
+  const assertFixtureTiming = await prepareScenarioFamily({ stableClick, page, withdrawalPlannerFixtureHouseholdId });
   await page.click('.htab[data-sub-target="goals"]');
   await page.waitForSelector('.gh-page', {
     visible: true,
@@ -348,7 +371,7 @@ export async function verifyStarterGoals({
   if (m.lanes !== 2 || JSON.stringify(m.names) !== JSON.stringify(['Essentials', 'Healthcare']) || JSON.stringify(m.amounts) !== JSON.stringify(['$0 / yr', '$5.5k / yr']) || m.lifetime) {
     throw new Error(`new-household Goals Horizon system goals are wrong (${JSON.stringify(m)})`);
   }
-  await page.click('.gh-add-toggle');
+  await ensureGoalChooserOpen(page);
   await page.click('.gh-starter[data-add-category="home"]');
   await page.waitForSelector('.gh-lane', {
     visible: true,
