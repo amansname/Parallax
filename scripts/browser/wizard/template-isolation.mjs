@@ -1,6 +1,6 @@
 // Wizard browser contract: template isolation.
 import { requireCondition, countMatches, requireUnique } from './assertions.mjs';
-import { waitForWizard, openWizard, goToWizardStep, setWizardValue, clickWizardAction, openNetWorthCategory, selectNetWorthAllocation, selectHouseholdVisible } from './actions.mjs';
+import { waitForWizard, waitForPlanCalculation, openWizard, goToWizardStep, setWizardValue, clickWizardAction, openNetWorthCategory, selectNetWorthAllocation, selectHouseholdVisible } from './actions.mjs';
 async function historicalCashFlowSnapshot(page, {
   pathId = 'historical-1973',
   previousEndingBalance = null
@@ -155,6 +155,7 @@ export async function verifyRuntimeTemplateSessionIsolation(page) {
       document.querySelector('.page.on')?.dataset.page === 'scenarios'
     ));
     if(!scenariosActive) await page.click('.htab[data-page="scenarios"]');
+    await waitForPlanCalculation(page);
     await page.waitForFunction(() => document.querySelector('.page.on')?.dataset.page === 'scenarios' && document.querySelectorAll('#scn-view .scol__name').length > 0, {
       timeout: 10000
     });

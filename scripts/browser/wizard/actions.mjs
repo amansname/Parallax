@@ -248,6 +248,17 @@ export async function reloadWizard(page) {
   }
   return startup;
 }
+export async function waitForPlanCalculation(page) {
+  // Household switches and Scenarios navigation start a synchronous Monte
+  // Carlo run. Give that operation its existing calculation budget before
+  // starting the shorter render/interaction assertion deadline.
+  await page.waitForFunction(() => {
+    const buttons = document.querySelectorAll('#run-btn');
+    return document.querySelector('[data-hh-wizard-root]')?.dataset.wizardReady === 'true'
+      && buttons.length === 1 && buttons[0].disabled === false;
+  }, { timeout: 30000 });
+}
+
 export async function selectHouseholdVisible(page, householdId) {
   const before = await wizardState(page);
   if (before.householdId === householdId) return before;
@@ -262,6 +273,7 @@ export async function selectHouseholdVisible(page, householdId) {
   requireCondition(optionCount === 1, `Household ${householdId} must be selectable exactly once; found ${optionCount}`);
   const selected = await page.select('#hh-switch', householdId);
   requireCondition(selected.length === 1 && selected[0] === householdId, `Visible household switch did not select ${householdId}: ${JSON.stringify(selected)}`);
+  await waitForPlanCalculation(page);
   return waitForWizard(page, {
     householdId,
     afterRevision: before.revision
