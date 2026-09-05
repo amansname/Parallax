@@ -178,7 +178,7 @@ export async function verifyGoalsEditing({
     timeout: 10000
   }, restoredLaneCount);
 }
-export async function verifyGoalsDrag({
+export async function prepareScenarioFamily({
   stableClick,
   page,
   withdrawalPlannerFixtureHouseholdId
@@ -246,6 +246,11 @@ export async function verifyGoalsDrag({
   await commitFamilyValue('[data-wizard-field="spouse.retirementAge"]', 68);
   await commitFamilyValue('[data-wizard-field="spouse.planEndAge"]', 96);
   await assertFixtureTiming('after visible Family edits');
+  return assertFixtureTiming;
+}
+
+export async function verifyGoalsDrag({ stableClick, page, withdrawalPlannerFixtureHouseholdId }) {
+  const assertFixtureTiming = await prepareScenarioFamily({ stableClick, page, withdrawalPlannerFixtureHouseholdId });
   await page.click('.htab[data-sub-target="goals"]');
   await page.waitForSelector('.gh-page', {
     visible: true,

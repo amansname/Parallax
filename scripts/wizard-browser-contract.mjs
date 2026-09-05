@@ -20,8 +20,10 @@ export { captureWizardScreens } from './browser/wizard/capture.mjs';
 export { attachBrowserDiagnostics } from './browser/wizard/diagnostics.mjs';
 export async function runWizardBrowserContract(page, {
   outDir = null,
-  restoreStorageAfter = true
+  restoreStorageAfter = true,
+  campaign = 'all'
 } = {}) {
+  if(!['all', 'runtime', 'forms'].includes(campaign)) throw new Error(`Unknown wizard campaign: ${campaign}`);
   if (outDir) mkdirSync(outDir, {
     recursive: true
   });
@@ -56,8 +58,11 @@ export async function runWizardBrowserContract(page, {
     await waitForWizard(page, {
       householdId: 'joe-household'
     });
-    await phase('Joe startup and Now selection', () => verifyJoeStartupAndNowSelection(page, expectedNameOnlyBytes));
-    await phase('runtime template session isolation', () => verifyRuntimeTemplateSessionIsolation(page));
+    if(campaign !== 'forms'){
+      await phase('Joe startup and Now selection', () => verifyJoeStartupAndNowSelection(page, expectedNameOnlyBytes));
+      await phase('runtime template session isolation', () => verifyRuntimeTemplateSessionIsolation(page));
+    }
+    if(campaign !== 'runtime'){
     await phase('custom household setup', () => prepareContractFixture(page));
     await assertFourStepStructure(page);
     await phase('Family propagation', () => verifyFamilyPropagation(page));
@@ -83,6 +88,7 @@ export async function runWizardBrowserContract(page, {
       for (const step of WIZARD_STEP_IDS) {
         await assertViewport(page, viewport, step, outDir, `wizard-${step}-${viewport.label}.png`);
       }
+    }
     }
   } catch (error) {
     failure = error;

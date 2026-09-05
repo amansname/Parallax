@@ -2,7 +2,6 @@ import { installScenariosView } from '../ui/scenariosController.js';
 import { defaultLevers, syncPension, defaultScenarios, leversToOverrides, planForScenario, levRange, leverConfigs } from './scenarios/scenarioConfiguration.js';
 import { normalizeHistoricalStrategy, computeHistoricalStress, retireNowClone } from './scenarios/historicalStress.js';
 import { scenarioProjectionIssueMessage, scenarioRunFailureMessage } from './scenarios/projectionMessages.js';
-import { createScenarioRunCache } from './scenarios/scenarioRunCache.js';
 import { insertGoalAt, removeGoalAt } from './goals/scenarioGoalOverrides.js';
 import { liveCommas } from '../ui/moneyInput.js';
 import { resolveInputs, generateReturnPath, resetSeed, pathDigest, PROJECTION_EXECUTION_LIMITS, defaultPlan as plan } from '../engine.js';
@@ -649,7 +648,6 @@ bindHouseholdEditor({
 
 let running=false;
 const scenarioInputsByResult = new WeakMap();
-const scenarioRunCache = createScenarioRunCache();
 // One household-session market bundle. It is generated after household load
 // and survives every ordinary edit and Scenario run so comparisons use the
 // exact same markets. Only loading a household clears it.
@@ -728,8 +726,6 @@ function runAll(){
             filingStatus: p.meta?.filingStatus,
             accountDiagnosticsSimIndices: !s.base && Number.isInteger(sharedTypicalIndex) ? [sharedTypicalIndex] : [],
           };
-          const runKey = scenarioRunCache.key(p, ov, taxOptions);
-          if(scenarioRunCache.matches(s, sharedPaths, runKey)) return;
           // One converged federal run now supplies probability, paths, taxes,
           // withdrawals, and balances together. A failed convergence is a
           // failed scenario; never fall back to a hybrid shortcut display.
@@ -757,10 +753,7 @@ function runAll(){
           s.runError = null;
           // Historical Stress (Focus rail): engine-derived per-scenario eras.
           // Isolated so a stress hiccup never blanks the scenario's main result.
-          try{
-            s.res.stress = computeHistoricalStress(s, p, ov);
-            scenarioRunCache.remember(s, sharedPaths, runKey);
-          }
+          try{ s.res.stress = computeHistoricalStress(s, p, ov); }
           catch(stressErr){ s.res.stress = []; console.warn('Historical stress failed:', s.name, stressErr); }
         }catch(err){
           s.res=null;

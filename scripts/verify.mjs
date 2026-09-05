@@ -13,7 +13,7 @@ import { verifyRapidApprovals } from './browser/withdrawal-controls.mjs';
 import { verifyRmdControls } from './browser/withdrawal-controls.mjs';
 import { verifyGoalsTimeline } from './browser/goals.mjs';
 import { verifyGoalsEditing } from './browser/goals.mjs';
-import { verifyGoalsDrag } from './browser/goals.mjs';
+import { verifyGoalsDrag, prepareScenarioFamily } from './browser/goals.mjs';
 import { verifyScenarioAllocation } from './browser/scenario-allocation.mjs';
 import { verifyRetirementRelativeGoals } from './browser/scenario-timing.mjs';
 import { verifyStarterGoals } from './browser/goals.mjs';
@@ -51,7 +51,7 @@ import { runPublicUrlBrowserContract } from './public-url-browser-contract.mjs';
 import { runGoalsPresentationContract } from './goals-presentation-browser-contract.mjs';
 import { runRolloverErrorBrowserContract } from './rollover-error-browser-contract.mjs';
 import { runWizardBrowserContract } from './wizard-browser-contract.mjs';
-import { formatDuration, shouldRunUnitSuite } from './browser/verification-runtime.mjs';
+import { formatDuration, shouldRunUnitSuite, selectedBrowserGroup, shouldRunBrowserGroup } from './browser/verification-runtime.mjs';
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const verificationStartedAt = performance.now();
 const OUT = join(ROOT, 'verify-out');
@@ -67,6 +67,8 @@ if (requestedPort !== PORT) {
 }
 const SKIP_SEQUENCING = process.env.PARALLAX_VERIFY_SKIP_SEQUENCING === '1';
 const RUN_UNIT_TESTS = shouldRunUnitSuite();
+const BROWSER_GROUP = selectedBrowserGroup();
+const runsGroup = (...groups) => shouldRunBrowserGroup(BROWSER_GROUP, ...groups);
 function step(name, fn) {
   const startedAt = performance.now();
   console.log(`  START ${name}`);
@@ -151,6 +153,7 @@ try {
     artifactResponses,
     stableClick
   }));
+  if(runsGroup('entry')){
   await step('public URL stays clean while artifact requests remain versioned', async () => {
     await runPublicUrlBrowserContract(browser, {
       baseUrl: `http://127.0.0.1:${PORT}/`,
@@ -168,6 +171,10 @@ try {
     stableClick,
     setCashFlow
   }));
+  }
+  // These groups enter the same funded fixture through its existing visible
+  // controls, including the saved-wages prerequisite. No inherited page state.
+  if(runsGroup('entry', 'scenarios', 'cashflow')){
   await step('Tax wizard: saved Wages reach Withdrawal Planner without Continue', () => verifySavedWages({
     page,
     plannerDiagnosticState,
@@ -181,6 +188,8 @@ try {
     WITHDRAWAL_PLANNER_FIXTURE,
     stableReload
   }));
+  }
+  if(runsGroup('entry')){
   await step('Tax Buckets: production household loads with funded limits and live tax output', () => verifyWithdrawalResults({
     page,
     plannerDiagnosticState,
@@ -197,11 +206,20 @@ try {
   await step('Tax Buckets: production RMD floor and shared IRA limits reach the controls', () => verifyRmdControls({
     page
   }));
+  }
+  // The former withdrawal-results cleanup established this exact viewport.
+  // Each independent group must establish it itself before geometry checks.
+  await page.setViewport({ width: 1920, height: 1080, deviceScaleFactor: 3 });
+  if(runsGroup('wizard-runtime', 'wizard-forms')){
   await step('household wizard: semantic four-step contract', async () => {
     await runWizardBrowserContract(page, {
-      outDir: OUT
+      outDir: OUT,
+      campaign: BROWSER_GROUP === 'wizard-runtime' ? 'runtime'
+        : BROWSER_GROUP === 'wizard-forms' ? 'forms' : 'all'
     });
   });
+  }
+  if(runsGroup('scenarios')){
   await step('goals Horizon: timeline, glass card, lanes, and no lifetime aggregate', () => verifyGoalsTimeline({
     stableClick,
     page,
@@ -264,6 +282,13 @@ try {
     stableReload,
     stableClick
   }));
+  }
+  if(BROWSER_GROUP === 'cashflow'){
+    await step('prepare both spouses through the existing Family controls', () => prepareScenarioFamily({
+      stableClick, page, withdrawalPlannerFixtureHouseholdId
+    }));
+  }
+  if(runsGroup('cashflow')){
   await step('cash-flow view: exact columns, rows, summary, path controls, pills', () => verifyCashFlow({
     page,
     withdrawalPlannerFixtureHouseholdId,
@@ -322,12 +347,14 @@ try {
     setCashFlow,
     waitCashRows
   }));
+  }
 
   // ── Multi-household persistence & bootstrapping ────────────────────────────
   // These run LAST (they clear storage and reload) so they can't disturb the
   // earlier contracts above. They prove the state-management contract:
   // startup hydrates Joe, shipped templates remain explicit choices, saved
   // values survive reload, and scenario storage remains household-scoped.
+  if(runsGroup('persistence')){
   await step('persistence: first load hydrates Joe with approved shipped options', () => verifyJoeStartupPersistence({
     page,
     stableReload,
@@ -362,13 +389,14 @@ try {
     stableReload,
     stableClick
   }));
+  }
   if (errs.length) {
     console.error('PAGE/CONSOLE ERRORS:');
     errs.forEach(e => console.error('  ' + e));
     throw new Error(`${errs.length} page/console error(s) — verify must fail on application errors`);
   }
   await browser.close();
-  console.log(`\nOK verify passed in ${formatDuration(performance.now() - verificationStartedAt)} - screenshots in ${OUT}`);
+  console.log(`\nOK verify ${BROWSER_GROUP} passed in ${formatDuration(performance.now() - verificationStartedAt)} - screenshots in ${OUT}`);
 } finally {
   await closeServer(srv);
 }
