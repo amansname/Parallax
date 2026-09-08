@@ -10,6 +10,9 @@ async function historicalCashFlowSnapshot(page, {
     await clickWizardAction(page, '[data-net-worth-overlay] .nw-panel-close');
   }
   await page.click('.htab[data-page="scenarios"]');
+  // Navigation after an edit runs the engine. Use the existing calculation
+  // readiness budget before the shorter rendered-state assertion below.
+  await waitForPlanCalculation(page);
   await page.waitForFunction(() => document.querySelector('.page.on')?.dataset.page === 'scenarios' && (document.querySelectorAll('#scn-view .scol__name').length > 0 || Boolean(document.querySelector('#scn-view .cf'))) && document.querySelector('#run-btn')?.disabled === false && /Plan updated|Partial run/i.test(document.querySelector('#status')?.textContent || ''), {
     timeout: 15000
   });
