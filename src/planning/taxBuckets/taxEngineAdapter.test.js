@@ -25,6 +25,7 @@ import { confirmWizardTaxInputs } from '../../household/wizardTaxCompletion.js';
 import { createBlankHousehold } from '../../../ui/householdFactories.js';
 import { buildCurrent1040Intake } from '../tax/buildCurrent1040Intake.js';
 import { buildCurrentIncomeTaxSummary } from '../tax/buildCurrentIncomeTaxSummary.js';
+import { buildThresholdColumns } from '../../../ui/taxAwareWithdrawalColumns.js';
 
 function setConfirmedBirthDate(subject, owner, value) {
   subject.taxProfiles = subject.taxProfiles || {};
@@ -94,6 +95,31 @@ function createCurrentTaxPlannerSubject(id, {
   })];
   return subject;
 }
+
+test('live current-Tax route shows the next gain rate with zero gains and exactly full bands', async () => {
+  for (const { wages, capitalGain, rate } of [
+    { wages: 50_000, capitalGain: 0, rate: 0 },
+    { wages: 100_000, capitalGain: 0, rate: 0.15 },
+    { wages: 65_550, capitalGain: 0, rate: 0.15 },
+    { wages: 50_000, capitalGain: 15_550, rate: 0.15 },
+    { wages: 561_600, capitalGain: 0, rate: 0.20 },
+  ]) {
+    const subject = createCurrentTaxPlannerSubject('hh_next_gain_rate', { wages, capitalGain });
+    const facts = await householdIncome(subject, 2026, { baseYear: 2026 });
+    const evaluate = realizedGain => evaluateYear({
+      plan: subject, taxYear: 2026, facts,
+      levers: { realizedGain, deferredWithdrawal: 0, rothConversion: 0, rothWithdrawal: 0, qcd: 0 },
+    });
+    const before = await evaluate(0);
+    const after = await evaluate(1_000);
+    assert.equal(before.error, undefined);
+    assert.equal(after.error, undefined);
+    assert.equal(before.ltcg.rate, rate);
+    assert.equal(after.modeledFederalIncomeTax.selected - before.modeledFederalIncomeTax.selected, 1_000 * rate);
+    assert.equal(buildThresholdColumns({ result: before, hoverMark: null })[1].footLabel,
+      `Next $ at ${rate * 100}%`);
+  }
+});
 
 test('taxEngineAdapter evaluates a focus year from demo-shaped plan', async () => {
   const facts = {

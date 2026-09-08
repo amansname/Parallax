@@ -1136,7 +1136,6 @@ async function evaluateYearWithFederalTaxInputBuilder(
   const audits = main?.audits ?? [];
 
   const ordAudit = auditFor(audits, 'FED_ORDINARY_INCOME_TAX');
-  const gainAudit = auditFor(audits, 'FED_CAPITAL_GAINS_STACKING');
   const ssAudit = auditFor(audits, 'FED_TAXABLE_SOCIAL_SECURITY');
 
   const taxableOrdinary = num(ordAudit?.inputsUsed?.taxableOrdinaryIncome);
@@ -1253,7 +1252,7 @@ async function evaluateYearWithFederalTaxInputBuilder(
       income: taxableOrdinary, roomToNext: sub(band.ceiling, taxableOrdinary),
     },
     ltcg: {
-      rate: num(gainAudit?.calculationSteps?.[gainAudit.calculationSteps.length - 1]?.rate),
+      rate: num(analysis.thresholdRates?.nextDollarPreferentialRate),
       zeroCeiling: num(cgT.zeroRateMax),
       stackedOn: taxableOrdinary,
       stackTop: taxableOrdinary === null || preferential === null ? null : taxableOrdinary + preferential,
@@ -1355,7 +1354,7 @@ export async function attributeSleeves({ plan, taxYear, facts, levers }) {
     dependencies.currentTaxBaseline,
   );
   if (!facts || !facts.filingStatus) return null;
-  let accountState = null;
+  let accountState;
   try {
     accountState = resolvePlannerAccountState(
       dependencies,

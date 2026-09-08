@@ -267,6 +267,7 @@ test('Withdrawal Planner tax comparisons allow only their named counterfactual c
   );
   assert.deepStrictEqual(analysis.thresholdRates, {
     ltcg: { zero: 0, middle: 0.15, top: 0.20 },
+    nextDollarPreferentialRate: 0.15,
     socialSecurity: { lowerTier: 0.50, upperTier: 0.85 },
   });
   assert.deepStrictEqual(analysis.comparisonIssues, []);

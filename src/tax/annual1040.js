@@ -8,6 +8,7 @@ import {
   runClient1040Intake as runClient1040IntakePipeline,
 } from './adapters/intakeReport.js';
 import { resolvePreferentialComponents } from './federal/composers/form1040Spine.js';
+import { capitalGainsStacking } from './federal/rules/capitalGainsStacking.js';
 import { buildTaxContext, resolveLawVersionForTaxYear, supportedTaxYears } from './core/lawRegistry.js';
 import {
   buildProjectedAnnualFederalTaxInput,
@@ -389,6 +390,22 @@ function taxRunsAreComparable({
   return true;
 }
 
+function nextPreferentialRate(run, context){
+  const ordinary = run?.audits?.find(audit => audit.ruleId === 'FED_ORDINARY_INCOME_TAX');
+  const ordinaryTaxableIncome = ordinary?.inputsUsed?.taxableOrdinaryIncome;
+  const annual = run?.annual1040Result;
+  const preferentialIncome = annual?.federalSummary?.preferentialIncome;
+  if(!Number.isFinite(ordinaryTaxableIncome) || !Number.isFinite(preferentialIncome)) return null;
+  // Gains and qualified dividends share the same stack. Resolve a cue even
+  // when there is no existing preferential income (and therefore no gain audit).
+  return capitalGainsStacking.calculate({
+    filingStatus: annual.filingStatus,
+    ordinaryTaxableIncome,
+    netLongTermCapitalGains: preferentialIncome,
+    qualifiedDividends: 0,
+  }, context).result.nextDollarPreferentialRate;
+}
+
 /**
  * Authoritative tax-engine comparison contract for a Withdrawal Planner year.
  * The planning layer supplies three fact bundles; this module owns every tax run
@@ -484,6 +501,7 @@ export function runWithdrawalPlannerTaxAnalysis({
     },
     thresholdRates: {
       ltcg: CAPITAL_GAINS_TAX_RATES,
+      nextDollarPreferentialRate: nextPreferentialRate(selectedRun, context),
       socialSecurity: SOCIAL_SECURITY_TAXATION_RATES,
     },
     modeledFederalIncomeTax: {

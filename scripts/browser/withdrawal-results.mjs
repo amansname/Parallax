@@ -119,6 +119,7 @@ export async function verifyWithdrawalResults({
       federalTax: text('[data-taw-federal-tax]'),
       effectiveRate: text('[data-taw-effective-rate]'),
       marginalRate: text('[data-taw-marginal-rate]'),
+      nextGainRate: text('[data-taw-col="ltcg"] .taw-col-foot-label'),
       taxCaused: {
         roth: text('[data-taw-caused="roth"] [data-taw-caused-val]'),
         traditional: text('[data-taw-caused="traditional"] [data-taw-caused-val]'),
@@ -323,6 +324,15 @@ export async function verifyWithdrawalResults({
     }
     const baseline = await plannerSnapshot();
     const oracle = WITHDRAWAL_PLANNER_ORACLE.households[householdId];
+    // Zero existing gains do not imply zero tax on the next gain. These
+    // households also have independent dollar oracles checked below.
+    const expectedNextGainRate = {
+      'now-household': 'Next $ at 15%',
+      'future-household': 'Next $ at 0%'
+    }[householdId];
+    if (!expectedNextGainRate || baseline.nextGainRate !== expectedNextGainRate) {
+      throw new Error(`production default next-gain cue is wrong: ${JSON.stringify({ householdId, baseline })}`);
+    }
     if (baseline.federalTax !== oracle.baseline.federalTax || baseline.columns.ord.value !== oracle.baseline.ordinary || baseline.columns.ltcg.value !== oracle.baseline.longTermGainTax) {
       throw new Error(`production default baseline differs from literal oracle: ${JSON.stringify({
         householdId,
@@ -336,6 +346,9 @@ export async function verifyWithdrawalResults({
     }
     const realizedProof = proofs.find(candidate => candidate.key === 'realizedGain');
     const realizedExpected = oracle.realizedGainAtDisplayCeiling;
+    if (realizedProof.after.nextGainRate !== 'Next $ at 15%') {
+      throw new Error(`realized gain next-dollar cue disagrees with the filled tax stack: ${JSON.stringify(realizedProof.after)}`);
+    }
     const realizedActual = {
       slider: `$${realizedProof.control.max.toLocaleString('en-US')}`,
       federalTax: realizedProof.after.federalTax,
