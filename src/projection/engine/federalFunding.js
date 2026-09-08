@@ -115,12 +115,14 @@ function buildFederalFundingCandidate({
     syncProjectionAggregates(accounts.projectionAccounts, accounts);
   }
 
-  // Save the gross lower-tax surplus for the converged solver. Attribution to
+  // Preserve the full signed gap: an existing income surplus must not disappear
+  // merely because the preliminary tax estimate already left a negative gap.
+  // Save the resulting surplus for the converged solver. Attribution to
   // a forced gross-spent RMD needs the final policy liability, so crediting
   // taxable cash here would be both premature and wrong for custom policies.
   const grossTaxSavingsReinvested = Math.max(
     0,
-    -(Math.max(0, gap) + taxFundingAdjustment)
+    -adjustedGap
   );
 
   const shortcutTax = taxOnSS + taxOnOI + taxOnPen + funding.totalTax + rmdTax;
