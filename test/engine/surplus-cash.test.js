@@ -62,27 +62,39 @@ test('F01: identical final cash flows produce identical wealth regardless of pre
 });
 
 test('F01: the production federal resolver reconciles actual surplus independently of shortcut estimates', () => {
-  for(const withRmd of [false, true]){
-  const results = [0, 0.1, 0.22, 0.4, 0.6].map(ordinary => {
-    const params = resolveInputs(surplusPlan(withRmd), {});
-    params.taxRates = { ...params.taxRates, ordinary };
-    const taxPolicy = createFederalTaxResolver(params, { baseTaxYear: 2026, filingStatus: 'single' });
-    const row = runSinglePath(params, [flatAssetReturnRow(2026)], {
-      taxPolicy,
-      fundTaxPolicyDelta: true,
-    }).rows[0];
-    assert.equal(row.withdrawal, 0);
-    assert.ok(row.taxes > 0 && row.netCashflow > 0);
-    // Forced RMDs are gross-spent under the existing policy; their marginal tax
-    // is paid from that gross distribution, not from external-income surplus.
-    const externalTax = withRmd ? taxPolicy({ ...row, rmd: 0 }) : row.taxes;
-    const surplus = row.otherIncome - row.expenses - row.goals - row.liabilities - row.lumpSum - externalTax;
-    assert.ok(Math.abs(row.balance - (row.startBalance - row.rmd + surplus)) < 0.01,
-      `RMD ${withRmd}, preliminary rate ${ordinary}: balance ${row.balance}`);
-    assert.ok(Math.abs(row.taxableEndingBasis - (100_000 + surplus)) < 0.01);
-    return { taxes: row.taxes, cash: row.netCashflow, balance: row.balance };
-  });
-  for(const result of results) assert.deepEqual(result, results[0]);
+  for(const variant of ['no-rmd', 'high-surplus', 'low-surplus', 'deficit']){
+    const withRmd = variant !== 'no-rmd';
+    const results = [0, 0.1, 0.22, 0.4, 0.6].map(ordinary => {
+      const plan = surplusPlan(withRmd);
+      if(variant === 'low-surplus' || variant === 'deficit'){
+        plan.income.other[0].amount = variant === 'low-surplus' ? 50_000 : 40_000;
+        plan.goals[0].amount = 40_000;
+      }
+      const params = resolveInputs(plan, {});
+      params.taxRates = { ...params.taxRates, ordinary };
+      const taxPolicy = createFederalTaxResolver(params, { baseTaxYear: 2026, filingStatus: 'single' });
+      const row = runSinglePath(params, [flatAssetReturnRow(2026)], {
+        taxPolicy,
+        fundTaxPolicyDelta: true,
+      }).rows[0];
+      assert.ok(row.taxes > 0);
+      // Forced RMDs are gross-spent under the existing policy; their marginal
+      // tax is paid from that gross distribution. netCashflow reports total
+      // tax, so it may be negative even when external income has a surplus.
+      const externalTax = withRmd ? taxPolicy({ ...row, rmd: 0 }) : row.taxes;
+      const outlays = row.expenses + row.goals + row.liabilities + row.lumpSum;
+      const surplus = row.otherIncome - outlays - externalTax;
+      assert.equal(row.netCashflow, row.otherIncome - outlays - row.taxes);
+      assert.ok(Math.abs(row.withdrawal - Math.max(0, -surplus)) < 0.01);
+      assert.ok(Math.abs(row.balance - (row.startBalance - row.rmd + surplus)) < 0.01,
+        `${variant}, preliminary rate ${ordinary}: balance ${row.balance}`);
+      assert.ok(Math.abs(row.taxableEndingBasis - (100_000 + surplus)) < 0.01);
+      return { taxes: row.taxes, cash: row.netCashflow, balance: row.balance, withdrawal: row.withdrawal };
+    });
+    for(const result of results){
+      for(const key of Object.keys(result)) assert.ok(Math.abs(result[key] - results[0][key]) < 0.01,
+        `${variant}: ${key} must be independent of preliminary tax rate`);
+    }
   }
 });
 

@@ -117,9 +117,8 @@ function buildFederalFundingCandidate({
 
   // Preserve the full signed gap: an existing income surplus must not disappear
   // merely because the preliminary tax estimate already left a negative gap.
-  // Save the resulting surplus for the converged solver. Attribution to
-  // a forced gross-spent RMD needs the final policy liability, so crediting
-  // taxable cash here would be both premature and wrong for custom policies.
+  // The solver attributes forced-RMD tax before choosing this funding gap.
+  // Credit surplus only after convergence, using the same signed cash need.
   const grossTaxSavingsReinvested = Math.max(
     0,
     -adjustedGap
@@ -248,37 +247,40 @@ export function solveFederalFundingYear(args, taxPolicy){
     if(!Number.isFinite(resolvedTax) || resolvedTax < 0){
       throw new TypeError('taxPolicy must return a finite non-negative tax');
     }
-    const targetAdjustment = resolvedTax - candidate.shortcutTax;
+    // Forced RMDs are gross-spent, including their marginal tax. Attribute that
+    // tax before solving either a withdrawal or an income-surplus credit.
+    // A post-convergence correction is too late when the preliminary estimate
+    // crosses the zero-gap boundary and has already caused a withdrawal.
+    let fundingTax = resolvedTax;
+    let fundingShortcutTax = candidate.shortcutTax;
+    if(candidate.policyRow.rmd > 0.01){
+      const shortcutTaxWithoutForcedRmd = Math.max(
+        0,
+        candidate.shortcutTax - candidate.rmdShortcutTax,
+      );
+      const counterfactualTax = taxPolicy({
+        ...candidate.policyRow,
+        rmd: 0,
+        taxes: shortcutTaxWithoutForcedRmd,
+        netCashflow: (
+          args.ssInc + args.oiInc + args.penInc + args.saleProceeds
+        ) - (args.expenses + args.goalsY + args.liabCost + shortcutTaxWithoutForcedRmd),
+      }, {
+        shortcutTax: shortcutTaxWithoutForcedRmd,
+        yearIndex: args.y,
+      });
+      if(!Number.isFinite(counterfactualTax) || counterfactualTax < 0){
+        throw new TypeError('taxPolicy must return a finite non-negative tax');
+      }
+      const actualRmdMarginalTax = Math.max(0, resolvedTax - counterfactualTax);
+      fundingTax -= actualRmdMarginalTax;
+      fundingShortcutTax = shortcutTaxWithoutForcedRmd;
+    }
+    const targetAdjustment = fundingTax - fundingShortcutTax;
     const residual = targetAdjustment - adjustment;
     if(Math.abs(residual) <= FEDERAL_FUNDING_CONVERGENCE_TOLERANCE){
       const accounts = candidate.accounts;
-      let taxSavingsReinvested = candidate.grossTaxSavingsReinvested;
-      if(candidate.policyRow.rmd > 0.01 && taxSavingsReinvested > 0){
-        const shortcutTaxWithoutForcedRmd = Math.max(
-          0,
-          candidate.shortcutTax - candidate.rmdShortcutTax,
-        );
-        const counterfactualTax = taxPolicy({
-          ...candidate.policyRow,
-          rmd: 0,
-          taxes: shortcutTaxWithoutForcedRmd,
-          netCashflow: (
-            args.ssInc + args.oiInc + args.penInc + args.saleProceeds
-          ) - (args.expenses + args.goalsY + args.liabCost + shortcutTaxWithoutForcedRmd),
-        }, {
-          shortcutTax: shortcutTaxWithoutForcedRmd,
-          yearIndex: args.y,
-        });
-        if(!Number.isFinite(counterfactualTax) || counterfactualTax < 0){
-          throw new TypeError('taxPolicy must return a finite non-negative tax');
-        }
-        const actualRmdMarginalTax = Math.max(0, resolvedTax - counterfactualTax);
-        // Keep this correction signed: a preliminary RMD tax below the actual
-        // marginal tax must be adjusted upward just as an overestimate is
-        // adjusted downward. The forced distribution remains gross-spent.
-        const rmdTaxSaving = candidate.rmdShortcutTax - actualRmdMarginalTax;
-        taxSavingsReinvested = Math.max(0, taxSavingsReinvested - rmdTaxSaving);
-      }
+      const taxSavingsReinvested = candidate.grossTaxSavingsReinvested;
       if(taxSavingsReinvested > 0){
         addProjectionCash(
           accounts.projectionAccounts,
