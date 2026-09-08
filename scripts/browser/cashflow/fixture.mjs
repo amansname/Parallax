@@ -15,7 +15,7 @@ export async function prepareCashFlowFixture({
   }
   const expectedPeople = {
     primary: { currentAge: 64, retirementAge: 66, planEndAge: 96, birthYear: 1962 },
-    spouse: { currentAge: 63, retirementAge: 65, planEndAge: 95, birthYear: 1963 }
+    spouse: { currentAge: 63, retirementAge: 64, planEndAge: 95, birthYear: 1963 }
   };
   await page.evaluate(({ householdId, baseline, people }) => {
     const key = 'parallax.households.v1';
@@ -56,6 +56,15 @@ export async function prepareCashFlowFixture({
       owner: 'spouse',
       balance: 400000
     }];
+    // Clean fixture: one spouse retires a year before the client.
+    household.savings = {
+      annual: 40000,
+      split: { traditional: 0.5, roth: 0.5, taxable: 0 },
+      entries: [
+        { id: 'cf-client-saving', owner: 'client', typeId: 'traditional_ira', bucket: 'traditional', amount: 20000 },
+        { id: 'cf-spouse-saving', owner: 'spouse', typeId: 'roth_ira', bucket: 'roth', amount: 20000 },
+      ],
+    };
     delete household.meta.accountSchemaVersion;
     delete household.meta.householdRecordSchemaVersion;
     localStorage.setItem(key, JSON.stringify(db));
