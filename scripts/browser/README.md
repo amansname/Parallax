@@ -22,6 +22,11 @@ steps or reset saved state to make an assertion pass.
   selection, historical checks, disclosures, and restoration. Historical
   snapshots, presentation, independent metric expectations, goal edits,
   underfunding, and new-session reload checks have separate modules.
+  Cash Flow receives a complete baseline captured after the funded household
+  and both spouses are entered, before unrelated campaign edits. Its setup
+  clones that baseline; restoration checks the ages declared by that setup.
+  The synthetic no-capital matrix receives a separate Node-side plan template,
+  because the browser's exported `defaultPlan` is the mutable active household.
 - `wizard/` separates wizard actions, exact storage restoration, diagnostics,
   capture, and feature contracts. The public exports remain available from
   `scripts/wizard-browser-contract.mjs`, including the manual capture API.

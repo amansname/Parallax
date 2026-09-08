@@ -9,6 +9,7 @@ import { restoreWithdrawalFixture } from './restore-fixture.mjs';
 export async function verifyCashFlow({
   page,
   withdrawalPlannerFixtureHouseholdId,
+  cashFlowBaseline,
   stableReload,
   stableClick,
   errs,
@@ -19,10 +20,11 @@ export async function verifyCashFlow({
   OUT,
   cashFlowSessionSnapshot
 }) {
-  // Re-anchor the saved plan + scenario levers after earlier household edits.
-  await prepareCashFlowFixture({
+  // Use the captured entry baseline, not the household left by earlier checks.
+  const expectedPeople = await prepareCashFlowFixture({
     page,
     withdrawalPlannerFixtureHouseholdId,
+    cashFlowBaseline,
     stableReload,
     stableClick,
     errs,
@@ -72,6 +74,7 @@ export async function verifyCashFlow({
   await restoreWithdrawalFixture({
     stableClick,
     page,
-    withdrawalPlannerFixtureHouseholdId
+    withdrawalPlannerFixtureHouseholdId,
+    expectedPeople
   });
 }

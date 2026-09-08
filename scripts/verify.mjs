@@ -59,6 +59,7 @@ const OUT = join(ROOT, 'verify-out');
 const VERIFIED_ARTIFACT = prepareVerifiedArtifact(ROOT);
 const WITHDRAWAL_PLANNER_FIXTURE = JSON.parse(readFileSync(join(ROOT, 'test', 'fixtures', 'withdrawal-planner-visible-entry.v1.json'), 'utf8'));
 let withdrawalPlannerFixtureHouseholdId = null;
+let cashFlowBaseline = null;
 const WITHDRAWAL_PLANNER_ORACLE = JSON.parse(readFileSync(join(ROOT, 'test', 'fixtures', 'withdrawal-planner-oracle.v1.json'), 'utf8'));
 const PORT = 8825;
 const requestedPort = Number(process.env.PORT || PORT);
@@ -211,6 +212,17 @@ try {
   // The former withdrawal-results cleanup established this exact viewport.
   // Each independent group must establish it itself before geometry checks.
   await page.setViewport({ width: 1920, height: 1080, deviceScaleFactor: 3 });
+  if(runsGroup('cashflow')){
+    await step('prepare both spouses through the existing Family controls', () => prepareScenarioFamily({
+      stableClick, page, withdrawalPlannerFixtureHouseholdId
+    }));
+    // Capture before other contracts edit savings, goals, or household timing.
+    cashFlowBaseline = await page.evaluate(householdId => {
+      const household = JSON.parse(localStorage.getItem('parallax.households.v1') || '{}')[householdId];
+      if (!household) throw new Error(`Cash Flow baseline household is missing: ${householdId}`);
+      return household;
+    }, withdrawalPlannerFixtureHouseholdId);
+  }
   if(runsGroup('wizard-runtime', 'wizard-forms')){
   await step('household wizard: semantic four-step contract', async () => {
     await runWizardBrowserContract(page, {
@@ -284,15 +296,11 @@ try {
     stableClick
   }));
   }
-  if(BROWSER_GROUP === 'cashflow'){
-    await step('prepare both spouses through the existing Family controls', () => prepareScenarioFamily({
-      stableClick, page, withdrawalPlannerFixtureHouseholdId
-    }));
-  }
   if(runsGroup('cashflow')){
   await step('cash-flow view: exact columns, rows, summary, path controls, pills', () => verifyCashFlow({
     page,
     withdrawalPlannerFixtureHouseholdId,
+    cashFlowBaseline,
     stableReload,
     stableClick,
     errs,
