@@ -1,13 +1,15 @@
+// The Node runner never hydrates this template with the active browser household.
+import { defaultPlan } from '../../../engine.js';
+
 export async function verifyUnderfundedMatrix({
   page,
   observedHistoricalOutcomes
 }) {
-  const underfundedMatrixProof = await page.evaluate(async () => {
+  const underfundedMatrixProof = await page.evaluate(async noCapitalPlan => {
     const [{
       createCashFlowController
     }, {
       ASSET_KEYS,
-      defaultPlan,
       pathDigest,
       resolveInputs,
       runSinglePath
@@ -302,7 +304,6 @@ export async function verifyUnderfundedMatrix({
         }
       });
       const reverseRecovery = readRecovery();
-      const noCapitalPlan = structuredClone(defaultPlan);
       noCapitalPlan.meta = {
         ...noCapitalPlan.meta,
         planningAsOfYear: 2026,
@@ -421,7 +422,7 @@ export async function verifyUnderfundedMatrix({
       status.remove();
       liveStatus.id = 'cashflow-path-status';
     }
-  });
+  }, structuredClone(defaultPlan));
   if (underfundedMatrixProof.outcome !== 'underfunded' || JSON.stringify(underfundedMatrixProof.metrics) !== JSON.stringify(['lowest-balance-first-10-years', 'average-effective-withdrawal-rate', 'recovery-period', 'balance-at-age-80', 'funded-through-margin']) || underfundedMatrixProof.recovery.reference !== '1 yr · Age 95' || underfundedMatrixProof.recovery.figure !== 'Not observed' || underfundedMatrixProof.recovery.delta !== '' || underfundedMatrixProof.recovery.tone !== 'muted' || underfundedMatrixProof.recovery.referenceFontSize !== '15px' || underfundedMatrixProof.recovery.figureFontSize !== '22px' || underfundedMatrixProof.recovery.deltaMinHeight !== '12px' || underfundedMatrixProof.recovery.deltaHeight < 12 || underfundedMatrixProof.reverseRecovery.reference !== 'Not observed' || underfundedMatrixProof.reverseRecovery.figure !== '0 yrs' || underfundedMatrixProof.reverseRecovery.delta !== '' || underfundedMatrixProof.reverseRecovery.tone !== 'muted' || underfundedMatrixProof.reverseRecovery.referenceFontSize !== '15px' || underfundedMatrixProof.reverseRecovery.figureFontSize !== '22px' || underfundedMatrixProof.reverseRecovery.deltaMinHeight !== '12px' || underfundedMatrixProof.reverseRecovery.deltaHeight < 12 || Object.values(underfundedMatrixProof.noCapitalEngineRates).some(value => value !== null) || underfundedMatrixProof.noCapitalEffectiveWithdrawalRate.reference !== 'Not modeled' || underfundedMatrixProof.noCapitalEffectiveWithdrawalRate.figure !== 'Not modeled' || underfundedMatrixProof.noCapitalEffectiveWithdrawalRate.delta !== '' || underfundedMatrixProof.noCapitalEffectiveWithdrawalRate.tone !== 'muted' || underfundedMatrixProof.funding.reference !== 'Age 95' || underfundedMatrixProof.funding.figure !== 'Age 92' || underfundedMatrixProof.funding.delta !== '\u22123 yrs' || underfundedMatrixProof.funding.planEndAge !== 95 || underfundedMatrixProof.funding.thisPath !== 92 || underfundedMatrixProof.funding.typicalPath !== 95 || underfundedMatrixProof.rawTypicalTerminalAge !== 98 || underfundedMatrixProof.rawHistoricalFundedThroughAge !== 95 || underfundedMatrixProof.glyph !== '!' || !/is-underfunded/.test(underfundedMatrixProof.statusClass) || underfundedMatrixProof.statusColor !== underfundedMatrixProof.expectedColor) {
     throw new Error(`controlled underfunded Historical matrix is incomplete: ${JSON.stringify(underfundedMatrixProof)}`);
   }

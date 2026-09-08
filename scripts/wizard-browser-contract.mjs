@@ -4,7 +4,7 @@ import { formatDuration } from './browser/verification-runtime.mjs';
 import { WIZARD_STEP_IDS } from './browser/wizard/selectors.mjs';
 import { requireCondition } from './browser/wizard/assertions.mjs';
 import { waitForWizard, openWizard, selectHouseholdVisible } from './browser/wizard/actions.mjs';
-import { snapshotStorage, restoreStorage, stableStorageSnapshot } from './browser/wizard/storage.mjs';
+import { snapshotStorage, restoreStorage, stableStorageSnapshot, exactStorageSnapshot } from './browser/wizard/storage.mjs';
 import { seedStaleCopyMigrationFixture, verifyJoeStartupAndNowSelection, prepareContractFixture } from './browser/wizard/startup.mjs';
 import { attachBrowserDiagnostics } from './browser/wizard/diagnostics.mjs';
 import { verifyRuntimeTemplateSessionIsolation } from './browser/wizard/template-isolation.mjs';
@@ -18,6 +18,40 @@ export { WIZARD_STEP_IDS } from './browser/wizard/selectors.mjs';
 export { waitForWizard, waitForUnselectedWizard, openWizard, goToWizardStep, openNetWorthCategory, selectHouseholdVisible } from './browser/wizard/actions.mjs';
 export { captureWizardScreens } from './browser/wizard/capture.mjs';
 export { attachBrowserDiagnostics } from './browser/wizard/diagnostics.mjs';
+// Wizard fixtures belong to their own context. Reloading the funded parent
+// household can legitimately reserialize its scenarios and disturb later checks.
+export async function runIsolatedWizardBrowserContract(parentPage, options = {}) {
+  const parentStorage = exactStorageSnapshot(await snapshotStorage(parentPage));
+  const context = await parentPage.browser().createBrowserContext();
+  const failures = [];
+  let diagnostics;
+  try {
+    const page = await context.newPage();
+    diagnostics = attachBrowserDiagnostics(page);
+    const viewport = parentPage.viewport();
+    if (viewport) await page.setViewport(viewport);
+    await page.goto(parentPage.url(), { waitUntil: 'networkidle2', timeout: 20000 });
+    await waitForWizard(page, { householdId: 'joe-household' });
+    await runWizardBrowserContract(page, options);
+    diagnostics.assertClean();
+  } catch (error) {
+    failures.push(error);
+  } finally {
+    diagnostics?.dispose();
+    try { await context.close(); } catch (error) { failures.push(error); }
+    try {
+      requireCondition(
+        exactStorageSnapshot(await snapshotStorage(parentPage)) === parentStorage,
+        'Isolated wizard contract changed the parent localStorage bytes',
+      );
+    } catch (error) {
+      failures.push(error);
+    }
+  }
+  if (failures.length === 1) throw failures[0];
+  if (failures.length > 1) throw new AggregateError(failures, 'Wizard isolation and campaign checks failed');
+}
+
 export async function runWizardBrowserContract(page, {
   outDir = null,
   restoreStorageAfter = true,

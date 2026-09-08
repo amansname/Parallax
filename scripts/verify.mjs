@@ -51,7 +51,7 @@ import { join } from 'node:path';
 import { runPublicUrlBrowserContract } from './public-url-browser-contract.mjs';
 import { runGoalsPresentationContract } from './goals-presentation-browser-contract.mjs';
 import { runRolloverErrorBrowserContract } from './rollover-error-browser-contract.mjs';
-import { runWizardBrowserContract } from './wizard-browser-contract.mjs';
+import { runIsolatedWizardBrowserContract } from './wizard-browser-contract.mjs';
 import { formatDuration, shouldRunUnitSuite, selectedBrowserGroup, shouldRunBrowserGroup } from './browser/verification-runtime.mjs';
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const verificationStartedAt = performance.now();
@@ -59,6 +59,7 @@ const OUT = join(ROOT, 'verify-out');
 const VERIFIED_ARTIFACT = prepareVerifiedArtifact(ROOT);
 const WITHDRAWAL_PLANNER_FIXTURE = JSON.parse(readFileSync(join(ROOT, 'test', 'fixtures', 'withdrawal-planner-visible-entry.v1.json'), 'utf8'));
 let withdrawalPlannerFixtureHouseholdId = null;
+let cashFlowBaseline = null;
 const WITHDRAWAL_PLANNER_ORACLE = JSON.parse(readFileSync(join(ROOT, 'test', 'fixtures', 'withdrawal-planner-oracle.v1.json'), 'utf8'));
 const PORT = 8825;
 const requestedPort = Number(process.env.PORT || PORT);
@@ -211,9 +212,20 @@ try {
   // The former withdrawal-results cleanup established this exact viewport.
   // Each independent group must establish it itself before geometry checks.
   await page.setViewport({ width: 1920, height: 1080, deviceScaleFactor: 3 });
+  if(runsGroup('cashflow')){
+    await step('prepare both spouses through the existing Family controls', () => prepareScenarioFamily({
+      stableClick, page, withdrawalPlannerFixtureHouseholdId
+    }));
+    // Capture before other contracts edit savings, goals, or household timing.
+    cashFlowBaseline = await page.evaluate(householdId => {
+      const household = JSON.parse(localStorage.getItem('parallax.households.v1') || '{}')[householdId];
+      if (!household) throw new Error(`Cash Flow baseline household is missing: ${householdId}`);
+      return household;
+    }, withdrawalPlannerFixtureHouseholdId);
+  }
   if(runsGroup('wizard-runtime', 'wizard-forms')){
   await step('household wizard: semantic four-step contract', async () => {
-    await runWizardBrowserContract(page, {
+    await runIsolatedWizardBrowserContract(page, {
       outDir: OUT,
       campaign: BROWSER_GROUP === 'wizard-runtime' ? 'runtime'
         : BROWSER_GROUP === 'wizard-forms' ? 'forms' : 'all'
@@ -284,15 +296,11 @@ try {
     stableClick
   }));
   }
-  if(BROWSER_GROUP === 'cashflow'){
-    await step('prepare both spouses through the existing Family controls', () => prepareScenarioFamily({
-      stableClick, page, withdrawalPlannerFixtureHouseholdId
-    }));
-  }
   if(runsGroup('cashflow')){
   await step('cash-flow view: exact columns, rows, summary, path controls, pills', () => verifyCashFlow({
     page,
     withdrawalPlannerFixtureHouseholdId,
+    cashFlowBaseline,
     stableReload,
     stableClick,
     errs,

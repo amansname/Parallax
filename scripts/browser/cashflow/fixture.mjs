@@ -3,32 +3,31 @@ import { selectHouseholdVisible } from '../../wizard-browser-contract.mjs';
 export async function prepareCashFlowFixture({
   page,
   withdrawalPlannerFixtureHouseholdId,
+  cashFlowBaseline,
   stableReload,
   stableClick,
   errs,
   setCashFlow,
   waitCashRows
 }) {
-  await page.evaluate(householdId => {
+  if (!cashFlowBaseline?.household?.primary || !cashFlowBaseline.household.spouse) {
+    throw new Error('Cash Flow requires its captured two-person entry baseline');
+  }
+  const expectedPeople = {
+    primary: { currentAge: 64, retirementAge: 66, planEndAge: 96, birthYear: 1962 },
+    spouse: { currentAge: 63, retirementAge: 64, planEndAge: 95, birthYear: 1963 }
+  };
+  await page.evaluate(({ householdId, baseline, people }) => {
     const key = 'parallax.households.v1';
     const db = JSON.parse(localStorage.getItem(key) || '{}');
-    const household = db[householdId];
-    if (!household) return;
+    if (!db[householdId]) throw new Error(`Cash Flow fixture household is missing: ${householdId}`);
+    const household = structuredClone(baseline);
+    db[householdId] = household;
     household.meta.primaryName = 'Test Client';
     household.meta.spouseName = 'Test Co-Client';
     household.meta.filingStatus = 'marriedFilingJointly';
-    household.household.primary = {
-      currentAge: 64,
-      retirementAge: 66,
-      planEndAge: 96,
-      birthYear: 1962
-    };
-    household.household.spouse = {
-      currentAge: 63,
-      retirementAge: 64,
-      planEndAge: 95,
-      birthYear: 1963
-    };
+    household.household.primary = people.primary;
+    household.household.spouse = people.spouse;
     household.portfolio.accounts = {
       taxable: {
         balance: 0,
@@ -70,9 +69,9 @@ export async function prepareCashFlowFixture({
     delete household.meta.householdRecordSchemaVersion;
     localStorage.setItem(key, JSON.stringify(db));
     localStorage.removeItem(`parallax.scenarios.${householdId}.v1`);
-  }, withdrawalPlannerFixtureHouseholdId);
+  }, { householdId: withdrawalPlannerFixtureHouseholdId, baseline: cashFlowBaseline, people: expectedPeople });
   await stableReload({
-    waitUntil: 'networkidle2',
+    waitUntil: 'domcontentloaded',
     timeout: 20000
   });
   await waitForWizard(page, {
@@ -187,4 +186,5 @@ export async function prepareCashFlowFixture({
   await page.click('button[data-page="scenarios"]');
   await setCashFlow(page, true);
   await waitCashRows(page, 10);
+  return expectedPeople;
 }
