@@ -5,7 +5,7 @@ import { currentAllocationPlan, flatAssetReturnRow, typedInvestmentAccount } fro
 import { snapshotPresetAllocation } from '../../src/household/investmentAllocation.js';
 import { createFederalTaxResolver } from '../../src/planning/tax/createFederalTaxResolver.js';
 
-function surplusPlan(){
+function surplusPlan(withRmd = false){
   const plan = currentAllocationPlan();
   plan.household.primary = { currentAge: 65, retirementAge: 65, planEndAge: 65, birthYear: 1961 };
   plan.household.spouse = null;
@@ -28,6 +28,12 @@ function surplusPlan(){
   plan.properties = [];
   plan.liabilities = [];
   plan.ltc = { amount: 0, onsetAge: 99 };
+  if(withRmd){
+    plan.household.primary = { currentAge: 73, retirementAge: 73, planEndAge: 73, birthYear: 1953 };
+    plan.portfolio.extraAccounts.push(typedInvestmentAccount('traditional_ira', 'surplus-ira', 1_000_000, snapshotPresetAllocation('balanced')));
+    plan.income.other[0] = { label: 'Retirement income', amount: 200_000, startAge: 73, endAge: 73, taxablePct: 1 };
+    plan.goals[0] = { ...plan.goals[0], startAge: 73, endAge: 73 };
+  }
   return plan;
 }
 
@@ -56,20 +62,28 @@ test('F01: identical final cash flows produce identical wealth regardless of pre
 });
 
 test('F01: the production federal resolver reconciles actual surplus independently of shortcut estimates', () => {
+  for(const withRmd of [false, true]){
   const results = [0, 0.1, 0.22, 0.4, 0.6].map(ordinary => {
-    const params = resolveInputs(surplusPlan(), {});
+    const params = resolveInputs(surplusPlan(withRmd), {});
     params.taxRates = { ...params.taxRates, ordinary };
+    const taxPolicy = createFederalTaxResolver(params, { baseTaxYear: 2026, filingStatus: 'single' });
     const row = runSinglePath(params, [flatAssetReturnRow(2026)], {
-      taxPolicy: createFederalTaxResolver(params, { baseTaxYear: 2026, filingStatus: 'single' }),
+      taxPolicy,
       fundTaxPolicyDelta: true,
     }).rows[0];
     assert.equal(row.withdrawal, 0);
     assert.ok(row.taxes > 0 && row.netCashflow > 0);
-    assert.ok(Math.abs(row.balance - (row.startBalance + row.netCashflow)) < 0.01);
-    assert.ok(Math.abs(row.taxableEndingBasis - row.balance) < 0.01);
+    // Forced RMDs are gross-spent under the existing policy; their marginal tax
+    // is paid from that gross distribution, not from external-income surplus.
+    const externalTax = withRmd ? taxPolicy({ ...row, rmd: 0 }) : row.taxes;
+    const surplus = row.otherIncome - row.expenses - row.goals - row.liabilities - row.lumpSum - externalTax;
+    assert.ok(Math.abs(row.balance - (row.startBalance - row.rmd + surplus)) < 0.01,
+      `RMD ${withRmd}, preliminary rate ${ordinary}: balance ${row.balance}`);
+    assert.ok(Math.abs(row.taxableEndingBasis - (100_000 + surplus)) < 0.01);
     return { taxes: row.taxes, cash: row.netCashflow, balance: row.balance };
   });
   for(const result of results) assert.deepEqual(result, results[0]);
+  }
 });
 
 test('F01: return and one-time outlay reconcile without counting asset-sale cash twice', () => {

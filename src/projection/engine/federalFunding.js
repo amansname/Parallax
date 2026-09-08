@@ -273,10 +273,10 @@ export function solveFederalFundingYear(args, taxPolicy){
           throw new TypeError('taxPolicy must return a finite non-negative tax');
         }
         const actualRmdMarginalTax = Math.max(0, resolvedTax - counterfactualTax);
-        const rmdTaxSaving = Math.max(
-          0,
-          candidate.rmdShortcutTax - actualRmdMarginalTax,
-        );
+        // Keep this correction signed: a preliminary RMD tax below the actual
+        // marginal tax must be adjusted upward just as an overestimate is
+        // adjusted downward. The forced distribution remains gross-spent.
+        const rmdTaxSaving = candidate.rmdShortcutTax - actualRmdMarginalTax;
         taxSavingsReinvested = Math.max(0, taxSavingsReinvested - rmdTaxSaving);
       }
       if(taxSavingsReinvested > 0){
