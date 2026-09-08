@@ -67,7 +67,7 @@ test('audit is serializable and carries the data source', () => {
 });
 
 test('metadata and audits route verified primary authority for 2025 and 2026', () => {
-  assert.strictEqual(meta.ruleVersion, '1.0.3');
+  assert.strictEqual(meta.ruleVersion, '1.1.0');
   assert.deepStrictEqual(meta.supportedTaxYears, [2025, 2026]);
   assert.deepStrictEqual(
     meta.supportedLawVersions,

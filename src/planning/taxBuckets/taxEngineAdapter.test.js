@@ -119,6 +119,31 @@ test('live current-Tax route shows the next gain rate with zero gains and exactl
     assert.equal(buildThresholdColumns({ result: before, hoverMark: null })[1].footLabel,
       `Next $ at ${rate * 100}%`);
   }
+  let subject = createCurrentTaxPlannerSubject('hh_next_gain_ss', {
+    wages: 41_729.72, capitalGain: 0,
+  });
+  for(const [field, value] of [
+    ['income.socialSecurityBenefits', 30_000],
+    ['socialSecurity.mode', 'calculate-taxable-benefits'],
+    ['socialSecurity.otherIncome', 41_729.72],
+    ['socialSecurity.excludedIncomeAddBacks', 0],
+    ['socialSecurity.adjustments', 0],
+  ]){
+    subject = applyHouseholdWizardEdit(subject, { scope: 'tax', action: 'set', field, value });
+  }
+  const saved = JSON.stringify(subject);
+  subject = JSON.parse(saved);
+  const facts = await householdIncome(subject, 2026, { baseYear: 2026 });
+  const evaluate = realizedGain => evaluateYear({
+    plan: subject, taxYear: 2026, facts,
+    levers: { realizedGain, deferredWithdrawal: 0, rothConversion: 0, rothWithdrawal: 0, qcd: 0 },
+  });
+  const before = await evaluate(0);
+  const after = await evaluate(1);
+  assert.equal(before.ltcg.rate, 0.15);
+  assert.equal(Math.round((after.modeledFederalIncomeTax.selected
+    - before.modeledFederalIncomeTax.selected) * 100), 25);
+  assert.equal(JSON.stringify(subject), saved, 'counterfactual must not mutate saved inputs');
 });
 
 test('taxEngineAdapter evaluates a focus year from demo-shaped plan', async () => {

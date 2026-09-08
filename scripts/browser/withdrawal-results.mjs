@@ -1,5 +1,6 @@
 // Existing browser assertions; run by scripts/verify.mjs in campaign order.
 import { join } from 'node:path';
+import { goToWizardStep, waitForWizard } from '../wizard-browser-contract.mjs';
 export async function verifyWithdrawalResults({
   page,
   plannerDiagnosticState,
@@ -373,6 +374,56 @@ export async function verifyWithdrawalResults({
   await page.waitForFunction(expectedHouseholdId => document.querySelector('[data-hh-wizard-root]')?.dataset.householdId === expectedHouseholdId && document.querySelector('[data-taw-root]')?.dataset.tawHouseholdId === expectedHouseholdId && document.querySelector('[data-taw-root]')?.getAttribute('aria-busy') === 'false', {
     timeout: 30000
   }, withdrawalPlannerFixtureHouseholdId);
+  // Enter the review boundary through Tax controls and verify the saved facts
+  // before reading the production Planner. Restore this campaign's fixture.
+  await goToWizardStep(page, 'tax');
+  const setTaxField = async (field, value, select = false) => {
+    const revision = await page.$eval('[data-hh-wizard-root]', root => Number(root.dataset.renderRevision));
+    const selector = `[data-tax-field="${field}"]`;
+    if(select){
+      await page.select(selector, value);
+    } else {
+      await stableClick(selector);
+      await page.keyboard.down('Control');
+      await page.keyboard.press('A');
+      await page.keyboard.up('Control');
+      if(value === '') await page.keyboard.press('Backspace');
+      else await page.keyboard.type(String(value));
+      await page.keyboard.press('Tab');
+    }
+    await waitForWizard(page, { afterRevision: revision });
+  };
+  await setTaxField('income.wages.client', 41729.72);
+  await setTaxField('income.socialSecurityBenefits', 30000);
+  await setTaxField('socialSecurity.mode', 'calculate-taxable-benefits', true);
+  await setTaxField('socialSecurity.otherIncome', 41729.72);
+  await setTaxField('socialSecurity.excludedIncomeAddBacks', 0);
+  await setTaxField('socialSecurity.adjustments', 0);
+  const savedBoundary = await page.evaluate(id => {
+    const income = JSON.parse(localStorage.getItem('parallax.households.v1'))[id].incomeTax.current1040.income;
+    return { wages: income.wages.client, benefits: income.socialSecurityBenefits, worksheet: income.socialSecurity };
+  }, withdrawalPlannerFixtureHouseholdId);
+  if(savedBoundary.wages !== 41729.72 || savedBoundary.benefits !== 30000
+      || savedBoundary.worksheet.mode !== 'calculate-taxable-benefits'
+      || savedBoundary.worksheet.otherIncome !== 41729.72){
+    throw new Error(`next-dollar boundary did not persist: ${JSON.stringify(savedBoundary)}`);
+  }
+  await stableClick('.htab[data-page="tax-buckets"]');
+  await page.waitForFunction(() => document.querySelector('[data-taw-root]')?.getAttribute('aria-busy') === 'false'
+    && document.querySelector('[data-taw-fact-wages]')?.textContent.trim() === '$41,730');
+  const boundaryProof = await plannerSnapshot();
+  if(boundaryProof.nextGainRate !== 'Next $ at 15%' || boundaryProof.federalTax !== '$5,686'
+      || boundaryProof.columns.ltcg.value !== '$0'){
+    throw new Error(`Social Security boundary cue or dollars are wrong: ${JSON.stringify(boundaryProof)}`);
+  }
+  await page.screenshot({ path: join(OUT, '02-tax-next-dollar-ss-boundary.png') });
+  await goToWizardStep(page, 'tax');
+  await setTaxField('income.wages.client', WITHDRAWAL_PLANNER_FIXTURE.tax.wages);
+  await setTaxField('income.socialSecurityBenefits', '');
+  await setTaxField('socialSecurity.mode', 'supplied-form1040-lines', true);
+  await stableClick('.htab[data-page="tax-buckets"]');
+  await page.waitForFunction(() => document.querySelector('[data-taw-root]')?.getAttribute('aria-busy') === 'false'
+    && document.querySelector('[data-taw-federal-tax]')?.textContent.trim() === '$3,820');
   await page.screenshot({
     path: join(OUT, '02-tax-buckets.png')
   });

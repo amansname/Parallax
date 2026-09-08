@@ -13,7 +13,7 @@ import { TaxDataError, TaxInputError } from '../../core/errors.js';
 
 export const meta = {
   ruleId: 'FED_CAPITAL_GAINS_STACKING',
-  ruleVersion: '1.0.3',
+  ruleVersion: '1.1.0',
   supportedTaxYears: [2025, 2026],
   supportedLawVersions: ['2025_FINAL', '2026_FINAL'],
   jurisdiction: 'federal',
