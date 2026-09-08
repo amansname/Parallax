@@ -64,8 +64,10 @@ export async function verifyFundingAcrossGoals({
       extraAccounts: []
     };
     plan.savings = {
-      ...(plan.savings || {}),
-      annual: 10000
+      annual: 10000,
+      // Fully specify this aggregate fixture independently of prior households.
+      split: { taxable: 0, traditional: 0.5, roth: 0.5 },
+      entries: []
     };
     plan.income = {
       socialSecurity: {

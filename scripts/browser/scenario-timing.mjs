@@ -2,6 +2,7 @@
 import { waitForWizard } from '../wizard-browser-contract.mjs';
 import { goToWizardStep } from '../wizard-browser-contract.mjs';
 import { selectHouseholdVisible } from '../wizard-browser-contract.mjs';
+import { waitForPlanCalculation } from './wizard/actions.mjs';
 export async function verifyRetirementRelativeGoals({
   page,
   stableClick,
@@ -80,6 +81,7 @@ export async function verifyRetirementRelativeGoals({
   await page.keyboard.up('Control');
   await page.keyboard.type(String(editedAge));
   await page.keyboard.press('Tab');
+  await waitForPlanCalculation(page);
   try {
     await page.waitForFunction(({
       selector,
@@ -124,6 +126,7 @@ export async function verifyRetirementRelativeGoals({
   await page.keyboard.up('Control');
   await page.keyboard.type(String(originalAge));
   await page.keyboard.press('Tab');
+  await waitForPlanCalculation(page);
   await page.waitForFunction(({
     selector,
     originalAge

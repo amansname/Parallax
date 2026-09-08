@@ -173,8 +173,19 @@ browser verification jobs form the full `Parallax quality` campaign. This
 separation prevents the immutable `opened` event from testing a reviewer request that can
 only be created after the pull request exists.
 
-Tier 1 scales only the additional local campaign. GitHub still runs the full
-required suite.
+All PRs retain the five required GitHub gates. Browser coverage is selected by
+`scripts/browser/verification-plan.mjs` from the complete merge-base diff,
+including deleted and renamed paths. Every PR includes the entry group; known
+narrow changes add their affected groups. Shared calculations, persistence,
+startup, shared fixtures, CI, governing documents, unknown paths and empty diffs use
+all six groups. Every push to `main` also uses all six groups.
+
+The `Full browser verification` gate requires the selected matrix, unit tests
+and artifact job to succeed. A failed selection or failed, skipped, cancelled
+or missing prerequisite blocks the gate. The artifact job publishes the
+selection in its job summary. A new revision cancels an unfinished quality run
+for the same PR; separate PRs, main runs and the lightweight evidence workflow
+use separate concurrency groups. Branch protection is unchanged.
 
 Tier 2 and Tier 3 run and record:
 
@@ -330,7 +341,8 @@ Lifecycle must use one of the values listed above. Merge-ready requires a
 recognized positive completed independent-review result and successful
 applicable local commands; negated or mixed failure wording never counts as a
 pass. Tier 1 may omit only `npm test` or `npm run verify` locally with its narrow
-reason recorded, while the full GitHub suite still must pass. An open PR cannot
+reason recorded, while every required GitHub gate and selected browser group
+still must pass. An open PR cannot
 claim `Merged` or `Production-confirmed`; those later states require matching
 GitHub lifecycle evidence and the same readiness gates.
 Before asking for Decision 2, post one current readiness receipt that names all
