@@ -323,6 +323,8 @@ export async function verifyUnderfundedMatrix({
         roth: { balance: 0, investmentAllocation: noCapitalAllocation }
       };
       noCapitalPlan.portfolio.extraAccounts = [];
+      // This synthetic no-capital case must not inherit the active household's savings.
+      noCapitalPlan.savings = { annual: 0, entries: [], split: { taxable: 0, traditional: 1, roth: 0 } };
       noCapitalPlan.expenses = {
         living: 0,
         housing: 0,
