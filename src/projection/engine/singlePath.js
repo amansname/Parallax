@@ -59,6 +59,8 @@ export function runSinglePath(p, returnPath, options = {}){
   }
   validateProjectionHorizon(p.horizonYears);
   validateReturnPaths([returnPath], p.horizonYears);
+  // Validate savings ownership even when this path starts in retirement.
+  savingsContributionsAtYear(p, 0);
   const taxPolicy = options.taxPolicy ?? null;
   const fundTaxPolicyDelta = options.fundTaxPolicyDelta === true;
   const includeAccountDiagnostics = options.includeAccountDiagnostics !== false;

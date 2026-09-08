@@ -91,11 +91,15 @@ test('F02: already-retired contributors stop immediately and scenario scaling do
   missingOwner.meta.filingStatus = 'single';
   missingOwner.taxProfiles = createBlankTaxProfiles();
   missingOwner.portfolio.extraAccounts = missingOwner.portfolio.extraAccounts.filter(account => account.owner === 'client');
-  const saved = prepareHouseholdRecordForSave(missingOwner, 'missing-owner');
-  assert.throws(() => project(saved), error => (
-    error.code === 'SAVINGS_OWNER_TIMELINE_UNAVAILABLE'
-      && /Family/.test(scenarioRunFailureMessage(error))
-  ));
+  for(const currentAge of [50, 65, 66]){
+    missingOwner.household.primary.currentAge = currentAge;
+    missingOwner.household.primary.birthYear = 2026 - currentAge;
+    const saved = prepareHouseholdRecordForSave(missingOwner, 'missing-owner');
+    assert.throws(() => project(saved), error => (
+      error.code === 'SAVINGS_OWNER_TIMELINE_UNAVAILABLE'
+        && /Family/.test(scenarioRunFailureMessage(error))
+    ), `Missing savings owners must fail before, at and after retirement (age ${currentAge})`);
+  }
 });
 
 test('F02: scenario retirement delay moves both contribution cutoffs on the person timeline', () => {
