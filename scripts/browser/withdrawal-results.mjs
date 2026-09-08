@@ -393,10 +393,12 @@ export async function verifyWithdrawalResults({
     }
     await waitForWizard(page, { afterRevision: revision });
   };
-  await setTaxField('income.wages.client', 41729.72);
+  // The wage control accepts whole dollars. This reachable variant starts at
+  // $49,448.65 taxable income; the next $1 gain raises it to $49,450.50.
+  await setTaxField('income.wages.client', 41729);
   await setTaxField('income.socialSecurityBenefits', 30000);
   await setTaxField('socialSecurity.mode', 'calculate-taxable-benefits', true);
-  await setTaxField('socialSecurity.otherIncome', 41729.72);
+  await setTaxField('socialSecurity.otherIncome', 41729);
   await setTaxField('socialSecurity.excludedIncomeAddBacks', 0);
   await setTaxField('socialSecurity.adjustments', 0);
   const savedBoundary = await page.evaluate(id => {
@@ -405,14 +407,14 @@ export async function verifyWithdrawalResults({
     const wages = household.income.other.filter(row => row.typeId === 'wages' && row.owner === 'client');
     return { wages: wages.length === 1 ? wages[0].amount : null, benefits: income.socialSecurityBenefits, worksheet: income.socialSecurity };
   }, withdrawalPlannerFixtureHouseholdId);
-  if(savedBoundary.wages !== 41729.72 || savedBoundary.benefits !== 30000
+  if(savedBoundary.wages !== 41729 || savedBoundary.benefits !== 30000
       || savedBoundary.worksheet.mode !== 'calculate-taxable-benefits'
-      || savedBoundary.worksheet.otherIncome !== 41729.72){
+      || savedBoundary.worksheet.otherIncome !== 41729){
     throw new Error(`next-dollar boundary did not persist: ${JSON.stringify(savedBoundary)}`);
   }
   await stableClick('.htab[data-page="tax-buckets"]');
   await page.waitForFunction(() => document.querySelector('[data-taw-root]')?.getAttribute('aria-busy') === 'false'
-    && document.querySelector('[data-taw-fact-wages]')?.textContent.trim() === '$41,730');
+    && document.querySelector('[data-taw-fact-wages]')?.textContent.trim() === '$41,729');
   const boundaryProof = await plannerSnapshot();
   if(boundaryProof.nextGainRate !== 'Next $ at 15%' || boundaryProof.federalTax !== '$5,686'
       || boundaryProof.columns.ltcg.value !== '$0'){

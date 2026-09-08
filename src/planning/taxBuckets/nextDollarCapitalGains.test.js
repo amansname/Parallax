@@ -48,6 +48,12 @@ test('next-dollar cue agrees with the actual tax on an additional $1,000 gain wh
   facts.wages -= 1;
   assert.equal((await evaluate(0)).ltcg.rate, 0,
     'Schedule D gain must enter the Social Security worksheet only once');
+  facts.wages = 41_729;
+  const visibleBoundary = await evaluate(0);
+  assert.equal(visibleBoundary.totals.taxableIncome, 49_448.65);
+  assert.equal((await evaluate(1)).totals.taxableIncome, 49_450.50);
+  assert.equal(visibleBoundary.ltcg.rate, 0.15);
+  assert.equal(Math.round(visibleBoundary.modeledFederalIncomeTax.selected), 5_686);
 });
 
 test('unknown next-dollar rate is not replaced with the zero-band rate', () => {
