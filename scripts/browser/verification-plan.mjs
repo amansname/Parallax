@@ -47,7 +47,10 @@ export function readChangedPaths(env = process.env) {
   }
   // Disabling rename detection includes both old and new paths. A move out of
   // shared/protected code must not become a narrow selection at its new path.
-  const result = spawnSync('git', ['diff', '--name-only', '--no-renames', '-z', `${base}...${head}`, '--'], {
+  // Use the system installation on our Ubuntu CI and Windows workstations,
+  // rather than searching PATH (which may include writable directories).
+  const git = process.platform === 'win32' ? 'C:\\Program Files\\Git\\cmd\\git.exe' : '/usr/bin/git';
+  const result = spawnSync(git, ['diff', '--name-only', '--no-renames', '-z', `${base}...${head}`, '--'], {
     encoding: 'utf8', windowsHide: true,
   });
   if (result.error) throw result.error;
