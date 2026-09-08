@@ -51,7 +51,7 @@ import { join } from 'node:path';
 import { runPublicUrlBrowserContract } from './public-url-browser-contract.mjs';
 import { runGoalsPresentationContract } from './goals-presentation-browser-contract.mjs';
 import { runRolloverErrorBrowserContract } from './rollover-error-browser-contract.mjs';
-import { runWizardBrowserContract } from './wizard-browser-contract.mjs';
+import { runIsolatedWizardBrowserContract } from './wizard-browser-contract.mjs';
 import { formatDuration, shouldRunUnitSuite, selectedBrowserGroup, shouldRunBrowserGroup } from './browser/verification-runtime.mjs';
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const verificationStartedAt = performance.now();
@@ -225,7 +225,7 @@ try {
   }
   if(runsGroup('wizard-runtime', 'wizard-forms')){
   await step('household wizard: semantic four-step contract', async () => {
-    await runWizardBrowserContract(page, {
+    await runIsolatedWizardBrowserContract(page, {
       outDir: OUT,
       campaign: BROWSER_GROUP === 'wizard-runtime' ? 'runtime'
         : BROWSER_GROUP === 'wizard-forms' ? 'forms' : 'all'
