@@ -400,8 +400,10 @@ export async function verifyWithdrawalResults({
   await setTaxField('socialSecurity.excludedIncomeAddBacks', 0);
   await setTaxField('socialSecurity.adjustments', 0);
   const savedBoundary = await page.evaluate(id => {
-    const income = JSON.parse(localStorage.getItem('parallax.households.v1'))[id].incomeTax.current1040.income;
-    return { wages: income.wages.client, benefits: income.socialSecurityBenefits, worksheet: income.socialSecurity };
+    const household = JSON.parse(localStorage.getItem('parallax.households.v1'))[id];
+    const income = household.incomeTax.current1040.income;
+    const wages = household.income.other.filter(row => row.typeId === 'wages' && row.owner === 'client');
+    return { wages: wages.length === 1 ? wages[0].amount : null, benefits: income.socialSecurityBenefits, worksheet: income.socialSecurity };
   }, withdrawalPlannerFixtureHouseholdId);
   if(savedBoundary.wages !== 41729.72 || savedBoundary.benefits !== 30000
       || savedBoundary.worksheet.mode !== 'calculate-taxable-benefits'
