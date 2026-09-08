@@ -11,6 +11,11 @@ export function savingsContributionsAtYear(params, yearIndex){
   const entries = [];
   for(const entry of params.savingsEntries){
     const person = state.people[entry.owner];
+    if(entry.amount > 0 && (!person || person.alive == null || person.retired == null)){
+      const error = new RangeError(`Savings for ${entry.owner} require a household member and retirement timeline — check Family`);
+      error.code = 'SAVINGS_OWNER_TIMELINE_UNAVAILABLE';
+      throw error;
+    }
     if(person?.alive === true && person.retired === false){
       entries.push(entry);
     }else{

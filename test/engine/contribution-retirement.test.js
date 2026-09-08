@@ -6,6 +6,10 @@ import { snapshotPresetAllocation } from '../../src/household/investmentAllocati
 import { currentAllocationPlan, flatAssetReturnRow, typedInvestmentAccount } from './fixtures.js';
 import { createFederalTaxResolver } from '../../src/planning/tax/createFederalTaxResolver.js';
 import { buildHistoricalCashFlowResult } from '../../src/scenarios/buildHistoricalCashFlowResult.js';
+import { migrateHouseholdRecordSchema } from '../../src/household/householdRecordSchema.js';
+import { prepareHouseholdRecordForSave } from '../../src/household/persistence.js';
+import { scenarioRunFailureMessage } from '../../src/scenarios/projectionMessages.js';
+import { createBlankTaxProfiles } from '../../src/household/factEnvelope.js';
 
 function staggeredPlan(){
   const plan = currentAllocationPlan();
@@ -79,6 +83,19 @@ test('F02: already-retired contributors stop immediately and scenario scaling do
   assert.equal(first.accountContributionsById['spouse-401k'], 0);
   assert.equal(first.savings, 30_000);
   assert.equal(first.balance, 230_000);
+
+  // Missing ownership is unresolved input, not evidence that somebody retired.
+  const missingOwner = migrateHouseholdRecordSchema(staggeredPlan(), 'missing-owner').plan;
+  missingOwner.household.spouse = null;
+  missingOwner.income.socialSecurity.spouse = null;
+  missingOwner.meta.filingStatus = 'single';
+  missingOwner.taxProfiles = createBlankTaxProfiles();
+  missingOwner.portfolio.extraAccounts = missingOwner.portfolio.extraAccounts.filter(account => account.owner === 'client');
+  const saved = prepareHouseholdRecordForSave(missingOwner, 'missing-owner');
+  assert.throws(() => project(saved), error => (
+    error.code === 'SAVINGS_OWNER_TIMELINE_UNAVAILABLE'
+      && /Family/.test(scenarioRunFailureMessage(error))
+  ));
 });
 
 test('F02: scenario retirement delay moves both contribution cutoffs on the person timeline', () => {

@@ -171,6 +171,30 @@ export async function verifyTypicalCashFlow({
   }
 
   // Retirement start = filled dot on the year column of the first non-accum row.
+  // Verify the saved fixture through the real scenario and displayed balances.
+  await page.evaluate(async () => {
+    const { scenarios } = await import('./src/state.js');
+    const { fmtM } = await import('./ui/formatters.js');
+    const baseline = scenarios.filter(scenario => scenario.base);
+    if(baseline.length !== 1) throw new Error('Savings proof requires one Baseline');
+    const rows = baseline[0].res.paths.p50.rows.filter(row => row.phase === 'accum');
+    if(rows.length !== 2) throw new Error('Savings fixture requires two working years');
+    for(const [index, row] of rows.entries()){
+      const annual = index === 0 ? 40000 : 20000;
+      // Independent monthly-deposit reconciliation for this uniform-allocation fixture.
+      const monthlyGrowth = Math.pow(1 + row.returnRate, 1 / 12);
+      const deposits = Array.from({ length: 12 }, (_, month) => annual / 12 * monthlyGrowth ** month)
+        .reduce((sum, amount) => sum + amount, 0);
+      const expected = row.startBalance + row.returnDollars + deposits;
+      const visible = document.querySelectorAll(`#scn-view .cf-row[data-age="${row.age}"]`);
+      if(row.savings !== annual || Math.abs(row.balance - expected) > 0.01
+          || visible.length !== 1 || Math.abs(Number(visible[0].dataset.endingBalance) - expected) > 0.01
+          || visible[0].querySelector('.cf-cell--ending')?.textContent.trim() !== fmtM(expected)){
+        throw new Error(`Retirement savings did not reach Cash Flow: ${JSON.stringify({ age: row.age, annual, savings: row.savings, expected, balance: row.balance })}`);
+      }
+    }
+  });
+
   const retirementStartAge = () => page.evaluate(() => {
     const row = document.querySelector('#scn-view .cf-row__mark-dot--ret')?.closest('.cf-row');
     return row ? row.querySelector('.cf-cell--age')?.textContent.trim() || '' : '';
