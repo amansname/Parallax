@@ -65,7 +65,10 @@ export async function verifyFundingAcrossGoals({
     };
     plan.savings = {
       ...(plan.savings || {}),
-      annual: 10000
+      annual: 10000,
+      // This single-person, aggregate-savings fixture must not retain the
+      // preceding two-person Cash Flow fixture's owner-directed entries.
+      entries: []
     };
     plan.income = {
       socialSecurity: {
