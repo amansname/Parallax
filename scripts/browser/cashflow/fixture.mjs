@@ -65,6 +65,12 @@ export async function prepareCashFlowFixture({
         { id: 'cf-spouse-saving', owner: 'spouse', typeId: 'roth_ira', bucket: 'roth', amount: 20000 },
       ],
     };
+    // One retirement-income year makes the existing saved-household campaign
+    // exercise F01 surplus crediting as well as its withdrawal years.
+    household.income.other.push({
+      id: 'cf-retirement-surplus', owner: 'client', label: 'Retirement income',
+      amount: 500000, startAge: 66, endAge: 66, realGrowth: 0, taxablePct: 1,
+    });
     delete household.meta.accountSchemaVersion;
     delete household.meta.householdRecordSchemaVersion;
     localStorage.setItem(key, JSON.stringify(db));

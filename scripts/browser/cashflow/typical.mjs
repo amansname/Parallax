@@ -195,6 +195,38 @@ export async function verifyTypicalCashFlow({
     }
   });
 
+  const surplusProof = await page.evaluate(async () => {
+    const { scenarios } = await import('./src/state.js');
+    const { fmtM } = await import('./ui/formatters.js');
+    const id = localStorage.getItem('parallax.activeHouseholdId');
+    const saved = JSON.parse(localStorage.getItem('parallax.households.v1'))[id];
+    const sources = saved.income.other.filter(source => source.id === 'cf-retirement-surplus');
+    const baselines = scenarios.filter(scenario => scenario.base);
+    const views = document.querySelectorAll('#scn-view .cf');
+    if(sources.length !== 1 || sources[0].amount !== 500000 || baselines.length !== 1 || views.length !== 1){
+      throw new Error('F01 proof requires the saved retirement-income source and one Baseline view');
+    }
+    const simulation = baselines[0].res.paths.p50;
+    const rows = simulation.rows.filter(row => row.age === 66);
+    if(views[0].dataset.simIndex !== String(simulation.simIndex) || rows.length !== 1){
+      throw new Error('F01 proof must use the displayed Typical simulation');
+    }
+    const row = rows[0];
+    const surplus = row.socialSecurity + row.otherIncome + row.pension
+      - row.expenses - row.goals - row.liabilities - row.lumpSum - row.taxes;
+    const expected = row.startBalance + row.returnDollars + surplus;
+    const visible = views[0].querySelectorAll('.cf-row[data-age="66"]');
+    if(row.phase === 'accum' || row.otherIncome < 500000 || !(surplus > 0)
+        || row.rmd !== 0 || row.withdrawal !== 0 || row.taxFundingConvergence?.status !== 'converged'
+        || Math.abs(row.balance - expected) > 0.01 || visible.length !== 1
+        || Math.abs(Number(visible[0].dataset.endingBalance) - expected) > 0.01
+        || visible[0].querySelector('.cf-cell--ending')?.textContent.trim() !== fmtM(expected)){
+      throw new Error(`F01 saved income surplus did not reach the displayed balance: ${JSON.stringify({ row, surplus, expected })}`);
+    }
+    return { income: row.otherIncome, tax: row.taxes, surplus, expected, displayed: fmtM(expected) };
+  });
+  console.log('F01 saved-household Cash Flow reconciliation:', JSON.stringify(surplusProof));
+
   const retirementStartAge = () => page.evaluate(() => {
     const row = document.querySelector('#scn-view .cf-row__mark-dot--ret')?.closest('.cf-row');
     return row ? row.querySelector('.cf-cell--age')?.textContent.trim() || '' : '';
