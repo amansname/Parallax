@@ -310,7 +310,18 @@ if(lintJob?.name !== 'ESLint'
 const unitJob = workflowConfig?.jobs?.unit;
 const browserJob = workflowConfig?.jobs?.browser;
 const browserGroups = workflowConfig?.jobs?.['browser-groups'];
-const requiredBrowserGroups = ['entry', 'wizard-runtime', 'wizard-forms', 'scenarios', 'cashflow', 'persistence'];
+const artifactJob = workflowConfig?.jobs?.artifact;
+const coverageStep = artifactJob?.steps?.find(step => step?.id === 'coverage');
+const artifactCheckout = artifactJob?.steps?.find(step => String(step?.uses || '').startsWith('actions/checkout@'));
+if(artifactJob?.outputs?.browser_groups !== '${{ steps.coverage.outputs.browser_groups }}'
+  || artifactJob?.env?.PARALLAX_BASE_SHA !== '${{ github.event.pull_request.base.sha }}'
+  || artifactCheckout?.with?.['fetch-depth'] !== 0
+  || coverageStep?.run !== 'node scripts/browser/verification-plan.mjs'
+  || coverageStep?.if !== undefined
+  || workflowConfig?.concurrency?.group !== '${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}'
+  || workflowConfig?.concurrency?.['cancel-in-progress'] !== "${{ github.event_name == 'pull_request' }}"){
+  failures.push('.github/workflows/test.yml must select browser coverage from the full PR diff and cancel superseded quality runs only within the same PR');
+}
 const browserVerify = browserGroups?.steps?.find(step => step?.run === 'npm run verify');
 const browserCheckout = browserGroups?.steps?.find(step => String(step?.uses || '').startsWith('actions/checkout@'));
 const browserDownload = browserGroups?.steps?.find(step => String(step?.uses || '').startsWith('actions/download-artifact@'));
@@ -321,7 +332,7 @@ if(!unitJob?.steps?.some(step => step?.run === 'npm test')
   || browserGroups?.['runs-on'] !== 'ubuntu-latest'
   || browserGroups?.if !== undefined
   || browserGroups?.strategy?.['fail-fast'] !== false
-  || JSON.stringify(browserGroups?.strategy?.matrix) !== JSON.stringify({ group: requiredBrowserGroups })
+  || JSON.stringify(browserGroups?.strategy?.matrix) !== JSON.stringify({ group: '${{ fromJSON(needs.artifact.outputs.browser_groups) }}' })
   || browserGroups?.env?.PARALLAX_VERIFY_SKIP_UNIT_TESTS !== '1'
   || browserGroups?.env?.PARALLAX_VERIFY_BROWSER_GROUP !== '${{ matrix.group }}'
   || browserGroups?.env?.PARALLAX_ARTIFACT_ROOT !== '.parallax-artifact'
@@ -333,7 +344,7 @@ if(!unitJob?.steps?.some(step => step?.run === 'npm test')
   || !browserGroups?.steps?.some(step => step?.run === 'npm run site:verify')
   || browserUpload?.if !== 'always()'
   || browserUpload?.with?.name !== 'parallax-browser-verification-${{ env.CANDIDATE_SHA }}-${{ matrix.group }}'){
-  failures.push('.github/workflows/test.yml must run all six browser groups on the same verified candidate artifact after unit proof, with 15-minute ceilings and distinct evidence artifacts');
+  failures.push('.github/workflows/test.yml must run every selected browser group on the same verified candidate artifact after unit proof, with 15-minute ceilings and distinct evidence artifacts');
 }
 const browserGate = browserJob?.steps?.[0];
 if(browserJob?.name !== 'Full browser verification'

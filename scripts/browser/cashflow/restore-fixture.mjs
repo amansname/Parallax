@@ -2,7 +2,8 @@ import { selectHouseholdVisible } from '../../wizard-browser-contract.mjs';
 export async function restoreWithdrawalFixture({
   stableClick,
   page,
-  withdrawalPlannerFixtureHouseholdId
+  withdrawalPlannerFixtureHouseholdId,
+  expectedPeople
 }) {
   await stableClick('.htab[data-page="household"]');
   await selectHouseholdVisible(page, withdrawalPlannerFixtureHouseholdId);
@@ -30,7 +31,12 @@ export async function restoreWithdrawalFixture({
       } : null
     };
   }, withdrawalPlannerFixtureHouseholdId);
-  if (restoredWithdrawalPlannerFixture.activeHouseholdId !== withdrawalPlannerFixtureHouseholdId || restoredWithdrawalPlannerFixture.rootHouseholdId !== withdrawalPlannerFixtureHouseholdId || restoredWithdrawalPlannerFixture.selectedHouseholdId !== withdrawalPlannerFixtureHouseholdId || restoredWithdrawalPlannerFixture.primary?.currentAge !== 64 || restoredWithdrawalPlannerFixture.primary?.retirementAge !== 66 || restoredWithdrawalPlannerFixture.spouse?.currentAge !== 63 || restoredWithdrawalPlannerFixture.spouse?.retirementAge !== 65) {
+  const timingMatches = ['primary', 'spouse'].every(owner =>
+    ['currentAge', 'retirementAge'].every(field =>
+      restoredWithdrawalPlannerFixture[owner]?.[field] === expectedPeople[owner][field]
+    )
+  );
+  if (restoredWithdrawalPlannerFixture.activeHouseholdId !== withdrawalPlannerFixtureHouseholdId || restoredWithdrawalPlannerFixture.rootHouseholdId !== withdrawalPlannerFixtureHouseholdId || restoredWithdrawalPlannerFixture.selectedHouseholdId !== withdrawalPlannerFixtureHouseholdId || !timingMatches) {
     throw new Error(`Withdrawal Planner fixture was not restored after Historical reload: ${JSON.stringify(restoredWithdrawalPlannerFixture)}`);
   }
 }

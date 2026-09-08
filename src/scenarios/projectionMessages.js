@@ -2,6 +2,7 @@
 // The engine knows exactly why it could not finish; flattening that to one
 // generic sentence is what made this class of failure undiagnosable.
 const PROJECTION_ISSUE_MESSAGES = {
+  SAVINGS_OWNER_TIMELINE_UNAVAILABLE: 'A savings owner or retirement timeline is missing — open Family and check the member assigned to each savings entry',
   PROJECTION_HORIZON_OUT_OF_RANGE: 'Plan length is outside the supported projection range',
   PROJECTION_ITERATIONS_OUT_OF_RANGE: 'Simulation count is outside the supported projection range',
   PROJECTION_RETURN_PATH_DIMENSIONS_INVALID: 'Market path data does not cover the supported projection range',

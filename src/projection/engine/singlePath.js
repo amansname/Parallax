@@ -8,6 +8,7 @@ import { accountBalancesById, addProjectionCash, applyDirectBucketWithdrawal, ap
 import { fundGap, emptyFunding, combineAccountAmounts, traditionalWithdrawalsByOwner } from './accountFunding.js';
 import { assertFiniteFederalFundingInputs, solveFederalFundingYear } from './federalFunding.js';
 import { effectiveWithdrawalRate } from './withdrawalMetrics.js';
+import { savingsContributionsAtYear } from './savingsContributions.js';
 
 /**
  * A goal's cost in THIS year, in today's dollars.
@@ -58,6 +59,8 @@ export function runSinglePath(p, returnPath, options = {}){
   }
   validateProjectionHorizon(p.horizonYears);
   validateReturnPaths([returnPath], p.horizonYears);
+  // Validate savings ownership even when this path starts in retirement.
+  savingsContributionsAtYear(p, 0);
   const taxPolicy = options.taxPolicy ?? null;
   const fundTaxPolicyDelta = options.fundTaxPolicyDelta === true;
   const includeAccountDiagnostics = options.includeAccountDiagnostics !== false;
@@ -165,16 +168,14 @@ export function runSinglePath(p, returnPath, options = {}){
       returnProduct *= (1 + r);
       if(y < 10) first10Product *= (1 + r);
       const startBalanceA = totalBalance();
+      const savings = savingsContributionsAtYear(p, y);
       const contributionsById = applyProjectionContributions(
         projectionAccounts,
         returnFrame,
-        {
-          taxable: p.savingsAnnual * p.savingsSplit.taxable,
-          traditional: p.savingsAnnual * p.savingsSplit.traditional,
-          roth: p.savingsAnnual * p.savingsSplit.roth,
-        },
-        p.savingsEntries,
+        savings.annualByBucket,
+        savings.entries,
       );
+      const savingsApplied = Object.values(contributionsById).reduce((total, amount) => total + amount, 0);
       syncProjectionAggregates(projectionAccounts, accounts);
       let rmdForcedA = 0;
       let rmdTaxA = 0;
@@ -288,7 +289,7 @@ export function runSinglePath(p, returnPath, options = {}){
         rmdIssue: null,
         assetSale: saleProceeds,
         ...(oiInc > 0 ? { otherIncomeTaxable: oiTaxable } : {}),
-        expenses: 0, goals: goalsA, liabilities: 0, taxes: rowShortcutTax, savings: p.savingsAnnual, lumpSum: lumpA,
+        expenses: 0, goals: goalsA, liabilities: 0, taxes: rowShortcutTax, savings: savingsApplied, lumpSum: lumpA,
         startBalance: startBalanceA, wdRate: 0, effectiveWdRate: 0,
         netCashflow: saleProceeds - lumpA - goalsA,
         balance: endBalanceA, failed: accumulationFailed,
