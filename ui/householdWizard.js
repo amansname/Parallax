@@ -1,6 +1,7 @@
 import { accountDisplayTreatment, getAccountTypeById } from '../src/household/accountTypes.js';
 import { familyFinanceSourceTypes } from '../src/household/familyFinanceEntries.js';
 import { renderHouseholdWizardFamily } from './householdWizardFamily.js';
+import { renderHouseholdFinancesRail } from './householdFinancesRail.js';
 import { renderHouseholdWizardNetWorth } from './householdWizardNetWorth.js';
 import { renderHouseholdWizardTax } from './householdWizardTax.js';
 import { renderHouseholdWizardSummary } from './householdWizardSummary.js';
@@ -111,9 +112,8 @@ export function createHouseholdWizard(dependencies){
     summary: renderHouseholdWizardSummary,
   };
 
-  function context(){
+  function familyContext(){
     const plan = dependencies.plan;
-    const taxState = dependencies.taxState();
     return {
       plan,
       uiState: dependencies.uiState,
@@ -123,11 +123,19 @@ export function createHouseholdWizard(dependencies){
       optionList,
       money,
       states: dependencies.states,
+      financeSourceTypes: mode => familyFinanceSourceTypes(mode),
+      ageFor: owner => ageFor(plan, owner),
+    };
+  }
+
+  function context(){
+    const plan = dependencies.plan;
+    const taxState = dependencies.taxState();
+    return {
+      ...familyContext(),
       accountTypes: dependencies.accountTypes,
       accountTreatment: accountDisplayTreatment,
       accountBasis: account => accountBasis(plan, account),
-      financeSourceTypes: mode => familyFinanceSourceTypes(mode),
-      ageFor: owner => ageFor(plan, owner),
       taxBucketSnapshot: dependencies.taxBucketSnapshot(),
       taxSummary: dependencies.incomeTaxSummary(),
       current: taxState.current,
@@ -140,6 +148,7 @@ export function createHouseholdWizard(dependencies){
   }
 
   function render(stepId){
+    if(stepId === 'family') return renderHouseholdWizardFamily(familyContext());
     const renderer = renderers[stepId] || renderers.family;
     return renderer(context());
   }
@@ -158,5 +167,5 @@ export function createHouseholdWizard(dependencies){
     `;
   }
 
-  return { render, footer };
+  return { render, footer, renderFinanceRail: () => renderHouseholdFinancesRail(familyContext()) };
 }
