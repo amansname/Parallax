@@ -734,6 +734,43 @@
   cursor: pointer;
 }
 
+.page[data-page="household"] .hh-savings-review,
+.page[data-page="household"] .hh-savings-history {
+  color: var(--body);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  text-wrap: pretty;
+}
+
+.page[data-page="household"] .hh-savings-review {
+  padding: var(--sp-4);
+  border: var(--bw) solid var(--rule);
+  border-radius: var(--r-ctl);
+  background: var(--raised);
+}
+
+.page[data-page="household"] .hh-savings-review h3 {
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-body-strong);
+}
+
+.page[data-page="household"] .hh-savings-review p,
+.page[data-page="household"] .hh-savings-history p {
+  margin: var(--sp-3) 0;
+}
+
+.page[data-page="household"] .hh-savings-review-actions {
+  display: grid;
+  gap: var(--sp-2);
+}
+
+.page[data-page="household"] .hh-savings-history summary {
+  min-height: var(--h-prominent);
+  cursor: pointer;
+}
+
 .page[data-page="household"] .hh-finances-summary {
   display: flex;
   min-width: 0;

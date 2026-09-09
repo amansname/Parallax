@@ -156,15 +156,27 @@ test('savings entries preserve ownership while feeding the existing annual and s
   assert.equal(resolved.savingsSplit.taxable, 24_000 / 68_300);
 });
 
-test('the first explicit savings entry replaces an invisible legacy aggregate', () => {
+test('the first explicit savings entry replaces legacy savings only after a bound confirmation', () => {
   const value = subject();
   value.savings = {
     annual: 10_000,
     split: { taxable: 0.25, traditional: 0.75, roth: 0 },
   };
-  addFamilyFinanceEntry(value, {
+  const command = {
     mode: 'savings', typeId: 'roth_ira', owner: 'spouse', amount: 6_000,
+  };
+  const before = JSON.stringify(value);
+  let confirmation;
+  assert.throws(() => addFamilyFinanceEntry(value, command), error => {
+    assert.equal(error.code, 'SAVINGS_REPLACEMENT_REQUIRED');
+    confirmation = error.confirmation;
+    assert.equal(confirmation.priorAnnual, 10_000);
+    assert.equal(confirmation.itemizedAnnual, 6_000);
+    return true;
   });
+  assert.equal(JSON.stringify(value), before);
+  addFamilyFinanceEntry(value, { ...command, savingsConfirmation: confirmation });
+  assert.deepEqual(value.meta.legacyRepairArchive.at(-1).priorSavings, JSON.parse(before).savings);
 
   assert.equal(Object.hasOwn(value.savings, 'unallocatedAnnual'), false);
   assert.equal(Object.hasOwn(value.savings, 'unallocatedSplit'), false);
@@ -174,6 +186,93 @@ test('the first explicit savings entry replaces an invisible legacy aggregate', 
     traditional: 0,
     roth: 1,
   });
+});
+
+test('zero for an absent savings entry preserves legacy bytes and missing or empty entry shape', () => {
+  for(const entries of [undefined, []]){
+    const value = subject();
+    value.savings.annual = 30_000;
+    if(entries) value.savings.entries = entries;
+    const before = JSON.stringify(value);
+    addFamilyFinanceEntry(value, {
+      mode: 'savings', typeId: '401k', owner: 'client', amount: 0,
+    });
+    assert.equal(JSON.stringify(value), before);
+  }
+});
+
+test('confirmation rejects changes to the reviewed household, savings, or proposed entry', () => {
+  const command = { mode: 'savings', typeId: '401k', owner: 'client', amount: 500 };
+  const changes = [
+    value => { value.meta.householdId = 'other-household'; },
+    value => { value.savings.annual = 40_000; },
+    value => { value.savings.split = { taxable: 1, traditional: 0, roth: 0 }; },
+    value => { value.savings.entries = []; },
+    value => { value.savings.entries = [{ id: 'new', typeId: '401k', owner: 'client', amount: 100, bucket: 'traditional' }]; },
+  ];
+  for(const change of changes){
+    const value = subject();
+    value.savings.annual = 30_000;
+    let savingsConfirmation;
+    assert.throws(() => addFamilyFinanceEntry(value, command), error => {
+      savingsConfirmation = error.confirmation;
+      return error.code === 'SAVINGS_REPLACEMENT_REQUIRED';
+    });
+    change(value);
+    const before = JSON.stringify(value);
+    assert.throws(() => addFamilyFinanceEntry(value, { ...command, savingsConfirmation }), { code: 'SAVINGS_REPLACEMENT_STALE' });
+    assert.equal(JSON.stringify(value), before);
+  }
+  for(const changed of [{ amount: 0 }, { amount: 600 }, { owner: 'spouse' }, { typeId: 'roth_ira' }, { mode: 'income', typeId: 'wages' }]){
+    const value = subject();
+    value.savings.annual = 30_000;
+    let savingsConfirmation;
+    assert.throws(() => addFamilyFinanceEntry(value, command), error => {
+      savingsConfirmation = error.confirmation;
+      return error.code === 'SAVINGS_REPLACEMENT_REQUIRED';
+    });
+    const before = JSON.stringify(value);
+    assert.throws(() => addFamilyFinanceEntry(value, { ...command, ...changed, savingsConfirmation }), { code: 'SAVINGS_REPLACEMENT_STALE' });
+    assert.equal(JSON.stringify(value), before);
+  }
+});
+
+test('malformed savings lists cannot be treated as an empty legacy total', () => {
+  for(const entries of [null, {}, { oldContribution: { amount: 30_000 } }]){
+    const value = subject();
+    value.savings = { annual: 30_000, split: { taxable: 0, traditional: 1, roth: 0 }, entries };
+    const before = JSON.stringify(value);
+    for(const amount of [0, 500]){
+      assert.throws(() => addFamilyFinanceEntry(value, { mode: 'savings', typeId: '401k', owner: 'client', amount }), /savings.entries must be an array/);
+      assert.equal(JSON.stringify(value), before);
+    }
+  }
+});
+
+test('confirmed replacement archives the exact prior savings and ordinary edits keep itemized authority', () => {
+  const value = subject();
+  value.savings = { annual: 30_000, split: { taxable: 0.2, traditional: 0.8, roth: 0 }, entries: [], unallocatedAnnual: 30_000, unallocatedSplit: { taxable: 0.2, traditional: 0.8, roth: 0 } };
+  const prior = structuredClone(value.savings);
+  const command = { mode: 'savings', typeId: '401k', owner: 'client', amount: 500 };
+  let savingsConfirmation;
+  assert.throws(() => addFamilyFinanceEntry(value, command), error => {
+    savingsConfirmation = error.confirmation;
+    return error.code === 'SAVINGS_REPLACEMENT_REQUIRED';
+  });
+  addFamilyFinanceEntry(value, { ...command, savingsConfirmation });
+  addFamilyFinanceEntry(value, { ...command, amount: 1_000 });
+  addFamilyFinanceEntry(value, { ...command, owner: 'spouse', amount: 2_000 });
+  assert.equal(value.meta.legacyRepairArchive.length, 1);
+  assert.deepEqual(value.meta.legacyRepairArchive[0].priorSavings, prior);
+  assert.equal(value.meta.legacyRepairArchive[0].itemizedAnnual, 500);
+  assert.equal(value.savings.annual, 3_000);
+  assert.equal(resolveInputs(value, {}).savingsAnnual, 3_000);
+  const before = JSON.stringify(value);
+  addFamilyFinanceEntry(value, { ...command, typeId: 'roth_ira', amount: 0 });
+  assert.equal(JSON.stringify(value), before);
+  addFamilyFinanceEntry(value, { ...command, amount: 0 });
+  assert.equal(value.savings.annual, 2_000);
+  assert.equal(value.savings.entries[0].owner, 'spouse');
 });
 
 test('editing a persisted itemized entry removes the hidden aggregate from PR 259', () => {

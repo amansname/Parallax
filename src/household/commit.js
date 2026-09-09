@@ -106,6 +106,11 @@ export function bindHouseholdEditor({
   root.addEventListener('focusout', inputHandlers.focusout);
   root.addEventListener('change', inputHandlers.change);
   root.addEventListener('keydown', event => {
+    if(event.key === 'Escape' && transientState.financePending){
+      event.preventDefault();
+      actionHandlers['cancel-savings-replacement']();
+      return;
+    }
     if(event.key === 'Escape' && transientState.financeOwner){
       event.preventDefault();
       transientState.financeOwner = null;

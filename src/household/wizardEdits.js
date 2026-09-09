@@ -284,15 +284,17 @@ function applyFamilyEdit(plan, command, timestamp){
 
 function applyFinanceEdit(plan, command){
   if(command.action !== 'add') throw new Error('Unsupported finance action');
-  addFamilyFinanceEntry(plan, {
+  const result = addFamilyFinanceEntry(plan, {
     mode: command.mode,
     typeId: command.typeId,
     owner: command.owner,
     amount: money(command.amount),
+    savingsConfirmation: command.savingsConfirmation,
   });
   if(command.mode === 'income' && plan.incomeTax?.current1040){
     plan.incomeTax.current1040.incomeSourcesComplete = false;
   }
+  return result !== null;
 }
 
 function accountIndex(plan, accountId){
@@ -595,7 +597,7 @@ export function applyHouseholdWizardEdit(plan, command, options = {}){
   }else if(command.scope === 'account'){
     applyAccountEdit(next, command, timestamp);
   }else if(command.scope === 'finance'){
-    applyFinanceEdit(next, command);
+    if(!applyFinanceEdit(next, command)) return plan;
   }else if(command.scope === 'property'){
     applyPropertyEdit(next, command);
   }else if(command.scope === 'mortgage'){
@@ -633,9 +635,11 @@ export function createHouseholdWizardCommitBoundary({
       return true;
     },
     commit(command){
-      const next = applyHouseholdWizardEdit(getPlan(), command, {
+      const current = getPlan();
+      const next = applyHouseholdWizardEdit(current, command, {
         timestamp: timestamp(),
       });
+      if(next === current) return { plan: current, revision, refreshError: null, changed: false };
       replacePlan(next);
       revision += 1;
       let refreshError = null;

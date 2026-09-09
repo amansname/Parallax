@@ -6,6 +6,7 @@ import {
 } from './incomeTaxModel.js';
 import { newWizardRowId } from './householdRecordSchema.js';
 import { writeItemizedSavingsAggregate } from './savingsPlan.js';
+import { archiveSavingsReplacement, requireSavingsReplacementConfirmation } from './savingsReplacement.js';
 
 const freezeRows = rows => Object.freeze(
   rows.map(row => Object.freeze({ ...row })),
@@ -137,22 +138,28 @@ export function syncSavingsAggregate(plan){
   return writeItemizedSavingsAggregate(plan);
 }
 
-function addSavingsEntry(plan, typeId, owner, amount){
+function addSavingsEntry(plan, typeId, owner, amount, confirmation){
   const type = sourceType('savings', typeId);
   const bucket = engineBucketForTypeId(type.id);
   if(!bucket){
     throw new Error(`${type.label} is not available to the projection engine`);
   }
-  const entries = ensureSavingsEntries(plan);
+  const currentEntries = Array.isArray(plan.savings?.entries) ? plan.savings.entries : [];
   const existing = uniqueMatch(
-    entries,
+    currentEntries,
     row => row?.owner === owner && row?.typeId === type.id,
     `${type.label} for this household member`,
   );
+  const replacing = requireSavingsReplacementConfirmation(
+    plan, { typeId, owner, amount }, confirmation,
+  );
+  if(amount === 0 && !existing) return false;
+  const priorSavings = replacing ? structuredClone(plan.savings) : null;
+  const entries = ensureSavingsEntries(plan);
   if(amount === 0){
     if(existing) entries.splice(entries.indexOf(existing), 1);
     syncSavingsAggregate(plan);
-    return;
+    return true;
   }
   if(existing){
     existing.amount = amount;
@@ -169,15 +176,25 @@ function addSavingsEntry(plan, typeId, owner, amount){
     });
   }
   syncSavingsAggregate(plan);
+  if(replacing) archiveSavingsReplacement(plan, priorSavings);
+  return true;
 }
 
 export function addFamilyFinanceEntry(plan, command){
   const mode = command.mode === 'income' ? 'income' : 'savings';
+  if(mode !== 'savings' && command.savingsConfirmation != null){
+    const error = new Error('A savings confirmation cannot authorize an income entry.');
+    error.code = 'SAVINGS_REPLACEMENT_STALE';
+    throw error;
+  }
   const owner = validOwner(plan, command.owner);
   const amount = mode === 'savings'
     ? nonnegativeAmount(command.amount)
     : positiveAmount(command.amount);
   if(mode === 'income') addIncomeEntry(plan, command.typeId, owner, amount);
-  else addSavingsEntry(plan, command.typeId, owner, amount);
+  else if(!addSavingsEntry(plan, command.typeId, owner, amount, command.savingsConfirmation)){
+    // Null explicitly tells the wizard boundary there is nothing to save.
+    return null;
+  }
   return plan;
 }
