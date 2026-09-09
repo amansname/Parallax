@@ -92,7 +92,7 @@ export function bindHouseholdEditor({
       reportError,
       commit,
       transientState,
-      syncHousehold
+      syncHousehold: () => syncHousehold({ financeOnly: true })
     }),
     ...createTaxActions({
       transientState,
@@ -106,22 +106,26 @@ export function bindHouseholdEditor({
   root.addEventListener('focusout', inputHandlers.focusout);
   root.addEventListener('change', inputHandlers.change);
   root.addEventListener('keydown', event => {
-    if(event.key === 'Escape' && transientState.financePending){
+    const onFamily = wizardRoot.dataset.wizardStep === 'family';
+    if(event.key === 'Escape' && onFamily && transientState.financePending){
       event.preventDefault();
       actionHandlers['cancel-savings-replacement']();
       return;
     }
-    if(event.key === 'Escape' && transientState.financeOwner){
+    if(event.key === 'Escape' && onFamily && transientState.financeOwner){
       event.preventDefault();
+      const owner = transientState.financeOwner;
       transientState.financeOwner = null;
       transientState.financeTypeId = null;
-      syncHousehold();
+      syncHousehold({ financeOnly: true });
+      root.querySelector(`[data-finances-person-owner="${owner}"]`)?.focus();
       return;
     }
-    if(event.key === 'Escape' && transientState.financeRailOpen){
+    if(event.key === 'Escape' && onFamily && transientState.financeRailOpen){
       event.preventDefault();
       transientState.financeRailOpen = false;
-      syncHousehold();
+      syncHousehold({ financeOnly: true });
+      root.querySelector('[data-hh-action="toggle-finances-rail"]')?.focus();
       return;
     }
     const amount = event.target.closest?.('[data-finance-amount]');
@@ -139,12 +143,13 @@ export function bindHouseholdEditor({
     if (Object.hasOwn(actionHandlers, kind)) actionHandlers[kind](action);
   });
   globalThis.document?.addEventListener('click', event => {
+    if(wizardRoot.dataset.wizardStep !== 'family') return;
     if(!transientState.financeOwner) return;
     if(event.target.closest?.('[data-finances-rail]')){
       return;
     }
     transientState.financeOwner = null;
     transientState.financeTypeId = null;
-    syncHousehold();
+    syncHousehold({ financeOnly: true });
   });
 }

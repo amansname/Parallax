@@ -631,35 +631,20 @@
   color: var(--acc);
 }
 
-.page[data-page="household"] .hh-finance-source-select {
+.page[data-page="household"] .hh-finance-source-heading {
   display: flex;
   width: 100%;
-  height: var(--h-ctl);
   align-items: center;
-  justify-content: space-between;
-  gap: var(--sp-2);
-  padding: 0 var(--sp-3);
-  border: var(--bw) solid var(--rule);
-  border-radius: var(--r-ctl);
+  margin: 0;
+  padding: var(--sp-2) 0;
   color: var(--body);
   font-size: var(--fs-body);
 }
 
-.page[data-page="household"] .hh-finance-source-select span {
+.page[data-page="household"] .hh-finance-source-heading span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.page[data-page="household"] .hh-finance-source-select svg {
-  width: 12px;
-  height: 12px;
-  flex: 0 0 auto;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.5;
 }
 
 .page[data-page="household"] .hh-finance-source-list {
@@ -2036,6 +2021,18 @@
   .page[data-page="household"] .hh-finances-rail.is-open {
     height: calc(100vh - 68px);
     min-height: 0;
+  }
+
+  .page[data-page="household"] .hh-finances-rail:not(.is-open) {
+    position: static;
+    width: 100%;
+    height: auto;
+    margin-bottom: var(--sp-4);
+  }
+
+  .page[data-page="household"] .hh-finances-rail:not(.is-open) .hh-finances-rail-head {
+    height: var(--h-prominent);
+    padding: 0;
   }
 }
 

@@ -111,8 +111,20 @@ export async function verifySavingsReplacement({ page, stableReload, screenshotD
   await assertReview(page);
   assert.deepEqual(await readSaved(page, id), before, 'review must not save');
   const viewport = page.viewport();
+  let previousWidth = viewport.width;
   for(const [width, height] of [[1920, 1080], [1279, 900], [760, 900]]){
     await page.setViewport({ width, height, deviceScaleFactor: 1 });
+    if(width <= 1023 && previousWidth > 1023){
+      // Entering the overlay layout closes transient finance state. Reopen
+      // explicitly to verify the same confirmation controls at this width.
+      await page.waitForFunction(() => document.querySelector('[data-hh-action="toggle-finances-rail"]')?.getAttribute('aria-expanded') === 'false');
+      assert.deepEqual(await readSaved(page, id), before, 'responsive closure must not save');
+      await page.click(action('toggle-finances-rail'));
+      await openEntry(page);
+      await enterAmount(page, 500);
+      await assertReview(page);
+    }
+    previousWidth = width;
     const geometry = await page.evaluate(() => {
       const panel = document.querySelector('[data-savings-replacement]');
       const rect = panel.getBoundingClientRect();

@@ -4,6 +4,7 @@ import {
   HOUSEHOLD_WIZARD_STEPS,
 } from '../../ui/householdWizard.js';
 import { escHtml } from '../../ui/dom.js';
+import { refreshHouseholdFamilyFields, replaceHouseholdFinanceRail } from '../../ui/householdFamilyUpdates.js';
 import { getWizardAccountTypes } from './accountTypes.js';
 import {
   buildWizardIncomeTaxSummary,
@@ -40,10 +41,11 @@ export function createHouseholdWizardController({
   let stepId = 'family';
   let renderRevision = 0;
   let wizard;
+  const financeOverlayMedia = globalThis.matchMedia?.('(max-width: 1023px)');
 
   const state = {
-    financeRailOpen: true,
-    financeOwner: 'client',
+    financeRailOpen: !financeOverlayMedia?.matches,
+    financeOwner: financeOverlayMedia?.matches ? null : 'client',
     financeMode: 'savings',
     financeTypeId: null,
     financeSaveStatus: false,
@@ -123,8 +125,8 @@ export function createHouseholdWizardController({
 
   function resetTransient(){
     clearFinanceDraft();
-    state.financeRailOpen = true;
-    state.financeOwner = 'client';
+    state.financeRailOpen = !financeOverlayMedia?.matches;
+    state.financeOwner = financeOverlayMedia?.matches ? null : 'client';
     state.financeMode = 'savings';
     state.financeTypeId = null;
     state.financeSaveStatus = false;
@@ -185,7 +187,7 @@ export function createHouseholdWizardController({
     }
   }
 
-  function sync(){
+  function sync({ financeOnly = false, familyFieldsOnly = false } = {}){
     const view = $('#hh-view');
     const root = document.querySelector('[data-hh-wizard-root]');
     if(!view || !root) return;
@@ -198,6 +200,24 @@ export function createHouseholdWizardController({
     const plan = getPlan();
     const activeId = getActiveHouseholdId();
     const hasActiveHousehold = Boolean(activeId);
+    if(financeOnly || familyFieldsOnly){
+      if(stepId !== 'family' || root.dataset.householdId !== activeId || !hasActiveHousehold){
+        throw new Error('Partial Family update requires the active household Family screen');
+      }
+      const householdWizard = ensureWizard();
+      if(financeOnly) replaceHouseholdFinanceRail(view, householdWizard.renderFinanceRail());
+      else {
+        refreshHouseholdFamilyFields(view, householdWizard.render('family'));
+        // Keep the household switcher mounted when an edit blurs into it.
+        for(const option of $('#hh-switch')?.options || []){
+          const meta = getHouseholdsDb()[option.value]?.meta;
+          if(meta) option.textContent = meta.name || meta.primaryName || 'Household';
+        }
+        updateSidebar(plan);
+      }
+      finishRender(root, activeId);
+      return;
+    }
     const progress = document.querySelector('.hh-progress');
     const stepper = document.querySelector('.hh-stepper');
     const footer = $('#hh-wiz-footer');
@@ -243,6 +263,10 @@ export function createHouseholdWizardController({
       button.setAttribute('aria-current', active ? 'step' : 'false');
     }
     updateSidebar(plan);
+    finishRender(root, activeId);
+  }
+
+  function finishRender(root, activeId){
     renderRevision += 1;
     root.dataset.wizardStep = stepId;
     root.dataset.renderRevision = String(renderRevision);
@@ -273,6 +297,16 @@ export function createHouseholdWizardController({
   }
 
   function bindRail(){
+    financeOverlayMedia?.addEventListener('change', event => {
+      if(!event.matches) return;
+      const focusedInRail = document.activeElement?.closest?.('[data-finances-rail]');
+      uiState.financeRailOpen = false;
+      uiState.financeOwner = null;
+      uiState.financeTypeId = null;
+      if(stepId !== 'family' || !getActiveHouseholdId()) return;
+      sync({ financeOnly: true });
+      if(focusedInRail) $('[data-hh-action="toggle-finances-rail"]')?.focus();
+    });
     document.querySelectorAll('[data-hh-wizard-nav]').forEach(button =>
       button.addEventListener('click', () => setStep(button.dataset.hhWizardNav)));
     const menuButton = $('#hh-menu-btn');

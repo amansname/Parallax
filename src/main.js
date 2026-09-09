@@ -498,11 +498,11 @@ const hhUiState = householdWizardController.uiState;
 const householdWizardCommitBoundary = createHouseholdWizardCommitBoundary({
   getPlan: () => plan,
   replacePlan: next => hydratePlan(next),
-  afterCommit(){
+  afterCommit({ command }){
     reseedScenarios();
     uiState.plansDirty = true;
     renderInputs();
-    syncHousehold();
+    syncHousehold({ familyFieldsOnly: hhUiState.stepId === 'family' && command.scope === 'family' && !command.action && command.field !== 'filingStatus' });
     syncPlanEditStatus('Saved automatically · open Scenarios');
   },
 });
@@ -617,8 +617,8 @@ function updateHouseholdControls(){
    STEP into #hh-view + the live "Plan so far" rail, and reflect step state on
    the stepper. Called at boot, on tab show, and after every edit (the #hh-view
    delegate re-renders through here). */
-function syncHousehold(){
-  householdWizardController.sync();
+function syncHousehold(options){
+  householdWizardController.sync(options);
 }
 /* Stepper + household-menu chrome = the view switch. Bound once at boot. */
 function bindHouseholdRailOnce(){

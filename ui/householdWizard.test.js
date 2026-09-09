@@ -300,6 +300,56 @@ test('Household controller initially opens the primary Savings rail', () => {
   assert.equal(controller.uiState.financeTypeId, null);
 });
 
+test('narrow Family startup and household reset leave the overlay closed', () => {
+  const originalMatchMedia = globalThis.matchMedia;
+  const media = { matches: true };
+  globalThis.matchMedia = query => {
+    assert.equal(query, '(max-width: 1023px)');
+    return media;
+  };
+  try{
+    const controller = createHouseholdWizardController({
+      getPlan: () => ({}),
+      getHouseholdsDb: () => ({}),
+      getActiveHouseholdId: () => 'joe-household',
+      isStorageBlocked: () => false,
+      renderBlockedRecoverySurfaces: () => {},
+      syncRecoveryControls: () => {},
+      onSwitchHousehold: () => {},
+      onNewHousehold: () => {},
+    });
+    assert.equal(controller.uiState.financeRailOpen, false);
+    assert.equal(controller.uiState.financeOwner, null);
+    controller.uiState.financeRailOpen = true;
+    controller.uiState.financeOwner = 'spouse';
+    assert.equal(controller.uiState.financeRailOpen, true, 'explicit narrow open persists');
+    controller.resetForPlan();
+    assert.equal(controller.uiState.financeRailOpen, false);
+    assert.equal(controller.uiState.financeOwner, null);
+    media.matches = false;
+    controller.resetForPlan();
+    assert.equal(controller.uiState.financeRailOpen, true);
+    assert.equal(controller.uiState.financeOwner, 'client');
+  }finally{
+    if(originalMatchMedia === undefined) delete globalThis.matchMedia;
+    else globalThis.matchMedia = originalMatchMedia;
+  }
+});
+
+test('Family and its transient rail render without requesting tax analyses', () => {
+  const unexpectedTaxRead = () => { throw new Error('Family requested tax analysis'); };
+  const view = createHouseholdWizard({
+    plan: plan(),
+    uiState: { financeRailOpen: true, financeOwner: 'client', financeMode: 'savings' },
+    states: [],
+    taxState: unexpectedTaxRead,
+    taxBucketSnapshot: unexpectedTaxRead,
+    incomeTaxSummary: unexpectedTaxRead,
+  });
+  assert.doesNotThrow(() => view.render('family'));
+  assert.doesNotThrow(() => view.renderFinanceRail());
+});
+
 test('production wizard exposes exactly the four approved semantic steps', () => {
   assert.deepEqual(
     HOUSEHOLD_WIZARD_STEPS.map(step => step.id),

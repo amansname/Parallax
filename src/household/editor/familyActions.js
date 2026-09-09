@@ -32,6 +32,8 @@ export function createFamilyActions({
       syncHousehold();
       if(transientState.financeRailOpen){
         focusFinanceControl('[data-finances-person-owner]');
+      }else{
+        focusFinanceControl('[data-hh-action="toggle-finances-rail"]');
       }
     },
     'toggle-finance-entry': action => {
@@ -48,6 +50,8 @@ export function createFamilyActions({
       syncHousehold();
       if(transientState.financeOwner){
         focusFinanceControl('[data-finance-entry-panel] [data-hh-action="select-finance-source"]');
+      }else{
+        focusFinanceControl(`[data-finances-person-owner="${owner}"]`);
       }
     },
     'set-finance-mode': action => {
