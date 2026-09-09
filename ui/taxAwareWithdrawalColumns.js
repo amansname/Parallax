@@ -174,8 +174,8 @@ export function buildThresholdColumns({ result, hoverMark }) {
       name: 'Long-term gains',
       current: m(taxDollars.preferentialIncomeTax),
       tone: 'var(--pos)',
-      footLabel: Number.isFinite(ltcg.rate ?? lad.ltcg?.rates?.zero)
-        ? `Next $ at ${pc(ltcg.rate ?? lad.ltcg.rates.zero)}`
+      footLabel: Number.isFinite(ltcg.rate)
+        ? `Next $ at ${pc(ltcg.rate)}`
         : '—',
       foot: Number.isFinite(ltcg.roomToZeroCeiling)
         ? `${m(ltcg.roomToZeroCeiling)} to next`

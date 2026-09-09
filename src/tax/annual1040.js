@@ -8,6 +8,7 @@ import {
   runClient1040Intake as runClient1040IntakePipeline,
 } from './adapters/intakeReport.js';
 import { resolvePreferentialComponents } from './federal/composers/form1040Spine.js';
+import { capitalGainsStacking } from './federal/rules/capitalGainsStacking.js';
 import { buildTaxContext, resolveLawVersionForTaxYear, supportedTaxYears } from './core/lawRegistry.js';
 import {
   buildProjectedAnnualFederalTaxInput,
@@ -389,6 +390,31 @@ function taxRunsAreComparable({
   return true;
 }
 
+function nextPreferentialRate({ facts, input, context, options }){
+  const counterfactual = structuredClone(input ?? engineYearTo1040Input(facts));
+  counterfactual.taxYear ??= context.taxYear;
+  // The gain also belongs in a calculated Social Security worksheet. Supplied
+  // taxable-benefit facts retain their existing semantics.
+  const worksheet = counterfactual.socialSecurity
+    ?? (counterfactual.income?.socialSecurity?.mode === 'calculate-taxable-benefits'
+      ? counterfactual.income.socialSecurity : null);
+  if(worksheet && !worksheet.addResolvedScheduleDLine7ToOtherIncome){
+    worksheet.otherIncome += 1;
+  }
+  const run = calculateAnnualFederalTax(counterfactual, context, {
+    ...options,
+    additionalNetLongTermCapitalGain: (options.additionalNetLongTermCapitalGain ?? 0) + 1,
+  });
+  const gainAudit = run.audits.find(audit => audit.ruleId === 'FED_CAPITAL_GAINS_STACKING');
+  if(!gainAudit){
+    return run.annual1040Result.federalSummary.preferentialIncome === 0 ? 0 : null;
+  }
+  // The cue names the preferential band occupied by the added dollar, not
+  // total marginal tax (which can include tax on additional taxable benefits).
+  return capitalGainsStacking.calculate(gainAudit.inputsUsed, context)
+    .result.marginalPreferentialRate;
+}
+
 /**
  * Authoritative tax-engine comparison contract for a Withdrawal Planner year.
  * The planning layer supplies three fact bundles; this module owns every tax run
@@ -443,6 +469,19 @@ export function runWithdrawalPlannerTaxAnalysis({
     'withoutSocialSecurity'
   );
   const selectedSummary = selectedRun?.annual1040Result?.federalSummary ?? {};
+  let nextDollarPreferentialRate = null;
+  if(selectedRun){
+    try {
+      nextDollarPreferentialRate = nextPreferentialRate({
+        facts: selectedFacts, input: selectedInput, context,
+        options: { ...options, ...(calculationOptions.selected ?? {}) },
+      });
+    } catch {
+      comparisonIssues.push({
+        code: 'NEXT_DOLLAR_TAX_RUN_FAILED', comparison: 'nextDollar',
+      });
+    }
+  }
   const baselineSummary = baselineRun?.annual1040Result?.federalSummary ?? {};
   const withoutSocialSecuritySummary =
     withoutSocialSecurityRun?.annual1040Result?.federalSummary ?? {};
@@ -484,6 +523,7 @@ export function runWithdrawalPlannerTaxAnalysis({
     },
     thresholdRates: {
       ltcg: CAPITAL_GAINS_TAX_RATES,
+      nextDollarPreferentialRate,
       socialSecurity: SOCIAL_SECURITY_TAXATION_RATES,
     },
     modeledFederalIncomeTax: {

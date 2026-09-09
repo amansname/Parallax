@@ -13,7 +13,7 @@ import { TaxDataError, TaxInputError } from '../../core/errors.js';
 
 export const meta = {
   ruleId: 'FED_CAPITAL_GAINS_STACKING',
-  ruleVersion: '1.0.2',
+  ruleVersion: '1.1.0',
   supportedTaxYears: [2025, 2026],
   supportedLawVersions: ['2025_FINAL', '2026_FINAL'],
   jurisdiction: 'federal',
@@ -28,7 +28,7 @@ export const meta = {
     'IRS_2026_CAPITAL_GAINS_RATES_v1.0',
   ],
   inputsRequired: ['filingStatus', 'ordinaryTaxableIncome', 'netLongTermCapitalGains', 'qualifiedDividends'],
-  outputs: ['preferentialIncomeTax', 'marginalPreferentialRate', 'effectivePreferentialRate', 'rateBreakdown', 'ratesUsed'],
+  outputs: ['preferentialIncomeTax', 'marginalPreferentialRate', 'nextDollarPreferentialRate', 'effectivePreferentialRate', 'rateBreakdown', 'ratesUsed'],
   limitations: [
     'Does not calculate NIIT',
     'Does not classify gains or dividends',
@@ -140,13 +140,22 @@ export function calculate(input, context){
 
   preferentialIncomeTax = round2(preferentialIncomeTax);
   const effectivePreferentialRate = preferentialIncome > 0 ? round6(preferentialIncomeTax / preferentialIncome) : 0;
+  const taxableIncomeAfterPreferential = round2(ordinaryTaxableIncome + preferentialIncome);
+  // The next dollar enters the next band when the current stack exactly fills
+  // a band. This differs from the rate on the last dollar already taxed.
+  const nextDollarPreferentialRate = taxableIncomeAfterPreferential < thresholds.zeroRateMax
+    ? CAPITAL_GAINS_TAX_RATES.zero
+    : taxableIncomeAfterPreferential < thresholds.fifteenRateMax
+      ? CAPITAL_GAINS_TAX_RATES.middle
+      : CAPITAL_GAINS_TAX_RATES.top;
 
   const result = {
     preferentialIncomeTax,
     marginalPreferentialRate,
+    nextDollarPreferentialRate,
     effectivePreferentialRate,
     preferentialIncome,
-    taxableIncomeAfterPreferential: round2(ordinaryTaxableIncome + preferentialIncome),
+    taxableIncomeAfterPreferential,
     rateBreakdown,
     ratesUsed: CAPITAL_GAINS_TAX_RATES,
     thresholdsUsed: {
