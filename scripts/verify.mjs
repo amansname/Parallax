@@ -34,6 +34,7 @@ import { verifySavedHouseholdSelection } from './browser/persistence-startup.mjs
 import { verifyScenarioStorageScope } from './browser/persistence-startup.mjs';
 import { verifySchemaMerge } from './browser/persistence-migration.mjs';
 import { verifyFamilySavingsRepair } from './browser/persistence-migration.mjs';
+import { verifySavingsReplacement } from './browser/savings-replacement.mjs';
 import { verifyCorruptStorage } from './browser/persistence-migration.mjs';
 import { verifyReadOnlyPersistence } from './browser/persistence-read-only.mjs';
 import { verifyHouseholdDeletion } from './browser/persistence-deletion.mjs';
@@ -386,6 +387,9 @@ try {
   await step('persistence: Family savings repair restores totals and all Scenarios', () => verifyFamilySavingsRepair({
     page,
     stableReload
+  }));
+  await step('persistence: savings replacement requires review and preserves saved evidence', () => verifySavingsReplacement({
+    page, stableReload, screenshotDir: OUT,
   }));
   await step('persistence: corrupt origin bytes are preserved while current defaults remain usable', () => verifyCorruptStorage({
     page,

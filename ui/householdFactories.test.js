@@ -354,9 +354,16 @@ test('Now Household itemized savings total once and reach the compatible joint b
   const [household] = createSelectableDefaultHouseholds(defaultPlan, 2026);
   const storedPortfolio = JSON.stringify(household.portfolio);
 
-  addFamilyFinanceEntry(household, {
+  const firstEntry = {
     mode: 'savings', typeId: '401k', owner: 'client', amount: 23_500,
+  };
+  let savingsConfirmation;
+  assert.throws(() => addFamilyFinanceEntry(household, firstEntry), error => {
+    assert.equal(error.code, 'SAVINGS_REPLACEMENT_REQUIRED');
+    savingsConfirmation = error.confirmation;
+    return true;
   });
+  addFamilyFinanceEntry(household, { ...firstEntry, savingsConfirmation });
   addFamilyFinanceEntry(household, {
     mode: 'savings', typeId: '401k', owner: 'spouse', amount: 23_500,
   });

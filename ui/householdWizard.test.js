@@ -277,12 +277,23 @@ test('Household controller initially opens the primary Savings rail', () => {
   assert.equal(controller.uiState.financeMode, 'savings');
   assert.equal(controller.uiState.financeTypeId, null);
 
+  for(const [field, value] of [['financeOwner', 'spouse'], ['financeMode', 'income'], ['financeTypeId', 'roth_ira'], ['financeRailOpen', false]]){
+    controller.uiState.financeDraft = { amount: '500' };
+    controller.uiState.financePending = { command: {} };
+    controller.uiState[field] = value;
+    assert.equal(controller.uiState.financeDraft, null);
+    assert.equal(controller.uiState.financePending, null);
+  }
+  controller.uiState.financeDraft = { amount: '500' };
+  controller.uiState.financePending = { command: {} };
   controller.uiState.financeRailOpen = false;
   controller.uiState.financeOwner = null;
   controller.uiState.financeMode = 'income';
   controller.uiState.financeTypeId = 'wages';
   controller.resetForPlan();
 
+  assert.equal(controller.uiState.financeDraft, null);
+  assert.equal(controller.uiState.financePending, null);
   assert.equal(controller.uiState.financeRailOpen, true);
   assert.equal(controller.uiState.financeOwner, 'client');
   assert.equal(controller.uiState.financeMode, 'savings');

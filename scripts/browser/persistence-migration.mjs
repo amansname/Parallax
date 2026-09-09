@@ -2,6 +2,7 @@
 import { waitForWizard } from '../wizard-browser-contract.mjs';
 import { goToWizardStep } from '../wizard-browser-contract.mjs';
 import { legacyHiddenSavingsAggregate } from '../../test/fixtures/familySavings.js';
+import { selectHouseholdVisible } from './wizard/actions.mjs';
 
 function approximatelyEqual(actual, expected, tolerance = 1e-12){
   return Number.isFinite(actual) && Math.abs(actual - expected) <= tolerance;
@@ -42,7 +43,7 @@ export async function verifyFamilySavingsRepair({
 
   await stableReload({ waitUntil: 'networkidle2', timeout: 20000 });
   await waitForWizard(page, { householdId: 'joe-household' });
-  await page.select('#hh-switch', fixtureId);
+  await selectHouseholdVisible(page, fixtureId);
   await waitForWizard(page, { householdId: fixtureId });
   await goToWizardStep(page, 'family');
   await page.waitForFunction(id => {
@@ -111,6 +112,26 @@ export async function verifyFamilySavingsRepair({
   if(JSON.stringify(scenarios.names) !== JSON.stringify(['Baseline', 'Scenario B', 'Aggressive'])
       || scenarios.issues !== 0){
     throw new Error(`repaired Family savings did not produce all Scenarios: ${JSON.stringify(scenarios)}`);
+  }
+  const archivedBytes = await page.evaluate(id => JSON.stringify(
+    JSON.parse(localStorage.getItem('parallax.households.v1'))[id].meta.legacyRepairArchive,
+  ), fixtureId);
+  // Previously migrated records must still explain the repair when no new repair is emitted.
+  await stableReload({ waitUntil: 'domcontentloaded' });
+  await waitForWizard(page, { householdId: 'joe-household' });
+  await selectHouseholdVisible(page, fixtureId);
+  await goToWizardStep(page, 'family');
+  await page.click('[data-savings-history] summary');
+  const history = await page.evaluate(id => ({
+    entries: [...document.querySelectorAll('[data-savings-history-entry]')]
+      .map(el => el.textContent.replaceAll(/\s+/g, ' ').trim()),
+    archive: JSON.stringify(JSON.parse(localStorage.getItem('parallax.households.v1'))[id].meta.legacyRepairArchive),
+    total: document.querySelector('[data-finances-summary] strong')?.textContent,
+  }), fixtureId);
+  if(JSON.stringify(history.entries) !== JSON.stringify([
+    'An earlier update changed the annual savings total from $105,000 to $59,000 a year to use the saved entries.',
+  ]) || history.archive !== archivedBytes || history.total !== '$59,000/yr'){
+    throw new Error(`Archived savings correction was not preserved and explained: ${JSON.stringify(history)}`);
   }
 }
 

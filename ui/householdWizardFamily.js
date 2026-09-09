@@ -1,4 +1,5 @@
 import { renderBirthDateField } from './birthDateField.js';
+import { renderSavingsHistory, renderSavingsReplacement } from './householdSavingsReview.js';
 
 export function renderHouseholdWizardFamily(ctx){
   const {
@@ -43,7 +44,9 @@ export function renderHouseholdWizardFamily(ctx){
     const selectedAmount = selectedType
       ? savedFinanceAmount(owner, mode, selectedType.id)
       : null;
-    const selectedAmountValue = moneyFieldValue(selectedAmount);
+    const draft = uiState.financeDraft;
+    const selectedAmountValue = draft?.owner === owner && draft.mode === mode && draft.typeId === selectedTypeId
+      ? esc(draft.amount) : moneyFieldValue(selectedAmount);
     const ownerName = owner === 'spouse'
       ? plan.meta?.spouseName || 'Co-client'
       : plan.meta?.primaryName || 'Client';
@@ -69,6 +72,7 @@ export function renderHouseholdWizardFamily(ctx){
           </svg>
         </div>
         <div class="hh-finance-source-list" role="group"
+          ${uiState.financePending ? 'hidden' : ''}
           aria-label="${mode === 'savings' ? 'Savings types' : 'Income sources'}">
           ${types.map(type => `
             <button type="button"
@@ -79,7 +83,9 @@ export function renderHouseholdWizardFamily(ctx){
             </button>
           `).join('')}
         </div>
-        ${selectedType ? `
+        ${selectedType && uiState.financePending ? renderSavingsReplacement({
+          pending: uiState.financePending, ownerName, typeLabel: selectedType.label, money, esc,
+        }) : selectedType ? `
           <div class="hh-finance-amount-row">
             <span aria-hidden="true">$</span>
             <input type="text" inputmode="decimal" autocomplete="off"
@@ -156,6 +162,7 @@ export function renderHouseholdWizardFamily(ctx){
             <span>Savings</span>
             <strong>${money(plan.savings?.annual)}/yr</strong>
           </div>
+          ${renderSavingsHistory(plan, money)}
         </div>
       </aside>
     `;

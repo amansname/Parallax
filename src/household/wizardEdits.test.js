@@ -66,6 +66,20 @@ function plan(){
   };
 }
 
+test('zero for a nonexistent savings entry never commits or reseeds scenarios', () => {
+  const value = plan();
+  value.savings = { annual: 30_000, split: { taxable: 0, traditional: 1, roth: 0 } };
+  const before = JSON.stringify(value);
+  const boundary = createHouseholdWizardCommitBoundary({
+    getPlan: () => value,
+    replacePlan: () => assert.fail('must not replace household'),
+    afterCommit: () => assert.fail('must not refresh or reseed scenarios'),
+  });
+  boundary.commit({ scope: 'finance', action: 'add', mode: 'savings', owner: 'client', typeId: '401k', amount: 0 });
+  assert.equal(boundary.revision, 0);
+  assert.equal(JSON.stringify(value), before);
+});
+
 test('visible Tax Next confirms canonical Tax facts before navigating', () => {
   const listeners = {};
   const commands = [];

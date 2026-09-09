@@ -16,6 +16,14 @@ export function createFamilyActions({
   const focusFinanceControl = selector => {
     requestAnimationFrame(() => document.querySelector(selector)?.focus());
   };
+  const finishFinanceEntry = (command, control) => {
+    const result = commit(command, control, true);
+    if(!result) return;
+    closeFinanceEntry();
+    transientState.financeSaveStatus = result.changed !== false;
+    syncHousehold();
+    focusFinanceControl(`[data-finances-person-owner="${command.owner}"]`);
+  };
   return {
     'toggle-finances-rail': () => {
       clearFinanceSaveStatus();
@@ -59,18 +67,48 @@ export function createFamilyActions({
       const panel = action.closest('[data-finance-entry-panel]');
       const amount = panel?.querySelector('[data-finance-amount]');
       if(!panel || !amount) return;
-      const applied = commit({
+      if(!guardPlanMutation()) return;
+      const command = {
         scope: 'finance',
         action: 'add',
         owner: panel.dataset.financeOwner,
         mode: transientState.financeMode,
         typeId: transientState.financeTypeId,
         amount: amount.value,
-      }, amount);
-      if(!applied) return;
-      closeFinanceEntry();
-      transientState.financeSaveStatus = true;
+      };
+      try{
+        preflightWizardEdit(command);
+      }catch(error){
+        if(error.code !== 'SAVINGS_REPLACEMENT_REQUIRED'){
+          reportError(error, amount);
+          return;
+        }
+        transientState.financeDraft = { ...command };
+        transientState.financePending = { command, confirmation: error.confirmation };
+        syncHousehold();
+        focusFinanceControl('[data-savings-replacement-heading]');
+        return;
+      }
+      finishFinanceEntry(command, amount);
+    },
+    'cancel-savings-replacement': () => {
+      transientState.financePending = null;
       syncHousehold();
+      focusFinanceControl('[data-finance-amount]');
+    },
+    'confirm-savings-replacement': () => {
+      const pending = transientState.financePending;
+      if(!pending || !guardPlanMutation()) return;
+      const command = { ...pending.command, savingsConfirmation: pending.confirmation };
+      try{
+        preflightWizardEdit(command);
+      }catch(error){
+        transientState.financePending = null;
+        syncHousehold();
+        reportError(error, document.querySelector('[data-finance-amount]'));
+        return;
+      }
+      finishFinanceEntry(command);
     },
     'remove-spouse': action => {
       if (!guardPlanMutation()) return;

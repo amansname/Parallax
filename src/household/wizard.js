@@ -47,6 +47,8 @@ export function createHouseholdWizardController({
     financeMode: 'savings',
     financeTypeId: null,
     financeSaveStatus: false,
+    financeDraft: null,
+    financePending: null,
     netWorthView: 'entry',
     netWorthPanelCategory: null,
     netWorthMoreOpen: false,
@@ -60,15 +62,31 @@ export function createHouseholdWizardController({
     get stepId(){ return stepId; },
     get renderRevision(){ return renderRevision; },
     get financeRailOpen(){ return state.financeRailOpen; },
-    set financeRailOpen(value){ state.financeRailOpen = value === true; },
+    set financeRailOpen(value){
+      state.financeRailOpen = value === true;
+      if(!state.financeRailOpen) clearFinanceDraft();
+    },
     get financeOwner(){ return state.financeOwner; },
-    set financeOwner(value){ state.financeOwner = value === 'client' || value === 'spouse' ? value : null; },
+    set financeOwner(value){
+      clearFinanceDraft();
+      state.financeOwner = value === 'client' || value === 'spouse' ? value : null;
+    },
     get financeMode(){ return state.financeMode; },
-    set financeMode(value){ state.financeMode = value === 'income' ? 'income' : 'savings'; },
+    set financeMode(value){
+      clearFinanceDraft();
+      state.financeMode = value === 'income' ? 'income' : 'savings';
+    },
     get financeTypeId(){ return state.financeTypeId; },
-    set financeTypeId(value){ state.financeTypeId = value || null; },
+    set financeTypeId(value){
+      clearFinanceDraft();
+      state.financeTypeId = value || null;
+    },
     get financeSaveStatus(){ return state.financeSaveStatus; },
     set financeSaveStatus(value){ state.financeSaveStatus = value === true; },
+    get financeDraft(){ return state.financeDraft; },
+    set financeDraft(value){ state.financeDraft = value; },
+    get financePending(){ return state.financePending; },
+    set financePending(value){ state.financePending = value; },
     get netWorthView(){ return state.netWorthView; },
     set netWorthView(value){ state.netWorthView = value === 'summary' ? 'summary' : 'entry'; },
     get netWorthPanelCategory(){ return state.netWorthPanelCategory; },
@@ -98,7 +116,13 @@ export function createHouseholdWizardController({
     return wizard;
   }
 
+  function clearFinanceDraft(){
+    state.financeDraft = null;
+    state.financePending = null;
+  }
+
   function resetTransient(){
+    clearFinanceDraft();
     state.financeRailOpen = true;
     state.financeOwner = 'client';
     state.financeMode = 'savings';
