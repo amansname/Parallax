@@ -742,6 +742,17 @@
   text-wrap: pretty;
 }
 
+.page[data-page="household"] .hh-finance-source-list[hidden] { display: none; }
+
+.page[data-page="household"] .hh-finances-rail-body:has(.hh-savings-review, .hh-savings-history) {
+  overflow-y: auto;
+}
+
+.page[data-page="household"] .hh-finances-control:has(.hh-savings-review),
+.page[data-page="household"] .hh-finances-rail-body:has(.hh-savings-history) > * {
+  flex-shrink: 0;
+}
+
 .page[data-page="household"] .hh-savings-review {
   padding: var(--sp-4);
   border: var(--bw) solid var(--rule);

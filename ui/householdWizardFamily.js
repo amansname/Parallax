@@ -72,6 +72,7 @@ export function renderHouseholdWizardFamily(ctx){
           </svg>
         </div>
         <div class="hh-finance-source-list" role="group"
+          ${uiState.financePending ? 'hidden' : ''}
           aria-label="${mode === 'savings' ? 'Savings types' : 'Income sources'}">
           ${types.map(type => `
             <button type="button"

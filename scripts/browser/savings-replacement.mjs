@@ -35,6 +35,8 @@ async function assertReview(page){
   await page.waitForFunction(() => document.activeElement?.matches('[data-savings-replacement-heading]'));
   const inventory = await page.evaluate(() => ({
     sources: [...document.querySelectorAll('[data-finance-type-id]')].map(el => el.dataset.financeTypeId),
+    visibleSources: [...document.querySelectorAll('[data-finance-type-id]')]
+      .filter(el => el.getBoundingClientRect().height > 0).map(el => el.dataset.financeTypeId),
     headings: [...document.querySelectorAll('[data-savings-replacement] h3')].map(el => el.textContent),
     buttons: [...document.querySelectorAll('[data-savings-replacement] button')].map(el => el.textContent),
     amounts: document.querySelectorAll('[data-finance-amount]').length,
@@ -43,6 +45,7 @@ async function assertReview(page){
     description: document.querySelector('#hh-savings-replacement-description')?.textContent.replaceAll(/\s+/g, ' ').trim(),
   }));
   assert.deepEqual(inventory.sources, SOURCE_IDS);
+  assert.deepEqual(inventory.visibleSources, []);
   assert.deepEqual(inventory.headings, ['Replace existing savings?']);
   assert.deepEqual(inventory.buttons, ['Keep current savings', 'Replace savings']);
   assert.equal(inventory.amounts, 0);
@@ -108,8 +111,8 @@ export async function verifySavingsReplacement({ page, stableReload, screenshotD
   await assertReview(page);
   assert.deepEqual(await readSaved(page, id), before, 'review must not save');
   const viewport = page.viewport();
-  for(const width of [1920, 1279, 760]){
-    await page.setViewport({ width, height: 1080, deviceScaleFactor: 1 });
+  for(const [width, height] of [[1920, 1080], [1279, 900], [760, 900]]){
+    await page.setViewport({ width, height, deviceScaleFactor: 1 });
     const geometry = await page.evaluate(() => {
       const panel = document.querySelector('[data-savings-replacement]');
       const rect = panel.getBoundingClientRect();
@@ -120,11 +123,16 @@ export async function verifySavingsReplacement({ page, stableReload, screenshotD
           const child = el.getBoundingClientRect();
           return child.left >= rect.left && child.right <= rect.right;
         }),
+        clickable: [...panel.querySelectorAll('button')].every(el => {
+          const r = el.getBoundingClientRect();
+          return el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));
+        }),
       };
     });
     assert.equal(geometry.bodySize, '14px');
     assert.deepEqual(geometry.buttonHeights, [40, 40]);
     assert.equal(geometry.contained, true);
+    assert.equal(geometry.clickable, true, `confirmation controls must be reachable at ${width}x${height}`);
     if(screenshotDir) await page.screenshot({ path: join(screenshotDir, `savings-review-${width}.png`) });
   }
   await page.setViewport(viewport);
