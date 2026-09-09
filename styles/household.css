@@ -2022,6 +2022,18 @@
     height: calc(100vh - 68px);
     min-height: 0;
   }
+
+  .page[data-page="household"] .hh-finances-rail:not(.is-open) {
+    position: static;
+    width: 100%;
+    height: auto;
+    margin-bottom: var(--sp-4);
+  }
+
+  .page[data-page="household"] .hh-finances-rail:not(.is-open) .hh-finances-rail-head {
+    height: var(--h-prominent);
+    padding: 0;
+  }
 }
 
 @media (max-width: 760px) {

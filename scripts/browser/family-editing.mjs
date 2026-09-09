@@ -6,7 +6,31 @@ const primary = '[data-hh-field="client.legalName"]';
 const spouse = '[data-hh-field="spouse.legalName"]';
 const toggle = '[data-hh-action="toggle-finances-rail"]';
 const person = owner => `[data-finances-person-owner="${owner}"]`;
-const sourceIds = ['401k', 'roth_401k', 'traditional_ira', 'roth_ira', 'hsa', 'brokerage_taxable', 'savings'];
+const sources = {
+  savings: [['401k', '401(k) deferral'], ['roth_401k', 'Roth 401(k) deferral'], ['traditional_ira', 'Traditional IRA'], ['roth_ira', 'Roth IRA'], ['hsa', 'HSA'], ['brokerage_taxable', 'Taxable brokerage'], ['savings', 'Cash savings']],
+  income: [['social_security', 'Social Security'], ['pension', 'Pension'], ['wages', 'Wages or salary'], ['self_employment', 'Self-employment'], ['rental', 'Rental net income'], ['annuity', 'Annuity'], ['interest', 'Interest'], ['dividends', 'Dividends'], ['deferred_comp', 'Deferred compensation'], ['other', 'Other income']],
+};
+
+async function requireSources(page, owner, mode){
+  await requirePersonRelations(page, owner);
+  const state = await page.evaluate(() => {
+    const heading = document.querySelector('[data-finance-source-select]');
+    return {
+      heading: { tag: heading.tagName, text: heading.textContent.trim(), role: heading.getAttribute('role'), tabIndex: heading.tabIndex,
+        border: getComputedStyle(heading).borderTopWidth, fontSize: getComputedStyle(heading).fontSize, chevrons: heading.querySelectorAll('svg').length },
+      modes: [...document.querySelectorAll('[data-finance-mode]')].map(button => [button.dataset.financeMode, button.textContent.trim(), button.getAttribute('aria-pressed')]),
+      sources: [...document.querySelectorAll('[data-finance-type-id]')].map(button => [button.dataset.financeTypeId, button.textContent.trim(), button.getAttribute('aria-pressed')]),
+      amounts: document.querySelectorAll('[data-finance-amount]').length,
+      saves: document.querySelectorAll('[data-hh-action="commit-finance-entry"]').length,
+      replacements: document.querySelectorAll('[data-savings-replacement]').length,
+    };
+  });
+  assert.deepEqual(state, {
+    heading: { tag: 'P', text: mode === 'savings' ? 'Select savings type' : 'Select income source', role: null, tabIndex: -1, border: '0px', fontSize: '14px', chevrons: 0 },
+    modes: [['savings', 'Savings', String(mode === 'savings')], ['income', 'Income', String(mode === 'income')]],
+    sources: sources[mode].map(([id, label]) => [id, label, 'false']), amounts: 0, saves: 0, replacements: 0,
+  });
+}
 
 async function replaceText(page, selector, value){
   await page.click(selector);
@@ -44,9 +68,12 @@ async function requireReachableForm(page){
   const state = await page.evaluate(() => {
     const input = document.querySelector('[data-hh-field="client.legalName"]');
     const rect = input.getBoundingClientRect();
+    const menu = document.querySelector('#hh-menu-btn');
+    const menuRect = menu.getBoundingClientRect();
     return {
       expanded: document.querySelector('[data-hh-action="toggle-finances-rail"]').getAttribute('aria-expanded'),
       hit: document.elementFromPoint((rect.left + rect.right) / 2, (rect.top + rect.bottom) / 2) === input,
+      menuHit: menu.contains(document.elementFromPoint(menuRect.x + menuRect.width / 2, menuRect.y + menuRect.height / 2)),
       overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       controlHeight: document.querySelector('[data-hh-action="toggle-finances-rail"]').getBoundingClientRect().height,
       panels: document.querySelectorAll('[data-finance-entry-panel]').length,
@@ -55,6 +82,7 @@ async function requireReachableForm(page){
   });
   assert.equal(state.expanded, 'false');
   assert.equal(state.hit, true);
+  assert.equal(state.menuHit, true);
   assert.ok(state.overflow <= 1);
   assert.equal(state.controlHeight, 40);
   assert.equal(state.panels, 0);
@@ -70,14 +98,7 @@ export async function verifyFamilyEditing({ browser, url, screenshotDir }){
     await page.setViewport({ width: 1920, height: 1080, deviceScaleFactor: 1 });
     await page.goto(url, { waitUntil: 'networkidle2', timeout: 20000 });
     await waitForWizard(page, { householdId: 'joe-household', step: 'family' });
-    await requirePersonRelations(page, 'client');
-    const heading = await page.evaluate(() => {
-      const node = document.querySelector('[data-finance-source-select]');
-      return { tag: node.tagName, role: node.getAttribute('role'), tabIndex: node.tabIndex,
-        border: getComputedStyle(node).borderTopWidth, chevrons: node.querySelectorAll('svg').length,
-        sources: [...document.querySelectorAll('[data-finance-type-id]')].map(button => button.dataset.financeTypeId) };
-    });
-    assert.deepEqual(heading, { tag: 'P', role: null, tabIndex: -1, border: '0px', chevrons: 0, sources: sourceIds });
+    await requireSources(page, 'client', 'savings');
 
     // Do not use page.type(selector) or setWizardValue: either would hide a lost first focus.
     await page.click(primary);
@@ -114,9 +135,28 @@ export async function verifyFamilyEditing({ browser, url, screenshotDir }){
     await page.click(person('spouse'));
     await requirePersonRelations(page, 'spouse');
     await page.waitForFunction(() => document.activeElement?.matches('[data-hh-action="select-finance-source"]'));
+    for(const owner of ['spouse', 'client']){
+      if(owner === 'client') await page.click(person(owner));
+      await requireSources(page, owner, 'savings');
+      await page.click('[data-hh-action="set-finance-mode"][data-finance-mode="income"]');
+      await requireSources(page, owner, 'income');
+    }
+    // Select and numeric commits use the same partial update as names and DOB.
+    await page.click('[data-hh-field="client.status"]');
+    await page.keyboard.press('End');await page.keyboard.press('Enter');
+    await requireInput(page, '[data-hh-field="client.status"]', 'retired');
+    await page.keyboard.press('Tab');
+    await requireInput(page, '[data-hh-field="client.retirementAge"]', '65');
+    await page.keyboard.down('Control');await page.keyboard.press('A');await page.keyboard.up('Control');
+    await page.keyboard.type('66');await page.keyboard.press('Tab');
+    await requireInput(page, '[data-hh-field="client.socialSecurityAge"]', '67');
+    await page.click(person('spouse'));
+    await requireSources(page, 'spouse', 'savings');
+    await page.waitForFunction(() => document.activeElement?.matches('[data-hh-action="select-finance-source"]'));
     await page.waitForFunction(householdId => {
       const saved = JSON.parse(localStorage.getItem('parallax.households.v1'))[householdId];
-      return saved?.meta.primaryName === 'Editing Client' && saved?.meta.spouseName === 'Editing Spouse';
+      return saved?.meta.primaryName === 'Editing Client' && saved?.meta.spouseName === 'Editing Spouse'
+        && saved.household.primary.employmentStatus === 'retired' && saved.household.primary.retirementAge === 66;
     }, {}, id);
     const before = await page.evaluate(() => JSON.stringify(Object.entries(localStorage).sort(([a], [b]) => a.localeCompare(b))));
     await page.keyboard.press('Escape');
@@ -133,6 +173,8 @@ export async function verifyFamilyEditing({ browser, url, screenshotDir }){
     await selectHouseholdVisible(page, id);
     assert.equal(await page.$eval(primary, element => element.value), 'Editing Client');
     assert.equal(await page.$eval(spouse, element => element.value), 'Editing Spouse');
+    assert.equal(await page.$eval('[data-hh-field="client.status"]', element => element.value), 'retired');
+    assert.equal(await page.$eval('[data-hh-field="client.retirementAge"]', element => element.value), '66');
     await page.setViewport({ width: 1023, height: 900, deviceScaleFactor: 1 });
     await page.waitForFunction(() => document.querySelector('[data-hh-action="toggle-finances-rail"]')?.getAttribute('aria-expanded') === 'false');
     await requireReachableForm(page);
