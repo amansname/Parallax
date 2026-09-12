@@ -2180,7 +2180,8 @@
   .page[data-page="household"] .hh-wiz-workspace { padding-top: var(--sp-4); }
   .page[data-page="household"] .hh-family-screen .hh-screen-intro { display: none; }
   .page[data-page="household"] .hh-person-card { padding: var(--sp-4) 0; background: none; border: 0; border-radius: 0; border-bottom: var(--bw) solid var(--rule); }
-  .page[data-page="household"] .hh-person-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-4); }
+  /* Keep two compact columns only while their text-sized minimum fits. */
+  .page[data-page="household"] .hh-person-fields { font-size: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, max(10em, 45%)), 1fr)); gap: var(--sp-4); }
   .page[data-page="household"] .hh-field:has([data-hh-field$=".status"]) { grid-column: 1 / -1; }
   .page[data-page="household"] .hh-family-screen .hh-field > span { font-size: 14px; line-height: 1.4; text-transform: none; letter-spacing: 0; white-space: normal; }
   .page[data-page="household"] .hh-family-screen :is(input:not([type="hidden"]), select),
@@ -2189,6 +2190,7 @@
   }
   .page[data-page="household"] .hh-family-screen .hh-birth-date { height: auto; }
   .page[data-page="household"] .hh-family-screen .hh-field--age output { height: auto; min-height: 44px; font-size: 16px; }
+  .page[data-page="household"] .hh-family-screen .hh-person-fields :is(input, select, output) { font-size: inherit; }
   .page[data-page="household"] .hh-family-screen button,
   .page[data-page="household"] .hh-menu button,
   .page[data-page="household"] .hh-wizard > footer button { min-height: 44px; min-width: 44px; height: auto; white-space: normal; }

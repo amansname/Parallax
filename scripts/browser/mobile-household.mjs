@@ -64,6 +64,21 @@ async function requireFamilyContainment(page){
     assert.ok(control.left >= -1 && control.right <= layout.width + 1, 'Family control escapes viewport width');
     assert.ok(control.scrollHeight <= control.clientHeight + 1, 'Family control clips its enlarged text vertically');
   }
+  const dates = await page.$$eval('.hh-birth-date-input', controls => controls.map(control => {
+    const style = getComputedStyle(control);
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+    context.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+    const spacing = parseFloat(style.letterSpacing) || 0;
+    return {
+      textWidth: context.measureText(control.value).width + Math.max(0, control.value.length - 1) * spacing,
+      available: control.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight),
+    };
+  }));
+  assert.ok(dates.length > 0, 'Family date input is missing');
+  for(const date of dates){
+    assert.ok(date.textWidth <= date.available + 1, 'Family date is cut off at the current text size');
+  }
 }
 
 async function requireMobileInventory(page){
@@ -484,7 +499,8 @@ export async function verifyMobileHousehold({ browser, url, screenshotDir }){
     await page.click('.htab[data-page="household"]');
     await waitForWizard(page, { householdId, step: 'family' });
 
-    for(const viewport of [{ width: 320, height: 568 }, { width: 760, height: 900 }, { width: 844, height: 390 }]){
+    // The short portrait viewport checks reduced space, not a native keyboard.
+    for(const viewport of [{ width: 320, height: 568 }, { width: 760, height: 900 }, { width: 844, height: 390 }, { width: 390, height: 360 }]){
       await page.setViewport({ ...viewport, deviceScaleFactor: 1 });
       await requireFamilyContainment(page);
       await requireMobileInventory(page);
@@ -495,10 +511,12 @@ export async function verifyMobileHousehold({ browser, url, screenshotDir }){
     await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 1 });
     // Explicit 200% text fixture, not a claim of native OS text-size testing.
     const textScale = await page.addStyleTag({ content: `
+      .hh-person-fields { font-size: 32px !important; }
       .hdr__tabs .htab, .app-header .status { font-size: 24px !important; }
       .hh-step strong, .hh-family-screen .hh-field > span { font-size: 28px !important; }
       .hh-family-screen input:not([type="hidden"]), .hh-family-screen select,
       .hh-family-screen button, #hh-wiz-footer button { font-size: 32px !important; }
+      .hh-person-fields :is(input, select, output) { font-size: inherit !important; }
     ` });
     await requireFamilyContainment(page);
     await requireMobileInventory(page);
