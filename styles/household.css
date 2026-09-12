@@ -2036,7 +2036,7 @@
   }
 }
 
-@media (max-width: 760px) {
+@media (max-width: 760px), (max-width: 1023px) and (max-height: 500px) {
   .page[data-page="household"] .hh-stage { display: block; min-height: 0; }
 
   .page[data-page="household"] .hh-sidebar {
@@ -2162,4 +2162,47 @@
   .page[data-page="household"] .nw-panel { animation: none; }
   .page[data-page="household"] .hh-finances-rail,
   .page[data-page="household"] .hh-card-action { transition: none; }
+}
+
+/* First mobile slice: one document-flow Family form, using existing controls. */
+@media (max-width: 760px), (max-width: 1023px) and (max-height: 500px) {
+  .page[data-page="household"] { overflow: visible; }
+  .page[data-page="household"] .hh-sidebar { gap: var(--sp-3); }
+  .page[data-page="household"] .hh-sidebar-head { flex-wrap: wrap; align-items: center; }
+  .page[data-page="household"] .hh-sidebar-head > div:first-child { min-width: 0; flex: 1; }
+  .page[data-page="household"] .hh-sidebar-name { overflow-wrap: anywhere; }
+  .page[data-page="household"] .hh-sidebar-head:has(.hh-menu__pop:not([hidden])) .hh-menu { flex-basis: 100%; }
+  .page[data-page="household"] .hh-menu__pop { position: static; width: 100%; margin-top: var(--sp-2); box-shadow: none; }
+  .page[data-page="household"] .hh-stepper { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); overflow: visible; }
+  .page[data-page="household"] .hh-step { min-height: 44px; align-items: center; justify-content: center; padding: var(--sp-2) var(--sp-1); }
+  .page[data-page="household"] .hh-step__num { display: none; }
+  .page[data-page="household"] .hh-step strong { font-size: 14px; white-space: normal; }
+  .page[data-page="household"] .hh-wiz-workspace { padding-top: var(--sp-4); }
+  .page[data-page="household"] .hh-family-screen .hh-screen-intro { display: none; }
+  .page[data-page="household"] .hh-person-card { padding: var(--sp-4) 0; border-bottom: var(--bw) solid var(--rule); }
+  .page[data-page="household"] .hh-person-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-4); }
+  .page[data-page="household"] .hh-field:has([data-hh-field$=".status"]) { grid-column: 1 / -1; }
+  .page[data-page="household"] .hh-family-screen .hh-field > span { font-size: 14px; line-height: 1.4; text-transform: none; letter-spacing: 0; white-space: normal; }
+  .page[data-page="household"] .hh-family-screen :is(input:not([type="hidden"]), select),
+  .page[data-page="household"] .hh-menu__pop select {
+    width: 100%; min-width: 0; height: auto; min-height: 44px; font-size: 16px; line-height: 1.5; scroll-margin-block: var(--sp-6);
+  }
+  .page[data-page="household"] .hh-family-screen .hh-birth-date { height: auto; }
+  .page[data-page="household"] .hh-family-screen .hh-field--age output { height: auto; min-height: 44px; font-size: 16px; }
+  .page[data-page="household"] .hh-family-screen button,
+  .page[data-page="household"] .hh-menu button,
+  .page[data-page="household"] .hh-wizard > footer button { min-height: 44px; min-width: 44px; height: auto; white-space: normal; }
+  .page[data-page="household"] .hh-card-action { position: static; display: block; margin: 0 0 var(--sp-3) auto; opacity: 1; }
+  .page[data-page="household"] .hh-finances-rail,
+  .page[data-page="household"] .hh-finances-rail.is-open {
+    position: static; width: 100%; height: auto; min-height: 0; overflow: visible; margin-bottom: var(--sp-4); transition: none;
+  }
+  .page[data-page="household"] .hh-finances-rail-head { height: auto; min-height: 44px; padding: 0; }
+  .page[data-page="household"] .hh-finances-rail-body { height: auto; max-height: none; overflow: visible; padding: var(--sp-3) 0; }
+  .page[data-page="household"] .hh-finance-amount-row { flex-wrap: wrap; }
+  .page[data-page="household"] .hh-finance-amount-row input { width: auto; }
+  .page[data-page="household"] .hh-wizard > footer { position: static; height: auto; flex-wrap: wrap; gap: var(--sp-3); padding-bottom: max(var(--sp-4), env(safe-area-inset-bottom)); }
+  .page[data-page="household"] .hh-family-screen .hh-inline-error {
+    display: block; color: var(--neg); font-size: 14px; line-height: 1.4; letter-spacing: 0; text-transform: none; white-space: normal; overflow-wrap: anywhere;
+  }
 }

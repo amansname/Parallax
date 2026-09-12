@@ -159,6 +159,46 @@ test('visible Tax Next confirms canonical Tax facts before navigating', () => {
   assert.deepEqual(headerStatuses, ['Current Tax facts are incomplete']);
 });
 
+test('a corrected Family edit clears prior invalidity even when screen refresh fails', () => {
+  const listeners = {};
+  const attributes = {};
+  const statuses = [];
+  let customValidity = '';
+  let calls = 0;
+  const root = {
+    dataset: { wizardStep: 'family' },
+    addEventListener(type, listener){ listeners[type] = listener; },
+  };
+  const control = {
+    dataset: { wizardField: 'client.retirementAge' }, value: '44', type: 'number',
+    closest(selector){ return selector === '[data-wizard-scope="family"][data-wizard-field]' ? this : null; },
+    matches(){ return false; }, querySelector(){ return null; },
+    setAttribute(name, value){ attributes[name] = value; },
+    removeAttribute(name){ delete attributes[name]; },
+    setCustomValidity(value){ customValidity = value; }, focus(){}, reportValidity(){},
+  };
+  bindHouseholdEditor({
+    root, wizardRoot: root, transientState: {}, guardPlanMutation: () => true,
+    commitWizardEdit(command){
+      calls++;
+      if(command.value === '44') throw new Error('Enter a value from 45 through 90');
+      return { refreshError: new Error('render failed') };
+    },
+    syncHousehold(){}, navigateWizard(){}, liveCommas(){},
+    syncHeaderStatus(message){ statuses.push(message); },
+  });
+  listeners.change({ target: control });
+  assert.equal(attributes['aria-invalid'], 'true');
+  assert.notEqual(customValidity, '');
+  control.value = '66';
+  listeners.change({ target: control });
+  assert.equal(calls, 2, 'an applied edit is not retried after refresh failure');
+  assert.equal(attributes['aria-invalid'], undefined);
+  assert.equal(customValidity, '');
+  assert.equal(root.dataset.validationCode, 'WIZARD_REFRESH_FAILED');
+  assert.equal(statuses.at(-1), 'Edit applied, but the screen could not refresh');
+});
+
 test('wizard teardown blur does not dispatch a nested Tax edit', () => {
   const listeners = {};
   const root = {

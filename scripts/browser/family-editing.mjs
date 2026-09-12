@@ -76,6 +76,7 @@ async function requireReachableForm(page){
       menuHit: menu.contains(document.elementFromPoint(menuRect.x + menuRect.width / 2, menuRect.y + menuRect.height / 2)),
       overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       controlHeight: document.querySelector('[data-hh-action="toggle-finances-rail"]').getBoundingClientRect().height,
+      mobile: matchMedia('(max-width: 760px), (max-width: 1023px) and (max-height: 500px)').matches,
       panels: document.querySelectorAll('[data-finance-entry-panel]').length,
       people: document.querySelectorAll('[data-finances-person-owner]').length,
     };
@@ -84,7 +85,8 @@ async function requireReachableForm(page){
   assert.equal(state.hit, true);
   assert.equal(state.menuHit, true);
   assert.ok(state.overflow <= 1);
-  assert.equal(state.controlHeight, 40);
+  // Approved first mobile slice raises touch controls; tablet/desktop stay 40px.
+  assert.equal(state.controlHeight, state.mobile ? 44 : 40);
   assert.equal(state.panels, 0);
   assert.equal(state.people, 0);
 }
