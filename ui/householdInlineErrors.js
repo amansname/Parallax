@@ -16,7 +16,7 @@ export function createHouseholdInlineErrors(root){
   function report(control, message){
     if(!root.ownerDocument?.defaultView?.matchMedia('(max-width: 760px), (max-width: 1023px) and (max-height: 500px)').matches
         || !control || !root.contains(control)
-        || !control.closest('[data-hh-wizard-screen="family"]')) return false;
+        || !control.closest('[data-hh-wizard-screen]')) return false;
     clear(control);
     const error = root.ownerDocument.createElement('span');
     error.id = `hh-inline-error-${++nextErrorId}`;
@@ -24,7 +24,7 @@ export function createHouseholdInlineErrors(root){
     error.className = 'hh-inline-error';
     error.setAttribute('role', 'alert');
     error.textContent = message;
-    const container = control.closest('.hh-field, .hh-finance-entry') || control.parentElement;
+    const container = control.closest('.hh-field, .hh-finance-entry, .hh-tax-row, .nw-field, .nw-panel-footer') || control.parentElement;
     // An error inside an implicit label must not become part of the field name.
     const label = control.labels?.[0];
     const labelText = label?.querySelector('span');

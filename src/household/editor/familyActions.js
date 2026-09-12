@@ -25,6 +25,9 @@ export function createFamilyActions({
     focusFinanceControl(`[data-finances-person-owner="${command.owner}"]`);
   };
   return {
+    'add-spouse': action => {
+      commit({ scope: 'family', field: 'filingStatus', value: 'marriedFilingJointly' }, action);
+    },
     'toggle-finances-rail': () => {
       clearFinanceSaveStatus();
       transientState.financeRailOpen = !transientState.financeRailOpen;

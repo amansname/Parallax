@@ -6,6 +6,7 @@ import {
 import { escHtml } from '../../ui/dom.js';
 import { refreshHouseholdFamilyFields, replaceHouseholdFinanceRail } from '../../ui/householdFamilyUpdates.js';
 import { renderHouseholdCommitNotice } from '../../ui/householdCommitNotice.js';
+import { createHouseholdMobilePresentation } from '../../ui/householdMobile.js';
 import { getWizardAccountTypes } from './accountTypes.js';
 import {
   buildWizardIncomeTaxSummary,
@@ -44,6 +45,7 @@ export function createHouseholdWizardController({
   let renderRevision = 0;
   let wizard;
   let refreshFailed = false;
+  const mobilePresentation = createHouseholdMobilePresentation();
   const financeOverlayMedia = globalThis.matchMedia?.('(max-width: 1023px)');
 
   const state = {
@@ -250,6 +252,7 @@ export function createHouseholdWizardController({
       root.dataset.householdId = '';
       root.dataset.wizardReady = 'true';
       root.setAttribute('aria-busy', 'false');
+      mobilePresentation.sync(root);
       syncCommitNotice();
       syncRecoveryControls();
       return;
@@ -281,6 +284,7 @@ export function createHouseholdWizardController({
     root.dataset.householdId = activeId;
     root.dataset.wizardReady = String(!refreshFailed);
     root.setAttribute('aria-busy', 'false');
+    mobilePresentation.sync(root);
     syncCommitNotice();
     syncRecoveryControls();
   }
