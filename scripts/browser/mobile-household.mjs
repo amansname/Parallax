@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { selectHouseholdVisible, waitForWizard } from './wizard/actions.mjs';
+import { selectHouseholdVisible, waitForPlanCalculation, waitForWizard } from './wizard/actions.mjs';
 
 const retirement = '[data-wizard-field="client.retirementAge"]';
 const socialSecurity = '[data-wizard-field="client.socialSecurityAge"]';
@@ -12,10 +12,21 @@ const saveFailureMessage = 'Automatic save failed · storage blocked or full. Ke
 
 async function requireRenderedArtifact(page, artifactId){
   assert.match(artifactId, /^[a-f0-9]{64}$/, 'Mobile proof requires an immutable artifact');
-  await page.waitForFunction(() => {
-    const logo = document.querySelector('.hdr__logo img');
-    return document.fonts.status === 'loaded' && logo?.complete && logo.naturalWidth > 0;
-  }, { timeout: 15000 });
+  try{
+    await page.waitForFunction(() => {
+      const logo = document.querySelector('.hdr__logo img');
+      return document.fonts.status === 'loaded' && logo?.complete && logo.naturalWidth > 0;
+    }, { timeout: 15000 });
+  }catch(error){
+    const readiness = await page.evaluate(() => ({
+      fonts: document.fonts.status,
+      faces: [...document.fonts].map(font => ({ family: font.family, status: font.status })),
+      logo: document.querySelector('.hdr__logo img')?.outerHTML,
+      logoComplete: document.querySelector('.hdr__logo img')?.complete,
+      logoWidth: document.querySelector('.hdr__logo img')?.naturalWidth,
+    }));
+    throw new Error(`Mobile visual readiness failed: ${JSON.stringify(readiness)}`, { cause: error });
+  }
   const loaded = await page.evaluate(() => {
     const script = document.querySelector('script[type="module"][src]');
     const direct = script && new URL(script.src, location.href).searchParams.get('v');
@@ -409,7 +420,7 @@ async function verifyAppliedRefreshFailure(page, householdId, artifactId, screen
     assert.deepEqual(saved.scenarios, expectedScenarios);
     assert.equal(await page.$eval(retirement, control => control.getAttribute('aria-invalid')), null);
     assert.equal(await page.$eval(retirement, control => control.validationMessage), '');
-    notice = await requireCommitNotice(page, 'Edit applied, but the screen could not refresh.');
+    notice = await requireCommitNotice(page, 'Edit applied, but the screen could not refresh. Select the current step again to refresh the form.');
     await page.screenshot({ path: join(screenshotDir, 'mobile-household-applied-refresh-failure.png') });
   }finally{
     await page.evaluate(hook => hook.restore(), refreshHook);
@@ -522,6 +533,7 @@ export async function verifyMobileHousehold({ browser, url, screenshotDir }){
     const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 });
     const artifactId = response.headers()['x-parallax-artifact-id'];
     await waitForWizard(page, { householdId: 'joe-household', step: 'family' });
+    await waitForPlanCalculation(page);
     await requireRenderedArtifact(page, artifactId);
 
     // Runtime templates are temporary. Create a durable fixture visibly.
@@ -770,6 +782,7 @@ export async function verifyMobileHousehold({ browser, url, screenshotDir }){
     // Reload deliberately chooses runtime startup. Explicitly reopen the saved fixture.
     await page.reload({ waitUntil: 'domcontentloaded', timeout: 20000 });
     await waitForWizard(page, { householdId: 'joe-household', step: 'family' });
+    await waitForPlanCalculation(page);
     await requireRenderedArtifact(page, artifactId);
     await selectHouseholdVisible(page, householdId);
     assert.equal(await page.$eval(retirement, control => control.value), '66');

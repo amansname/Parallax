@@ -5,7 +5,7 @@ export function renderHouseholdCommitNotice(root, { activeHouseholdId, saveFaile
   let notice = workspace.querySelector('[data-household-commit-notice]');
   const message = !activeHouseholdId ? '' : saveFailed
     ? 'Automatic save failed · storage blocked or full. Keep this page open. Make another edit to retry saving.'
-    : refreshFailed ? 'Edit applied, but the screen could not refresh.' : '';
+    : refreshFailed ? 'Edit applied, but the screen could not refresh. Select the current step again to refresh the form.' : '';
   if(!notice && !message) return;
   if(!notice){
     notice = root.ownerDocument.createElement('p');
