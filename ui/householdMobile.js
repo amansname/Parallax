@@ -10,11 +10,11 @@ export function createHouseholdMobilePresentation(){
   let priorPeople = 0;
   let detailOpen = false;
   let detailTrigger = null;
-  const originalOrders = new WeakMap();
 
-  function orderChildren(parent, desired){
-    if(!originalOrders.has(parent)) originalOrders.set(parent, [...parent.children]);
-    const order = media.matches ? desired : originalOrders.get(parent);
+  function orderChildren(parent, mobileOrder, desktopOrder){
+    // Resolve the current nodes on every render. Finance-only updates replace
+    // their rail, so retaining earlier nodes would resurrect a stale editor.
+    const order = media.matches ? mobileOrder : desktopOrder;
     if(order.every((node, index) => parent.children[index] === node)) return;
     const focused = parent.ownerDocument.activeElement;
     const restoreFocus = parent.contains(focused);
@@ -55,7 +55,8 @@ export function createHouseholdMobilePresentation(){
       const byClass = name => fields.querySelector(`.hh-field--${name}`);
       const desired = ['name', 'date', 'age', 'retirement', 'plan-end', 'status', 'social-security'].map(byClass);
       if(desired.some(node => !node)) throw new Error('Mobile Family field inventory is incomplete');
-      orderChildren(fields, desired);
+      orderChildren(fields, desired,
+        ['name', 'date', 'age', 'status', 'retirement', 'social-security', 'plan-end'].map(byClass));
     }
     for(const button of tabs.querySelectorAll('[data-mobile-person]')){
       if(!people.some(person => person.dataset.personOwner === button.dataset.mobilePerson)) button.remove();
@@ -69,7 +70,8 @@ export function createHouseholdMobilePresentation(){
     const finance = family.querySelector('[data-finances-rail]');
     const filing = family.querySelector('.hh-form-section');
     const add = family.querySelector('[data-hh-action="add-spouse"]');
-    orderChildren(family, [tabs, intro, peopleContainer, add, finance, filing].filter(Boolean));
+    orderChildren(family, [tabs, intro, peopleContainer, add, finance, filing].filter(Boolean),
+      [tabs, intro, finance, peopleContainer, add, filing].filter(Boolean));
   }
 
   function sync(nextRoot = root){

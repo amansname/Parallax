@@ -59,10 +59,10 @@
   .page[data-page="household"] [data-mobile-inputs="true"] .hh-screen:has(.nw-panel) > :not(.nw-overlay) { display: none; }
   .page[data-page="household"] [data-mobile-inputs="true"]:has(.nw-panel) :is(.hh-stepper, #hh-wiz-footer) { display: none; }
   .page[data-page="household"] [data-mobile-inputs="true"] .nw-overlay { position: static; inset: auto; display: block; z-index: auto; }
-  .page[data-page="household"] [data-mobile-inputs="true"] :is(.nw-scrim, .nw-panel-grabber) { display: none; }
+  .page[data-page="household"] [data-mobile-inputs="true"] :is(.nw-scrim, .nw-sheet-grabber) { display: none; }
   .page[data-page="household"] [data-mobile-inputs="true"] .nw-panel { position: static; inset: auto; width: 100%; max-width: none; height: auto; min-height: 0; max-height: none; border: 0; border-radius: 0; box-shadow: none; background: var(--page); animation: none; transform: none; }
   .page[data-page="household"] [data-mobile-inputs="true"] .nw-panel-body { padding: 12px 0; overflow: visible; }
-  .page[data-page="household"] [data-mobile-inputs="true"] .nw-panel-header { padding: 0 0 12px; }
+  .page[data-page="household"] [data-mobile-inputs="true"] .nw-panel-head { padding: 0 0 12px; }
   .page[data-page="household"] [data-mobile-inputs="true"] .nw-panel-footer { position: static; flex-wrap: wrap; padding: 12px 0; border: 0; background: none; }
   .page[data-page="household"] [data-mobile-inputs="true"] :is(.nw-type-picker, .nw-allocation-strip) { display: flex; flex-wrap: wrap; overflow: visible; gap: 8px; }
   .page[data-page="household"] [data-mobile-inputs="true"] .nw-more-menu { position: static; width: 100%; box-shadow: none; }
