@@ -2164,9 +2164,14 @@
   .page[data-page="household"] .hh-card-action { transition: none; }
 }
 
+.page[data-page="household"] .hh-commit-notice { display: none; }
+
 /* First mobile slice: one document-flow Family form, using existing controls. */
 @media (max-width: 760px), (max-width: 1023px) and (max-height: 500px) {
   .page[data-page="household"] { overflow: visible; }
+  .page[data-page="household"] .hh-commit-notice:not([hidden]) {
+    display: block; margin: 0 0 var(--sp-4); color: var(--neg); font-size: 16px; line-height: 1.5; overflow-wrap: anywhere;
+  }
   .page[data-page="household"] .hh-sidebar { gap: var(--sp-3); }
   .page[data-page="household"] .hh-sidebar-head { flex-wrap: wrap; align-items: center; }
   .page[data-page="household"] .hh-sidebar-head > div:first-child { min-width: 0; flex: 1; }

@@ -7,6 +7,8 @@ const retirement = '[data-wizard-field="client.retirementAge"]';
 const socialSecurity = '[data-wizard-field="client.socialSecurityAge"]';
 const primaryName = '[data-wizard-field="primaryName"]';
 const financeToggle = '[data-hh-action="toggle-finances-rail"]';
+const commitNotice = '[data-household-commit-notice]';
+const saveFailureMessage = 'Automatic save failed · storage blocked or full. Keep this page open. Make another edit to retry saving.';
 
 async function typeInto(page, selector, value){
   // A single real click followed by keyboard input exposes lost blur targets.
@@ -31,6 +33,54 @@ async function requireRetirementName(client){
   const { nodeId } = await client.send('DOM.querySelector', { nodeId: root.nodeId, selector: retirement });
   const { nodes } = await client.send('Accessibility.getPartialAXTree', { nodeId, fetchRelatives: false });
   assert.equal(nodes[0]?.name?.value, 'Retires at', 'Inline error changed the retirement field accessible name');
+}
+
+async function requireCommitNotice(page, message = saveFailureMessage){
+  assert.equal(await page.$$eval(commitNotice, nodes => nodes.length), 1,
+    'Failed Household commit has no persistent visible notice');
+  await page.$eval(commitNotice, node => node.scrollIntoView({ block: 'center' }));
+  const visible = await page.$eval(commitNotice, node => {
+    const rect = node.getBoundingClientRect();
+    const concealedAncestors = [];
+    for(let ancestor = node; ancestor; ancestor = ancestor.parentElement){
+      const style = getComputedStyle(ancestor);
+      if(ancestor.hidden || ancestor.getAttribute('aria-hidden') === 'true'
+        || ancestor.getAttribute('aria-busy') === 'true'
+        || style.display === 'none' || ['hidden', 'collapse'].includes(style.visibility)
+        || Number(style.opacity) === 0){
+        concealedAncestors.push(ancestor.id || ancestor.className || ancestor.tagName);
+      }
+    }
+    return {
+      text: node.textContent.trim(), role: node.getAttribute('role'), concealedAncestors,
+      width: rect.width, height: rect.height, left: rect.left, right: rect.right,
+      top: rect.top, bottom: rect.bottom, viewportWidth: innerWidth, viewportHeight: innerHeight,
+      scrollHeight: node.scrollHeight, clientHeight: node.clientHeight,
+      unobstructed: node.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)),
+    };
+  });
+  assert.equal(visible.text, message);
+  assert.equal(visible.role, 'alert');
+  assert.deepEqual(visible.concealedAncestors, [], 'Save failure notice is hidden from sight or accessibility');
+  assert.ok(visible.width > 0 && visible.height > 0, 'Save failure notice has no visible bounds');
+  assert.ok(visible.left >= 0 && visible.right <= visible.viewportWidth + 1
+    && visible.top >= 0 && visible.bottom <= visible.viewportHeight + 1,
+  'The full save failure notice cannot be scrolled into the viewport');
+  assert.ok(visible.scrollHeight <= visible.clientHeight + 1, 'Save failure notice clips its text');
+  assert.equal(visible.unobstructed, true, 'Household commit notice is covered by another surface');
+  const accessibility = await page.createCDPSession();
+  try{
+    const { root } = await accessibility.send('DOM.getDocument');
+    const { nodeId } = await accessibility.send('DOM.querySelector', { nodeId: root.nodeId, selector: commitNotice });
+    const { nodes } = await accessibility.send('Accessibility.getPartialAXTree', { nodeId, fetchRelatives: true });
+    assert.ok(nodes.some(node => !node.ignored && node.role?.value === 'alert'),
+      'Visible save failure is missing its accessibility alert role');
+    assert.ok(nodes.some(node => !node.ignored && node.name?.value === message),
+      'The accessibility tree does not expose the save failure text');
+  }finally{
+    await accessibility.detach();
+  }
+  return visible;
 }
 
 async function requireFooterAction(page, householdId){
@@ -138,7 +188,7 @@ async function verifyAutoSaveRecovery(page, householdId, artifactId, screenshotD
   await waitForWizard(page, { householdId, step: 'family' });
   const before = await savedState(page, householdId);
   assert.equal(before.household.household.primary.retirementAge, 66);
-  const priorResults = await page.evaluateHandle(async version => {
+  const captureResults = () => page.evaluateHandle(async version => {
     const url = new URL('./src/state.js', location.href);
     url.searchParams.set('v', version);
     const { scenarios, uiState } = await import(url.href);
@@ -147,6 +197,7 @@ async function verifyAutoSaveRecovery(page, householdId, artifactId, screenshotD
     }
     return scenarios.map(scenario => scenario.res);
   }, artifactId);
+  let priorResults = await captureResults();
   const runtime = () => page.evaluate(async (version, earlier) => {
     const moduleUrl = path => {
       const url = new URL(path, location.href);
@@ -188,11 +239,14 @@ async function verifyAutoSaveRecovery(page, householdId, artifactId, screenshotD
     return () => { Storage.prototype.setItem = original; };
   });
   let failed;
+  let failureAfterRun;
+  const noticeEvidence = {};
   try{
     await typeInto(page, retirement, '67');
     await page.click(socialSecurity);
     await page.waitForFunction(() => document.querySelector('#status')?.textContent.trim()
       === 'Automatic save failed · storage blocked or full');
+    noticeEvidence.afterEdit = await requireCommitNotice(page);
     failed = await runtime();
     assert.equal(failed.retirement, 67, 'Valid edit was incorrectly rejected when persistence failed');
     assert.deepEqual(failed.levers, [67, 69, 67]);
@@ -206,18 +260,50 @@ async function verifyAutoSaveRecovery(page, householdId, artifactId, screenshotD
     assert.equal(failed.activePage, 'household');
     assert.equal(failed.scenarioVisible, false, 'Stale scenario results are displayed as the active surface');
     assert.equal(failed.status, 'Automatic save failed · storage blocked or full');
-    await page.$eval('#status', node => node.scrollIntoView({ block: 'center' }));
     await page.screenshot({ path: join(screenshotDir, 'mobile-household-save-failure.png') });
+    await page.$eval('[data-hh-action="step-next"]', node => node.scrollIntoView({ block: 'center' }));
+    await page.click('[data-hh-action="step-next"]');
+    await waitForWizard(page, { householdId, step: 'net-worth' });
+    noticeEvidence.netWorth = await requireCommitNotice(page);
+    await page.click('[data-hh-wizard-nav="family"]');
+    await waitForWizard(page, { householdId, step: 'family' });
+    noticeEvidence.returnedFamily = await requireCommitNotice(page);
+    assert.deepEqual(await savedState(page, householdId), before);
+
+    // A calculation can finish while saving remains blocked. Its ordinary status
+    // must not erase the separate, visible persistence warning on returning home.
+    await page.click('.htab[data-page="scenarios"]');
+    await page.waitForFunction(async version => {
+      const url = new URL('./src/state.js', location.href);
+      url.searchParams.set('v', version);
+      const { uiState } = await import(url.href);
+      return document.querySelector('#run-btn')?.disabled === false && uiState.plansDirty === false;
+    }, { timeout: 30000 }, artifactId);
+    failureAfterRun = await runtime();
+    assert.equal(failureAfterRun.dirty, false);
+    assert.deepEqual(failureAfterRun.oldResults, [false, false, false]);
+    assert.deepEqual(failureAfterRun.results.map(result => result.resolvedRetirement), [67, 69, 67]);
+    assert.deepEqual(await savedState(page, householdId), before,
+      'Running calculations retried or changed the failed saved inputs');
+    await page.click('.htab[data-page="household"]');
+    await waitForWizard(page, { householdId, step: 'family' });
+    noticeEvidence.afterRun = await requireCommitNotice(page);
+    await page.screenshot({ path: join(screenshotDir, 'mobile-household-save-failure-after-run.png') });
+    await priorResults.dispose();
+    priorResults = await captureResults();
   }finally{
     await page.evaluate(restore => restore(), restoreStorage);
     await restoreStorage.dispose();
   }
   try{
     // Recovery is a subsequent real valid edit. Run does not retry autosave.
+    noticeEvidence.beforeRecovery = await requireCommitNotice(page);
     await typeInto(page, retirement, '68');
     await page.click(socialSecurity);
     await page.waitForFunction(id => JSON.parse(localStorage.getItem('parallax.households.v1'))[id]
       .household.primary.retirementAge === 68, {}, householdId);
+    assert.equal(await page.$eval(commitNotice, node => node.hidden && !node.textContent.trim()), true,
+      'Successful persistence left the prior save failure notice visible or announced');
     const recovered = await savedState(page, householdId);
     const expectedHousehold = structuredClone(before.household);
     expectedHousehold.household.primary.retirementAge = 68;
@@ -252,11 +338,147 @@ async function verifyAutoSaveRecovery(page, householdId, artifactId, screenshotD
     }
     assert.deepEqual(await savedState(page, householdId), recovered, 'Running altered recovered saved inputs');
     await writeFile(join(screenshotDir, 'mobile-household-save-recovery-proof.json'), JSON.stringify({
-      artifactId, persistedAgeBefore: 66, failed, recoveredAge: 68, stale, fresh,
+      artifactId, persistedAgeBefore: 66, failed, failureAfterRun, noticeEvidence,
+      recoveredAge: 68, stale, fresh,
     }, null, 2));
   }finally{
     await priorResults.dispose();
   }
+}
+
+async function verifyAppliedRefreshFailure(page, householdId, artifactId, screenshotDir){
+  await page.click('.htab[data-page="household"]');
+  await waitForWizard(page, { householdId, step: 'family' });
+  const before = await savedState(page, householdId);
+  assert.equal(before.household.household.primary.retirementAge, 68);
+  // Fail only the existing Family partial-refresh lookup, after the command and
+  // autosave have completed. Restore the exact prior property in all outcomes.
+  const refreshHook = await page.evaluateHandle(() => {
+    const view = document.querySelector('#hh-view');
+    const own = Object.getOwnPropertyDescriptor(view, 'querySelectorAll');
+    const original = view.querySelectorAll;
+    let calls = 0;
+    Object.defineProperty(view, 'querySelectorAll', { configurable: true, value(selector){
+      if(selector === '[data-hh-wizard-screen="family"]'){
+        calls += 1;
+        throw new Error('Mobile contract simulated Family refresh failure');
+      }
+      return original.call(this, selector);
+    } });
+    return {
+      calls: () => calls,
+      restore: () => {
+        if(own) Object.defineProperty(view, 'querySelectorAll', own);
+        else delete view.querySelectorAll;
+      },
+    };
+  });
+  let notice;
+  try{
+    await typeInto(page, retirement, '69');
+    await page.click(socialSecurity);
+    await page.waitForFunction(() => document.querySelector('[data-hh-wizard-root]')?.dataset.validationCode
+      === 'WIZARD_REFRESH_FAILED');
+    assert.ok(await page.evaluate(hook => hook.calls() > 0, refreshHook));
+    const saved = await savedState(page, householdId);
+    const expected = structuredClone(before.household);
+    expected.household.primary.retirementAge = 69;
+    assert.deepEqual(saved.household, expected, 'Refresh failure lost the applied save or changed unrelated facts');
+    const expectedScenarios = structuredClone(before.scenarios);
+    expectedScenarios.forEach(scenario => { scenario.lev.retireAge += 1; });
+    assert.deepEqual(saved.scenarios, expectedScenarios);
+    assert.equal(await page.$eval(retirement, control => control.getAttribute('aria-invalid')), null);
+    assert.equal(await page.$eval(retirement, control => control.validationMessage), '');
+    notice = await requireCommitNotice(page, 'Edit applied, but the screen could not refresh.');
+    await page.screenshot({ path: join(screenshotDir, 'mobile-household-applied-refresh-failure.png') });
+  }finally{
+    await page.evaluate(hook => hook.restore(), refreshHook);
+    await refreshHook.dispose();
+  }
+  // A failed render is not declared ready. Reopen the existing Family step to
+  // restore its DOM before the next edit; this is not a command/save retry.
+  await page.click('[data-hh-wizard-nav="family"]');
+  await waitForWizard(page, { householdId, step: 'family' });
+  await typeInto(page, retirement, '70');
+  await page.click(socialSecurity);
+  await page.waitForFunction(id => JSON.parse(localStorage.getItem('parallax.households.v1'))[id]
+    .household.primary.retirementAge === 70, {}, householdId);
+  await waitForWizard(page, { householdId, step: 'family' });
+  assert.equal(await page.$eval(commitNotice, node => node.hidden && !node.textContent.trim()), true);
+  assert.equal(await page.$eval('[data-hh-wizard-root]', root => root.dataset.validationCode), undefined);
+  const recovered = await savedState(page, householdId);
+  const expected = structuredClone(before.household);
+  expected.household.primary.retirementAge = 70;
+  assert.deepEqual(recovered.household, expected);
+  const expectedScenarios = structuredClone(before.scenarios);
+  expectedScenarios.forEach(scenario => { scenario.lev.retireAge += 2; });
+  assert.deepEqual(recovered.scenarios, expectedScenarios);
+  await writeFile(join(screenshotDir, 'mobile-household-refresh-recovery-proof.json'), JSON.stringify({
+    artifactId, persistedAgeBefore: 68, appliedAge: 69, notice, recoveredAge: 70,
+  }, null, 2));
+}
+
+async function verifyNewHouseholdSaveFailure(page, previousId, artifactId, screenshotDir){
+  const before = await savedState(page, previousId);
+  assert.equal(before.household.household.primary.retirementAge, 70);
+  const beforeDatabase = JSON.parse(before.householdBytes);
+  const restoreStorage = await page.evaluateHandle(() => {
+    const original = Storage.prototype.setItem;
+    Storage.prototype.setItem = function(key, value){
+      if(this === localStorage && key === 'parallax.households.v1'){
+        throw new DOMException('Mobile contract simulated initial save failure', 'QuotaExceededError');
+      }
+      return original.call(this, key, value);
+    };
+    return () => { Storage.prototype.setItem = original; };
+  });
+  let newId;
+  let notice;
+  try{
+    await page.click('#hh-menu-btn');
+    await page.click('#hh-new');
+    await page.waitForFunction(previous => {
+      const root = document.querySelector('[data-hh-wizard-root]');
+      const id = document.querySelector('#hh-switch')?.value;
+      return /^hh_/i.test(id || '') && id !== previous
+        && root?.dataset.householdId === id && root.dataset.wizardReady === 'true';
+    }, {}, previousId);
+    newId = await page.$eval('#hh-switch', control => control.value);
+    await waitForWizard(page, { householdId: newId, step: 'family' });
+    notice = await requireCommitNotice(page);
+    assert.equal(await page.evaluate(() => localStorage.getItem('parallax.households.v1')),
+      before.householdBytes, 'A failed initial save changed the household database bytes');
+    assert.equal(await page.evaluate(id => Object.hasOwn(
+      JSON.parse(localStorage.getItem('parallax.households.v1')), id,
+    ), newId), false, 'The unsaved new household was represented as persisted');
+    await page.screenshot({ path: join(screenshotDir, 'mobile-household-new-save-failure.png') });
+  }finally{
+    await page.evaluate(restore => restore(), restoreStorage);
+    await restoreStorage.dispose();
+  }
+  // Restoring storage alone does not save the active draft or clear its warning.
+  await requireCommitNotice(page);
+  assert.equal(await page.evaluate(() => localStorage.getItem('parallax.households.v1')), before.householdBytes);
+  await typeInto(page, primaryName, 'Taylor Jordan');
+  await page.click(retirement);
+  await page.waitForFunction(id => JSON.parse(localStorage.getItem('parallax.households.v1'))[id]
+    ?.meta.primaryName === 'Taylor Jordan', {}, newId);
+  assert.equal(await page.$eval(commitNotice, node => node.hidden && !node.textContent.trim()), true,
+    'The recovered new household still displays its initial save failure');
+  const recovered = await savedState(page, newId);
+  const recoveredDatabase = JSON.parse(recovered.householdBytes);
+  assert.deepEqual(Object.keys(recoveredDatabase).sort(), [...Object.keys(beforeDatabase), newId].sort());
+  for(const [id, record] of Object.entries(beforeDatabase)){
+    assert.deepEqual(recoveredDatabase[id], record, 'Saving the new household changed a pre-existing household');
+  }
+  assert.equal(recovered.household.meta.householdId, newId);
+  assert.equal(recovered.household.meta.primaryName, 'Taylor Jordan');
+  assert.ok(Array.isArray(recovered.scenarios) && recovered.scenarios.length === 3);
+  assert.deepEqual((await savedState(page, previousId)).scenarios, before.scenarios);
+  await writeFile(join(screenshotDir, 'mobile-household-new-save-recovery-proof.json'), JSON.stringify({
+    artifactId, failedInitialSaveNotice: notice, recoveredName: 'Taylor Jordan',
+    previousHouseholdPreserved: true, newHouseholdPersisted: true,
+  }, null, 2));
 }
 
 export async function verifyMobileHousehold({ browser, url, screenshotDir }){
@@ -545,6 +767,8 @@ export async function verifyMobileHousehold({ browser, url, screenshotDir }){
     assert.deepEqual((await savedState(page, householdId)).scenarios, after.scenarios);
     await page.screenshot({ path: join(screenshotDir, 'mobile-household-desktop-reopen.png') });
     await verifyAutoSaveRecovery(page, householdId, artifactId, screenshotDir);
+    await verifyAppliedRefreshFailure(page, householdId, artifactId, screenshotDir);
+    await verifyNewHouseholdSaveFailure(page, householdId, artifactId, screenshotDir);
     assert.deepEqual(pageErrors, []);
   }finally{
     await context.close();

@@ -165,6 +165,7 @@ test('a corrected Family edit clears prior invalidity even when screen refresh f
   const statuses = [];
   let customValidity = '';
   let calls = 0;
+  const transientState = {};
   const root = {
     dataset: { wizardStep: 'family' },
     addEventListener(type, listener){ listeners[type] = listener; },
@@ -178,7 +179,7 @@ test('a corrected Family edit clears prior invalidity even when screen refresh f
     setCustomValidity(value){ customValidity = value; }, focus(){}, reportValidity(){},
   };
   bindHouseholdEditor({
-    root, wizardRoot: root, transientState: {}, guardPlanMutation: () => true,
+    root, wizardRoot: root, transientState, guardPlanMutation: () => true,
     commitWizardEdit(command){
       calls++;
       if(command.value === '44') throw new Error('Enter a value from 45 through 90');
@@ -197,6 +198,7 @@ test('a corrected Family edit clears prior invalidity even when screen refresh f
   assert.equal(customValidity, '');
   assert.equal(root.dataset.validationCode, 'WIZARD_REFRESH_FAILED');
   assert.equal(statuses.at(-1), 'Edit applied, but the screen could not refresh');
+  assert.equal(transientState.refreshFailed, true, 'The visible feedback receives the applied-edit refresh failure');
 });
 
 test('wizard teardown blur does not dispatch a nested Tax edit', () => {

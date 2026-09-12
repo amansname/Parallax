@@ -45,6 +45,7 @@ export function bindHouseholdEditor({
     if (!guardPlanMutation()) return false;
     try {
       const result = commitWizardEdit(command);
+      if(result?.changed !== false) transientState.refreshFailed = Boolean(result?.refreshError);
       inlineErrors.clear(birthDateValidityControl(control));
       if (control) {
         if (control.matches?.('[data-birth-date-value]')) {
@@ -57,6 +58,8 @@ export function bindHouseholdEditor({
         }
       }
       if (result?.refreshError) {
+        // Rendering has stopped; do not leave its failure alert in a busy subtree.
+        wizardRoot.setAttribute?.('aria-busy', 'false');
         wizardRoot.dataset.validationCode = 'WIZARD_REFRESH_FAILED';
         syncHeaderStatus('Edit applied, but the screen could not refresh');
         return returnResult ? result : true;
