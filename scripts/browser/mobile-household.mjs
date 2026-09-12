@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { selectHouseholdVisible, waitForWizard } from './wizard/actions.mjs';
 
@@ -109,6 +110,140 @@ async function requireMobileInventory(page){
   }
 }
 
+async function verifyAutoSaveRecovery(page, householdId, artifactId, screenshotDir){
+  await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 1 });
+  await page.click('.htab[data-page="scenarios"]');
+  await page.waitForFunction(async version => {
+    const url = new URL('./src/state.js', location.href);
+    url.searchParams.set('v', version);
+    const { uiState } = await import(url.href);
+    return document.querySelector('#run-btn')?.disabled === false && uiState.plansDirty === false;
+  }, { timeout: 30000 }, artifactId);
+  await page.click('.htab[data-page="household"]');
+  await waitForWizard(page, { householdId, step: 'family' });
+  const before = await savedState(page, householdId);
+  assert.equal(before.household.household.primary.retirementAge, 66);
+  const priorResults = await page.evaluateHandle(async version => {
+    const url = new URL('./src/state.js', location.href);
+    url.searchParams.set('v', version);
+    const { scenarios, uiState } = await import(url.href);
+    if(uiState.plansDirty || scenarios.some(scenario => !scenario.res || scenario.runError)){
+      throw new Error('Save-failure fixture requires current successful results');
+    }
+    return scenarios.map(scenario => scenario.res);
+  }, artifactId);
+  const runtime = () => page.evaluate(async (version, earlier) => {
+    const moduleUrl = path => {
+      const url = new URL(path, location.href);
+      url.searchParams.set('v', version);
+      return url.href;
+    };
+    const [engine, state, configuration] = await Promise.all([
+      import(moduleUrl('./engine.js')), import(moduleUrl('./src/state.js')),
+      import(moduleUrl('./src/scenarios/scenarioConfiguration.js')),
+    ]);
+    return {
+      retirement: engine.defaultPlan.household.primary.retirementAge,
+      levers: state.scenarios.map(scenario => scenario.lev.retireAge),
+      dirty: state.uiState.plansDirty,
+      oldResults: state.scenarios.map((scenario, index) => scenario.res === earlier[index]),
+      results: state.scenarios.map(scenario => ({
+        successRate: scenario.res?.successRate ?? null,
+        runError: scenario.runError || null,
+        projectionStatus: scenario.res?.projectionStatus ?? null,
+        resolvedRetirement: engine.resolveInputs(configuration.planForScenario(scenario.lev),
+          configuration.leversToOverrides(scenario.lev)).retirementAge,
+      })),
+      status: document.querySelector('#status').textContent.trim(),
+      headerState: document.querySelector('.app-header .cluster').dataset.state,
+      activePage: document.querySelector('.page.on').dataset.page,
+      scenarioVisible: getComputedStyle(document.querySelector('.page[data-page="scenarios"]')).display !== 'none',
+      probabilities: [...document.querySelectorAll('#scn-view .scol__prob')].map(node => node.textContent.trim()),
+    };
+  }, artifactId, priorResults);
+  // Test-context hook: fail only this write, leaving reads and every other key intact.
+  const restoreStorage = await page.evaluateHandle(() => {
+    const original = Storage.prototype.setItem;
+    Storage.prototype.setItem = function(key, value){
+      if(this === localStorage && key === 'parallax.households.v1'){
+        throw new DOMException('Mobile contract simulated full storage', 'QuotaExceededError');
+      }
+      return original.call(this, key, value);
+    };
+    return () => { Storage.prototype.setItem = original; };
+  });
+  let failed;
+  try{
+    await typeInto(page, retirement, '67');
+    await page.click(socialSecurity);
+    await page.waitForFunction(() => document.querySelector('#status')?.textContent.trim()
+      === 'Automatic save failed · storage blocked or full');
+    failed = await runtime();
+    assert.equal(failed.retirement, 67, 'Valid edit was incorrectly rejected when persistence failed');
+    assert.deepEqual(failed.levers, [67, 69, 67]);
+    assert.deepEqual(await savedState(page, householdId), before,
+      'A failed household write changed persisted household or scenario bytes');
+    assert.equal(await page.$eval(retirement, control => control.value), '67');
+    assert.equal(await page.$eval(retirement, control => control.getAttribute('aria-invalid')), null);
+    assert.equal(failed.dirty, true);
+    assert.deepEqual(failed.oldResults, [true, true, true], 'A Family edit unexpectedly ran the engine');
+    assert.equal(failed.headerState, 'needs-run');
+    assert.equal(failed.activePage, 'household');
+    assert.equal(failed.scenarioVisible, false, 'Stale scenario results are displayed as the active surface');
+    assert.equal(failed.status, 'Automatic save failed · storage blocked or full');
+    await page.$eval('#status', node => node.scrollIntoView({ block: 'center' }));
+    await page.screenshot({ path: join(screenshotDir, 'mobile-household-save-failure.png') });
+  }finally{
+    await page.evaluate(restore => restore(), restoreStorage);
+    await restoreStorage.dispose();
+  }
+  try{
+    // Recovery is a subsequent real valid edit. Run does not retry autosave.
+    await typeInto(page, retirement, '68');
+    await page.click(socialSecurity);
+    await page.waitForFunction(id => JSON.parse(localStorage.getItem('parallax.households.v1'))[id]
+      .household.primary.retirementAge === 68, {}, householdId);
+    const recovered = await savedState(page, householdId);
+    const expectedHousehold = structuredClone(before.household);
+    expectedHousehold.household.primary.retirementAge = 68;
+    assert.deepEqual(recovered.household, expectedHousehold, 'Recovery changed unrelated household facts');
+    const expectedScenarios = structuredClone(before.scenarios);
+    expectedScenarios.forEach(scenario => { scenario.lev.retireAge += 2; });
+    assert.deepEqual(recovered.scenarios, expectedScenarios);
+    const stale = await runtime();
+    assert.equal(stale.retirement, 68);
+    assert.equal(stale.status, 'Saved automatically · open Scenarios');
+    assert.equal(stale.dirty, true, 'Saved inputs must not make prior engine results current');
+    assert.deepEqual(stale.oldResults, [true, true, true]);
+    assert.equal(stale.headerState, 'needs-run');
+    assert.equal(stale.scenarioVisible, false);
+
+    await page.click('.htab[data-page="scenarios"]');
+    await page.waitForFunction(async version => {
+      const url = new URL('./src/state.js', location.href);
+      url.searchParams.set('v', version);
+      const { uiState } = await import(url.href);
+      return document.querySelector('#run-btn')?.disabled === false && uiState.plansDirty === false;
+    }, { timeout: 30000 }, artifactId);
+    const fresh = await runtime();
+    assert.equal(fresh.dirty, false);
+    assert.deepEqual(fresh.oldResults, [false, false, false], 'Rerun retained stale result objects');
+    assert.deepEqual(fresh.results.map(result => result.resolvedRetirement), [68, 70, 68]);
+    for(const [index, result] of fresh.results.entries()){
+      assert.equal(result.runError, null);
+      assert.notEqual(result.projectionStatus, 'unavailable');
+      assert.ok(Number.isFinite(result.successRate));
+      assert.equal(fresh.probabilities[index], `${result.successRate.toFixed(1)}%`);
+    }
+    assert.deepEqual(await savedState(page, householdId), recovered, 'Running altered recovered saved inputs');
+    await writeFile(join(screenshotDir, 'mobile-household-save-recovery-proof.json'), JSON.stringify({
+      artifactId, persistedAgeBefore: 66, failed, recoveredAge: 68, stale, fresh,
+    }, null, 2));
+  }finally{
+    await priorResults.dispose();
+  }
+}
+
 export async function verifyMobileHousehold({ browser, url, screenshotDir }){
   const context = await browser.createBrowserContext();
   const pageErrors = [];
@@ -138,11 +273,11 @@ export async function verifyMobileHousehold({ browser, url, screenshotDir }){
         && document.querySelector('[data-hh-wizard-root]')?.dataset.wizardReady === 'true';
     }, { timeout: 15000 });
     const householdId = await page.$eval('#hh-switch', control => control.value);
-    await typeInto(page, primaryName, 'Mobile contract household');
+    await typeInto(page, primaryName, 'Alex Morgan');
     await page.click(retirement);
     await page.waitForFunction(id => (
       JSON.parse(localStorage.getItem('parallax.households.v1'))[id].meta.primaryName
-        === 'Mobile contract household'
+        === 'Alex Morgan'
     ), {}, householdId);
     await typeInto(page, '[data-birth-date-group="client"] [data-birth-date-display]', '01011966');
     await page.click(retirement);
@@ -324,22 +459,20 @@ export async function verifyMobileHousehold({ browser, url, screenshotDir }){
         }),
       };
     }, artifactId);
+    await writeFile(join(screenshotDir, 'mobile-household-engine-proof.json'), JSON.stringify({
+      artifactId, dirty: engineProof.dirty, rows: engineProof.rows, probabilities: engineProof.probabilities,
+    }, null, 2));
     assert.equal(engineProof.dirty, false);
     assert.deepEqual(engineProof.rows.map(row => row.retirement), [66, 68, 66]);
     assert.equal(engineProof.rows.length, 3);
     for(const [index, row] of engineProof.rows.entries()){
-      if(row.runError){
-        assert.ok(engineProof.visibleText.includes(row.runError), 'Scenario run error is not visible');
-      }else if(row.hasResult && Number.isFinite(row.successRate)){
-        assert.notEqual(row.projectionStatus, 'unavailable');
-        assert.equal(engineProof.probabilities[index], `${row.successRate.toFixed(1)}%`,
-          'Visible probability differs from the actual engine result');
-      }else{
-        assert.equal(row.simulationAvailable, false, 'Scenario has neither engine result nor explicit readiness issue');
-        assert.ok(row.simulationIssues.length > 0);
-        assert.match(engineProof.visibleText, /date of birth|required|incomplete|missing|enter.*age|add.*household/i,
-          'Missing simulation facts have no actionable visible explanation');
-      }
+      assert.equal(row.simulationAvailable, true, 'The valid mobile fixture must permit simulation');
+      assert.equal(row.runError, null, 'The valid mobile edit must produce a successful engine run');
+      assert.equal(row.hasResult, true);
+      assert.ok(Number.isFinite(row.successRate), 'The engine must return a finite probability');
+      assert.notEqual(row.projectionStatus, 'unavailable');
+      assert.equal(engineProof.probabilities[index], `${row.successRate.toFixed(1)}%`,
+        'Visible probability differs from the actual engine result');
     }
 
     // All five existing destinations remain reachable by real navigation clicks.
@@ -356,6 +489,8 @@ export async function verifyMobileHousehold({ browser, url, screenshotDir }){
       await requireFamilyContainment(page);
       await requireMobileInventory(page);
       await requireFooterAction(page, householdId);
+      await page.$eval(primaryName, element => element.scrollIntoView({ block: 'center' }));
+      await page.screenshot({ path: join(screenshotDir, `mobile-household-${viewport.width}x${viewport.height}.png`) });
     }
     await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 1 });
     // Explicit 200% text fixture, not a claim of native OS text-size testing.
@@ -368,6 +503,8 @@ export async function verifyMobileHousehold({ browser, url, screenshotDir }){
     await requireFamilyContainment(page);
     await requireMobileInventory(page);
     await requireFooterAction(page, householdId);
+    await page.$eval(retirement, element => element.scrollIntoView({ block: 'center' }));
+    await page.screenshot({ path: join(screenshotDir, 'mobile-household-enlarged-text.png') });
     await textScale.evaluate(node => node.remove());
     await textScale.dispose();
     assert.deepEqual((await savedState(page, householdId)).household, after.household);
@@ -383,12 +520,13 @@ export async function verifyMobileHousehold({ browser, url, screenshotDir }){
 
     // Same browser storage, responsive desktop parity; this is not device sync.
     await page.setViewport({ width: 1920, height: 1080, deviceScaleFactor: 1 });
-    assert.equal(await page.$eval(primaryName, control => control.value), 'Mobile contract household');
+    assert.equal(await page.$eval(primaryName, control => control.value), 'Alex Morgan');
     assert.equal(await page.$eval(retirement, control => control.value), '66');
     assert.equal(await page.$$eval(retirement, controls => controls.length), 1);
     assert.deepEqual((await savedState(page, householdId)).household, after.household);
     assert.deepEqual((await savedState(page, householdId)).scenarios, after.scenarios);
     await page.screenshot({ path: join(screenshotDir, 'mobile-household-desktop-reopen.png') });
+    await verifyAutoSaveRecovery(page, householdId, artifactId, screenshotDir);
     assert.deepEqual(pageErrors, []);
   }finally{
     await context.close();
