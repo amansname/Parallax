@@ -142,7 +142,9 @@ export async function verifySavingsReplacement({ page, stableReload, screenshotD
       };
     });
     assert.equal(geometry.bodySize, '14px');
-    assert.deepEqual(geometry.buttonHeights, [40, 40]);
+    // The approved mobile slice raises touch targets; desktop stays 40px.
+    const expectedButtonHeight = width <= 760 || (width <= 1023 && height <= 500) ? 44 : 40;
+    assert.deepEqual(geometry.buttonHeights, [expectedButtonHeight, expectedButtonHeight]);
     assert.equal(geometry.contained, true);
     assert.equal(geometry.clickable, true, `confirmation controls must be reachable at ${width}x${height}`);
     if(screenshotDir) await page.screenshot({ path: join(screenshotDir, `savings-review-${width}.png`) });
