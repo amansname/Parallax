@@ -10,6 +10,26 @@ const financeToggle = '[data-hh-action="toggle-finances-rail"]';
 const commitNotice = '[data-household-commit-notice]';
 const saveFailureMessage = 'Automatic save failed · storage blocked or full. Keep this page open. Make another edit to retry saving.';
 
+async function requireRenderedArtifact(page, artifactId){
+  assert.match(artifactId, /^[a-f0-9]{64}$/, 'Mobile proof requires an immutable artifact');
+  await page.waitForFunction(() => {
+    const logo = document.querySelector('.hdr__logo img');
+    return document.fonts.status === 'loaded' && logo?.complete && logo.naturalWidth > 0;
+  }, { timeout: 15000 });
+  const loaded = await page.evaluate(() => {
+    const script = document.querySelector('script[type="module"][src]');
+    const direct = script && new URL(script.src, location.href).searchParams.get('v');
+    const map = document.querySelector('script[type="importmap"]');
+    const mapped = map && JSON.parse(map.textContent).imports?.['./src/main.js'];
+    return {
+      artifactId: direct || (mapped && new URL(mapped, location.href).searchParams.get('v')) || '',
+      failedFonts: [...document.fonts].filter(font => font.status === 'error').length,
+    };
+  });
+  assert.equal(loaded.artifactId, artifactId, 'Rendered application differs from the served artifact');
+  assert.equal(loaded.failedFonts, 0, 'Visual evidence requires the application fonts');
+}
+
 async function typeInto(page, selector, value){
   // A single real click followed by keyboard input exposes lost blur targets.
   await page.click(selector);
@@ -497,8 +517,12 @@ export async function verifyMobileHousehold({ browser, url, screenshotDir }){
         return reportValidity.apply(this, args);
       };
     });
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 20000 });
+    // Readiness is the actual rendered wizard, fonts and versioned entrypoint.
+    // Network inactivity can time out even after this application's navigation.
+    const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 });
+    const artifactId = response.headers()['x-parallax-artifact-id'];
     await waitForWizard(page, { householdId: 'joe-household', step: 'family' });
+    await requireRenderedArtifact(page, artifactId);
 
     // Runtime templates are temporary. Create a durable fixture visibly.
     await page.click('#hh-menu-btn');
@@ -650,14 +674,7 @@ export async function verifyMobileHousehold({ browser, url, screenshotDir }){
     await mountedNext.dispose();
 
     // Run through the visible navigation, then inspect the exact loaded artifact modules.
-    const artifactId = await page.evaluate(() => {
-      const script = document.querySelector('script[type="module"][src]');
-      const direct = script && new URL(script.src, location.href).searchParams.get('v');
-      const map = document.querySelector('script[type="importmap"]');
-      const mapped = map && JSON.parse(map.textContent).imports?.['./src/main.js'];
-      return direct || (mapped && new URL(mapped, location.href).searchParams.get('v')) || '';
-    });
-    assert.match(artifactId, /^[a-f0-9]{64}$/, 'Engine proof requires an immutable version-bound artifact');
+    await requireRenderedArtifact(page, artifactId);
     await page.click('.htab[data-page="scenarios"]');
     await page.waitForFunction(async version => {
       const stateUrl = new URL('./src/state.js', location.href);
@@ -751,8 +768,9 @@ export async function verifyMobileHousehold({ browser, url, screenshotDir }){
     await accessibility.detach();
 
     // Reload deliberately chooses runtime startup. Explicitly reopen the saved fixture.
-    await page.reload({ waitUntil: 'networkidle2', timeout: 20000 });
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: 20000 });
     await waitForWizard(page, { householdId: 'joe-household', step: 'family' });
+    await requireRenderedArtifact(page, artifactId);
     await selectHouseholdVisible(page, householdId);
     assert.equal(await page.$eval(retirement, control => control.value), '66');
     assert.deepEqual((await savedState(page, householdId)).household, after.household);
