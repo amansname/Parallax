@@ -422,8 +422,8 @@ if(pagesWorkflow.includes('workflow_dispatch:')){
 }
 
 const artifactIndex = read('index.html');
-if((artifactIndex.match(/__PARALLAX_ARTIFACT_ID__/g) || []).length !== 11){
-  failures.push('index.html must bind exactly eleven entry assets to the site artifact ID');
+if((artifactIndex.match(/__PARALLAX_ARTIFACT_ID__/g) || []).length !== 13){
+  failures.push('index.html must bind exactly thirteen entry assets to the site artifact ID');
 }
 requireText('scripts/preview.mjs', [
   'assertCleanCandidateWorktree()',
