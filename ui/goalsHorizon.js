@@ -1,4 +1,6 @@
 import { escHtml } from './dom.js';
+import { createMobileGoalsController } from './goalsMobile.js';
+import { effectiveGoalForView, materializeGoalTiming } from './goalsTimingPresentation.js';
 import {
   GOAL_CATEGORIES,
   GOAL_CATEGORY_MAP,
@@ -14,7 +16,6 @@ import {
   goalTimingLabel,
   isOneTimeGoal,
   normalizeGoalCategory,
-  resolveEffectiveGoal,
   resolveGoalSpan,
   setGoalDisplayAmount,
   setGoalKind,
@@ -44,26 +45,6 @@ function goalIndexByViewId(goals, id){
     return goals[index] && !goals[index].id ? index : -1;
   }
   return -1;
-}
-
-function effectiveGoalForView(goal, span){
-  const resolved = resolveEffectiveGoal(goal, null, span.retirementAge);
-  const startAge = Number.isFinite(Number(resolved.startAge))
-    ? Number(resolved.startAge)
-    : span.retirementAge;
-  const requestedEnd = Number.isFinite(Number(resolved.endAge))
-    ? Number(resolved.endAge)
-    : span.planEndAge;
-  const endAge = Math.max(startAge, Math.min(requestedEnd, span.planEndAge));
-  return { ...goal, startAge, endAge };
-}
-
-function materializeGoalTiming(goal, span, { detachFromRetirement = false } = {}){
-  const effective = effectiveGoalForView(goal, span);
-  goal.startAge = effective.startAge;
-  goal.endAge = effective.endAge;
-  if(detachFromRetirement) goal.startsAtRetirement = false;
-  return goal;
 }
 
 function timingPresets(span){
@@ -265,6 +246,8 @@ function liveCommas(input){
 }
 
 export function createGoalsHorizonController(deps){
+  const mobileMedia = globalThis.matchMedia?.('(max-width: 760px), (max-width: 1023px) and (max-height: 500px)');
+  const mobile = createMobileGoalsController(deps);
   const state={ selectedId:null, addOpen:true, initialSelectionResolved:false, flashId:null, toast:null, drag:null, timingLens:new Map() };
   let root=null;
   let abortController=null;
@@ -320,6 +303,7 @@ export function createGoalsHorizonController(deps){
   };
 
   const render=()=>{
+    if(mobileMedia?.matches) return mobile.render();
     const list=goals();
     if(!state.initialSelectionResolved && list.length){
       state.initialSelectionResolved=true;
@@ -634,6 +618,8 @@ export function createGoalsHorizonController(deps){
   function bind(element){
     root=element;
     abortController?.abort();
+    mobile.unbind();
+    if(mobileMedia?.matches){ mobile.bind(root); return; }
     abortController=new AbortController();
     const options={signal:abortController.signal};
     root.addEventListener('click',clickHandler,options);
@@ -642,5 +628,6 @@ export function createGoalsHorizonController(deps){
     root.addEventListener('pointerdown',pointerDownHandler,options);
   }
 
+  mobileMedia?.addEventListener('change', () => rerender());
   return { render, bind };
 }

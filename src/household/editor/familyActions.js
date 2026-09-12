@@ -1,3 +1,5 @@
+import { readFinanceAnnualAmount } from '../../../ui/householdFinanceUnits.js';
+
 export function createFamilyActions({
   guardPlanMutation,
   preflightWizardEdit,
@@ -81,7 +83,7 @@ export function createFamilyActions({
         owner: panel.dataset.financeOwner,
         mode: transientState.financeMode,
         typeId: transientState.financeTypeId,
-        amount: amount.value,
+        amount: readFinanceAnnualAmount(amount),
       };
       try{
         preflightWizardEdit(command);

@@ -202,7 +202,7 @@ export function renderHouseholdWizardTax(ctx){
             <option value="2026" ${current.taxYear === 2026 ? 'selected' : ''}>2026</option>
           </select>
         </label>
-        <div class="hh-tax-static" data-tax-summary-box="filing-status">
+        <div class="hh-tax-static" data-tax-summary-box="filing-status" data-tax-state="${esc(plan.meta?.state || '')}">
           <span>Filing status</span>
           <strong>${esc(filingLabel)}</strong>
         </div>

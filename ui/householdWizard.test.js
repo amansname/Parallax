@@ -406,7 +406,10 @@ test('Family finance entry renders only after a person is chosen and keeps the a
   const closed = wizard().render('family');
   assert.equal((closed.match(/data-hh-action="toggle-finance-entry"/g) || []).length, 0);
   assert.doesNotMatch(closed, /data-finance-entry-panel/);
-  assert.doesNotMatch(closed, /Income &amp; Savings|Income & Savings|>FINANCES</i);
+  // Desktop keeps its existing title; the approved phone label is applied by
+  // the responsive presenter without changing the finance control inventory.
+  assert.match(closed, /<span data-mobile-label="Income & savings">Savings and Income<\/span>/);
+  assert.doesNotMatch(closed, />Income &amp; Savings<|>Income & Savings<|>FINANCES</i);
 
   const picker = wizard({ financeRailOpen: true, financeOwner: 'spouse' }).render('family');
   assert.equal((picker.match(/data-hh-action="toggle-finance-entry"/g) || []).length, 2);

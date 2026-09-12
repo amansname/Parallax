@@ -15,8 +15,10 @@ export function createHouseholdInlineErrors(root){
   }
   function report(control, message){
     if(!root.ownerDocument?.defaultView?.matchMedia('(max-width: 760px), (max-width: 1023px) and (max-height: 500px)').matches
-        || !control || !root.contains(control)
-        || !control.closest('[data-hh-wizard-screen]')) return false;
+        || !control || !root.contains(control)) return false;
+    for(let parent = control.parentElement; parent && parent !== root; parent = parent.parentElement){
+      if(parent.matches('details')) parent.open = true;
+    }
     clear(control);
     const error = root.ownerDocument.createElement('span');
     error.id = `hh-inline-error-${++nextErrorId}`;
