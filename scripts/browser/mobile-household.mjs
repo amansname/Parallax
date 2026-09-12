@@ -421,6 +421,15 @@ async function verifyAppliedRefreshFailure(page, householdId, artifactId, screen
     assert.equal(await page.$eval(retirement, control => control.getAttribute('aria-invalid')), null);
     assert.equal(await page.$eval(retirement, control => control.validationMessage), '');
     notice = await requireCommitNotice(page, 'Edit applied, but the screen could not refresh. Select the current step again to refresh the form.');
+    for(const expanded of ['true', 'false']){
+      await page.click(financeToggle);
+      assert.equal(await page.$eval(financeToggle, node => node.getAttribute('aria-expanded')), expanded);
+      await requireCommitNotice(page, 'Edit applied, but the screen could not refresh. Select the current step again to refresh the form.');
+      assert.equal(await page.$eval('[data-hh-wizard-root]', node => node.dataset.wizardReady), 'false',
+        'A finance-only render must not declare the stale Family form ready');
+      assert.deepEqual(await savedState(page, householdId), saved,
+        'Opening or closing finance controls must not repeat the applied save');
+    }
     await page.screenshot({ path: join(screenshotDir, 'mobile-household-applied-refresh-failure.png') });
   }finally{
     await page.evaluate(hook => hook.restore(), refreshHook);
@@ -430,6 +439,8 @@ async function verifyAppliedRefreshFailure(page, householdId, artifactId, screen
   // restore its DOM before the next edit; this is not a command/save retry.
   await page.click('[data-hh-wizard-nav="family"]');
   await waitForWizard(page, { householdId, step: 'family' });
+  assert.equal(await page.$eval(commitNotice, node => node.hidden && !node.textContent.trim()), true,
+    'A successful Family rerender must clear the recovered refresh warning');
   await typeInto(page, retirement, '70');
   await page.click(socialSecurity);
   await page.waitForFunction(id => JSON.parse(localStorage.getItem('parallax.households.v1'))[id]

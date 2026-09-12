@@ -814,6 +814,61 @@ test('Summary Continue to Goals is available even when tax summary is not calcul
   assert.match(incomplete.footer('summary'), /Continue to Goals/);
 });
 
+test('finance-only renders preserve an outstanding Family refresh failure until full recovery', () => {
+  let notice;
+  let replacements = 0;
+  const workspace = { querySelector: () => notice, prepend: node => { notice = node; } };
+  const document = {
+    querySelector(selector){
+      if(selector === '#hh-view') return view;
+      if(selector === '[data-hh-wizard-root]') return root;
+      return null;
+    },
+    createElement(tag){
+      if(tag === 'template') return { content: { querySelectorAll: () => [{}] } };
+      return { dataset: {}, setAttribute(){}, textContent: '', hidden: false };
+    },
+  };
+  const root = {
+    dataset: { householdId: 'hh-wizard-test', wizardReady: 'true' },
+    ownerDocument: document, classList: { toggle(){} },
+    setAttribute(){}, querySelector: () => workspace,
+  };
+  const view = { ownerDocument: document, querySelectorAll: () => [{ replaceWith(){ replacements += 1; } }] };
+  const previousDocument = globalThis.document;
+  globalThis.document = document;
+  try{
+    const savedPlan = plan();
+    const before = structuredClone(savedPlan);
+    const controller = createHouseholdWizardController({
+      getPlan: () => savedPlan, getHouseholdsDb: () => ({}),
+      getActiveHouseholdId: () => 'hh-wizard-test', isStorageBlocked: () => false,
+      syncRecoveryControls(){},
+    });
+    controller.sync({ financeOnly: true });
+    assert.equal(root.dataset.wizardReady, 'true');
+    assert.equal(notice, undefined);
+    controller.uiState.refreshFailed = true;
+    root.dataset.wizardReady = 'false';
+    for(const open of [false, true]){
+      controller.uiState.financeRailOpen = open;
+      controller.sync({ financeOnly: true });
+      assert.equal(controller.uiState.refreshFailed, true);
+      assert.equal(notice.hidden, false);
+      assert.match(notice.textContent, /Edit applied, but the screen could not refresh/);
+      assert.equal(root.dataset.wizardReady, 'false');
+    }
+    assert.equal(replacements, 3);
+    controller.setStep('family');
+    assert.equal(controller.uiState.refreshFailed, false);
+    assert.equal(notice.hidden, true);
+    assert.equal(root.dataset.wizardReady, 'true');
+    assert.deepEqual(savedPlan, before, 'presentation recovery must not mutate the saved plan');
+  }finally{
+    globalThis.document = previousDocument;
+  }
+});
+
 test('no active household exposes selection actions without rendering live wizard controls', () => {
   const elements = new Map();
   const makeElement = () => ({

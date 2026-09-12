@@ -221,7 +221,7 @@ export function createHouseholdWizardController({
         }
         updateSidebar(plan);
       }
-      finishRender(root, activeId);
+      finishRender(root, activeId, { familyRefreshed: !financeOnly });
       return;
     }
     const progress = document.querySelector('.hh-progress');
@@ -273,13 +273,13 @@ export function createHouseholdWizardController({
     finishRender(root, activeId);
   }
 
-  function finishRender(root, activeId){
-    refreshFailed = false;
+  function finishRender(root, activeId, { familyRefreshed = true } = {}){
+    if(familyRefreshed) refreshFailed = false;
     renderRevision += 1;
     root.dataset.wizardStep = stepId;
     root.dataset.renderRevision = String(renderRevision);
     root.dataset.householdId = activeId;
-    root.dataset.wizardReady = 'true';
+    root.dataset.wizardReady = String(!refreshFailed);
     root.setAttribute('aria-busy', 'false');
     syncCommitNotice();
     syncRecoveryControls();
