@@ -5,6 +5,7 @@ import { createNetWorthMutationsActions } from './editor/netWorthMutationsAction
 import { createFamilyActions } from './editor/familyActions.js';
 import { createTaxActions } from './editor/taxActions.js';
 import { birthDateValidityControl, clearBirthDateValidity } from './editor/valueControls.js';
+import { createHouseholdInlineErrors } from '../../ui/householdInlineErrors.js';
 export function bindHouseholdEditor({
   root,
   wizardRoot,
@@ -18,6 +19,7 @@ export function bindHouseholdEditor({
   liveCommas
 }) {
   if (!root || !wizardRoot) return;
+  const inlineErrors = createHouseholdInlineErrors(wizardRoot);
   function reportError(error, control = null) {
     const message = error instanceof Error ? error.message : String(error);
     wizardRoot.dataset.validationCode = error?.code || 'WIZARD_EDIT_REJECTED';
@@ -33,8 +35,9 @@ export function bindHouseholdEditor({
       if (typeof target.setCustomValidity === 'function') {
         target.setCustomValidity(message);
       }
+      const inline = inlineErrors.report(target, message);
       target.focus();
-      if (typeof target.reportValidity === 'function') target.reportValidity();
+      if (!inline && typeof target.reportValidity === 'function') target.reportValidity();
     }
     syncHeaderStatus(message);
   }
@@ -42,12 +45,8 @@ export function bindHouseholdEditor({
     if (!guardPlanMutation()) return false;
     try {
       const result = commitWizardEdit(command);
-      if (result?.refreshError) {
-        wizardRoot.dataset.validationCode = 'WIZARD_REFRESH_FAILED';
-        syncHeaderStatus('Edit applied, but the screen could not refresh');
-        return returnResult ? result : true;
-      }
-      delete wizardRoot.dataset.validationCode;
+      if(result?.changed !== false) transientState.refreshFailed = Boolean(result?.refreshError);
+      inlineErrors.clear(birthDateValidityControl(control));
       if (control) {
         if (control.matches?.('[data-birth-date-value]')) {
           clearBirthDateValidity(control.closest('[data-birth-date-group]'));
@@ -58,6 +57,14 @@ export function bindHouseholdEditor({
           }
         }
       }
+      if (result?.refreshError) {
+        // Rendering has stopped; do not leave its failure alert in a busy subtree.
+        wizardRoot.setAttribute?.('aria-busy', 'false');
+        wizardRoot.dataset.validationCode = 'WIZARD_REFRESH_FAILED';
+        syncHeaderStatus('Edit applied, but the screen could not refresh');
+        return returnResult ? result : true;
+      }
+      delete wizardRoot.dataset.validationCode;
       return returnResult ? result : true;
     } catch (error) {
       reportError(error, control);

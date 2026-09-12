@@ -5,6 +5,7 @@ import {
 } from '../../ui/householdWizard.js';
 import { escHtml } from '../../ui/dom.js';
 import { refreshHouseholdFamilyFields, replaceHouseholdFinanceRail } from '../../ui/householdFamilyUpdates.js';
+import { renderHouseholdCommitNotice } from '../../ui/householdCommitNotice.js';
 import { getWizardAccountTypes } from './accountTypes.js';
 import {
   buildWizardIncomeTaxSummary,
@@ -30,6 +31,7 @@ export function createHouseholdWizardController({
   getPlan,
   getHouseholdsDb,
   getActiveHouseholdId,
+  getSaveFailed = () => false,
   isStorageBlocked,
   renderBlockedRecoverySurfaces,
   syncRecoveryControls,
@@ -41,6 +43,7 @@ export function createHouseholdWizardController({
   let stepId = 'family';
   let renderRevision = 0;
   let wizard;
+  let refreshFailed = false;
   const financeOverlayMedia = globalThis.matchMedia?.('(max-width: 1023px)');
 
   const state = {
@@ -61,6 +64,8 @@ export function createHouseholdWizardController({
   };
 
   const uiState = {
+    get refreshFailed(){ return refreshFailed; },
+    set refreshFailed(value){ refreshFailed = value === true; syncCommitNotice(); },
     get stepId(){ return stepId; },
     get renderRevision(){ return renderRevision; },
     get financeRailOpen(){ return state.financeRailOpen; },
@@ -138,6 +143,7 @@ export function createHouseholdWizardController({
   }
 
   function resetForPlan(){
+    refreshFailed = false;
     stepId = 'family';
     state.taxView = 'simplified';
     state.optionalTaxItems.clear();
@@ -215,7 +221,7 @@ export function createHouseholdWizardController({
         }
         updateSidebar(plan);
       }
-      finishRender(root, activeId);
+      finishRender(root, activeId, { familyRefreshed: !financeOnly });
       return;
     }
     const progress = document.querySelector('.hh-progress');
@@ -244,6 +250,7 @@ export function createHouseholdWizardController({
       root.dataset.householdId = '';
       root.dataset.wizardReady = 'true';
       root.setAttribute('aria-busy', 'false');
+      syncCommitNotice();
       syncRecoveryControls();
       return;
     }
@@ -266,14 +273,22 @@ export function createHouseholdWizardController({
     finishRender(root, activeId);
   }
 
-  function finishRender(root, activeId){
+  function finishRender(root, activeId, { familyRefreshed = true } = {}){
+    if(familyRefreshed) refreshFailed = false;
     renderRevision += 1;
     root.dataset.wizardStep = stepId;
     root.dataset.renderRevision = String(renderRevision);
     root.dataset.householdId = activeId;
-    root.dataset.wizardReady = 'true';
+    root.dataset.wizardReady = String(!refreshFailed);
     root.setAttribute('aria-busy', 'false');
+    syncCommitNotice();
     syncRecoveryControls();
+  }
+
+  function syncCommitNotice(){
+    renderHouseholdCommitNotice(document.querySelector('[data-hh-wizard-root]'), {
+      activeHouseholdId: getActiveHouseholdId(), saveFailed: getSaveFailed(), refreshFailed,
+    });
   }
 
   function setStep(nextStepId){
@@ -344,6 +359,7 @@ export function createHouseholdWizardController({
     resetForPlan,
     setStep,
     sync,
+    syncCommitNotice,
     updateHouseholdControls,
     bindRail,
   };

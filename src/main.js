@@ -346,6 +346,7 @@ function autoSavePlan(){
   return ok;
 }
 function syncPlanEditStatus(message){
+  householdWizardController.syncCommitNotice();
   if(saveFailed){
     syncHeaderStatus('Automatic save failed · storage blocked or full');
     return;
@@ -486,6 +487,7 @@ const householdWizardController = createHouseholdWizardController({
   getPlan: () => plan,
   getHouseholdsDb: () => householdsDb,
   getActiveHouseholdId: () => activeHouseholdId,
+  getSaveFailed: () => saveFailed,
   isStorageBlocked: isHouseholdStorageBlocked,
   renderBlockedRecoverySurfaces,
   syncRecoveryControls,
