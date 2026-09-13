@@ -114,6 +114,14 @@ export async function verifyMobileInputs({ browser, url, screenshotDir }){
     await page.click('[data-finances-person-owner="client"]');
     await page.click('[data-hh-action="set-finance-mode"][data-finance-mode="income"]');
     await page.click('[data-finance-type-id="social_security"]');
+    await typeInto(page, '[data-finance-amount]', '2500.08', false);
+    await page.keyboard.press('Backspace');
+    assert.equal(await page.$eval('[data-finance-amount]', node => node.value), '2,500.0');
+    await page.click('[data-hh-action="commit-finance-entry"]');
+    assert.equal((await saved(page)).plan.income.socialSecurity.primary.pia, 30000);
+    await page.click('[data-finances-person-owner="client"]');
+    await page.click('[data-hh-action="set-finance-mode"][data-finance-mode="income"]');
+    await page.click('[data-finance-type-id="social_security"]');
     await typeInto(page, '[data-finance-amount]', 3000);
     assert.equal(await page.$eval('[data-finance-amount]', node => node.dataset.financeUnit), 'month');
     await page.click('[data-hh-action="commit-finance-entry"]');
@@ -124,7 +132,7 @@ export async function verifyMobileInputs({ browser, url, screenshotDir }){
     await page.click('[data-finance-type-id="social_security"]');
     await page.click('[data-finances-rail] .hh-finances-rail-head > span');
     const beforeResize = await saved(page);
-    for(const width of [1280, 390, 1280, 390]){
+    for(const width of [1280, 900, 390, 1280, 390]){
       await page.setViewport({ width, height: 844, deviceScaleFactor: 1 });
       await page.waitForFunction(expected => document.querySelector('[data-finance-amount]')?.dataset.financeUnit === expected, {}, width === 390 ? 'month' : 'year');
       assert.equal(await page.$$eval('[data-finances-rail]', nodes => nodes.length), 1);
@@ -139,16 +147,18 @@ export async function verifyMobileInputs({ browser, url, screenshotDir }){
     await page.click('[data-category-id="investment"]');
     for(const account of fixture.accounts){
       await page.click(`[data-hh-action="net-worth-pick-type"][data-account-type-id="${account.typeId}"]`);
+      assert.equal(await page.evaluate(() => document.activeElement === document.querySelector('.nw-panel h2')), true);
       await typeInto(page, '[data-net-worth-draft="name"]', account.institution);
       await page.select('[data-net-worth-draft="owner"]', account.owner);
       await typeInto(page, '[data-net-worth-draft="value"]', account.balance);
       assert.equal(await page.$eval('.nw-panel', node => getComputedStyle(node).position), 'static');
       await page.click('[data-hh-action="net-worth-save-entry"]');
       await waitForWizard(page, { step: 'net-worth', householdId });
+      assert.equal(await page.evaluate(() => document.activeElement === document.querySelector('.nw-panel h2')), true);
     }
     const accounts = (await saved(page)).plan.portfolio.extraAccounts;
     assert.deepEqual(accounts.map(account => [account.typeId, account.owner, account.balance]), fixture.accounts.map(account => [account.typeId, account.owner, account.balance]));
-    await page.click('[data-hh-action="net-worth-close-panel"]');
+    await page.click('button[data-hh-action="net-worth-close-panel"]');
 
     await page.click('[data-hh-wizard-nav="tax"]');
     const originalInventory = await taxInventory(page);

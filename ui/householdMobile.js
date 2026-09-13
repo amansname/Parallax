@@ -13,6 +13,7 @@ export function createHouseholdMobilePresentation(){
   let priorPeople = 0;
   let detailOpen = false;
   let detailTrigger = null;
+  let detailTransition = false;
 
   function orderChildren(parent, mobileOrder, desktopOrder){
     // Resolve the current nodes on every render. Finance-only updates replace
@@ -99,6 +100,8 @@ export function createHouseholdMobilePresentation(){
       root.addEventListener('click', event => {
         const trigger = event.target.closest('[data-hh-action]');
         if(trigger && !trigger.closest('.nw-panel')) detailTrigger = { ...trigger.dataset };
+        detailTransition = ['net-worth-pick-type', 'net-worth-pick-custom', 'net-worth-edit-entry',
+          'net-worth-clear-type', 'net-worth-cancel-draft', 'net-worth-save-entry'].includes(trigger?.dataset.hhAction);
       }, true);
     }
     root.dataset.mobileInputs = String(media.matches);
@@ -131,7 +134,7 @@ export function createHouseholdMobilePresentation(){
       summaryDetails.remove();
     }
     const panel = root.querySelector('.nw-panel');
-    if(media.matches && panel && !detailOpen){
+    if(media.matches && panel && (!detailOpen || detailTransition)){
       const heading = panel.querySelector('h2');
       if(heading){ heading.tabIndex = -1; heading.focus({ preventScroll: true }); }
       panel.scrollIntoView({ block: 'start' });
@@ -142,6 +145,7 @@ export function createHouseholdMobilePresentation(){
       trigger?.focus({ preventScroll: true });
     }
     detailOpen = Boolean(panel);
+    detailTransition = false;
     }finally{
       delete root.dataset.presentationMoving;
       if(focusedTax?.isConnected){

@@ -7,7 +7,7 @@ import { escHtml } from '../../ui/dom.js';
 import { refreshHouseholdFamilyFields, replaceHouseholdFinanceRail } from '../../ui/householdFamilyUpdates.js';
 import { refreshHouseholdTaxFields, restoreHouseholdTaxFocus } from '../../ui/householdTaxUpdates.js';
 import { renderHouseholdCommitNotice } from '../../ui/householdCommitNotice.js';
-import { createHouseholdMobilePresentation, HOUSEHOLD_MOBILE_QUERY } from '../../ui/householdMobile.js';
+import { createHouseholdMobilePresentation } from '../../ui/householdMobile.js';
 import { getWizardAccountTypes } from './accountTypes.js';
 import {
   buildWizardIncomeTaxSummary,
@@ -364,17 +364,8 @@ export function createHouseholdWizardController({
     };
     document.addEventListener('pointerup', finishPointer, true);
     document.addEventListener('pointercancel', finishPointer, true);
-    financeOverlayMedia?.addEventListener('change', event => {
-      if(!event.matches) return;
-      if(globalThis.matchMedia?.(HOUSEHOLD_MOBILE_QUERY).matches) return;
-      const focusedInRail = document.activeElement?.closest?.('[data-finances-rail]');
-      uiState.financeRailOpen = false;
-      uiState.financeOwner = null;
-      uiState.financeTypeId = null;
-      if(stepId !== 'family' || !getActiveHouseholdId()) return;
-      sync({ financeOnly: true });
-      if(focusedInRail) $('[data-hh-action="toggle-finances-rail"]')?.focus();
-    });
+    // Responsive CSS changes the rail's placement. Resizing never discards its
+    // active owner, entry type or raw draft (including the tablet boundary).
     document.querySelectorAll('[data-hh-wizard-nav]').forEach(button =>
       button.addEventListener('click', () => setStep(button.dataset.hhWizardNav)));
     const menuButton = $('#hh-menu-btn');

@@ -1,6 +1,7 @@
 import { deleteBirthDateDigit, formatBirthDateEntry, birthDateCaretAfterDigits, readBirthDateGroup } from '../birthDateInput.js';
 import { clearBirthDateValidity, formatCommittedTaxAmount, valueFromControl, syncBirthDateDisplay } from './valueControls.js';
 import { updateNetWorthDraft } from './netWorthDraft.js';
+import { formatFinanceAmountInput } from '../../../ui/householdFinanceUnits.js';
 export function createHouseholdInputHandlers({
   transientState,
   liveCommas,
@@ -63,7 +64,8 @@ export function createHouseholdInputHandlers({
         if (event.target.dataset.signed !== 'true') liveCommas(event.target);
       }
       if (event.target.matches?.('[data-finance-amount]')) {
-        liveCommas(event.target);
+        if(event.target.matches('[data-finance-social-security]')) formatFinanceAmountInput(event.target);
+        else liveCommas(event.target);
         event.target.size = Math.max(1, event.target.value.length);
       }
     },

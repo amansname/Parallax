@@ -3,6 +3,24 @@ function parsed(value){
   return text === '' ? NaN : Number(text);
 }
 
+// A fractional monthly display must remain fractional during typing/deletion.
+// Leave incomplete or invalid text available to the production validator.
+export function formatFinanceAmountInput(control){
+  const old = control.value;
+  const text = old.replace(/[$,\s]/g, '');
+  if(!/^\d*(?:\.\d*)?$/.test(text)) return;
+  const prefixLength = old.slice(0, control.selectionStart ?? old.length).replace(/[$,\s]/g, '').length;
+  const [whole, fraction] = text.split('.');
+  const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  control.value = grouped + (fraction === undefined ? '' : `.${fraction}`);
+  let caret = 0; let seen = 0;
+  while(caret < control.value.length && seen < prefixLength){
+    if(control.value[caret] !== ',') seen += 1;
+    caret += 1;
+  }
+  control.setSelectionRange(caret, caret);
+}
+
 // The mounted control owns its unit, even if the viewport changes mid-edit.
 export function readFinanceAnnualAmount(control){
   if(control.dataset.financeUnit !== 'month') return control.value;
