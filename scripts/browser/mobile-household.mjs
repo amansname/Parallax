@@ -96,7 +96,7 @@ async function requireCommitNotice(page, message = saveFailureMessage){
   assert.ok(visible.width > 0 && visible.height > 0, 'Save failure notice has no visible bounds');
   assert.ok(visible.left >= 0 && visible.right <= visible.viewportWidth + 1
     && visible.top >= 0 && visible.bottom <= visible.viewportHeight + 1,
-  'The full save failure notice cannot be scrolled into the viewport');
+  `The full save failure notice cannot be scrolled into the viewport: ${JSON.stringify(visible)}`);
   assert.ok(visible.scrollHeight <= visible.clientHeight + 1, 'Save failure notice clips its text');
   assert.equal(visible.unobstructed, true, 'Household commit notice is covered by another surface');
   const accessibility = await page.createCDPSession();
@@ -427,6 +427,8 @@ async function verifyAppliedRefreshFailure(page, householdId, artifactId, screen
     for(const expanded of ['true', 'false']){
       await page.click(financeToggle);
       assert.equal(await page.$eval(financeToggle, node => node.getAttribute('aria-expanded')), expanded);
+      await page.waitForFunction(open => document.activeElement?.matches(open === 'true'
+        ? '[data-finances-person-owner]' : '[data-hh-action="toggle-finances-rail"]'), {}, expanded);
       await requireCommitNotice(page, 'Edit applied, but the screen could not refresh. Select the current step again to refresh the form.');
       assert.equal(await page.$eval('[data-hh-wizard-root]', node => node.dataset.wizardReady), 'false',
         'A finance-only render must not declare the stale Family form ready');
@@ -779,9 +781,12 @@ export async function verifyMobileHousehold({ browser, url, screenshotDir }){
       .hh-person-fields { font-size: 32px !important; }
       .hdr__tabs .htab, .app-header .status { font-size: 24px !important; }
       .hh-step strong, .hh-family-screen .hh-field > span { font-size: 28px !important; }
+      .hh-mobile-title h1 { font-size: 36px !important; }
+      .hh-mobile-members button, .hh-mobile-title button { font-size: 28px !important; }
       .hh-family-screen input:not([type="hidden"]), .hh-family-screen select,
       .hh-family-screen button, #hh-wiz-footer button { font-size: 32px !important; }
       .hh-person-fields :is(input, select, output) { font-size: inherit !important; }
+      .hh-field--age > span, .hh-field--age output { font-size: 24px !important; }
     ` });
     await requireFamilyContainment(page);
     await requireMobileInventory(page);
