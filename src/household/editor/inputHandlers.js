@@ -83,6 +83,9 @@ export function createHouseholdInputHandlers({
       const control = event.target.closest?.('.hh-tax-amount');
       if (control) formatCommittedTaxAmount(control);
       if (!control || control.dataset.householdCommittedValue === control.value) return;
+      // Native change already rejected this raw edit. Repeating that rejection
+      // on blur would steal focus from the next control. Typing clears invalid.
+      if(control.getAttribute('aria-invalid') === 'true') return;
       control.dispatchEvent(new Event('change', {
         bubbles: true
       }));
