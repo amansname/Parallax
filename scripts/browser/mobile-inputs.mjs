@@ -1,16 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { waitForWizard, waitForPlanCalculation, selectHouseholdVisible } from './wizard/actions.mjs';
-
-export async function clickPlanningTab(page, destination){
-  const selector = `.htab[data-page="${destination}"]`;
-  if(!await page.$eval(selector, node => node.getClientRects().length > 0)){
-    await page.click('[data-hh-mobile-navigation]');
-  }
-  await page.click(selector);
-  await page.waitForFunction(name => document.querySelector('.page.on')?.dataset.page === name, {}, destination);
-}
+import { waitForWizard, waitForPlanCalculation, selectHouseholdVisible, clickPlanningTab } from './wizard/actions.mjs';
 
 async function typeInto(page, selector, value, blur = true){
   await page.click(selector);
@@ -202,7 +193,7 @@ export async function verifyMobileInputs({ browser, url, screenshotDir }){
       await typeInto(page, '[data-net-worth-draft="value"]', account.balance);
       assert.equal(await page.$eval('.nw-panel', node => getComputedStyle(node).position), 'static');
       assert.deepEqual(await page.$$eval('.nw-allocation-option span', nodes => nodes.map(node => node.textContent)),
-        ['Defensive', 'Conservative', 'Balanced', 'Growth', 'Aggressive']);
+        ['Defensive', 'Conservative', 'Balanced', 'Growth', 'Aggressive', 'All Equity']);
       assert.equal(await page.$$eval('.nw-allocation-option span', nodes => nodes.every(node => {
         const rect = node.getBoundingClientRect();
         return rect.left >= 0 && rect.right <= innerWidth && rect.height >= 44 && node.scrollWidth <= node.clientWidth;

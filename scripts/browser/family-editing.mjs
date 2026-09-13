@@ -177,7 +177,18 @@ export async function verifyFamilyEditing({ browser, url, screenshotDir }){
     assert.equal(await page.$eval(spouse, element => element.value), 'Editing Spouse');
     assert.equal(await page.$eval('[data-hh-field="client.status"]', element => element.value), 'retired');
     assert.equal(await page.$eval('[data-hh-field="client.retirementAge"]', element => element.value), '66');
+    const beforeTabletResize = await page.evaluate(() => ({
+      open: document.querySelector('[data-hh-action="toggle-finances-rail"]').getAttribute('aria-expanded'),
+      owner: document.querySelector('[data-finance-entry-panel]')?.dataset.financeOwner,
+      saved: JSON.stringify(Object.entries(localStorage).sort(([a], [b]) => a.localeCompare(b))),
+    }));
     await page.setViewport({ width: 1023, height: 900, deviceScaleFactor: 1 });
+    assert.deepEqual(await page.evaluate(() => ({
+      open: document.querySelector('[data-hh-action="toggle-finances-rail"]').getAttribute('aria-expanded'),
+      owner: document.querySelector('[data-finance-entry-panel]')?.dataset.financeOwner,
+      saved: JSON.stringify(Object.entries(localStorage).sort(([a], [b]) => a.localeCompare(b))),
+    })), beforeTabletResize, 'Resizing must preserve the finance editor and saved data');
+    await page.click(toggle);
     await page.waitForFunction(() => document.querySelector('[data-hh-action="toggle-finances-rail"]')?.getAttribute('aria-expanded') === 'false');
     await requireReachableForm(page);
 

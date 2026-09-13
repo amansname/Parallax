@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { selectHouseholdVisible, waitForPlanCalculation, waitForWizard } from './wizard/actions.mjs';
+import { selectHouseholdVisible, waitForPlanCalculation, waitForWizard, clickPlanningTab } from './wizard/actions.mjs';
 
 const retirement = '[data-wizard-field="client.retirementAge"]';
 const socialSecurity = '[data-wizard-field="client.socialSecurityAge"]';
@@ -63,7 +63,7 @@ async function requireRetirementName(client){
   const { root } = await client.send('DOM.getDocument');
   const { nodeId } = await client.send('DOM.querySelector', { nodeId: root.nodeId, selector: retirement });
   const { nodes } = await client.send('Accessibility.getPartialAXTree', { nodeId, fetchRelatives: false });
-  assert.equal(nodes[0]?.name?.value, 'Retires at', 'Inline error changed the retirement field accessible name');
+  assert.equal(nodes[0]?.name?.value, 'Retirement age', 'Inline error changed the retirement field accessible name');
 }
 
 async function requireCommitNotice(page, message = saveFailureMessage){
@@ -163,6 +163,8 @@ async function requireFamilyContainment(page){
 }
 
 async function requireMobileInventory(page){
+  const navigationClosed = await page.$eval('.hdr__tabs .htab', node => node.getClientRects().length === 0);
+  if(navigationClosed) await page.click('[data-hh-mobile-navigation]');
   const inventory = await page.evaluate(() => {
     const geometry = node => {
       const rect = node.getBoundingClientRect();
@@ -204,18 +206,19 @@ async function requireMobileInventory(page){
   for(const row of inventory.fields){
     assert.ok(row.fontSize >= 16, `${row.field} input font is ${row.fontSize}px`);
   }
+  if(navigationClosed) await page.click('[data-hh-mobile-navigation]');
 }
 
 async function verifyAutoSaveRecovery(page, householdId, artifactId, screenshotDir){
   await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 1 });
-  await page.click('.htab[data-page="scenarios"]');
+  await clickPlanningTab(page, 'scenarios');
   await page.waitForFunction(async version => {
     const url = new URL('./src/state.js', location.href);
     url.searchParams.set('v', version);
     const { uiState } = await import(url.href);
     return document.querySelector('#run-btn')?.disabled === false && uiState.plansDirty === false;
   }, { timeout: 30000 }, artifactId);
-  await page.click('.htab[data-page="household"]');
+  await clickPlanningTab(page, 'household');
   await waitForWizard(page, { householdId, step: 'family' });
   const before = await savedState(page, householdId);
   assert.equal(before.household.household.primary.retirementAge, 66);
@@ -303,7 +306,7 @@ async function verifyAutoSaveRecovery(page, householdId, artifactId, screenshotD
 
     // A calculation can finish while saving remains blocked. Its ordinary status
     // must not erase the separate, visible persistence warning on returning home.
-    await page.click('.htab[data-page="scenarios"]');
+    await clickPlanningTab(page, 'scenarios');
     await page.waitForFunction(async version => {
       const url = new URL('./src/state.js', location.href);
       url.searchParams.set('v', version);
@@ -316,7 +319,7 @@ async function verifyAutoSaveRecovery(page, householdId, artifactId, screenshotD
     assert.deepEqual(failureAfterRun.results.map(result => result.resolvedRetirement), [67, 69, 67]);
     assert.deepEqual(await savedState(page, householdId), before,
       'Running calculations retried or changed the failed saved inputs');
-    await page.click('.htab[data-page="household"]');
+    await clickPlanningTab(page, 'household');
     await waitForWizard(page, { householdId, step: 'family' });
     noticeEvidence.afterRun = await requireCommitNotice(page);
     await page.screenshot({ path: join(screenshotDir, 'mobile-household-save-failure-after-run.png') });
@@ -350,7 +353,7 @@ async function verifyAutoSaveRecovery(page, householdId, artifactId, screenshotD
     assert.equal(stale.headerState, 'needs-run');
     assert.equal(stale.scenarioVisible, false);
 
-    await page.click('.htab[data-page="scenarios"]');
+    await clickPlanningTab(page, 'scenarios');
     await page.waitForFunction(async version => {
       const url = new URL('./src/state.js', location.href);
       url.searchParams.set('v', version);
@@ -378,7 +381,7 @@ async function verifyAutoSaveRecovery(page, householdId, artifactId, screenshotD
 }
 
 async function verifyAppliedRefreshFailure(page, householdId, artifactId, screenshotDir){
-  await page.click('.htab[data-page="household"]');
+  await clickPlanningTab(page, 'household');
   await waitForWizard(page, { householdId, step: 'family' });
   const before = await savedState(page, householdId);
   assert.equal(before.household.household.primary.retirementAge, 68);
@@ -570,7 +573,7 @@ export async function verifyMobileHousehold({ browser, url, screenshotDir }){
     ), {}, householdId);
     await requireMobileInventory(page);
 
-    // Opening the finance controls must push Family down, not cover it.
+    // Finance follows the Family fields in normal document flow.
     const beforeRail = await savedState(page, householdId);
     await page.click(financeToggle);
     await page.waitForFunction(() => document.querySelector(
@@ -583,13 +586,13 @@ export async function verifyMobileHousehold({ browser, url, screenshotDir }){
       const people = document.querySelector('.hh-family-people');
       return {
         position: getComputedStyle(element).position,
-        bottom: element.getBoundingClientRect().bottom,
-        peopleTop: people.getBoundingClientRect().top,
+        top: element.getBoundingClientRect().top,
+        peopleBottom: people.getBoundingClientRect().bottom,
         sourceCount: document.querySelectorAll('[data-finance-type-id]').length,
       };
     });
     assert.equal(rail.position, 'static');
-    assert.ok(rail.bottom <= rail.peopleTop + 1, 'Finance rail overlaps Family fields');
+    assert.ok(rail.top >= rail.peopleBottom - 1, 'Finance rail overlaps Family fields');
     assert.equal(rail.sourceCount, 7);
     await page.click(financeToggle);
     await page.waitForFunction(() => document.querySelector(
@@ -698,7 +701,7 @@ export async function verifyMobileHousehold({ browser, url, screenshotDir }){
 
     // Run through the visible navigation, then inspect the exact loaded artifact modules.
     await requireRenderedArtifact(page, artifactId);
-    await page.click('.htab[data-page="scenarios"]');
+    await clickPlanningTab(page, 'scenarios');
     await page.waitForFunction(async version => {
       const stateUrl = new URL('./src/state.js', location.href);
       stateUrl.searchParams.set('v', version);
@@ -754,11 +757,11 @@ export async function verifyMobileHousehold({ browser, url, screenshotDir }){
 
     // All five existing destinations remain reachable by real navigation clicks.
     for(const destination of ['household', 'net-worth', 'scenarios', 'tax-buckets', 'sequencing']){
-      await page.click(`.htab[data-page="${destination}"]`);
+      await clickPlanningTab(page, destination);
       await page.waitForFunction(expected => document.querySelector('.page.on')?.dataset.page === expected, {}, destination);
       assert.equal(await page.$eval(`.htab[data-page="${destination}"]`, button => button.getAttribute('aria-current')), 'page');
     }
-    await page.click('.htab[data-page="household"]');
+    await clickPlanningTab(page, 'household');
     await waitForWizard(page, { householdId, step: 'family' });
 
     // The short portrait viewport checks reduced space, not a native keyboard.
