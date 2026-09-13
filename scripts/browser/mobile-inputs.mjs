@@ -34,6 +34,56 @@ async function taxGroup(page, key){
   if(!await page.$eval(selector, node => node.open)) await page.click(`${selector} > summary`);
 }
 
+export async function verifyInlineGoalResize(page){
+  const selector = '[data-gm-inline="system:essentials"]';
+  const originalValue = await page.$eval(selector, node => node.value);
+  const originalGoal = (await saved(page)).plan.goals.find(goal => goal.id === 'system:essentials');
+  const originalBytes = await page.evaluate(() => localStorage.getItem('parallax.households.v1'));
+  const resize = async width => {
+    await page.setViewport({ width, height: 844, deviceScaleFactor: 1 });
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  };
+  await typeInto(page, selector, '13,777.5', false);
+  const input = await page.$(selector);
+  await input.evaluate(node => node.setSelectionRange(1, 4));
+  for(const width of [900, 390]){
+    await resize(width);
+    assert.deepEqual(await input.evaluate(node => ({ connected: node.isConnected, focused: node === document.activeElement,
+      raw: node.value, selection: [node.selectionStart, node.selectionEnd] })),
+    { connected: true, focused: true, raw: '13,777.5', selection: [1, 4] });
+    assert.equal(await page.evaluate(() => localStorage.getItem('parallax.households.v1')), originalBytes);
+  }
+  await typeInto(page, selector, '');
+  await resize(900);
+  assert.deepEqual(await input.evaluate(node => ({ connected: node.isConnected, raw: node.value, invalid: node.getAttribute('aria-invalid') })),
+    { connected: true, raw: '', invalid: 'true' });
+  assert.equal(await page.evaluate(() => localStorage.getItem('parallax.households.v1')), originalBytes);
+  await typeInto(page, selector, '13,777.5', false);
+  const open = await page.$('[data-gm-action="open"][data-goal-id="system:essentials"]');
+  await open.scrollIntoView();
+  const point = await open.clickablePoint();
+  await page.mouse.move(point.x, point.y);
+  await page.mouse.down();
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  assert.equal(await open.evaluate(node => node.isConnected), true, 'Blur removed the next pointer target');
+  for(const width of [390, 900]){
+    await resize(width);
+    assert.equal(await open.evaluate(node => node.isConnected), true, 'Resizing removed the held pointer target');
+  }
+  await page.mouse.up();
+  await page.waitForSelector('[data-mobile-goals="editor"]');
+  assert.equal(await page.$eval('[data-gm-field="amount"]', node => Number(node.value.replaceAll(',', ''))), 13778);
+  assert.equal((await saved(page)).plan.goals.find(goal => goal.id === originalGoal.id).amount,
+    13778 * (originalGoal.per === 'mo' ? 12 : 1));
+  await page.click('.gm-footer [data-gm-action="cancel"]');
+  await page.waitForSelector('.gh-lane');
+  await resize(390);
+  await page.waitForSelector('[data-mobile-goals="list"]');
+  await typeInto(page, selector, originalValue);
+  assert.equal((await saved(page)).plan.goals.find(goal => goal.id === originalGoal.id).amount, originalGoal.amount);
+  await input.dispose(); await open.dispose();
+}
+
 async function verifyPendingSavePresentation(page, kind, screenshotDir){
   for(const width of [390, 900, 1280, 390]){
     await page.setViewport({ width, height: 844, deviceScaleFactor: 1 });
@@ -294,6 +344,7 @@ export async function verifyMobileInputs({ browser, url, screenshotDir }){
 
     await clickPlanningTab(page, 'net-worth');
     assert.deepEqual(await page.$$eval('[data-mobile-goals="list"] .gh-starter', nodes => nodes.map(node => node.dataset.category)), ['travel', 'home', 'vehicle', 'education', 'family', 'giving', 'health', 'custom']);
+    await verifyInlineGoalResize(page);
     const inlineAmount = '[data-gm-inline="system:essentials"]';
     const previousAmount = await page.$eval(inlineAmount, node => node.value);
     const longRawAmount = 'invalid amount '.repeat(12);
@@ -353,6 +404,14 @@ export async function verifyMobileInputs({ browser, url, screenshotDir }){
         await page.click('[data-gm-action="delete"]');
       }else await page.click('[data-gm-action="undo"]');
       await page.waitForSelector('[data-gm-action="retry-save"]');
+      if(action === 'amount'){
+        for(const width of [900, 390]){
+          await page.setViewport({ width, height: 844, deviceScaleFactor: 1 });
+          await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+          assert.equal(await page.$eval('[data-gm-action="retry-save"]', node => node.getClientRects().length > 0), true);
+          assert.deepEqual(await saved(page), beforeFailure);
+        }
+      }
       assert.deepEqual(await saved(page), beforeFailure);
       assert.equal(await page.$eval('.app-header', node => node.inert), true);
       assert.equal(await page.$$eval('[data-mobile-goals="list"] input', nodes => nodes.every(node => node.disabled)), true);

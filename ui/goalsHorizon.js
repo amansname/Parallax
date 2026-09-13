@@ -241,7 +241,9 @@ function liveCommas(input){
 export function createGoalsHorizonController(deps){
   const mobileMedia = globalThis.matchMedia?.('(max-width: 760px), (max-width: 1023px) and (max-height: 500px)');
   const commands = createGoalCommands(deps);
-  const mobile = createMobileGoalsController({ ...deps, commands, onEditorClosed: () => rerender() });
+  const mobile = createMobileGoalsController({ ...deps, commands, onEditorClosed: () => rerender(), onInteractionEnd: () => {
+    if(renderedMobile !== Boolean(mobileMedia?.matches) && !state.selectedId && !state.drag) rerender();
+  } });
   const state={ selectedId:null, addOpen:true, initialSelectionResolved:false, flashId:null, toast:null, drag:null, timingLens:new Map() };
   let renderedMobile = Boolean(mobileMedia?.matches);
   let root=null;

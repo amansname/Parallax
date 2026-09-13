@@ -26,6 +26,9 @@ export function createMobileGoalsController(deps){
   let pendingSave = null;
   let header = null;
   let headerWasInert = false;
+  let mountedHouseholdId;
+  let pointerActive = false;
+  let presentationFrame = null;
   const list = () => deps.getPlan().goals || [];
   const identity = () => deps.getHouseholdId?.() ?? deps.getPlan();
   const span = () => resolveGoalSpan(deps.getPlan());
@@ -43,6 +46,25 @@ export function createMobileGoalsController(deps){
     undo = null;
     error = '';
     pendingSave = null;
+  }
+
+  function isEditing(){
+    syncIdentity();
+    const inline = mountedHouseholdId === householdId && root
+      && (pointerActive || [...root.querySelectorAll('[data-gm-inline]')].some(control =>
+        control === root.ownerDocument.activeElement
+        || control.getAttribute('aria-invalid') === 'true'
+        || control.value !== control.defaultValue));
+    return Boolean(editing || pendingSave || inline);
+  }
+
+  function settlePresentation(){
+    if(presentationFrame !== null) cancelAnimationFrame(presentationFrame);
+    presentationFrame = requestAnimationFrame(() => {
+      presentationFrame = null;
+      // A pointer's next click owns its target until that gesture finishes.
+      if(!pointerActive && !isEditing()) deps.onInteractionEnd?.();
+    });
   }
 
   function categories(action, selected = null){
@@ -266,6 +288,7 @@ export function createMobileGoalsController(deps){
       control.dataset.gmInline = receipt.goal.id;
       control.closest('[data-mobile-goal]').querySelector('[data-goal-id]').dataset.goalId = receipt.goal.id;
       control.value = money(goalDisplayAmount(receipt.goal));
+      control.defaultValue = control.value;
       syncInlineAmountWidth(control);
       publishList(receipt, 'arm'); return;
     }
@@ -307,14 +330,24 @@ export function createMobileGoalsController(deps){
   }
   function unbind(){
     events?.abort();
+    if(presentationFrame !== null) cancelAnimationFrame(presentationFrame);
+    presentationFrame = null; pointerActive = false;
     if(header){ header.inert = headerWasInert; header = null; }
   }
   function bind(element){
     root = element; unbind(); events = new AbortController();
+    mountedHouseholdId = identity();
     const options = { signal: events.signal };
     root.addEventListener('click', click, options);
     root.addEventListener('input', input, options);
     root.addEventListener('change', change, options);
+    root.addEventListener('focusout', event => {
+      if(event.target.dataset.gmInline) settlePresentation();
+    }, options);
+    root.addEventListener('pointerdown', () => { pointerActive = true; }, options);
+    const releasePointer = () => { if(pointerActive){ pointerActive = false; settlePresentation(); } };
+    root.ownerDocument.addEventListener('pointerup', releasePointer, options);
+    root.ownerDocument.addEventListener('pointercancel', releasePointer, options);
     if(pendingSave){
       for(const button of root.querySelectorAll('button')){
         if(!['save', 'retry-save'].includes(button.dataset.gmAction)) button.disabled = true;
@@ -323,5 +356,5 @@ export function createMobileGoalsController(deps){
       if(header){ headerWasInert = header.inert; header.inert = true; }
     }
   }
-  return { render, bind, unbind, isEditing: () => { syncIdentity(); return Boolean(editing || pendingSave); } };
+  return { render, bind, unbind, isEditing };
 }
