@@ -2,7 +2,7 @@
 export function renderHouseholdCommitNotice(root, { activeHouseholdId, saveFailed, refreshFailed, explicitSavePending }){
   const workspace = root?.querySelector?.('.hh-wiz-workspace');
   if(!workspace || !root.ownerDocument?.createElement) return;
-  let notice = workspace.querySelector('[data-household-commit-notice]');
+  let notice = root.querySelector('[data-household-commit-notice]');
   const message = !activeHouseholdId ? '' : saveFailed
     ? explicitSavePending
       ? 'Could not save to this browser. Keep this editor open and use Retry Save when storage is available.'
@@ -12,11 +12,15 @@ export function renderHouseholdCommitNotice(root, { activeHouseholdId, saveFaile
   if(!notice){
     notice = root.ownerDocument.createElement('p');
     notice.className = 'hh-commit-notice';
+    notice.id = 'hh-commit-notice';
     notice.dataset.householdCommitNotice = '';
     notice.setAttribute('role', 'alert');
     notice.setAttribute('aria-atomic', 'true');
-    workspace.prepend(notice);
   }
+  const container = explicitSavePending && root.querySelector(explicitSavePending.kind === 'finance'
+    ? '.hh-finance-amount-row' : '.nw-panel-footer') || workspace;
+  if(notice.parentElement !== container) container.prepend(notice);
+  notice.toggleAttribute('data-household-explicit-save', Boolean(explicitSavePending));
   notice.hidden = !message;
   if(notice.textContent !== message) notice.textContent = message;
 }

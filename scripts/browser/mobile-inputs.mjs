@@ -43,6 +43,30 @@ async function taxGroup(page, key){
   if(!await page.$eval(selector, node => node.open)) await page.click(`${selector} > summary`);
 }
 
+async function verifyPendingSavePresentation(page, kind, screenshotDir){
+  for(const width of [390, 900, 1280, 390]){
+    await page.setViewport({ width, height: 844, deviceScaleFactor: 1 });
+    await page.$eval('[data-household-retry-save]', node => node.scrollIntoView({ block: 'center' }));
+    const presentation = await page.$eval('[data-household-retry-save]', button => {
+      const notice = document.getElementById(button.getAttribute('aria-describedby'));
+      const box = button.getBoundingClientRect();
+      const noticeBox = notice.getBoundingClientRect();
+      const range = document.createRange(); range.selectNodeContents(button);
+      const textBox = range.getBoundingClientRect();
+      return {
+        name: button.getAttribute('aria-label'), message: notice.textContent,
+        noticeVisible: notice.getClientRects().length > 0 && noticeBox.bottom > 0 && noticeBox.top < innerHeight,
+        textFits: textBox.left >= box.left && textBox.right <= box.right && textBox.top >= box.top && textBox.bottom <= box.bottom,
+      };
+    });
+    assert.equal(presentation.name, 'Retry Save');
+    assert.match(presentation.message, /Could not save to this browser/);
+    assert.equal(presentation.noticeVisible, true);
+    assert.equal(presentation.textFits, true);
+    if(screenshotDir && width === 390) await page.screenshot({ path: join(screenshotDir, `mobile-inputs-${kind}-save-failure.png`) });
+  }
+}
+
 async function taxInventory(page){
   return page.$$eval('[data-tax-field]', nodes => nodes.map(node => node.dataset.taxField).sort());
 }
@@ -80,7 +104,7 @@ async function verifyTaxGestures(page){
   // retain its accessible label, and clear normally when the user corrects it.
   const gain = '[data-tax-field="scheduleD.netLongTermGainOrLoss"]';
   await typeInto(page, gain, '--1');
-  await page.select('[data-tax-field="deductionMode"]', 'itemized');
+  await page.select('[data-tax-field="deductionMode"]', 'itemized-details');
   await page.waitForSelector('[data-tax-field="deductions.itemized.medicalExpensesPaid"]');
   assert.equal(await page.$eval(gain, node => node.value), '--1');
   assert.equal(await page.$eval(gain, node => Boolean(document.getElementById(node.getAttribute('aria-labelledby'))?.textContent.trim())), true);
@@ -134,6 +158,7 @@ export async function verifyMobileInputs({ browser, url, screenshotDir }){
     await page.waitForFunction(() => document.querySelector('[data-hh-action="commit-finance-entry"]')?.textContent === 'Retry Save');
     assert.deepEqual(await saved(page), beforeFailedFinance);
     assert.equal(await page.$eval('[data-finance-amount]', node => node.disabled), true);
+    await verifyPendingSavePresentation(page, 'finance', screenshotDir);
     await page.click('[data-hh-action="commit-finance-entry"]');
     assert.deepEqual(await saved(page), beforeFailedFinance);
     await setStorageFailure(page, false);
@@ -181,6 +206,7 @@ export async function verifyMobileInputs({ browser, url, screenshotDir }){
         assert.equal(await page.$$eval('[data-net-worth-draft]', nodes => nodes.every(node => node.disabled)), true);
         assert.equal(await page.$eval('[data-hh-wizard-nav="tax"]', node => node.disabled), true);
         assert.equal(await page.$eval('.app-header', node => node.inert), true);
+        await verifyPendingSavePresentation(page, 'account', screenshotDir);
         await page.click('[data-hh-action="net-worth-save-entry"]');
         assert.deepEqual(await saved(page), beforeFailedAccount);
         await setStorageFailure(page, false);
@@ -194,7 +220,13 @@ export async function verifyMobileInputs({ browser, url, screenshotDir }){
     await page.click('button[data-hh-action="net-worth-close-panel"]');
 
     await page.click('[data-hh-wizard-nav="tax"]');
+    await waitForWizard(page, { step: 'tax', householdId });
     const originalInventory = await taxInventory(page);
+    assert.deepEqual(originalInventory, ['taxYear', 'income.taxableInterest', 'income.qualifiedDividends',
+      'income.wages.client', 'income.taxExemptInterest', 'income.ordinaryDividends', 'income.iraDistributions',
+      'income.rothConversion', 'income.pensionAmount', 'scheduleD.netLongTermGainOrLoss', 'income.otherIncome',
+      'income.socialSecurityBenefits', 'socialSecurity.mode', 'deductionMode',
+      'irmaa.lookback.2024.magi', 'irmaa.lookback.2025.magi'].sort());
     assert.equal(new Set(originalInventory).size, originalInventory.length);
     await verifyTaxGestures(page);
     await taxGroup(page, 'income');

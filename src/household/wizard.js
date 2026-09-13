@@ -216,7 +216,8 @@ export function createHouseholdWizardController({
     }
     // A blur commit can reveal a new tax row above the pressed target. Finish
     // that pointer gesture before changing its geometry or replacing chrome.
-    if(pointerActive && stepId === 'tax' && root.dataset.householdId === getActiveHouseholdId()){
+    if(pointerActive && stepId === 'tax' && root.dataset.wizardStep === 'tax'
+        && root.dataset.householdId === getActiveHouseholdId()){
       deferredTaxRender = true;
       return;
     }
@@ -271,6 +272,7 @@ export function createHouseholdWizardController({
       root.dataset.wizardReady = 'true';
       root.setAttribute('aria-busy', 'false');
       mobilePresentation.sync(root);
+      syncPendingSave(root, null);
       syncCommitNotice();
       syncRecoveryControls();
       return;
