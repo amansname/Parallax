@@ -199,6 +199,21 @@ export async function verifyMobileInputs({ browser, url, screenshotDir }){
         return rect.left >= 0 && rect.right <= innerWidth && rect.height >= 44 && node.scrollWidth <= node.clientWidth;
       })), true);
       if(account === fixture.accounts[0]){
+        const beforeAccountResize = await saved(page);
+        const amountControl = await page.$('[data-net-worth-draft="value"]');
+        await amountControl.click();
+        const rawAmount = await amountControl.evaluate(node => {
+          node.setSelectionRange(1, 3);
+          return node.value;
+        });
+        for(const width of [900, 707, 390]){
+          await page.setViewport({ width, height: 844, deviceScaleFactor: 1 });
+          await page.waitForFunction(expected => Boolean(document.querySelector('.nw-mobile-account-fields')) === expected, {}, width <= 760);
+          assert.deepEqual(await amountControl.evaluate(node => ({ focused: document.activeElement === node, value: node.value, start: node.selectionStart, end: node.selectionEnd })),
+            { focused: true, value: rawAmount, start: 1, end: 3 });
+          assert.deepEqual(await saved(page), beforeAccountResize);
+        }
+        await amountControl.dispose();
         const beforeFailedAccount = await saved(page);
         await setStorageFailure(page, true);
         await page.click('[data-hh-action="net-worth-save-entry"]');

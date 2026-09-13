@@ -49,12 +49,13 @@ export function createHouseholdTaxMobilePresentation(){
     const context = create('button', 'hh-mobile-tax-context');
     context.type = 'button';
     const filing = screen.querySelector('[data-tax-summary-box="filing-status"]');
-    context.textContent = `${filing.querySelector('strong').textContent} · ${filing.dataset.taxState || 'Set state of residence'} ›`;
+    context.textContent = `${filing.querySelector('strong').textContent} · ${filing.dataset.taxState || 'Set state of residence'}`;
     context.addEventListener('click', () => root.querySelector('[data-hh-wizard-nav="family"]').click());
     layout.append(context);
 
     const investments = create('section', 'hh-mobile-tax-investments');
     investments.append(create('h2', '', 'Investment income'));
+    investments.append(create('p', 'hh-mobile-tax-period', 'Annual amounts'));
     const table = create('div', 'hh-tax-table'); investments.append(table); layout.append(investments);
     const interest = screen.querySelector('[data-tax-row="income.taxableInterest"]');
     move(screen.querySelector('[data-tax-row="income.taxExemptInterest"] .hh-tax-source'), interest.querySelector('.hh-tax-row-label'));
@@ -76,7 +77,7 @@ export function createHouseholdTaxMobilePresentation(){
     deductions.append(create('h2', '', 'Deductions'));
     move(screen.querySelector('[data-tax-summary-box="deduction-method"]'), deductions);
     move(screen.querySelector('.hh-itemized-section, .hh-supplied-deduction'), deductions);
-    layout.append(deductions);
+    layout.insertBefore(deductions, income.closest('details'));
     move(screen.querySelector('.hh-irmaa-lookback'), disclosure('irmaa', 'IRMAA lookback'));
     const optional = disclosure('other', 'Other tax items');
     for(const section of screen.querySelectorAll('.hh-tax-optional')) move(section, optional);

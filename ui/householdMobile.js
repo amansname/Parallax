@@ -1,11 +1,13 @@
 // Responsive presentation over the existing Household controls and commands.
 // Moving a control changes neither its canonical field nor its event binding.
 import { createHouseholdTaxMobilePresentation } from './householdTaxMobile.js';
+import { createHouseholdAccountMobilePresentation } from './householdAccountMobile.js';
 import { syncFinanceAmountUnit } from './householdFinanceUnits.js';
 export const HOUSEHOLD_MOBILE_QUERY = '(max-width: 760px), (max-width: 1023px) and (max-height: 500px)';
 
 export function createHouseholdMobilePresentation(){
   const tax = createHouseholdTaxMobilePresentation();
+  const accounts = createHouseholdAccountMobilePresentation();
   let root = null;
   let media = null;
   let householdId = null;
@@ -119,6 +121,7 @@ export function createHouseholdMobilePresentation(){
     familyPresentation();
     syncFinanceAmountUnit(root, media.matches);
     tax.sync(root, media.matches, householdId);
+    accounts.sync(root, media.matches);
     const summary = root.querySelector('.hh-summary-screen');
     const summaryDetails = summary?.querySelector('[data-mobile-summary-details]');
     if(summary && media.matches && !summaryDetails){
