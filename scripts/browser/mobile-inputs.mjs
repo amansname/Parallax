@@ -46,6 +46,7 @@ async function taxGroup(page, key){
 async function verifyPendingSavePresentation(page, kind, screenshotDir){
   for(const width of [390, 900, 1280, 390]){
     await page.setViewport({ width, height: 844, deviceScaleFactor: 1 });
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     await page.$eval('[data-household-retry-save]', node => node.scrollIntoView({ block: 'center' }));
     const presentation = await page.$eval('[data-household-retry-save]', button => {
       const notice = document.getElementById(button.getAttribute('aria-describedby'));
@@ -63,7 +64,7 @@ async function verifyPendingSavePresentation(page, kind, screenshotDir){
     assert.match(presentation.message, /Could not save to this browser/);
     assert.equal(presentation.noticeVisible, true);
     assert.equal(presentation.textFits, true);
-    if(screenshotDir && width === 390) await page.screenshot({ path: join(screenshotDir, `mobile-inputs-${kind}-save-failure.png`) });
+    if(screenshotDir && width === 390) await page.screenshot({ path: join(screenshotDir, `mobile-inputs-${kind}-save-failure.png`), fullPage: true });
   }
 }
 
@@ -126,6 +127,9 @@ export async function verifyMobileInputs({ browser, url, screenshotDir }){
     page = await context.newPage();
     page.setDefaultTimeout(15000);
     page.on('pageerror', error => errors.push(error.message));
+    page.on('console', message => {
+      if(message.type() === 'error' && /Household screen could not refresh/.test(message.text())) errors.push(message.text());
+    });
     await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 1 });
     const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 });
     const artifactId = response.headers()['x-parallax-artifact-id'];

@@ -41,8 +41,8 @@ export function refreshHouseholdTaxFields(view, previous, next){
         || [...template.content.querySelectorAll('label[for]')].find(node => node.htmlFor === replacement.id);
       const newLabel = label?.querySelector('span');
       if(labelledBy && newLabel) newLabel.id = labelledBy;
-      for(const id of (control.getAttribute('aria-describedby') || '').split(/\s+/)){
-        const error = id && doc.getElementById(id);
+      for(const id of (control.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean)){
+        const error = doc.getElementById(id);
         if(error?.hasAttribute('data-household-inline-error')) container.append(error);
       }
       if(control.tagName === 'SELECT') control.replaceChildren(...replacement.children);
