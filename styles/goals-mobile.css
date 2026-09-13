@@ -15,13 +15,15 @@
 .gm-page .gm-categories img { width: 19px; height: 19px; }
 .gm-list { padding: 0 24px 24px; }
 .gm-row { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; min-height: 80px; padding: 10px 0; border-bottom: 1px solid var(--rule); }
-.gm-open { display: flex; align-items: center; flex: 1 1 8em; min-width: 0; min-height: 44px; gap: 12px; text-align: left; padding: 0; background: none; border: 0; }
+.gm-page .gm-open { display: flex; align-items: center; justify-content: flex-start; flex: 1 1 8em; min-width: 0; min-height: 44px; gap: 12px; text-align: left; padding: 0; background: none; border: 0; }
 .gm-open > img { width: 38px; height: 38px; padding: 7px; flex-shrink: 0; background: var(--panel); border: 1px solid var(--edge); border-radius: 8px; }
 .gm-open > span { min-width: 0; }
 .gm-open strong { display: block; font-size: 14px; font-weight: 400; overflow-wrap: anywhere; }
 .gm-open small { display: block; font-size: 11px; line-height: 1.4; color: var(--body); margin-top: 4px; }
-.gm-inline-amount { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; width: 7.5em; margin-left: auto; font-size: 16px; }
-.gm-inline-amount input { width: calc(100% - 1em); min-width: 0; min-height: 44px; padding: 4px 0; text-align: right; border: 0; border-radius: 0; background: none; }
+.gm-inline-amount { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; max-width: 50%; margin-left: auto; font-size: 16px; }
+.gm-amount-value { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 1ch; max-width: calc(100% - 1em); }
+.gm-amount-value > span { grid-area: 1 / 1; min-width: 0; overflow: hidden; visibility: hidden; white-space: pre; padding: 4px 0; }
+.gm-inline-amount input { grid-area: 1 / 1; width: 100%; min-width: 0; min-height: 44px; padding: 4px 0; text-align: right; border: 0; border-radius: 0; background: none; }
 .gm-inline-amount small { width: 100%; font-size: 11px; color: var(--body); text-align: right; }
 .gm-detail-heading { display: flex; align-items: center; justify-content: space-between; min-height: 56px; padding: 6px 16px; border-bottom: 1px solid var(--rule); }
 .gm-detail-heading h1 { margin: 0; font-size: 18px; line-height: 1.25; font-weight: 500; }

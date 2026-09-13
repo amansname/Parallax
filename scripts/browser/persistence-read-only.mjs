@@ -361,6 +361,23 @@ export async function verifyReadOnlyPersistence({
   await assertPinned('Tax fields and completion');
   await assertBytesUnchanged('Tax fields and completion');
 
+  const taxViewport = page.viewport();
+  await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 1 });
+  await page.waitForSelector('[data-mobile-tax-choice="itemized"]');
+  const mobileDeduction = await page.evaluate(() => {
+    const select = document.querySelector('[data-tax-field="deductionMode"]');
+    const buttons = [...document.querySelectorAll('[data-mobile-tax-choice]')];
+    const before = select.value;
+    buttons.find(button => button.dataset.mobileTaxChoice === 'itemized').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    return { count: buttons.length, disabled: buttons.every(button => button.disabled), before, after: select.value };
+  });
+  if(mobileDeduction.count !== 4 || !mobileDeduction.disabled || mobileDeduction.before !== mobileDeduction.after){
+    throw new Error(`read-only mobile deduction choices changed state: ${JSON.stringify(mobileDeduction)}`);
+  }
+  await assertBytesUnchanged('mobile deduction choices');
+  await page.setViewport(taxViewport);
+  await page.waitForFunction(() => !document.querySelector('.hh-mobile-tax'));
+
   // New Household is a mutation and must remain inert.
   const optionCountBefore = await page.$$eval('#hh-switch option', els => els.length);
   await page.evaluate(() => document.querySelector('#hh-new')?.dispatchEvent(new MouseEvent('click', {

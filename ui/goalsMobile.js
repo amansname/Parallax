@@ -65,7 +65,7 @@ export function createMobileGoalsController(deps){
             ${icon(normalizeGoalCategory(goal))}<span><strong>${esc(goal.name || 'Untitled goal')}</strong><small>${esc(goalTimingLabel(effective))}</small></span>
           </button>
           <label class="gm-inline-amount"><span class="gh-sr-only">${esc(goal.name || 'Goal')} amount</span><span aria-hidden="true">$</span>
-            <input type="text" inputmode="decimal" data-gm-inline="${id}" value="${money(goalDisplayAmount(goal))}"${disabled(readOnly())}>
+            <span class="gm-amount-value"><span aria-hidden="true">${money(goalDisplayAmount(goal))}</span><input type="text" inputmode="decimal" data-gm-inline="${id}" value="${money(goalDisplayAmount(goal))}"${disabled(readOnly())}></span>
             <small>${isOneTimeGoal(effective) ? 'once' : goal.per === 'mo' ? '/ month' : '/ year'}</small>
           </label>
         </div>`;
@@ -231,6 +231,7 @@ export function createMobileGoalsController(deps){
     rerender();
   }
   function input(event){
+    if(event.target.dataset.gmInline) syncInlineAmountWidth(event.target);
     if(!editing || readOnly()) return;
     const control = event.target;
     if(control.dataset.gmField === 'name'){
@@ -250,6 +251,10 @@ export function createMobileGoalsController(deps){
     syncSessionPresentation(!valid);
     return valid;
   }
+  function syncInlineAmountWidth(control){
+    const measure = control.closest('.gm-amount-value')?.querySelector('span');
+    if(measure) measure.textContent = control.value || '0';
+  }
   function change(event){
     if(pendingSave) return;
     const control = event.target;
@@ -261,6 +266,7 @@ export function createMobileGoalsController(deps){
       control.dataset.gmInline = receipt.goal.id;
       control.closest('[data-mobile-goal]').querySelector('[data-goal-id]').dataset.goalId = receipt.goal.id;
       control.value = money(goalDisplayAmount(receipt.goal));
+      syncInlineAmountWidth(control);
       publishList(receipt, 'arm'); return;
     }
     if(!editing || readOnly()) return;

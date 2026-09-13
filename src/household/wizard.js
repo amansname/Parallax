@@ -6,6 +6,7 @@ import {
 import { escHtml } from '../../ui/dom.js';
 import { refreshHouseholdFamilyFields, replaceHouseholdFinanceRail } from '../../ui/householdFamilyUpdates.js';
 import { refreshHouseholdTaxFields, restoreHouseholdTaxFocus } from '../../ui/householdTaxUpdates.js';
+import { syncHouseholdTaxChoices } from '../../ui/householdTaxChoices.js';
 import { renderHouseholdCommitNotice } from '../../ui/householdCommitNotice.js';
 import { createHouseholdPendingSavePresentation } from '../../ui/householdPendingSave.js';
 import { createHouseholdMobilePresentation } from '../../ui/householdMobile.js';
@@ -316,6 +317,7 @@ export function createHouseholdWizardController({
     syncPendingSave(root, state.explicitSavePending);
     syncCommitNotice();
     syncRecoveryControls();
+    syncHouseholdTaxChoices(root);
   }
 
   function syncCommitNotice(){

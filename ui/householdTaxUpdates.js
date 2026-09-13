@@ -1,5 +1,6 @@
 // The canonical renderer supplies both markup and an explicit field model.
 // Keep matching controls, including their raw text, errors and event identity.
+import { visibleHouseholdTaxControl } from './householdTaxChoices.js';
 export function refreshHouseholdTaxFields(view, previous, next){
   if(!previous || !next || !view.ownerDocument?.createElement
       || !view.querySelector('[data-hh-wizard-screen="tax"]')) return null;
@@ -19,6 +20,7 @@ export function refreshHouseholdTaxFields(view, previous, next){
   const focusTarget = focused ? {
     action: focused.dataset.hhAction, group: focused.dataset.incomeGroup,
     item: focused.dataset.taxItem, disclosure: focused.closest('details')?.dataset.mobileTaxGroup,
+    taxChoice: focused.dataset.mobileTaxChoice,
   } : null;
   const selection = focused?.tagName === 'INPUT'
     ? [focused.selectionStart, focused.selectionEnd, focused.selectionDirection] : null;
@@ -96,7 +98,9 @@ export function restoreHouseholdTaxFocus(update, root){
   if(!control?.isConnected || !root.contains(control)){
     const target = update?.focusTarget;
     if(!target) return;
-    if(target.group){
+    if(target.taxChoice){
+      control = [...root.querySelectorAll('[data-mobile-tax-choice]')].find(node => node.dataset.mobileTaxChoice === target.taxChoice);
+    }else if(target.group){
       control = [...root.querySelectorAll('[data-income-group]')].find(node => node.dataset.incomeGroup === target.group);
     }else if(target.item && target.action === 'show-tax-item'){
       control = [...root.querySelectorAll('[data-tax-optional]')]
@@ -110,6 +114,7 @@ export function restoreHouseholdTaxFocus(update, root){
     }
     if(!control) return;
   }
+  control = visibleHouseholdTaxControl(control, root);
   for(let parent = control.parentElement; parent && parent !== root; parent = parent.parentElement){
     if(parent.matches('details')) parent.open = true;
   }

@@ -835,7 +835,8 @@ test('finance-only renders preserve an outstanding Family refresh failure until 
   const root = {
     dataset: { householdId: 'hh-wizard-test', wizardReady: 'true' },
     ownerDocument: document, classList: { toggle(){} },
-    setAttribute(){}, querySelector: selector => selector === '[data-household-commit-notice]' ? notice : workspace,
+    setAttribute(){}, querySelector: selector => selector === '[data-household-commit-notice]' ? notice
+      : selector === '.hh-wiz-workspace' ? workspace : null,
   };
   const view = { ownerDocument: document, querySelectorAll: () => [{ replaceWith(){ replacements += 1; } }] };
   const previousDocument = globalThis.document;

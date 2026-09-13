@@ -96,13 +96,34 @@ async function verifyTaxGestures(page){
   // retain its accessible label, and clear normally when the user corrects it.
   const gain = '[data-tax-field="scheduleD.netLongTermGainOrLoss"]';
   await typeInto(page, gain, '--1');
-  await page.select('[data-tax-field="deductionMode"]', 'itemized-details');
+  await page.click('[data-mobile-tax-choice="itemized"]');
   await page.waitForSelector('[data-tax-field="deductions.itemized.medicalExpensesPaid"]');
+  await page.waitForFunction(() => document.activeElement?.dataset.mobileTaxChoice === 'itemized');
   assert.equal(await page.$eval(gain, node => node.value), '--1');
   assert.equal(await page.$eval(gain, node => Boolean(document.getElementById(node.getAttribute('aria-labelledby'))?.textContent.trim())), true);
+  await page.click('[data-mobile-tax-choice="itemized-total"]');
+  await page.waitForSelector('[data-tax-field="deductions.line12e"]');
+  await page.waitForFunction(() => document.activeElement?.dataset.mobileTaxChoice === 'itemized-total');
+  await typeInto(page, '[data-tax-field="deductions.line12e"]', 23000);
+  assert.equal((await saved(page)).plan.incomeTax.current1040.deductions.line12e, 23000);
+  assert.equal((await saved(page)).plan.incomeTax.current1040.deductions.source, 'supplied-line12e');
+  const beforeResize = await saved(page);
+  await page.click('[data-mobile-tax-choice="itemized"]');
+  assert.equal(await page.$eval('[data-tax-field="deductionMode"]', node => node.value), 'itemized-total');
+  for(const width of [1280, 390]){
+    await page.setViewport({ width, height: 844, deviceScaleFactor: 1 });
+    await page.waitForFunction(mobile => mobile
+      ? document.activeElement?.dataset.mobileTaxChoice === 'itemized'
+      : document.activeElement?.dataset.taxField === 'deductionMode', {}, width === 390);
+    assert.deepEqual(await saved(page), beforeResize);
+    assert.equal(await page.$$eval('[data-tax-field="deductionMode"]', nodes => nodes.length), 1);
+  }
+  await page.click('[data-mobile-tax-choice="itemized-details"]');
+  await page.waitForSelector('[data-tax-field="deductions.itemized.medicalExpensesPaid"]');
   await typeInto(page, gain, 0);
-  await page.select('[data-tax-field="deductionMode"]', 'standard');
+  await page.click('[data-mobile-tax-choice="standard"]');
   await page.waitForFunction(() => !document.querySelector('.hh-itemized-section'));
+  assert.equal((await saved(page)).plan.incomeTax.current1040.deductions.method, 'standard');
   console.log('Mobile inputs: Tax single taps, conditional order, raw errors and label continuity passed');
 }
 
@@ -273,6 +294,13 @@ export async function verifyMobileInputs({ browser, url, screenshotDir }){
 
     await clickPlanningTab(page, 'net-worth');
     assert.deepEqual(await page.$$eval('[data-mobile-goals="list"] .gh-starter', nodes => nodes.map(node => node.dataset.category)), ['travel', 'home', 'vehicle', 'education', 'family', 'giving', 'health', 'custom']);
+    const inlineAmount = '[data-gm-inline="system:essentials"]';
+    const previousAmount = await page.$eval(inlineAmount, node => node.value);
+    const longRawAmount = 'invalid amount '.repeat(12);
+    await typeInto(page, inlineAmount, longRawAmount, false);
+    assert.equal(await page.$eval(inlineAmount, node => node.value), longRawAmount);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    await typeInto(page, inlineAmount, previousAmount, false);
     await page.click('[data-gm-action="open"][data-goal-id="system:essentials"]');
     const untouched = await saved(page);
     await typeInto(page, '[data-gm-field="amount"]', 9999, false);

@@ -39,6 +39,7 @@
   .page[data-page="household"] [data-mobile-inputs="true"] .hh-field > span { font-size: 14px; font-weight: 400; line-height: 20px; text-transform: none; letter-spacing: 0; }
   .page[data-page="household"] [data-mobile-inputs="true"] :is(input:not([type="hidden"]):not([type="radio"]):not([type="checkbox"]), select) { min-width: 0; max-width: 100%; width: 100%; height: auto; min-height: 44px; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--edge); background: var(--panel); color: var(--ink); font-size: 16px; line-height: 1.5; text-align: left; box-shadow: none; }
   .page[data-page="household"] [data-mobile-inputs="true"] :is(input, select):focus-visible { outline: 1px solid var(--acc); outline-offset: 1px; }
+  .page[data-page="household"] [data-mobile-inputs="true"] select.px-select { appearance: auto; }
   .page[data-page="household"] [data-mobile-inputs="true"] .hh-field--age { display: flex; flex-direction: row; align-items: center; gap: 8px; margin-top: -12px; min-height: 28px; }
   .page[data-page="household"] [data-mobile-inputs="true"] .hh-field--age > span,
   .page[data-page="household"] [data-mobile-inputs="true"] .hh-field--age output { height: auto; min-height: 0; width: auto; font-size: 12px; line-height: 20px; padding: 0; border: 0; background: none; }
@@ -119,6 +120,7 @@
   .page[data-page="household"] [data-mobile-inputs="true"] .nw-tile-copy > span { grid-column: 2; grid-row: 1 / 3; align-self: center; font-size: 15px; margin: 0; }
   .page[data-page="household"] [data-mobile-inputs="true"] .nw-tile::after { content: '+'; color: var(--body); }
   .page[data-page="household"] [data-mobile-inputs="true"] .nw-tile.has-entries::after { content: '›'; }
+  .page[data-page="household"] [data-mobile-inputs="true"] .nw-tile.has-entries { background: none; }
 
   /* Compact tax fields preserve the complete canonical return inventory. */
   .page[data-page="household"] [data-mobile-inputs="true"] .hh-tax-profile { grid-template-columns: repeat(auto-fit, minmax(min(100%, 9em), 1fr)); gap: 16px 12px; }
@@ -152,6 +154,16 @@
   .hh-mobile-tax-investments > h2, .hh-mobile-tax-deductions > h2 { margin: 0 0 8px; font-size: 13px; font-weight: 500; letter-spacing: 0; }
   .hh-mobile-tax-period { margin: -4px 0 12px; color: var(--body); font-size: 12px; line-height: 1.4; }
   .hh-mobile-tax-deductions { margin-top: 22px; }
+  .hh-mobile-tax-deductions > .hh-deduction-method { display: none; }
+  .hh-mobile-deduction-primary, .hh-mobile-deduction-source { display: flex; flex-wrap: wrap; gap: 4px; }
+  .hh-mobile-deduction-primary { padding: 3px; border: 1px solid var(--rule); border-radius: 7px; }
+  .hh-mobile-deduction-source { margin-top: 8px; }
+  .hh-mobile-deduction-source[hidden] { display: none; }
+  .page[data-page="household"] [data-mobile-inputs="true"] [data-mobile-tax-choice] { flex: 1 1 7em; min-height: 44px; height: auto; padding: 8px; border: 1px solid transparent; border-radius: 5px; background: none; font-size: 14px; line-height: 1.4; white-space: normal; color: var(--body); }
+  .page[data-page="household"] [data-mobile-inputs="true"] [data-mobile-tax-choice][aria-pressed="true"] { border-color: var(--edge); background: var(--sel); color: var(--ink); }
+  .hh-mobile-tax-money { position: relative; }
+  .hh-mobile-tax-money > span { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; font-size: 16px; }
+  .page[data-page="household"] [data-mobile-inputs="true"] .hh-mobile-tax .hh-mobile-tax-money > input[data-tax-field] { padding-left: 26px; }
   .hh-mobile-tax-details { border-bottom: 1px solid var(--rule); }
   .hh-mobile-tax-details > summary { display: flex; justify-content: space-between; align-items: center; min-height: 48px; gap: 12px; list-style: none; font-size: 14px; cursor: pointer; }
   .hh-mobile-tax-details > summary::-webkit-details-marker { display: none; }
@@ -162,14 +174,14 @@
   .hh-mobile-tax-detail-body > .hh-irmaa-lookback > h2 { display: none; }
   .hh-mobile-summary { display: block; }
   .hh-mobile-summary header p { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; margin: 4px 0 8px; }
-  .hh-mobile-summary h2 { font-size: 24px; font-weight: 400; line-height: 1.3; margin: 0 0 20px; }
+  .hh-mobile-summary h2 { font-size: 28px; font-weight: 300; line-height: 1.3; margin: 0 0 20px; }
   .hh-mobile-summary-people > button { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 64px; padding: 8px 0; text-align: left; border: 0; border-bottom: 1px solid var(--rule); background: none; color: var(--ink); }
   .hh-mobile-summary-people > button > span:nth-child(2) { flex: 1; }
   .hh-mobile-avatar { display: grid; place-items: center; width: 36px; height: 36px; background: var(--sel); border-radius: 50%; }
   .hh-mobile-summary-people strong { display: block; font-size: 16px; font-weight: 400; }
   .hh-mobile-summary-people small { display: block; margin-top: 4px; font-size: 12px; color: var(--body); }
-  .hh-mobile-summary-worth { display: flex; justify-content: space-between; align-items: center; width: 100%; padding: 24px 0; border: 0; border-bottom: 1px solid var(--rule); background: none; text-align: left; font-size: 14px; color: var(--body); }
-  .hh-mobile-summary-worth strong { display: block; margin-top: 8px; font-size: 32px; font-weight: 400; color: var(--ink); }
+  .page[data-page="household"] [data-mobile-inputs="true"] .hh-mobile-summary-worth { display: flex; justify-content: space-between; align-items: center; width: 100%; height: auto; margin: 20px 0; padding: 0 0 24px; border: 0; border-bottom: 1px solid var(--rule); border-radius: 0; background: none; text-align: left; font-size: 14px; color: var(--body); }
+  .hh-mobile-summary-worth strong { display: block; margin-top: 8px; font-size: 32px; font-weight: 300; color: var(--ink); }
   .hh-mobile-summary-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 14px 0; border-bottom: 1px solid var(--rule); font-size: 14px; }
   .hh-mobile-summary-row strong { font-weight: 400; color: var(--ink); text-align: right; }
 }

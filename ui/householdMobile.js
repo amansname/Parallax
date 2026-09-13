@@ -2,6 +2,7 @@
 // Moving a control changes neither its canonical field nor its event binding.
 import { createHouseholdTaxMobilePresentation } from './householdTaxMobile.js';
 import { createHouseholdAccountMobilePresentation } from './householdAccountMobile.js';
+import { visibleHouseholdTaxControl } from './householdTaxChoices.js';
 import { syncFinanceAmountUnit } from './householdFinanceUnits.js';
 export const HOUSEHOLD_MOBILE_QUERY = '(max-width: 760px), (max-width: 1023px) and (max-height: 500px)';
 
@@ -115,7 +116,8 @@ export function createHouseholdMobilePresentation(){
       detailTrigger = null;
       detailMode = null;
     }
-    const focusedTax = root.querySelector('[data-tax-field]:focus');
+    const focusedTax = root.querySelector('[data-mobile-tax-choice]:focus')
+      ? root.querySelector('[data-tax-field="deductionMode"]') : root.querySelector('[data-tax-field]:focus');
     root.dataset.presentationMoving = 'true';
     try{
     familyPresentation();
@@ -161,7 +163,7 @@ export function createHouseholdMobilePresentation(){
         for(let parent = focusedTax.parentElement; parent && parent !== root; parent = parent.parentElement){
           if(parent.matches('details')) parent.open = true;
         }
-        focusedTax.focus({ preventScroll: true });
+        visibleHouseholdTaxControl(focusedTax, root).focus({ preventScroll: true });
       }
     }
   }

@@ -1,4 +1,5 @@
 // Recompose the mounted Tax inputs. No duplicate fields or tax calculations.
+import { mountHouseholdTaxChoices, syncHouseholdTaxChoices } from './householdTaxChoices.js';
 export function createHouseholdTaxMobilePresentation(){
   const screens = new WeakMap();
   let householdId = null;
@@ -10,10 +11,11 @@ export function createHouseholdTaxMobilePresentation(){
     if(!screen) return;
     const previous = screens.get(screen);
     if(previous){
-      if(mobile) return;
+      if(mobile){ syncHouseholdTaxChoices(root); return; }
       for(const { node, parent, next } of previous.moves.toReversed()){
         parent.insertBefore(node, next?.parentNode === parent ? next : null);
       }
+      for(const node of previous.added) node.remove();
       previous.layout.remove();
       screens.delete(screen);
       return;
@@ -21,6 +23,7 @@ export function createHouseholdTaxMobilePresentation(){
     if(!mobile) return;
     const doc = screen.ownerDocument;
     const moves = [];
+    const added = [];
     const create = (tag, className, text = '') => {
       const node = doc.createElement(tag); node.className = className; node.textContent = text; return node;
     };
@@ -61,6 +64,12 @@ export function createHouseholdTaxMobilePresentation(){
     move(screen.querySelector('[data-tax-row="income.taxExemptInterest"] .hh-tax-source'), interest.querySelector('.hh-tax-row-label'));
     move(interest, table);
     move(screen.querySelector('[data-tax-row="income.qualifiedDividends"]'), table);
+    for(const row of table.children){
+      const input = row.querySelector('input[data-tax-field]');
+      const amount = create('span', 'hh-mobile-tax-money');
+      const prefix = create('span', '', '$'); prefix.setAttribute('aria-hidden', 'true');
+      input.before(amount); amount.append(prefix); move(input, amount); added.push(amount);
+    }
     const income = disclosure('income', 'Other income');
     const incomeTable = create('div', 'hh-tax-table'); income.append(incomeTable);
     const socialRows = [];
@@ -78,6 +87,7 @@ export function createHouseholdTaxMobilePresentation(){
     move(screen.querySelector('[data-tax-summary-box="deduction-method"]'), deductions);
     move(screen.querySelector('.hh-itemized-section, .hh-supplied-deduction'), deductions);
     layout.insertBefore(deductions, income.closest('details'));
+    mountHouseholdTaxChoices(deductions);
     move(screen.querySelector('.hh-irmaa-lookback'), disclosure('irmaa', 'IRMAA lookback'));
     const optional = disclosure('other', 'Other tax items');
     for(const section of screen.querySelectorAll('.hh-tax-optional')) move(section, optional);
@@ -89,7 +99,7 @@ export function createHouseholdTaxMobilePresentation(){
         else expanded.delete(details.dataset.mobileTaxGroup);
       }
     }, true);
-    screens.set(screen, { layout, moves });
+    screens.set(screen, { layout, moves, added });
   }
   return { sync };
 }
