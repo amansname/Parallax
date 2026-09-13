@@ -155,7 +155,7 @@ export function createMobileGoalsController(deps){
   }
   function numeric(control){
     const text = control.value.replace(/[$,\s]/g, '');
-    const value = text === '' ? NaN : Number(text);
+    const value = text === '' ? Number.NaN : Number(text);
     if(!Number.isFinite(value) || value < 0){ showError('Enter a number of zero or more.', control); return null; }
     clearError(control);
     return value;

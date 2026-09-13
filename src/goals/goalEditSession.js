@@ -10,7 +10,7 @@ export function createGoalEditSession({ goal, id, isNew, householdId, currentYea
 export function flushGoalSessionField(session, field, plan){
   if(!Object.hasOwn(session.raw, field)) return !session.errors[field];
   const text = session.raw[field].replace(/[$,\s]/g, '');
-  const value = text === '' ? NaN : Number(text);
+  const value = text === '' ? Number.NaN : Number(text);
   if(!Number.isFinite(value) || value < 0){
     session.errors[field] = 'Enter a number of zero or more.';
     return false;

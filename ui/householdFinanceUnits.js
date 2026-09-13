@@ -1,6 +1,6 @@
 function parsed(value){
   const text = String(value ?? '').replace(/[$,\s]/g, '');
-  return text === '' ? NaN : Number(text);
+  return text === '' ? Number.NaN : Number(text);
 }
 
 // A fractional monthly display must remain fractional during typing/deletion.
@@ -11,7 +11,10 @@ export function formatFinanceAmountInput(control){
   if(!/^\d*(?:\.\d*)?$/.test(text)) return;
   const prefixLength = old.slice(0, control.selectionStart ?? old.length).replace(/[$,\s]/g, '').length;
   const [whole, fraction] = text.split('.');
-  const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  const firstLength = whole.length % 3 || 3;
+  const groups = [whole.slice(0, firstLength)];
+  for(let offset = firstLength; offset < whole.length; offset += 3) groups.push(whole.slice(offset, offset + 3));
+  const grouped = groups.join(',');
   control.value = grouped + (fraction === undefined ? '' : `.${fraction}`);
   let caret = 0; let seen = 0;
   while(caret < control.value.length && seen < prefixLength){

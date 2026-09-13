@@ -31,3 +31,19 @@ test('fractional finance typing keeps incomplete decimal and invalid raw text fo
     assert.equal(control.value, text);
   }
 });
+
+test('finance grouping preserves leading zeros and the caret within a fractional raw input', () => {
+  const control = { value: '0001234.050', selectionStart: 4, setSelectionRange(start, end){ this.selection = [start, end]; } };
+  formatFinanceAmountInput(control);
+  assert.equal(control.value, '0,001,234.050');
+  assert.deepEqual(control.selection, [5, 5]);
+});
+
+test('long pasted finance text retains every digit without numeric conversion', () => {
+  const text = '123'.repeat(10000) + '.';
+  const control = { value: text, selectionStart: text.length, setSelectionRange(start, end){ this.selection = [start, end]; } };
+  formatFinanceAmountInput(control);
+  assert.equal(control.value.replaceAll(',', ''), text);
+  assert.equal(control.value.split(',').length, 10000);
+  assert.deepEqual(control.selection, [control.value.length, control.value.length]);
+});

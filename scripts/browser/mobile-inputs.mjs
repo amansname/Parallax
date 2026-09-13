@@ -110,7 +110,7 @@ async function verifyPendingSavePresentation(page, kind, screenshotDir){
 }
 
 async function taxInventory(page){
-  return page.$$eval('[data-tax-field]', nodes => nodes.map(node => node.dataset.taxField).sort());
+  return page.$$eval('[data-tax-field]', nodes => nodes.map(node => node.dataset.taxField).sort((a, b) => a.localeCompare(b)));
 }
 
 async function verifyTaxGestures(page){
@@ -313,7 +313,7 @@ export async function verifyMobileInputs({ browser, url, screenshotDir }){
       'income.wages.client', 'income.taxExemptInterest', 'income.ordinaryDividends', 'income.iraDistributions',
       'income.rothConversion', 'income.pensionAmount', 'scheduleD.netLongTermGainOrLoss', 'income.otherIncome',
       'income.socialSecurityBenefits', 'socialSecurity.mode', 'deductionMode',
-      'irmaa.lookback.2024.magi', 'irmaa.lookback.2025.magi'].sort());
+      'irmaa.lookback.2024.magi', 'irmaa.lookback.2025.magi'].sort((a, b) => a.localeCompare(b)));
     assert.equal(new Set(originalInventory).size, originalInventory.length);
     await verifyTaxGestures(page);
     await taxGroup(page, 'income');

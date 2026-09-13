@@ -500,7 +500,7 @@ export function createGoalsHorizonController(deps){
     if(isAmount) liveCommas(e.target);
     const receipt=commands.update(viewGoalId(goal,index),isName
       ? {type:'name',value:e.target.value}
-      : {type:'amount',value:parseInt(e.target.value.replace(/[^0-9]/g,''),10)||0});
+      : {type:'amount',value:Number.parseInt(e.target.value.replace(/[^0-9]/g,''),10)||0});
     if(!receipt) return;
     acceptReceipt(receipt);
     commands.publish(receipt,'arm');
