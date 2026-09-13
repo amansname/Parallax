@@ -642,7 +642,7 @@ bindHouseholdEditor({
   root: document.querySelector('[data-hh-wizard-root]'),
   wizardRoot: document.querySelector('[data-hh-wizard-root]'),
   transientState: hhUiState,
-  guardPlanMutation,
+  guardPlanMutation, isSaveFailed:()=>saveFailed, retrySave:()=>{ const saved=autoSavePlan(); syncPlanEditStatus('Saved automatically · open Scenarios'); return saved; },
   commitWizardEdit: command => householdWizardCommitBoundary.commit(command),
   preflightWizardEdit: command => householdWizardCommitBoundary.preflight(command),
   syncHousehold,

@@ -4,11 +4,17 @@ export function createNetWorthMutationsActions({
   guardPlanMutation,
   transientState,
   syncHousehold,
-  commit
+  commit,
+  explicitSave = { accept: () => true, retry: () => null }
 }) {
   return {
     'net-worth-save-entry': action => {
       if (!guardPlanMutation()) return;
+      const retried = explicitSave.retry('net-worth');
+      if(retried){
+        if(retried.saved){ transientState.netWorthDraft = null; syncHousehold(); }
+        return;
+      }
       const currentDraft = transientState.netWorthDraft;
       if (!currentDraft || !currentDraft.type && !currentDraft.custom) return;
       const draft = currentDraft.categoryId === 'mortgage' && currentDraft.link === '' && action.dataset.netWorthResolvedLinkAvailable === 'true' ? {
@@ -23,7 +29,8 @@ export function createNetWorthMutationsActions({
         transientState.netWorthDraft = draft;
         syncHousehold();
       };
-      const finishDraft = () => {
+      const finishDraft = result => {
+        if(!explicitSave.accept(result, 'net-worth')) return;
         transientState.netWorthDraft = null;
         syncHousehold();
       };
@@ -66,7 +73,7 @@ export function createNetWorthMutationsActions({
           restoreDraft();
           return;
         }
-        finishDraft();
+        finishDraft(result);
         return;
       }
       if (draft.categoryId === 'property') {
@@ -82,7 +89,7 @@ export function createNetWorthMutationsActions({
           restoreDraft();
           return;
         }
-        finishDraft();
+        finishDraft(result);
         return;
       }
       if (draft.categoryId === 'mortgage' && draft.link !== '' && draft.linkAvailable === true && hasDigits(draft.value)) {
@@ -99,14 +106,14 @@ export function createNetWorthMutationsActions({
           restoreDraft();
           return;
         }
-        finishDraft();
+        finishDraft(result);
         return;
       }
       if (draft.categoryId === 'mortgage') {
         restoreDraft();
         return;
       }
-      if (!commit({
+      const result = commit({
         scope: 'net-worth',
         action: 'add-shell-entry',
         entry: {
@@ -118,11 +125,12 @@ export function createNetWorthMutationsActions({
           tax: draft.categoryId === 'investment' ? draft.canonicalTax : '',
           value: draft.value
         }
-      }, action)) {
+      }, action, true);
+      if (!result) {
         restoreDraft();
         return;
       }
-      finishDraft();
+      finishDraft(result);
       return;
     },
     'net-worth-remove-entry': action => {

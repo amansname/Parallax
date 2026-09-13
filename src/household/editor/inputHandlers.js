@@ -29,6 +29,7 @@ export function createHouseholdInputHandlers({
       }));
     },
     'input': event => {
+      if(transientState.explicitSavePending) return;
       const birthDateDisplay = event.target.closest?.('[data-birth-date-display]');
       if (birthDateDisplay) {
         const selectionStart = birthDateDisplay.selectionStart ?? birthDateDisplay.value.length;
@@ -87,6 +88,7 @@ export function createHouseholdInputHandlers({
       }));
     },
     'change': event => {
+      if(transientState.explicitSavePending) return;
       if(root.dataset.presentationMoving === 'true') return;
       const netWorthDraft = event.target.closest?.('[data-net-worth-draft]');
       if (netWorthDraft) {

@@ -27,6 +27,17 @@ async function saved(page){
   });
 }
 
+async function setStorageFailure(page, enabled){
+  await page.evaluate(fail => {
+    if(!fail){ Storage.prototype.setItem = globalThis.__mobileInputsSetItem; delete globalThis.__mobileInputsSetItem; return; }
+    globalThis.__mobileInputsSetItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function(key, value){
+      if(key === 'parallax.households.v1') throw new DOMException('Mobile input test storage full', 'QuotaExceededError');
+      return globalThis.__mobileInputsSetItem.call(this, key, value);
+    };
+  }, enabled);
+}
+
 async function taxGroup(page, key){
   const selector = `[data-mobile-tax-group="${key}"]`;
   if(!await page.$eval(selector, node => node.open)) await page.click(`${selector} > summary`);
@@ -117,6 +128,15 @@ export async function verifyMobileInputs({ browser, url, screenshotDir }){
     await typeInto(page, '[data-finance-amount]', '2500.08', false);
     await page.keyboard.press('Backspace');
     assert.equal(await page.$eval('[data-finance-amount]', node => node.value), '2,500.0');
+    const beforeFailedFinance = await saved(page);
+    await setStorageFailure(page, true);
+    await page.click('[data-hh-action="commit-finance-entry"]');
+    await page.waitForFunction(() => document.querySelector('[data-hh-action="commit-finance-entry"]')?.textContent === 'Retry Save');
+    assert.deepEqual(await saved(page), beforeFailedFinance);
+    assert.equal(await page.$eval('[data-finance-amount]', node => node.disabled), true);
+    await page.click('[data-hh-action="commit-finance-entry"]');
+    assert.deepEqual(await saved(page), beforeFailedFinance);
+    await setStorageFailure(page, false);
     await page.click('[data-hh-action="commit-finance-entry"]');
     assert.equal((await saved(page)).plan.income.socialSecurity.primary.pia, 30000);
     await page.click('[data-finances-person-owner="client"]');
@@ -152,6 +172,19 @@ export async function verifyMobileInputs({ browser, url, screenshotDir }){
       await page.select('[data-net-worth-draft="owner"]', account.owner);
       await typeInto(page, '[data-net-worth-draft="value"]', account.balance);
       assert.equal(await page.$eval('.nw-panel', node => getComputedStyle(node).position), 'static');
+      if(account === fixture.accounts[0]){
+        const beforeFailedAccount = await saved(page);
+        await setStorageFailure(page, true);
+        await page.click('[data-hh-action="net-worth-save-entry"]');
+        await page.waitForFunction(() => document.querySelector('[data-hh-action="net-worth-save-entry"]')?.textContent === 'Retry Save');
+        assert.deepEqual(await saved(page), beforeFailedAccount);
+        assert.equal(await page.$$eval('[data-net-worth-draft]', nodes => nodes.every(node => node.disabled)), true);
+        assert.equal(await page.$eval('[data-hh-wizard-nav="tax"]', node => node.disabled), true);
+        assert.equal(await page.$eval('.app-header', node => node.inert), true);
+        await page.click('[data-hh-action="net-worth-save-entry"]');
+        assert.deepEqual(await saved(page), beforeFailedAccount);
+        await setStorageFailure(page, false);
+      }
       await page.click('[data-hh-action="net-worth-save-entry"]');
       await waitForWizard(page, { step: 'net-worth', householdId });
       assert.equal(await page.evaluate(() => document.activeElement === document.querySelector('.nw-panel h2')), true);
@@ -219,19 +252,13 @@ export async function verifyMobileInputs({ browser, url, screenshotDir }){
     assert.equal(await page.$eval('[data-gm-field="amount"]', node => node.getAttribute('aria-invalid')), 'true');
     await typeInto(page, '[data-gm-field="amount"]', 2500);
     const beforeFailedGoalSave = await saved(page);
-    await page.evaluate(() => {
-      globalThis.__mobileInputsSetItem = Storage.prototype.setItem;
-      Storage.prototype.setItem = function(key, value){
-        if(key === 'parallax.households.v1') throw new DOMException('Mobile input test storage full', 'QuotaExceededError');
-        return globalThis.__mobileInputsSetItem.call(this, key, value);
-      };
-    });
+    await setStorageFailure(page, true);
     await page.click('[data-gm-action="save"]');
     await page.waitForFunction(() => document.querySelector('.gm-editor .gm-error')?.textContent.includes('Could not save'));
     assert.deepEqual(await saved(page), beforeFailedGoalSave);
     await page.click('.gm-footer [data-gm-action="cancel"]');
     assert.equal(await page.$$eval('.gm-editor', nodes => nodes.length), 1);
-    await page.evaluate(() => { Storage.prototype.setItem = globalThis.__mobileInputsSetItem; delete globalThis.__mobileInputsSetItem; });
+    await setStorageFailure(page, false);
     await page.click('[data-gm-action="save"]');
     await page.waitForSelector('[data-mobile-goals="list"]');
     const goals = (await saved(page)).plan.goals;

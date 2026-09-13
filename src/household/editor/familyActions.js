@@ -7,6 +7,7 @@ export function createFamilyActions({
   commit,
   transientState,
   syncHousehold,
+  explicitSave = { accept: () => true, retry: () => null },
 }) {
   const closeFinanceEntry = () => {
     transientState.financeOwner = null;
@@ -18,13 +19,19 @@ export function createFamilyActions({
   const focusFinanceControl = selector => {
     requestAnimationFrame(() => document.querySelector(selector)?.focus());
   };
+  const closeSavedFinanceEntry = (owner, changed) => {
+    closeFinanceEntry();
+    transientState.financeSaveStatus = changed;
+    syncHousehold();
+    focusFinanceControl(`[data-finances-person-owner="${owner}"]`);
+  };
   const finishFinanceEntry = (command, control) => {
+    transientState.financeDraft = { ...command };
     const result = commit(command, control, true);
     if(!result) return;
-    closeFinanceEntry();
-    transientState.financeSaveStatus = result.changed !== false;
-    syncHousehold();
-    focusFinanceControl(`[data-finances-person-owner="${command.owner}"]`);
+    transientState.financePending = null;
+    if(!explicitSave.accept(result, 'finance')) return;
+    closeSavedFinanceEntry(command.owner, result.changed !== false);
   };
   return {
     'add-spouse': action => {
@@ -73,6 +80,12 @@ export function createFamilyActions({
       focusFinanceControl('[data-finance-amount]');
     },
     'commit-finance-entry': action => {
+      const owner = transientState.financeOwner;
+      const retried = explicitSave.retry('finance');
+      if(retried){
+        if(retried.saved) closeSavedFinanceEntry(owner, retried.changed);
+        return;
+      }
       const panel = action.closest('[data-finance-entry-panel]');
       const amount = panel?.querySelector('[data-finance-amount]');
       if(!panel || !amount) return;

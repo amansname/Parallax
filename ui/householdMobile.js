@@ -13,7 +13,8 @@ export function createHouseholdMobilePresentation(){
   let priorPeople = 0;
   let detailOpen = false;
   let detailTrigger = null;
-  let detailTransition = false;
+  let detailMode = null;
+  let panelTrigger = null;
 
   function orderChildren(parent, mobileOrder, desktopOrder){
     // Resolve the current nodes on every render. Finance-only updates replace
@@ -100,8 +101,7 @@ export function createHouseholdMobilePresentation(){
       root.addEventListener('click', event => {
         const trigger = event.target.closest('[data-hh-action]');
         if(trigger && !trigger.closest('.nw-panel')) detailTrigger = { ...trigger.dataset };
-        detailTransition = ['net-worth-pick-type', 'net-worth-pick-custom', 'net-worth-edit-entry',
-          'net-worth-clear-type', 'net-worth-cancel-draft', 'net-worth-save-entry'].includes(trigger?.dataset.hhAction);
+        panelTrigger = trigger?.closest('.nw-panel') ? { ...trigger.dataset } : null;
       }, true);
     }
     root.dataset.mobileInputs = String(media.matches);
@@ -111,6 +111,7 @@ export function createHouseholdMobilePresentation(){
       priorPeople = 0;
       detailOpen = false;
       detailTrigger = null;
+      detailMode = null;
     }
     const focusedTax = root.querySelector('[data-tax-field]:focus');
     root.dataset.presentationMoving = 'true';
@@ -134,10 +135,14 @@ export function createHouseholdMobilePresentation(){
       summaryDetails.remove();
     }
     const panel = root.querySelector('.nw-panel');
-    if(media.matches && panel && (!detailOpen || detailTransition)){
+    const panelMode = panel?.querySelector('[data-net-worth-draft]') ? 'edit' : 'list';
+    if(media.matches && panel && (!detailOpen || panelMode !== detailMode)){
       const heading = panel.querySelector('h2');
       if(heading){ heading.tabIndex = -1; heading.focus({ preventScroll: true }); }
       panel.scrollIntoView({ block: 'start' });
+    }else if(media.matches && panel && panelTrigger){
+      [...panel.querySelectorAll('[data-hh-action]')].find(button =>
+        Object.entries(panelTrigger).every(([key, value]) => button.dataset[key] === value))?.focus({ preventScroll: true });
     }
     if(media.matches && !panel && detailOpen && detailTrigger){
       const trigger = [...root.querySelectorAll('[data-hh-action]')].find(button =>
@@ -145,7 +150,8 @@ export function createHouseholdMobilePresentation(){
       trigger?.focus({ preventScroll: true });
     }
     detailOpen = Boolean(panel);
-    detailTransition = false;
+    detailMode = panelMode;
+    panelTrigger = null;
     }finally{
       delete root.dataset.presentationMoving;
       if(focusedTax?.isConnected){

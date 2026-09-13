@@ -7,6 +7,7 @@ import { escHtml } from '../../ui/dom.js';
 import { refreshHouseholdFamilyFields, replaceHouseholdFinanceRail } from '../../ui/householdFamilyUpdates.js';
 import { refreshHouseholdTaxFields, restoreHouseholdTaxFocus } from '../../ui/householdTaxUpdates.js';
 import { renderHouseholdCommitNotice } from '../../ui/householdCommitNotice.js';
+import { createHouseholdPendingSavePresentation } from '../../ui/householdPendingSave.js';
 import { createHouseholdMobilePresentation } from '../../ui/householdMobile.js';
 import { getWizardAccountTypes } from './accountTypes.js';
 import {
@@ -51,6 +52,7 @@ export function createHouseholdWizardController({
   let deferredTaxRender = false;
   let pointerFrame = null;
   const mobilePresentation = createHouseholdMobilePresentation();
+  const syncPendingSave = createHouseholdPendingSavePresentation();
   const financeOverlayMedia = globalThis.matchMedia?.('(max-width: 1023px)');
 
   const state = {
@@ -68,9 +70,12 @@ export function createHouseholdWizardController({
     taxView: 'simplified',
     optionalTaxItems: new Set(),
     optionalMenuOpen: false,
+    explicitSavePending: null,
   };
 
   const uiState = {
+    get explicitSavePending(){ return state.explicitSavePending; },
+    set explicitSavePending(value){ state.explicitSavePending = value; },
     get refreshFailed(){ return refreshFailed; },
     set refreshFailed(value){ refreshFailed = value === true; syncCommitNotice(); },
     get stepId(){ return stepId; },
@@ -151,6 +156,7 @@ export function createHouseholdWizardController({
 
   function resetForPlan(){
     refreshFailed = false;
+    state.explicitSavePending = null;
     stepId = 'family';
     state.taxView = 'simplified';
     state.optionalTaxItems.clear();
@@ -305,6 +311,7 @@ export function createHouseholdWizardController({
     root.dataset.wizardReady = String(!refreshFailed);
     root.setAttribute('aria-busy', 'false');
     mobilePresentation.sync(root);
+    syncPendingSave(root, state.explicitSavePending);
     syncCommitNotice();
     syncRecoveryControls();
   }
@@ -312,10 +319,12 @@ export function createHouseholdWizardController({
   function syncCommitNotice(){
     renderHouseholdCommitNotice(document.querySelector('[data-hh-wizard-root]'), {
       activeHouseholdId: getActiveHouseholdId(), saveFailed: getSaveFailed(), refreshFailed,
+      explicitSavePending: state.explicitSavePending,
     });
   }
 
   function setStep(nextStepId){
+    if(state.explicitSavePending) return false;
     if(!STEP_IDS.includes(nextStepId)) return false;
     stepId = nextStepId;
     resetTransient();
