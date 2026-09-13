@@ -3,7 +3,7 @@ import { familyFinanceSourceTypes } from '../src/household/familyFinanceEntries.
 import { renderHouseholdWizardFamily } from './householdWizardFamily.js';
 import { renderHouseholdFinancesRail } from './householdFinancesRail.js';
 import { renderHouseholdWizardNetWorth } from './householdWizardNetWorth.js';
-import { renderHouseholdWizardTax } from './householdWizardTax.js';
+import { buildHouseholdTaxView, renderHouseholdWizardTax } from './householdWizardTax.js';
 import { renderHouseholdWizardSummary } from './householdWizardSummary.js';
 import { escHtml } from './dom.js';
 
@@ -167,5 +167,9 @@ export function createHouseholdWizard(dependencies){
     `;
   }
 
-  return { render, footer, renderFinanceRail: () => renderHouseholdFinancesRail(familyContext()) };
+  return {
+    render, footer,
+    renderTaxView: () => buildHouseholdTaxView(context()),
+    renderFinanceRail: () => renderHouseholdFinancesRail(familyContext()),
+  };
 }

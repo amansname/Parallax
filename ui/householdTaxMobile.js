@@ -29,7 +29,7 @@ export function createHouseholdTaxMobilePresentation(){
       moves.push({ node, parent: node.parentNode, next: node.nextSibling }); parent.append(node);
     };
     const layout = create('div', 'hh-mobile-tax');
-    screen.append(layout);
+    screen.prepend(layout);
     const disclosure = (key, title) => {
       const details = create('details', 'hh-mobile-tax-details');
       details.dataset.mobileTaxGroup = key;

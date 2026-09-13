@@ -1,10 +1,11 @@
 import { readWizardIrmaaLookback } from '../src/household/wizardIrmaa.js';
 
-export function renderHouseholdWizardTax(ctx){
+// Markup and its update contract are built together so conditional fields have
+// one owner. Updates compare this explicit model, never serialized HTML.
+export function buildHouseholdTaxView(ctx){
   const {
     plan,
     esc,
-    fieldValue,
     current,
     deductionMode,
     planningIncome,
@@ -12,6 +13,8 @@ export function renderHouseholdWizardTax(ctx){
     optionalMenuOpen,
     taxSummary,
   } = ctx;
+  const controls = [];
+  const sources = [];
   const income = current.income || {};
   const deductions = current.deductions || {};
   const itemized = deductions.itemized || {};
@@ -50,14 +53,15 @@ export function renderHouseholdWizardTax(ctx){
     const parsed = typeof value === 'number'
       ? value
       : Number(String(value).replace(/[\s,]/g, ''));
-    if(!Number.isFinite(parsed)) return fieldValue(value);
-    return fieldValue(parsed.toLocaleString('en-US', { maximumFractionDigits: 2 }));
+    if(!Number.isFinite(parsed)) return String(value);
+    return parsed.toLocaleString('en-US', { maximumFractionDigits: 2 });
   };
 
   const groupSourceControl = groupId => {
     const group = groupState(groupId);
     if(group.rowIds.length === 0) return '';
     if(group.rowSourced){
+      sources.push({ groupId, action: 'override-income-group' });
       return `
         <span class="hh-tax-source">
           <span>From planning income</span>
@@ -67,6 +71,7 @@ export function renderHouseholdWizardTax(ctx){
       `;
     }
     if(group.overridden){
+      sources.push({ groupId, action: 'revert-income-group' });
       return `
         <span class="hh-tax-source hh-tax-source--override">
           <span>Current-year amount</span>
@@ -87,14 +92,25 @@ export function renderHouseholdWizardTax(ctx){
       disabled = false,
       id = null,
     } = {},
-  ) => `
+  ) => {
+    const displayed = amountFieldValue(value);
+    controls.push({ field, kind: 'input', value: displayed, signed, disabled, id, placeholder });
+    return `
     <input class="hh-tax-amount" type="text" inputmode="decimal"
       ${id ? `id="${esc(id)}"` : ''}
-      value="${amountFieldValue(value)}" placeholder="${placeholder}"
+      value="${esc(displayed)}" placeholder="${placeholder}"
       data-hh-field="${esc(field)}" data-tax-field="${esc(field)}"
       ${signed ? 'data-signed="true"' : ''}
       ${disabled ? 'disabled aria-disabled="true"' : ''}>
   `;
+  };
+
+  const selectInput = (field, value, options) => {
+    const selected = options.some(([key]) => key === value) ? value : options[0][0];
+    controls.push({ field, kind: 'select', value: selected, options, disabled: false });
+    return `<select data-hh-field="${esc(field)}" data-tax-field="${esc(field)}">${options.map(([key, label]) =>
+      `<option value="${esc(key)}" ${key === selected ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select>`;
+  };
 
   const wageValue = owner => {
     const member = wagesByOwner[owner];
@@ -187,7 +203,7 @@ export function renderHouseholdWizardTax(ctx){
     headOfHousehold: 'Head of household',
   }[plan.meta?.filingStatus] || 'Unsupported saved filing status';
 
-  return `
+  const html = `
     <div class="hh-screen hh-tax-screen" data-hh-wizard-screen="tax"
       data-tax-view="detailed" id="hh-panel-tax" role="tabpanel"
       aria-labelledby="hh-nav-tax">
@@ -197,10 +213,7 @@ export function renderHouseholdWizardTax(ctx){
       <section class="hh-tax-profile" aria-label="Tax profile">
         <label class="hh-field" data-tax-summary-box="tax-year">
           <span>Tax year</span>
-          <select data-hh-field="taxYear" data-tax-field="taxYear">
-            <option value="2025" ${current.taxYear === 2025 ? 'selected' : ''}>2025</option>
-            <option value="2026" ${current.taxYear === 2026 ? 'selected' : ''}>2026</option>
-          </select>
+          ${selectInput('taxYear', String(current.taxYear), [['2025', '2025'], ['2026', '2026']])}
         </label>
         <div class="hh-tax-static" data-tax-summary-box="filing-status" data-tax-state="${esc(plan.meta?.state || '')}">
           <span>Filing status</span>
@@ -208,11 +221,10 @@ export function renderHouseholdWizardTax(ctx){
         </div>
         <label class="hh-field hh-deduction-method" data-tax-summary-box="deduction-method">
           <span>Deduction method</span>
-          <select data-hh-field="deductionMode" data-tax-field="deductionMode">
-            <option value="standard" ${deductionMode === 'standard' ? 'selected' : ''}>Standard deduction</option>
-            <option value="itemized-details" ${deductionMode === 'itemized-details' ? 'selected' : ''}>Itemized · enter details</option>
-            <option value="itemized-total" ${deductionMode === 'itemized-total' ? 'selected' : ''}>Itemized · supplied line 12e</option>
-          </select>
+          ${selectInput('deductionMode', deductionMode, [
+            ['standard', 'Standard deduction'], ['itemized-details', 'Itemized · enter details'],
+            ['itemized-total', 'Itemized · supplied line 12e'],
+          ])}
         </label>
       </section>
 
@@ -315,12 +327,10 @@ export function renderHouseholdWizardTax(ctx){
           </div>
           <label class="hh-field hh-field--compact-select">
             <span>Taxable-benefit source</span>
-            <select data-hh-field="socialSecurity.mode" data-tax-field="socialSecurity.mode">
-              <option value="supplied-form1040-lines"
-                ${income.socialSecurity?.mode !== 'calculate-taxable-benefits' ? 'selected' : ''}>Client return · line 6b</option>
-              <option value="calculate-taxable-benefits"
-                ${income.socialSecurity?.mode === 'calculate-taxable-benefits' ? 'selected' : ''}>Federal worksheet</option>
-            </select>
+            ${selectInput('socialSecurity.mode', income.socialSecurity?.mode, [
+              ['supplied-form1040-lines', 'Client return · line 6b'],
+              ['calculate-taxable-benefits', 'Federal worksheet'],
+            ])}
           </label>
           ${income.socialSecurity?.mode === 'calculate-taxable-benefits' ? `
             <div class="hh-tax-mini-grid">
@@ -414,12 +424,10 @@ export function renderHouseholdWizardTax(ctx){
       ${detailed && itemIsVisible('scheduleSE') ? optionalSection('scheduleSE', 'Schedule SE', `
         <div class="hh-tax-mini-grid">
           <label class="hh-field"><span>Taxpayer</span>
-            <select data-hh-field="scheduleSE.taxpayerOwner" data-tax-field="scheduleSE.taxpayerOwner">
-              <option value="client" ${scheduleSE.taxpayerOwner !== 'spouse' ? 'selected' : ''}>${esc(plan.meta?.primaryName || 'Client')}</option>
-              ${plan.meta?.filingStatus === 'marriedFilingJointly'
-                ? `<option value="spouse" ${scheduleSE.taxpayerOwner === 'spouse' ? 'selected' : ''}>${esc(plan.meta?.spouseName || 'Co-client')}</option>`
-                : ''}
-            </select>
+            ${selectInput('scheduleSE.taxpayerOwner', scheduleSE.taxpayerOwner, [
+              ['client', plan.meta?.primaryName || 'Client'],
+              ...(plan.meta?.filingStatus === 'marriedFilingJointly' ? [['spouse', plan.meta?.spouseName || 'Co-client']] : []),
+            ])}
           </label>
           <label class="hh-field"><span>Resolved Schedule SE line 6</span>
             ${amountInput('scheduleSE.netEarningsFromSelfEmployment', scheduleSE.netEarningsFromSelfEmployment)}</label>
@@ -452,4 +460,26 @@ export function renderHouseholdWizardTax(ctx){
       </div>
     </div>
   `;
+  const fields = controls.map(control => {
+    const field = { ...control }; delete field.value; return field;
+  });
+  if(new Set(fields.map(control => control.field)).size !== fields.length){
+    throw new Error('Tax view contains duplicate field identities');
+  }
+  return {
+    html,
+    controls,
+    structure: {
+      fields, sources, deductionMode, optionalMenuOpen: Boolean(optionalMenuOpen), optionalChoices,
+      socialSecurityMode: income.socialSecurity?.mode,
+      planningSocialSecurityNote: Boolean(planningIncome?.hasActivePlanningSocialSecurity),
+      filingLabel, state: plan.meta?.state || '',
+    },
+    readiness: {
+      status: taxSummary.status === 'ready' ? 'ready' : 'needs-facts',
+      reason: taxSummary.reasonCodes?.[0] || '',
+    },
+  };
 }
+
+export function renderHouseholdWizardTax(ctx){ return buildHouseholdTaxView(ctx).html; }

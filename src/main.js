@@ -462,7 +462,7 @@ function commitPlanEdit(){
 }
 
 const goalsHorizon=createGoalsHorizonController({
-  getPlan:()=>plan, getHouseholdId:()=>activeHouseholdId, getGoalUndoContext:()=>scenarios.map(s=>s.id),
+  getPlan:()=>plan, getHouseholdId:()=>activeHouseholdId, getScenarios:()=>scenarios, isSaveFailed:()=>saveFailed,
   isReadOnly:()=>isHouseholdStorageReadOnly() || isHouseholdStorageBlocked(),
   guardMutation:guardPlanMutation,
   arm:()=>{

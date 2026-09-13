@@ -36,7 +36,17 @@ export function bindHouseholdEditor({
         target.setCustomValidity(message);
       }
       const inline = inlineErrors.report(target, message);
-      target.focus();
+      const sourceGroup = target.closest?.('[data-income-source-group]')?.dataset.incomeSourceGroup;
+      const sourceAction = target.disabled && sourceGroup
+        ? [...wizardRoot.querySelectorAll('[data-income-source-group]')]
+          .filter(group => group.dataset.incomeSourceGroup === sourceGroup)
+          .map(group => group.querySelector('button')).find(Boolean) : null;
+      const focusTarget = sourceAction || target;
+      for(let parent = focusTarget.parentElement; parent && parent !== wizardRoot; parent = parent.parentElement){
+        if(parent.matches('details')) parent.open = true;
+      }
+      focusTarget.focus();
+      if(sourceAction) sourceAction.scrollIntoView({ block: 'center' });
       if (!inline && typeof target.reportValidity === 'function') target.reportValidity();
     }
     syncHeaderStatus(message);
@@ -151,6 +161,7 @@ export function bindHouseholdEditor({
   });
   globalThis.document?.addEventListener('click', event => {
     if(wizardRoot.dataset.wizardStep !== 'family') return;
+    if(wizardRoot.dataset.mobileInputs === 'true') return;
     if(!transientState.financeOwner) return;
     if(event.target.closest?.('[data-finances-rail]')){
       return;

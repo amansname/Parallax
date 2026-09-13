@@ -37,6 +37,7 @@ import { verifyFamilySavingsRepair } from './browser/persistence-migration.mjs';
 import { verifySavingsReplacement } from './browser/savings-replacement.mjs';
 import { verifyFamilyEditing } from './browser/family-editing.mjs';
 import { verifyMobileHousehold } from './browser/mobile-household.mjs';
+import { verifyMobileInputs } from './browser/mobile-inputs.mjs';
 import { verifyCorruptStorage } from './browser/persistence-migration.mjs';
 import { verifyReadOnlyPersistence } from './browser/persistence-read-only.mjs';
 import { verifyHouseholdDeletion } from './browser/persistence-deletion.mjs';
@@ -160,6 +161,9 @@ try {
   }));
   if(runsGroup('entry')){
   await step('Mobile Household: inline validation, focus, canonical save and responsive parity', () => verifyMobileHousehold({
+    browser, url: `http://127.0.0.1:${PORT}/`, screenshotDir: OUT,
+  }));
+  await step('Mobile inputs: real saves, Tax gestures, Goals drafts and engine/display parity', () => verifyMobileInputs({
     browser, url: `http://127.0.0.1:${PORT}/`, screenshotDir: OUT,
   }));
   await step('Family editing: first-click input, saved values, responsive panel and accessibility', () => verifyFamilyEditing({

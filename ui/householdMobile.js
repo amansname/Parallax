@@ -84,6 +84,11 @@ export function createHouseholdMobilePresentation(){
       media = root.ownerDocument.defaultView.matchMedia(HOUSEHOLD_MOBILE_QUERY);
       media.addEventListener('change', () => sync());
       root.addEventListener('click', event => {
+        const destination = event.target.closest('[data-mobile-household-step]');
+        if(destination){
+          if(destination.dataset.mobileOwner) selectedOwner = destination.dataset.mobileOwner;
+          root.querySelector(`[data-hh-wizard-nav="${destination.dataset.mobileHouseholdStep}"]`)?.click();
+        }
         const member = event.target.closest('[data-mobile-person]');
         if(member){ selectedOwner = member.dataset.mobilePerson; familyPresentation(); }
         if(event.target.closest('[data-hh-mobile-navigation]')){
@@ -104,9 +109,27 @@ export function createHouseholdMobilePresentation(){
       detailOpen = false;
       detailTrigger = null;
     }
+    const focusedTax = root.querySelector('[data-tax-field]:focus');
+    root.dataset.presentationMoving = 'true';
+    try{
     familyPresentation();
     syncFinanceAmountUnit(root, media.matches);
     tax.sync(root, media.matches, householdId);
+    const summary = root.querySelector('.hh-summary-screen');
+    const summaryDetails = summary?.querySelector('[data-mobile-summary-details]');
+    if(summary && media.matches && !summaryDetails){
+      const details = root.ownerDocument.createElement('details');
+      details.dataset.mobileSummaryDetails = '';
+      details.className = 'hh-mobile-tax-details';
+      const heading = root.ownerDocument.createElement('summary');
+      heading.textContent = 'Portfolio and tax details';
+      details.append(heading);
+      for(const section of summary.querySelectorAll('.hh-summary-metrics, .hh-summary-irmaa, .hh-summary-composition')) details.append(section);
+      summary.append(details);
+    }else if(summaryDetails && !media.matches){
+      for(const section of [...summaryDetails.children].slice(1)) summary.insertBefore(section, summaryDetails);
+      summaryDetails.remove();
+    }
     const panel = root.querySelector('.nw-panel');
     if(media.matches && panel && !detailOpen){
       const heading = panel.querySelector('h2');
@@ -119,6 +142,15 @@ export function createHouseholdMobilePresentation(){
       trigger?.focus({ preventScroll: true });
     }
     detailOpen = Boolean(panel);
+    }finally{
+      delete root.dataset.presentationMoving;
+      if(focusedTax?.isConnected){
+        for(let parent = focusedTax.parentElement; parent && parent !== root; parent = parent.parentElement){
+          if(parent.matches('details')) parent.open = true;
+        }
+        focusedTax.focus({ preventScroll: true });
+      }
+    }
   }
   return { sync };
 }

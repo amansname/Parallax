@@ -1,11 +1,12 @@
 import { escHtml as esc } from './dom.js';
-import { effectiveGoalForView, materializeGoalTiming } from './goalsTimingPresentation.js';
-import { createMobileGoalDraft, applyMobileGoalDraft } from '../src/goals/mobileGoalDraft.js';
+import { effectiveGoalForView } from './goalsTimingPresentation.js';
+import { createMobileGoalDraft } from '../src/goals/mobileGoalDraft.js';
+import { createGoalCommands } from '../src/goals/goalCommands.js';
+import { createGoalEditSession, flushGoalSessionField, flushGoalSession, applyGoalSessionEdit, prepareGoalSessionSave } from '../src/goals/goalEditSession.js';
 import {
-  GOAL_CATEGORIES, GOAL_CATEGORY_MAP, createGoalForCategory, defaultGoalId,
+  GOAL_CATEGORIES, createGoalForCategory,
   goalDisplayAmount, goalHasFutureWorkingYears, goalTimingLabel, isOneTimeGoal,
-  normalizeGoalCategory, resolveGoalSpan, setGoalDisplayAmount, setGoalPer,
-  setGoalKind, setGoalRange, goalAgeToPeriodValue, goalPeriodValueToAge,
+  normalizeGoalCategory, resolveGoalSpan, goalAgeToPeriodValue,
 } from '../src/goals/horizonModel.js';
 
 const icon = category => `<img src="assets/goals-horizon/${category}.svg?v=__PARALLAX_ARTIFACT_ID__" alt="" aria-hidden="true">`;
@@ -14,17 +15,18 @@ const disabled = value => value ? ' disabled aria-disabled="true"' : '';
 const money = value => Number(value).toLocaleString('en-US');
 
 export function createMobileGoalsController(deps){
+  const commands = deps.commands || createGoalCommands(deps);
   let root = null;
   let events = null;
   let householdId;
   let editing = null;
   let undo = null;
   let error = '';
+  let listScroll = null;
   const list = () => deps.getPlan().goals || [];
   const identity = () => deps.getHouseholdId?.() ?? deps.getPlan();
   const span = () => resolveGoalSpan(deps.getPlan());
   const readOnly = () => Boolean(deps.isReadOnly?.());
-  const undoContext = () => JSON.stringify([list().map(idFor), deps.getGoalUndoContext?.()]);
   const find = id => {
     const index = list().findIndex((goal, i) => idFor(goal, i) === id);
     return index < 0 ? null : { goal: list()[index], index };
@@ -78,19 +80,22 @@ export function createMobileGoalsController(deps){
     const period = age => goalAgeToPeriodValue(age, deps.getPlan(), lens);
     const category = normalizeGoalCategory(goal);
     const blocked = readOnly();
-    const timing = (field, label, age) => `<label class="gm-field"><span>${label}</span><input type="text" inputmode="numeric" data-gm-field="${field}" data-field="${field}-${unit}" value="${esc(editing.raw[field] ?? period(age))}"${disabled(blocked)}></label>`;
+    const invalid = field => editing.errors[field] ? ' aria-invalid="true"' : '';
+    const endHidden = once && !Object.hasOwn(editing.raw, 'end') && !editing.errors.end;
+    const message = Object.values(editing.errors)[0] || error;
+    const timing = (field, label, age) => `<label class="gm-field"${field === 'end' && endHidden ? ' hidden' : ''}><span>${label}</span><input type="text" inputmode="numeric" data-gm-field="${field}" data-field="${field}-${unit}" value="${esc(editing.raw[field] ?? period(age))}"${invalid(field)}${disabled(blocked)}></label>`;
     return `<div class="gh-page gm-page gm-editor" data-mobile-goals="editor" data-goal-rail="${esc(editing.id)}">
       <header class="gm-detail-heading"><button type="button" data-gm-action="cancel" aria-label="Cancel and return to Goals">‹</button><h1 tabindex="-1">${editing.isNew ? 'New goal' : 'Edit goal'}</h1><span></span></header>
       ${categories('category', category)}
       <div class="gm-editor-body">
-        <label class="gm-field gm-name"><span>Goal name</span><input class="gh-name-input" data-gm-field="name" data-field="name" value="${esc(goal.name || '')}" placeholder="Name this goal"${disabled(blocked)}></label>
-        <label class="gm-field gm-amount"><span>Amount</span><span class="gm-money"><span aria-hidden="true">$</span><input class="gh-amount-input" inputmode="decimal" data-gm-field="amount" data-field="amount" value="${esc(editing.raw.amount ?? money(goalDisplayAmount(goal)))}"${disabled(blocked)}></span></label>
+        <label class="gm-field gm-name"><span>Goal name</span><input class="gh-name-input" data-gm-field="name" data-field="name" value="${esc(goal.name || '')}" placeholder="Name this goal"${invalid('name')}${disabled(blocked)}></label>
+        <label class="gm-field gm-amount"><span>Amount</span><span class="gm-money"><span aria-hidden="true">$</span><input class="gh-amount-input" inputmode="decimal" data-gm-field="amount" data-field="amount" value="${esc(editing.raw.amount ?? money(goalDisplayAmount(goal)))}"${invalid('amount')}${disabled(blocked)}></span></label>
         <div class="gm-segments" role="group" aria-label="Frequency">${[['once', 'Once'], ['monthly', 'Monthly'], ['annual', 'Annually']].map(([value, label]) => `<button type="button" data-gm-action="frequency" data-frequency="${value}" aria-pressed="${frequency === value}"${disabled(blocked)}>${label}</button>`).join('')}</div>
         <div class="gm-period-heading"><span>Timing</span><div class="gm-segments" role="group" aria-label="Enter timing by age or calendar year">${['age', 'year'].map(mode => `<button type="button" data-gm-action="lens" data-mode="${mode}" aria-pressed="${lens.mode === mode}">${mode === 'age' ? 'Age' : 'Year'}</button>`).join('')}</div></div>
         ${lens.mode === 'age' && deps.getPlan().household?.spouse ? `<label class="gm-field"><span>Whose age</span><select data-gm-field="owner"${disabled(blocked)}><option value="primary" ${lens.owner === 'primary' ? 'selected' : ''}>${esc(deps.getPlan().meta?.primaryName || 'You')}</option><option value="spouse" ${lens.owner === 'spouse' ? 'selected' : ''}>${esc(deps.getPlan().meta?.spouseName || 'Spouse')}</option></select></label>` : ''}
-        <div class="gm-pair">${timing('start', once ? `At ${unit}` : `Start ${unit}`, effective.startAge)}${once ? '' : timing('end', `End ${unit}`, effective.endAge)}</div>
+        <div class="gm-pair">${timing('start', once ? `At ${unit}` : `Start ${unit}`, effective.startAge)}${timing('end', `End ${unit}`, effective.endAge)}</div>
         <div class="gm-field" data-gm-funding ${goalHasFutureWorkingYears(effective, currentSpan) ? '' : 'hidden'}><span>Before retirement</span><div class="gm-segments" role="group" aria-label="Before retirement funding source"><button type="button" data-gm-action="funding" data-portfolio="false" aria-pressed="${goal.fundFromPortfolioBeforeRetirement !== true}"${disabled(blocked)}>Working income / outside portfolio</button><button type="button" data-gm-action="funding" data-portfolio="true" aria-pressed="${goal.fundFromPortfolioBeforeRetirement === true}"${disabled(blocked)}>Portfolio</button></div></div>
-        <p class="gm-error" role="alert" ${error ? '' : 'hidden'}>${esc(error)}</p>
+        <p class="gm-error" role="alert" ${message ? '' : 'hidden'}>${esc(message)}</p>
       </div>
       <footer class="gm-footer"><button type="button" data-gm-action="cancel">Cancel</button><button class="gm-save" type="button" data-gm-action="save"${disabled(blocked)}>Save goal</button></footer>
       ${!editing.isNew && !goal.system ? `<button class="gm-delete" type="button" data-gm-action="delete"${disabled(blocked)}>Delete goal</button>` : ''}
@@ -128,32 +133,41 @@ export function createMobileGoalsController(deps){
     return value;
   }
   function startEditing(goal, id, isNew){
-    editing = { id, isNew, raw: {}, draft: createMobileGoalDraft(goal), lens: { mode: 'age', owner: 'primary', currentYear: Number(deps.currentYear) || new Date().getFullYear() } };
+    listScroll = { window: globalThis.scrollY, page: root.closest?.('.page')?.scrollTop };
+    editing = createGoalEditSession({ goal, id, isNew, householdId: commands.identity(), currentYear: Number(deps.currentYear) || new Date().getFullYear() });
     error = '';
     rerender('.gm-detail-heading h1');
+    root.querySelector('.gm-detail-heading')?.scrollIntoView?.({ block: 'start' });
   }
   function cancel(){
+    if(editing?.saveFailed){ showError('Your last Save has not reached storage. Retry Save before leaving.'); return; }
     const id = editing?.id;
     editing = null; error = '';
-    rerender();
+    if(deps.onEditorClosed) deps.onEditorClosed(); else rerender();
     [...root.querySelectorAll('[data-gm-action="open"]')].find(button => button.dataset.goalId === id)?.focus({ preventScroll: true });
+    if(listScroll){
+      const page = root.closest?.('.page'); if(page) page.scrollTop = listScroll.page || 0;
+      globalThis.scrollTo?.(0, listScroll.window || 0);
+    }
   }
   function save(){
-    if(!editing || !flushFields()) return;
-    if(!editing.draft.value.name?.trim()){ showError('Enter a goal name.', root.querySelector('[data-gm-field="name"]'), true); return; }
-    if(!deps.guardMutation()) return;
-    const pending = editing;
-    if(pending.isNew) deps.insertGoal(list().length, structuredClone(pending.draft.value));
-    else {
-      const record = find(pending.id);
-      if(!record){ showError('This goal is no longer available. Return to Goals.'); return; }
-      try { applyMobileGoalDraft(record.goal, pending.draft); }
-      catch(failure){ showError(failure.message); return; }
-      if(!record.goal.id) record.goal.id = defaultGoalId(record.index);
+    if(!editing) return;
+    if(!prepareGoalSessionSave(editing, deps.getPlan())){ syncSessionPresentation(true); return; }
+    let receipt;
+    try { receipt = commands.applyDraft(editing); }
+    catch(failure){ syncSessionPresentation(true); showError(failure.message); return; }
+    if(!receipt){ showError('This plan cannot be edited right now.'); return; }
+    // Keep the editor mounted while publication saves and refreshes the page.
+    editing.id = receipt.goal.id; editing.isNew = false;
+    editing.draft = createMobileGoalDraft(receipt.goal);
+    householdId = identity();
+    if(!commands.publish(receipt)){
+      editing.saveFailed = true;
+      showError('Could not save to this browser. Keep this editor open and retry Save when storage is available.'); return;
     }
-    editing = null; error = ''; householdId = identity();
-    deps.commit();
-    rerender('.gm-heading h1');
+    editing = null; error = '';
+    if(deps.onEditorClosed) deps.onEditorClosed(); else rerender();
+    root.querySelector('.gm-heading h1')?.focus({ preventScroll: true });
   }
   function click(event){
     const button = event.target.closest('[data-gm-action]');
@@ -164,39 +178,29 @@ export function createMobileGoalsController(deps){
     if(action === 'cancel'){ cancel(); return; }
     if(action === 'save'){ save(); return; }
     if(action === 'undo'){
-      if(!undo || !deps.guardMutation()) return;
-      if(undo.context !== undoContext()){
-        undo = null;
-        showError('The plan changed after this deletion. Undo is no longer available.');
-        rerender(); return;
-      }
-      deps.insertGoal(undo.index, undo.goal, undo.overrides); undo = null;
-      householdId = identity(); deps.commit(); rerender(); return;
+      if(!undo) return;
+      let receipt;
+      try { receipt = commands.restore(undo); }
+      catch(failure){ undo = null; error = failure.message; rerender(); return; }
+      if(!receipt) return;
+      undo = null; householdId = identity(); commands.publish(receipt); rerender(); return;
     }
     if(!editing) return;
     const goal = editing.draft.value;
     if(action === 'delete'){
-      if(goal.system || !deps.guardMutation()) return;
-      const record = find(editing.id);
-      if(!record || record.goal.system) return;
-      undo = { ...deps.removeGoal(record.index), index: record.index, context: undoContext() };
-      editing = null; householdId = identity(); deps.commit(); rerender(); return;
+      if(goal.system || editing.saveFailed) return;
+      const receipt = commands.remove(editing.id);
+      if(!receipt) return;
+      undo = receipt;
+      editing = null; householdId = identity();
+      commands.publish(receipt); rerender(); return;
     }
     if(!flushFields()) return;
     if(action === 'lens') editing.lens.mode = button.dataset.mode === 'year' ? 'year' : 'age';
     else if(readOnly()) return;
-    else if(action === 'category'){
-      const category = GOAL_CATEGORY_MAP[button.dataset.category] ? button.dataset.category : 'custom';
-      goal.cat = category; goal.area = category;
-    }else if(action === 'frequency'){
-      const frequency = button.dataset.frequency;
-      const once = isOneTimeGoal(effectiveGoalForView(goal, span()));
-      if((frequency === 'once') !== once){
-        materializeGoalTiming(goal, span(), { detachFromRetirement: true });
-        setGoalKind(goal, frequency === 'once' ? 'once' : 'rec', span().planEndAge);
-      }
-      setGoalPer(goal, frequency === 'monthly' ? 'mo' : 'yr');
-    }else if(action === 'funding') goal.fundFromPortfolioBeforeRetirement = button.dataset.portfolio === 'true';
+    else if(action === 'category') applyGoalSessionEdit(editing, { type: 'category', value: button.dataset.category }, deps.getPlan());
+    else if(action === 'frequency') applyGoalSessionEdit(editing, { type: 'frequency', value: button.dataset.frequency }, deps.getPlan());
+    else if(action === 'funding') applyGoalSessionEdit(editing, { type: 'funding', value: button.dataset.portfolio === 'true' }, deps.getPlan());
     else return;
     rerender();
   }
@@ -204,7 +208,7 @@ export function createMobileGoalsController(deps){
     if(!editing || readOnly()) return;
     const control = event.target;
     if(control.dataset.gmField === 'name'){
-      editing.draft.value.name = control.value;
+      applyGoalSessionEdit(editing, { type: 'name', value: control.value }, deps.getPlan());
       clearError(control);
     }
     if(control.dataset.gmField === 'amount'){
@@ -216,74 +220,57 @@ export function createMobileGoalsController(deps){
   // Validate at commit/blur boundaries, so clearing and typing into a field
   // never steals focus or silently restores an earlier value.
   function flushFields(){
-    for(const control of root.querySelectorAll('[data-gm-field]')){
-      if(Object.hasOwn(editing.raw, control.dataset.gmField)) change({ target: control });
-    }
-    const invalid = root.querySelector('[aria-invalid="true"]');
-    invalid?.focus({ preventScroll: true });
-    return !invalid;
+    const valid = flushGoalSession(editing, deps.getPlan());
+    syncSessionPresentation(!valid);
+    return valid;
   }
   function change(event){
     const control = event.target;
     if(control.dataset.gmInline){
       const amount = numeric(control);
-      if(amount === null || !deps.guardMutation()) return;
-      const record = find(control.dataset.gmInline);
-      if(!record) return;
-      setGoalDisplayAmount(record.goal, amount);
-      if(!record.goal.id) record.goal.id = defaultGoalId(record.index);
-      control.dataset.gmInline = record.goal.id;
-      control.closest('[data-mobile-goal]').querySelector('[data-goal-id]').dataset.goalId = record.goal.id;
-      control.value = money(goalDisplayAmount(record.goal));
-      deps.arm?.(); return;
+      if(amount === null) return;
+      const receipt = commands.update(control.dataset.gmInline, { type: 'amount', value: amount });
+      if(!receipt) return;
+      control.dataset.gmInline = receipt.goal.id;
+      control.closest('[data-mobile-goal]').querySelector('[data-goal-id]').dataset.goalId = receipt.goal.id;
+      control.value = money(goalDisplayAmount(receipt.goal));
+      commands.publish(receipt, 'arm'); return;
     }
     if(!editing || readOnly()) return;
     const field = control.dataset.gmField;
     if(field === 'owner'){
-      if(!flushFields()) return;
+      if(!flushFields()){ control.value = editing.lens.owner; return; }
       editing.lens.owner = control.value === 'spouse' ? 'spouse' : 'primary'; rerender(); return;
     }
-    if(field === 'amount'){
-      const amount = numeric(control);
-      if(amount !== null){
-        setGoalDisplayAmount(editing.draft.value, amount);
-        delete editing.raw.amount;
-        control.value = money(goalDisplayAmount(editing.draft.value));
-      }
-      return;
-    }
-    if(field !== 'start' && field !== 'end') return;
-    const entered = numeric(control);
-    if(entered === null) return;
+    if(!['amount', 'start', 'end'].includes(field)) return;
+    editing.raw[field] = control.value;
+    flushGoalSessionField(editing, field, deps.getPlan());
+    syncSessionPresentation();
+  }
+  function syncSessionPresentation(focus = false){
     const goal = editing.draft.value;
-    const effective = effectiveGoalForView(goal, span());
-    const age = goalPeriodValueToAge(entered, deps.getPlan(), editing.lens);
-    if(field === 'start'){
-      goal.startsAtRetirement = false;
-      setGoalRange(goal, age, isOneTimeGoal(effective) ? age : effective.endAge, span().planEndAge, 'start');
-    }else {
-      if(goal.startsAtRetirement === true && age < effective.startAge){
-        showError(`End age must be ${effective.startAge} or later for a goal that starts at retirement.`, control);
-        return;
-      }
-      setGoalRange(goal, effective.startAge, age, span().planEndAge, 'end');
-    }
-    delete editing.raw[field];
     const updated = effectiveGoalForView(goal, span());
     const once = isOneTimeGoal(updated);
-    if(once) setGoalPer(goal, 'yr');
+    for(const control of root.querySelectorAll('[data-gm-field]')){
+      if(editing.errors[control.dataset.gmField]) control.setAttribute('aria-invalid', 'true');
+      else control.removeAttribute('aria-invalid');
+    }
+    const message = Object.values(editing.errors)[0];
+    if(message) showError(message);
+    else if(!editing.saveFailed){ error = ''; clearError(); }
     for(const button of root.querySelectorAll('[data-frequency]')){
       button.setAttribute('aria-pressed', String(button.dataset.frequency === (once ? 'once' : goal.per === 'mo' ? 'monthly' : 'annual')));
     }
     const startControl = root.querySelector('[data-gm-field="start"]');
     startControl.closest('label').querySelector('span').textContent = `${once ? 'At' : 'Start'} ${editing.lens.mode === 'year' ? 'year' : 'age'}`;
     const endControl = root.querySelector('[data-gm-field="end"]');
-    if(endControl) endControl.closest('label').hidden = once;
+    if(endControl) endControl.closest('label').hidden = once && !Object.hasOwn(editing.raw, 'end') && endControl.getAttribute('aria-invalid') !== 'true';
     if(!Object.hasOwn(editing.raw, 'amount')) root.querySelector('[data-gm-field="amount"]').value = money(goalDisplayAmount(goal));
     for(const peer of root.querySelectorAll('[data-gm-field="start"], [data-gm-field="end"]')){
       if(!Object.hasOwn(editing.raw, peer.dataset.gmField)) peer.value = goalAgeToPeriodValue(peer.dataset.gmField === 'start' ? updated.startAge : updated.endAge, deps.getPlan(), editing.lens);
     }
     root.querySelector('[data-gm-funding]').hidden = !goalHasFutureWorkingYears(updated, span());
+    if(focus) root.querySelector('[aria-invalid="true"]')?.focus({ preventScroll: true });
   }
   function unbind(){ events?.abort(); }
   function bind(element){
@@ -293,5 +280,5 @@ export function createMobileGoalsController(deps){
     root.addEventListener('input', input, options);
     root.addEventListener('change', change, options);
   }
-  return { render, bind, unbind };
+  return { render, bind, unbind, isEditing: () => { syncIdentity(); return Boolean(editing); } };
 }

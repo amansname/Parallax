@@ -48,3 +48,4 @@
 .gm-undo button { min-height: 44px; padding: 8px 12px; border: 1px solid var(--rule); background: none; }
 .gm-page :is(input, select, button):focus-visible { outline: 1px solid var(--acc); outline-offset: 2px; }
 .gm-page [hidden] { display: none; }
+body:has(.page.on [data-mobile-goals="editor"]) .app-header { display: none; }
