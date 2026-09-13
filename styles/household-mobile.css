@@ -48,6 +48,10 @@
   .page[data-page="household"] [data-mobile-inputs="true"] .hh-finances-rail-head { min-height: 44px; border-bottom: 1px solid var(--rule); gap: 12px; }
   .page[data-page="household"] [data-mobile-inputs="true"] .hh-finances-rail-head > span { font-size: 14px; text-transform: none; letter-spacing: 0; }
   .page[data-page="household"] [data-mobile-inputs="true"] .hh-finances-rail-toggle { border: 0; background: none; }
+  .page[data-page="household"] [data-mobile-inputs="true"] .hh-finance-amount-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: 6px; padding: 8px 12px; }
+  .page[data-page="household"] [data-mobile-inputs="true"] .hh-finance-amount-row [data-finance-amount] { width: 100%; max-width: 100%; padding: 8px 0; border: 0; background: transparent; }
+  .page[data-page="household"] [data-mobile-inputs="true"] .hh-finance-amount-row [data-household-explicit-save] { grid-column: 1 / -1; margin: 0 0 8px; }
+  .page[data-page="household"] [data-mobile-inputs="true"] .hh-finance-amount-row [data-household-retry-save] { grid-column: 1 / -1; justify-self: end; }
   .page[data-page="household"] [data-mobile-inputs="true"] .hh-form-section { margin: 20px 0 0; padding: 0; border: 0; }
   .page[data-page="household"] [data-mobile-inputs="true"] .hh-mobile-section-title { display: block; margin: 0 0 14px; font-size: 18px; font-weight: 400; text-transform: none; letter-spacing: -.2px; color: var(--ink); }
   .page[data-page="household"] [data-mobile-inputs="true"] .hh-family-filing { display: grid; grid-template-columns: 1fr; gap: 16px; }
@@ -69,6 +73,10 @@
   .page[data-page="household"] [data-mobile-inputs="true"] .nw-more-menu { position: static; width: 100%; box-shadow: none; }
   .page[data-page="household"] [data-mobile-inputs="true"] .nw-form-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 9em), 1fr)); gap: 16px 12px; }
   .page[data-page="household"] [data-mobile-inputs="true"] .nw-field { min-width: 0; }
+  .page[data-page="household"] [data-mobile-inputs="true"] .nw-field:has([data-net-worth-draft="name"]) { grid-column: 1 / -1; }
+  .page[data-page="household"] [data-mobile-inputs="true"] .nw-allocation-options { grid-template-columns: repeat(auto-fit, minmax(min(100%, 9em), 1fr)); grid-auto-flow: row; gap: 6px; border: 0; overflow: visible; }
+  .page[data-page="household"] [data-mobile-inputs="true"] .nw-allocation-option { border: 1px solid var(--line); border-radius: 6px; }
+  .page[data-page="household"] [data-mobile-inputs="true"] .nw-allocation-option span { min-width: 0; min-height: 44px; height: auto; padding: 8px; font-size: 14px; line-height: 1.4; white-space: normal; overflow-wrap: anywhere; }
   .page[data-page="household"] [data-mobile-inputs="true"] :is(.nw-field > span, .nw-type-selection) { font-size: 14px; text-transform: none; letter-spacing: 0; }
   .page[data-page="household"] [data-mobile-inputs="true"] :is(.nw-type-chip, .nw-more-menu button, .nw-panel-footer button) { min-height: 44px; height: auto; white-space: normal; }
   .page[data-page="household"] [data-mobile-inputs="true"] .nw-entry-view { display: flex; flex-direction: column; gap: 0; }

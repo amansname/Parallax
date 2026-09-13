@@ -369,7 +369,7 @@ test('Family preserves its demographic fields and routes Social Security amounts
   assert.match(html, /data-wizard-field="spouse\.socialSecurityAge"/);
   assert.match(html, /data-wizard-field="client\.planEndAge"/);
   assert.match(html, /data-wizard-field="spouse\.planEndAge"/);
-  assert.equal((html.match(/<span>Social Security<\/span>/g) || []).length, 2);
+  assert.equal((html.match(/<span data-mobile-label="Social Security claim age">Social Security<\/span>/g) || []).length, 2);
   assert.match(html, /<span>Children\?<\/span>/);
   assert.match(html, /data-wizard-field="dependents"/);
   assert.doesNotMatch(html, /Social Security at/);
@@ -820,7 +820,7 @@ test('Summary Continue to Goals is available even when tax summary is not calcul
 test('finance-only renders preserve an outstanding Family refresh failure until full recovery', () => {
   let notice;
   let replacements = 0;
-  const workspace = { querySelector: () => notice, prepend: node => { notice = node; } };
+  const workspace = { querySelector: () => notice, prepend: node => { notice = node; node.parentElement = workspace; } };
   const document = {
     querySelector(selector){
       if(selector === '#hh-view') return view;
@@ -829,13 +829,13 @@ test('finance-only renders preserve an outstanding Family refresh failure until 
     },
     createElement(tag){
       if(tag === 'template') return { content: { querySelectorAll: () => [{}] } };
-      return { dataset: {}, setAttribute(){}, textContent: '', hidden: false };
+      return { dataset: {}, setAttribute(){}, toggleAttribute(){}, textContent: '', hidden: false };
     },
   };
   const root = {
     dataset: { householdId: 'hh-wizard-test', wizardReady: 'true' },
     ownerDocument: document, classList: { toggle(){} },
-    setAttribute(){}, querySelector: () => workspace,
+    setAttribute(){}, querySelector: selector => selector === '[data-household-commit-notice]' ? notice : workspace,
   };
   const view = { ownerDocument: document, querySelectorAll: () => [{ replaceWith(){ replacements += 1; } }] };
   const previousDocument = globalThis.document;

@@ -67,7 +67,7 @@ export function renderHouseholdWizardFamily(ctx){
               data-wizard-scope="family" data-wizard-field="${owner}.retirementAge">
           </label>
           <label class="hh-field hh-field--social-security">
-            <span>Social Security</span>
+            <span data-mobile-label="Social Security claim age">Social Security</span>
             <input type="number" min="62" max="70"
               value="${fieldValue(plan.income?.socialSecurity?.[ssKey]?.claimAge)}"
               data-hh-field="${owner}.socialSecurityAge"

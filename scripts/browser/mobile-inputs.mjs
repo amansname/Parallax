@@ -201,6 +201,12 @@ export async function verifyMobileInputs({ browser, url, screenshotDir }){
       await page.select('[data-net-worth-draft="owner"]', account.owner);
       await typeInto(page, '[data-net-worth-draft="value"]', account.balance);
       assert.equal(await page.$eval('.nw-panel', node => getComputedStyle(node).position), 'static');
+      assert.deepEqual(await page.$$eval('.nw-allocation-option span', nodes => nodes.map(node => node.textContent)),
+        ['Defensive', 'Conservative', 'Balanced', 'Growth', 'Aggressive']);
+      assert.equal(await page.$$eval('.nw-allocation-option span', nodes => nodes.every(node => {
+        const rect = node.getBoundingClientRect();
+        return rect.left >= 0 && rect.right <= innerWidth && rect.height >= 44 && node.scrollWidth <= node.clientWidth;
+      })), true);
       if(account === fixture.accounts[0]){
         const beforeFailedAccount = await saved(page);
         await setStorageFailure(page, true);
@@ -304,6 +310,32 @@ export async function verifyMobileInputs({ browser, url, screenshotDir }){
     assert.equal(travel.cat, 'travel');
     assert.equal(travel.startAge, 66); assert.equal(travel.endAge, 75);
     assert.equal(goals.find(goal => goal.id === 'system:essentials').amount, 38000);
+    for(const action of ['amount', 'delete', 'undo']){
+      const beforeFailure = await saved(page);
+      await setStorageFailure(page, true);
+      if(action === 'amount') await typeInto(page, '[data-gm-inline="system:essentials"]', 40000);
+      else if(action === 'delete'){
+        await page.click(`[data-gm-action="open"][data-goal-id="${travel.id}"]`);
+        await page.click('[data-gm-action="delete"]');
+      }else await page.click('[data-gm-action="undo"]');
+      await page.waitForSelector('[data-gm-action="retry-save"]');
+      assert.deepEqual(await saved(page), beforeFailure);
+      assert.equal(await page.$eval('.app-header', node => node.inert), true);
+      assert.equal(await page.$$eval('[data-mobile-goals="list"] input', nodes => nodes.every(node => node.disabled)), true);
+      assert.equal(await page.$$eval('.gm-undo', nodes => nodes.length), 0);
+      await page.click('[data-gm-action="retry-save"]');
+      assert.deepEqual(await saved(page), beforeFailure);
+      await setStorageFailure(page, false);
+      await page.click('[data-gm-action="retry-save"]');
+      await page.waitForFunction(() => !document.querySelector('[data-save-pending]'));
+      const afterRetry = (await saved(page)).plan.goals;
+      assert.equal(afterRetry.filter(goal => goal.id === travel.id).length, action === 'delete' ? 0 : 1);
+      if(action === 'amount'){
+        assert.equal(afterRetry.find(goal => goal.id === 'system:essentials').amount, 40000);
+        await typeInto(page, '[data-gm-inline="system:essentials"]', 38000);
+      }
+    }
+    assert.deepEqual((await saved(page)).plan.goals, goals, 'List failure recovery changed the final Goals facts');
     await page.screenshot({ path: join(screenshotDir, 'mobile-inputs-goals.png'), fullPage: true });
 
     await clickPlanningTab(page, 'scenarios');

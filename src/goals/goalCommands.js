@@ -126,5 +126,9 @@ export function createGoalCommands(deps){
     if(receipt.removed) receipt.context = snapshot();
     return !deps.isSaveFailed?.() && !deps.isReadOnly?.();
   }
-  return { identity, find, update, create, duplicate, remove, restore, applyDraft, beginMove, move, publish };
+  function retrySave(receipt){
+    if(!receipt || receipt.householdId !== identity() || deps.isReadOnly?.()) return false;
+    return deps.retrySave?.() === true;
+  }
+  return { identity, find, update, create, duplicate, remove, restore, applyDraft, beginMove, move, publish, retrySave };
 }

@@ -463,6 +463,7 @@ function commitPlanEdit(){
 
 const goalsHorizon=createGoalsHorizonController({
   getPlan:()=>plan, getHouseholdId:()=>activeHouseholdId, getScenarios:()=>scenarios, isSaveFailed:()=>saveFailed,
+  retrySave:()=>{ const saved=autoSavePlan(); syncPlanEditStatus('Saved automatically · open Scenarios'); return saved; },
   isReadOnly:()=>isHouseholdStorageReadOnly() || isHouseholdStorageBlocked(),
   guardMutation:guardPlanMutation,
   arm:()=>{

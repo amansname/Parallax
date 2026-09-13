@@ -23,10 +23,13 @@ export function createMobileGoalsController(deps){
   let undo = null;
   let error = '';
   let listScroll = null;
+  let pendingSave = null;
+  let header = null;
+  let headerWasInert = false;
   const list = () => deps.getPlan().goals || [];
   const identity = () => deps.getHouseholdId?.() ?? deps.getPlan();
   const span = () => resolveGoalSpan(deps.getPlan());
-  const readOnly = () => Boolean(deps.isReadOnly?.());
+  const readOnly = () => Boolean(deps.isReadOnly?.() || pendingSave);
   const find = id => {
     const index = list().findIndex((goal, i) => idFor(goal, i) === id);
     return index < 0 ? null : { goal: list()[index], index };
@@ -39,6 +42,7 @@ export function createMobileGoalsController(deps){
     editing = null;
     undo = null;
     error = '';
+    pendingSave = null;
   }
 
   function categories(action, selected = null){
@@ -48,14 +52,16 @@ export function createMobileGoalsController(deps){
 
   function renderList(){
     const currentSpan = span();
-    return `<div class="gh-page gm-page" data-mobile-goals="list">
+    return `<div class="gh-page gm-page" data-mobile-goals="list"${pendingSave ? ' data-save-pending' : ''}>
       <header class="gm-heading"><h1 tabindex="-1">Goals</h1><span>${list().length} goals</span></header>
+      <p class="gm-add-label">Add a goal</p>
+      ${pendingSave ? '<div class="gm-save-recovery"><p role="alert" id="gm-save-error">Could not save to this browser. Keep Goals open and use Retry Save when storage is available.</p><button type="button" data-gm-action="retry-save" aria-describedby="gm-save-error">Retry Save</button></div>' : ''}
       ${categories('new')}
       <div class="gm-list">${list().map((goal, index) => {
         const effective = effectiveGoalForView(goal, currentSpan);
         const id = esc(idFor(goal, index));
         return `<div class="gm-row" data-mobile-goal="${id}">
-          <button class="gm-open" type="button" data-gm-action="open" data-goal-id="${id}">
+          <button class="gm-open" type="button" data-gm-action="open" data-goal-id="${id}"${disabled(readOnly())}>
             ${icon(normalizeGoalCategory(goal))}<span><strong>${esc(goal.name || 'Untitled goal')}</strong><small>${esc(goalTimingLabel(effective))}</small></span>
           </button>
           <label class="gm-inline-amount"><span class="gh-sr-only">${esc(goal.name || 'Goal')} amount</span><span aria-hidden="true">$</span>
@@ -64,7 +70,7 @@ export function createMobileGoalsController(deps){
           </label>
         </div>`;
       }).join('') || '<p class="gm-empty">Choose a category to add your first goal.</p>'}</div>
-      ${undo ? `<div class="gm-undo" role="status"><span>Deleted ${esc(undo.goal.name || 'goal')}</span><button type="button" data-gm-action="undo"${disabled(readOnly())}>Undo</button></div>` : ''}
+      ${undo && !pendingSave ? `<div class="gm-undo" role="status"><span>Deleted ${esc(undo.goal.name || 'goal')}</span><button type="button" data-gm-action="undo"${disabled(readOnly())}>Undo</button></div>` : ''}
       <p class="gm-error" role="alert" ${error ? '' : 'hidden'}>${esc(error)}</p>
     </div>`;
   }
@@ -84,8 +90,8 @@ export function createMobileGoalsController(deps){
     const endHidden = once && !Object.hasOwn(editing.raw, 'end') && !editing.errors.end;
     const message = Object.values(editing.errors)[0] || error;
     const timing = (field, label, age) => `<label class="gm-field"${field === 'end' && endHidden ? ' hidden' : ''}><span>${label}</span><input type="text" inputmode="numeric" data-gm-field="${field}" data-field="${field}-${unit}" value="${esc(editing.raw[field] ?? period(age))}"${invalid(field)}${disabled(blocked)}></label>`;
-    return `<div class="gh-page gm-page gm-editor" data-mobile-goals="editor" data-goal-rail="${esc(editing.id)}">
-      <header class="gm-detail-heading"><button type="button" data-gm-action="cancel" aria-label="Cancel and return to Goals">‹</button><h1 tabindex="-1">${editing.isNew ? 'New goal' : 'Edit goal'}</h1><span></span></header>
+    return `<div class="gh-page gm-page gm-editor" data-mobile-goals="editor" data-goal-rail="${esc(editing.id)}"${pendingSave ? ' data-save-pending' : ''}>
+      <header class="gm-detail-heading"><button type="button" data-gm-action="cancel" aria-label="Cancel and return to Goals"${disabled(pendingSave)}>‹</button><h1 tabindex="-1">${editing.isNew ? 'New goal' : 'Edit goal'}</h1><span></span></header>
       ${categories('category', category)}
       <div class="gm-editor-body">
         <label class="gm-field gm-name"><span>Goal name</span><input class="gh-name-input" data-gm-field="name" data-field="name" value="${esc(goal.name || '')}" placeholder="Name this goal"${invalid('name')}${disabled(blocked)}></label>
@@ -97,7 +103,7 @@ export function createMobileGoalsController(deps){
         <div class="gm-field" data-gm-funding ${goalHasFutureWorkingYears(effective, currentSpan) ? '' : 'hidden'}><span>Before retirement</span><div class="gm-segments" role="group" aria-label="Before retirement funding source"><button type="button" data-gm-action="funding" data-portfolio="false" aria-pressed="${goal.fundFromPortfolioBeforeRetirement !== true}"${disabled(blocked)}>Working income / outside portfolio</button><button type="button" data-gm-action="funding" data-portfolio="true" aria-pressed="${goal.fundFromPortfolioBeforeRetirement === true}"${disabled(blocked)}>Portfolio</button></div></div>
         <p class="gm-error" role="alert" ${message ? '' : 'hidden'}>${esc(message)}</p>
       </div>
-      <footer class="gm-footer"><button type="button" data-gm-action="cancel">Cancel</button><button class="gm-save" type="button" data-gm-action="save"${disabled(blocked)}>Save goal</button></footer>
+      <footer class="gm-footer"><button type="button" data-gm-action="cancel"${disabled(pendingSave)}>Cancel</button><button class="gm-save" type="button" data-gm-action="save"${disabled(deps.isReadOnly?.())}>${pendingSave ? 'Retry Save' : 'Save goal'}</button></footer>
       ${!editing.isNew && !goal.system ? `<button class="gm-delete" type="button" data-gm-action="delete"${disabled(blocked)}>Delete goal</button>` : ''}
     </div>`;
   }
@@ -151,6 +157,7 @@ export function createMobileGoalsController(deps){
     }
   }
   function save(){
+    if(pendingSave){ retrySave(); return; }
     if(!editing) return;
     if(!prepareGoalSessionSave(editing, deps.getPlan())){ syncSessionPresentation(true); return; }
     let receipt;
@@ -163,16 +170,35 @@ export function createMobileGoalsController(deps){
     householdId = identity();
     if(!commands.publish(receipt)){
       editing.saveFailed = true;
-      showError('Could not save to this browser. Keep this editor open and retry Save when storage is available.'); return;
+      pendingSave = receipt;
+      error = 'Could not save to this browser. Keep this editor open and use Retry Save when storage is available.';
+      rerender('[data-gm-action="save"]'); return;
     }
     editing = null; error = '';
     if(deps.onEditorClosed) deps.onEditorClosed(); else rerender();
     root.querySelector('.gm-heading h1')?.focus({ preventScroll: true });
   }
+  function publishList(receipt, cadence){
+    if(commands.publish(receipt, cadence)) return true;
+    pendingSave = receipt; error = '';
+    rerender('[data-gm-action="retry-save"]');
+    root.querySelector('.gm-save-recovery')?.scrollIntoView({ block: 'center' });
+    return false;
+  }
+  function retrySave(){
+    if(!commands.retrySave(pendingSave)) return;
+    pendingSave = null; error = '';
+    if(editing){ editing = null; }
+    if(deps.onEditorClosed) deps.onEditorClosed(); else rerender('.gm-heading h1');
+  }
   function click(event){
     const button = event.target.closest('[data-gm-action]');
     if(!button || button.disabled) return;
     const action = button.dataset.gmAction;
+    if(pendingSave){
+      if(action === 'retry-save' || action === 'save') retrySave();
+      return;
+    }
     if(action === 'new'){ startEditing(createGoalForCategory(button.dataset.category, span()), '', true); return; }
     if(action === 'open'){ const record = find(button.dataset.goalId); if(record) startEditing(record.goal, button.dataset.goalId, false); return; }
     if(action === 'cancel'){ cancel(); return; }
@@ -183,7 +209,7 @@ export function createMobileGoalsController(deps){
       try { receipt = commands.restore(undo); }
       catch(failure){ undo = null; error = failure.message; rerender(); return; }
       if(!receipt) return;
-      undo = null; householdId = identity(); commands.publish(receipt); rerender(); return;
+      undo = null; householdId = identity(); if(publishList(receipt)) rerender(); return;
     }
     if(!editing) return;
     const goal = editing.draft.value;
@@ -193,7 +219,7 @@ export function createMobileGoalsController(deps){
       if(!receipt) return;
       undo = receipt;
       editing = null; householdId = identity();
-      commands.publish(receipt); rerender(); return;
+      if(publishList(receipt)) rerender(); return;
     }
     if(!flushFields()) return;
     if(action === 'lens') editing.lens.mode = button.dataset.mode === 'year' ? 'year' : 'age';
@@ -225,6 +251,7 @@ export function createMobileGoalsController(deps){
     return valid;
   }
   function change(event){
+    if(pendingSave) return;
     const control = event.target;
     if(control.dataset.gmInline){
       const amount = numeric(control);
@@ -234,7 +261,7 @@ export function createMobileGoalsController(deps){
       control.dataset.gmInline = receipt.goal.id;
       control.closest('[data-mobile-goal]').querySelector('[data-goal-id]').dataset.goalId = receipt.goal.id;
       control.value = money(goalDisplayAmount(receipt.goal));
-      commands.publish(receipt, 'arm'); return;
+      publishList(receipt, 'arm'); return;
     }
     if(!editing || readOnly()) return;
     const field = control.dataset.gmField;
@@ -272,13 +299,23 @@ export function createMobileGoalsController(deps){
     root.querySelector('[data-gm-funding]').hidden = !goalHasFutureWorkingYears(updated, span());
     if(focus) root.querySelector('[aria-invalid="true"]')?.focus({ preventScroll: true });
   }
-  function unbind(){ events?.abort(); }
+  function unbind(){
+    events?.abort();
+    if(header){ header.inert = headerWasInert; header = null; }
+  }
   function bind(element){
     root = element; unbind(); events = new AbortController();
     const options = { signal: events.signal };
     root.addEventListener('click', click, options);
     root.addEventListener('input', input, options);
     root.addEventListener('change', change, options);
+    if(pendingSave){
+      for(const button of root.querySelectorAll('button')){
+        if(!['save', 'retry-save'].includes(button.dataset.gmAction)) button.disabled = true;
+      }
+      header = root.ownerDocument?.querySelector('.app-header');
+      if(header){ headerWasInert = header.inert; header.inert = true; }
+    }
   }
-  return { render, bind, unbind, isEditing: () => { syncIdentity(); return Boolean(editing); } };
+  return { render, bind, unbind, isEditing: () => { syncIdentity(); return Boolean(editing || pendingSave); } };
 }
