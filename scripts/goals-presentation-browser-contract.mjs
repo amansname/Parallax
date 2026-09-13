@@ -132,15 +132,33 @@ export async function runGoalsPresentationContract(page,{householdId,outDir}={})
   await page.waitForSelector('.gh-rail',{hidden:true});
   await checkGlows(page,await timeline(page),failures,'editor closed');
   assert.equal(await page.$$eval('#gl-ledger,.glx-row,.glc-card,.ga-board,.gh-title',nodes=>nodes.length),0);
+  const savedGoals=await page.evaluate(id => JSON.parse(localStorage.getItem('parallax.households.v1'))[id].goals,householdId);
   const viewport=page.viewport();
   for(const width of [1440,390]){
     await page.setViewport({width,height:1000});
     await page.evaluate(() => document.fonts.ready);
-    await checkGlows(page,await timeline(page),failures,`${width}px viewport`);
+    if(width === 390){
+      await page.waitForSelector('[data-mobile-goals="list"]',{visible:true});
+      const mobile=await page.$$eval('[data-mobile-goal]',rows => rows.map(row => ({
+        id:row.dataset.mobileGoal, name:row.querySelector('.gm-open strong').textContent,
+        amount:row.querySelector('[data-gm-inline]').value, cadence:row.querySelector('.gm-inline-amount small').textContent,
+      })));
+      assert.deepEqual(mobile,savedGoals.map(goal => ({
+        id:goal.id,name:goal.name,
+        amount:Math.round(goal.per === 'mo' ? goal.amount/12 : goal.amount).toLocaleString('en-US'),
+        cadence:Number(goal.startAge) === Number(goal.endAge) ? 'once' : goal.per === 'mo' ? '/ month' : '/ year',
+      })),'phone rows preserve every goal identity, name, amount and cadence');
+    }else{
+      await page.waitForSelector('.gh-lane',{visible:true});
+      await checkGlows(page,await timeline(page),failures,`${width}px viewport`);
+    }
+    assert.deepEqual(await page.evaluate(id => JSON.parse(localStorage.getItem('parallax.households.v1'))[id].goals,householdId),savedGoals,
+      `${width}px viewport: presentation does not change saved goals`);
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth-document.documentElement.clientWidth <= 2),
       `${width}px viewport: no horizontal overflow`);
     if(outDir) await page.screenshot({path:join(outDir,`goals-presentation-${width}.png`),fullPage:true});
   }
   await page.setViewport(viewport);
+  await page.waitForSelector('.gh-lane',{visible:true});
   assert.deepEqual(failures,[],`Goals presentation regressions:\n${failures.join('\n')}`);
 }
