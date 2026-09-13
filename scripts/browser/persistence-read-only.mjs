@@ -2,6 +2,7 @@
 import { waitForWizard } from '../wizard-browser-contract.mjs';
 import { goToWizardStep } from '../wizard-browser-contract.mjs';
 import { openNetWorthCategory } from '../wizard-browser-contract.mjs';
+import { waitForPlanCalculation } from './wizard/actions.mjs';
 export async function verifyReadOnlyPersistence({
   page,
   stableReload,
@@ -474,6 +475,7 @@ export async function verifyReadOnlyPersistence({
       bubbles: true
     }));
   });
+  await waitForPlanCalculation(page);
   await waitForWizard(page, {
     afterRevision: beforeNow,
     householdId: 'now-household'
@@ -489,6 +491,7 @@ export async function verifyReadOnlyPersistence({
   await assertBytesUnchanged('switch to Now');
   const beforeOther = await page.$eval('[data-hh-wizard-root]', element => Number(element.dataset.renderRevision));
   await page.select('#hh-switch', 'other');
+  await waitForPlanCalculation(page);
   await waitForWizard(page, {
     afterRevision: beforeOther,
     householdId: 'other'
@@ -537,6 +540,7 @@ export async function verifyReadOnlyPersistence({
       bubbles: true
     }));
   });
+  await waitForPlanCalculation(page);
   await waitForWizard(page, {
     afterRevision: beforeFuture,
     householdId: 'future-household'
