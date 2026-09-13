@@ -286,6 +286,7 @@ test('wizard teardown blur does not dispatch a nested Tax edit', () => {
   const control = {
     value: '125,000',
     dataset: { householdCommittedValue: '120,000' },
+    getAttribute(){ return null; },
     closest(selector){ return selector === '.hh-tax-amount' ? this : null; },
     dispatchEvent(){ dispatched += 1; },
   };

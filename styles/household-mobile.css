@@ -154,7 +154,7 @@
   .hh-mobile-tax-investments > h2, .hh-mobile-tax-deductions > h2 { margin: 0 0 8px; font-size: 13px; font-weight: 500; letter-spacing: 0; }
   .hh-mobile-tax-period { margin: -4px 0 12px; color: var(--body); font-size: 12px; line-height: 1.4; }
   .hh-mobile-tax-deductions { margin-top: 22px; }
-  .hh-mobile-tax-deductions > .hh-deduction-method { display: none; }
+  .page[data-page="household"] [data-mobile-inputs="true"] .hh-mobile-tax-deductions > .hh-deduction-method { display: none; }
   .hh-mobile-deduction-primary, .hh-mobile-deduction-source { display: flex; flex-wrap: wrap; gap: 4px; }
   .hh-mobile-deduction-primary { padding: 3px; border: 1px solid var(--rule); border-radius: 7px; }
   .hh-mobile-deduction-source { margin-top: 8px; }

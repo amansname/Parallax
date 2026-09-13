@@ -21,9 +21,9 @@
 .gm-open strong { display: block; font-size: 14px; font-weight: 400; overflow-wrap: anywhere; }
 .gm-open small { display: block; font-size: 11px; line-height: 1.4; color: var(--body); margin-top: 4px; }
 .gm-inline-amount { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; max-width: 50%; margin-left: auto; font-size: 16px; }
-.gm-amount-value { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 1ch; max-width: calc(100% - 1em); }
+.gm-amount-value { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 1ch; max-width: calc(100% - 1em); font-variant-numeric: tabular-nums; }
 .gm-amount-value > span { grid-area: 1 / 1; min-width: 0; overflow: hidden; visibility: hidden; white-space: pre; padding: 4px 0; }
-.gm-inline-amount input { grid-area: 1 / 1; width: 100%; min-width: 0; min-height: 44px; padding: 4px 0; text-align: right; border: 0; border-radius: 0; background: none; }
+.gm-inline-amount input { grid-area: 1 / 1; width: 0; min-width: 100%; min-height: 44px; padding: 4px 0; text-align: right; border: 0; border-radius: 0; background: none; }
 .gm-inline-amount small { width: 100%; font-size: 11px; color: var(--body); text-align: right; }
 .gm-detail-heading { display: flex; align-items: center; justify-content: space-between; min-height: 56px; padding: 6px 16px; border-bottom: 1px solid var(--rule); }
 .gm-detail-heading h1 { margin: 0; font-size: 18px; line-height: 1.25; font-weight: 500; }
