@@ -1,10 +1,10 @@
 import { escHtml } from './dom.js';
+import { createMobileGoalsController } from './goalsMobile.js';
+import { effectiveGoalForView } from './goalsTimingPresentation.js';
+import { createGoalCommands } from '../src/goals/goalCommands.js';
 import {
   GOAL_CATEGORIES,
   GOAL_CATEGORY_MAP,
-  createGoalForCategory,
-  defaultGoalId,
-  duplicateGoal,
   formatGoalAmount,
   goalAgeToPeriodValue,
   goalDisplayAmount,
@@ -14,13 +14,7 @@ import {
   goalTimingLabel,
   isOneTimeGoal,
   normalizeGoalCategory,
-  resolveEffectiveGoal,
   resolveGoalSpan,
-  setGoalDisplayAmount,
-  setGoalKind,
-  setGoalPer,
-  setGoalRange,
-  shiftGoal,
 } from '../src/goals/horizonModel.js';
 
 const ICON_ROOT = 'assets/goals-horizon';
@@ -44,26 +38,6 @@ function goalIndexByViewId(goals, id){
     return goals[index] && !goals[index].id ? index : -1;
   }
   return -1;
-}
-
-function effectiveGoalForView(goal, span){
-  const resolved = resolveEffectiveGoal(goal, null, span.retirementAge);
-  const startAge = Number.isFinite(Number(resolved.startAge))
-    ? Number(resolved.startAge)
-    : span.retirementAge;
-  const requestedEnd = Number.isFinite(Number(resolved.endAge))
-    ? Number(resolved.endAge)
-    : span.planEndAge;
-  const endAge = Math.max(startAge, Math.min(requestedEnd, span.planEndAge));
-  return { ...goal, startAge, endAge };
-}
-
-function materializeGoalTiming(goal, span, { detachFromRetirement = false } = {}){
-  const effective = effectiveGoalForView(goal, span);
-  goal.startAge = effective.startAge;
-  goal.endAge = effective.endAge;
-  if(detachFromRetirement) goal.startsAtRetirement = false;
-  return goal;
 }
 
 function timingPresets(span){
@@ -265,10 +239,17 @@ function liveCommas(input){
 }
 
 export function createGoalsHorizonController(deps){
+  const mobileMedia = globalThis.matchMedia?.('(max-width: 760px), (max-width: 1023px) and (max-height: 500px)');
+  const commands = createGoalCommands(deps);
+  const mobile = createMobileGoalsController({ ...deps, commands, onEditorClosed: () => rerender(), onInteractionEnd: () => {
+    if(renderedMobile !== Boolean(mobileMedia?.matches) && !state.selectedId && !state.drag) rerender();
+  } });
   const state={ selectedId:null, addOpen:true, initialSelectionResolved:false, flashId:null, toast:null, drag:null, timingLens:new Map() };
+  let renderedMobile = Boolean(mobileMedia?.matches);
   let root=null;
   let abortController=null;
   let toastTimer=null;
+  let householdId=deps.getHouseholdId?.();
 
   const goals=()=>Array.isArray(deps.getPlan().goals) ? deps.getPlan().goals : [];
   const disabled=()=>Boolean(deps.isReadOnly?.());
@@ -296,10 +277,9 @@ export function createGoalsHorizonController(deps){
     return index>=0 ? {goal:list[index],index} : null;
   };
 
-  const prepareGoal=(goal,index)=>{
-    if(!goal.id){
-      const old=viewGoalId(goal,index);
-      goal.id=defaultGoalId(index);
+  const acceptReceipt=receipt=>{
+    const { goal, oldId: old } = receipt;
+    if(old && old !== goal.id){
       if(state.timingLens.has(old)){
         state.timingLens.set(goal.id,state.timingLens.get(old));
         state.timingLens.delete(old);
@@ -312,14 +292,20 @@ export function createGoalsHorizonController(deps){
         if(chip) chip.dataset.goalChip=goal.id;
       }
     }
-    const cat=normalizeGoalCategory(goal);
-    goal.cat=cat;
-    goal.area=cat;
-    if(goal.per!=='mo') goal.per='yr';
     return goal;
   };
 
   const render=()=>{
+    const nextHouseholdId=deps.getHouseholdId?.();
+    if(householdId !== nextHouseholdId){
+      householdId=nextHouseholdId;
+      state.selectedId=null; state.drag=null; state.toast=null;
+      state.addOpen=true; state.timingLens.clear();
+      if(toastTimer){ clearTimeout(toastTimer); toastTimer=null; }
+    }
+    if(state.selectedId && !selectedRecord()) state.selectedId=null;
+    if(!mobile.isEditing() && !state.selectedId && !state.drag) renderedMobile = Boolean(mobileMedia?.matches);
+    if(renderedMobile) return mobile.render();
     const list=goals();
     if(!state.initialSelectionResolved && list.length){
       state.initialSelectionResolved=true;
@@ -333,7 +319,7 @@ export function createGoalsHorizonController(deps){
       ? list.map((goal,index)=>renderLane(goal,index,currentSpan,state,isDisabled)).join('')
       : '<div class="gh-empty">Nothing on the horizon yet — add a goal and it will land right here on the timeline.</div>';
     const selected=selectedRecord();
-    const toast=state.toast ? `<div class="gh-toast" role="status"><span>Deleted “${escHtml(state.toast.goal.name || 'Untitled goal')}”</span><button type="button" data-action="undo">Undo</button><button type="button" data-action="dismiss-toast" aria-label="Dismiss">×</button></div>` : '';
+    const toast=state.toast ? `<div class="gh-toast" role="status"><span>${state.toast.error ? escHtml(state.toast.error) : `Deleted “${escHtml(state.toast.goal.name || 'Untitled goal')}”`}</span>${state.toast.error ? '' : '<button type="button" data-action="undo">Undo</button>'}<button type="button" data-action="dismiss-toast" aria-label="Dismiss">×</button></div>` : '';
     const addRail=state.addOpen ? renderAddRail(isDisabled) : '';
     return `<div class="gh-page${selected || state.addOpen ? '' : ' is-editor-closed'}">
       <div class="gh-main">
@@ -358,9 +344,6 @@ export function createGoalsHorizonController(deps){
     root.innerHTML=render();
     bind(root);
   };
-
-  const arm=()=>deps.arm?.();
-  const commit=()=>deps.commit?.();
 
   const updateChipText=(goal,id,currentSpan=span())=>{
     if(!root) return;
@@ -397,7 +380,7 @@ export function createGoalsHorizonController(deps){
 
   const scheduleToast=()=>{
     if(toastTimer) clearTimeout(toastTimer);
-    toastTimer=setTimeout(()=>{ state.toast=null; toastTimer=null; rerender(); },8000);
+    toastTimer=setTimeout(()=>{ state.toast=null; toastTimer=null; root?.querySelector('.gh-toast')?.remove(); },8000);
   };
 
   const clickHandler=e=>{
@@ -413,15 +396,13 @@ export function createGoalsHorizonController(deps){
     const actionEl=e.target.closest('[data-action]');
     const addEl=e.target.closest('[data-add-category]');
     if(addEl){
-      if(!deps.guardMutation()) return;
-      const currentSpan=span();
-      const goal=createGoalForCategory(addEl.dataset.addCategory,currentSpan);
-      const index=goals().length;
-      deps.insertGoal(index,goal);
+      const receipt=commands.create(addEl.dataset.addCategory);
+      if(!receipt) return;
+      const {goal}=receipt;
       state.selectedId=goal.id;
       state.flashId=goal.id;
       state.addOpen=false;
-      commit();
+      commands.publish(receipt);
       setTimeout(()=>{ state.flashId=null; },1500);
       return;
     }
@@ -443,12 +424,14 @@ export function createGoalsHorizonController(deps){
       dismissToast(); rerender(); return;
     }
     if(action==='undo'){
-      if(!state.toast || !deps.guardMutation()) return;
-      const restored=state.toast;
+      if(!state.toast) return;
+      let restored;
+      try { restored=commands.restore(state.toast); }
+      catch(error){ state.toast.error=error.message; rerender(); return; }
+      if(!restored) return;
       dismissToast();
-      deps.insertGoal(restored.index,restored.goal,restored.overrides);
       state.flashId=restored.goal.id || `legacy_${restored.index}`;
-      commit();
+      commands.publish(restored);
       setTimeout(()=>{ state.flashId=null; },1500);
       return;
     }
@@ -459,83 +442,69 @@ export function createGoalsHorizonController(deps){
       rerender();
       return;
     }
-    if(!deps.guardMutation()) return;
     const selected=selectedRecord();
     if(!selected) return;
     const {goal,index}=selected;
-    prepareGoal(goal,index);
     const currentSpan=span();
-    const once=isOneTimeGoal(goal);
+    let edit;
     if(action==='amount-minus'||action==='amount-plus'){
-      const step=once ? (goalDisplayAmount(goal)>=100000?25000:5000) : goal.per==='mo'?250:1000;
-      setGoalDisplayAmount(goal,Math.max(0,goalDisplayAmount(goal)+(action==='amount-plus'?step:-step)));
-    }else if(action==='per-year') setGoalPer(goal,'yr');
-    else if(action==='per-month') setGoalPer(goal,'mo');
-    else if(action==='fund-outside') goal.fundFromPortfolioBeforeRetirement=false;
-    else if(action==='fund-portfolio') goal.fundFromPortfolioBeforeRetirement=true;
-    else if(action==='kind-once'){
-      materializeGoalTiming(goal,currentSpan,{detachFromRetirement:true});
-      setGoalKind(goal,'once',currentSpan.planEndAge);
-    }else if(action==='kind-rec'){
-      materializeGoalTiming(goal,currentSpan,{detachFromRetirement:true});
-      setGoalKind(goal,'rec',currentSpan.planEndAge);
-    }
+      edit={type:'amount-step',direction:action==='amount-plus'?1:-1};
+    }else if(action==='per-year') edit={type:'per',value:'yr'};
+    else if(action==='per-month') edit={type:'per',value:'mo'};
+    else if(action==='fund-outside') edit={type:'funding',value:false};
+    else if(action==='fund-portfolio') edit={type:'funding',value:true};
+    else if(action==='kind-once'||action==='kind-rec') edit={type:'kind',value:action==='kind-once'?'once':'rec'};
     else if(action==='preset'){
       const preset=timingPresets(currentSpan).find(item=>item.key===actionEl.dataset.preset);
-      if(preset){
-        goal.startsAtRetirement=false;
-        setGoalRange(goal,preset.from,preset.to,currentSpan.planEndAge);
-      }
+      if(!preset) return;
+      edit={type:'preset',from:preset.from,to:preset.to};
     }else if(action==='age-minus'||action==='age-plus'){
-      materializeGoalTiming(goal,currentSpan,{detachFromRetirement:true});
-      const age=+goal.startAge+(action==='age-plus'?1:-1);
-      setGoalRange(goal,age,age,currentSpan.planEndAge);
+      edit={type:'age-step',direction:action==='age-plus'?1:-1};
     }else if(action==='category'){
-      const cat=GOAL_CATEGORY_MAP[actionEl.dataset.category]?actionEl.dataset.category:'custom';
-      goal.cat=cat; goal.area=cat;
+      edit={type:'category',value:actionEl.dataset.category};
     }else if(action==='duplicate'){
-      const copy=duplicateGoal(goal);
-      deps.insertGoal(index+1,copy);
+      const receipt=commands.duplicate(viewGoalId(goal,index));
+      if(!receipt) return;
+      const copy=receipt.goal;
       state.selectedId=copy.id;
       state.flashId=copy.id;
-      commit();
+      commands.publish(receipt);
       setTimeout(()=>{ state.flashId=null; },1500);
       return;
     }else if(action==='delete'){
       // Essentials and Healthcare are the household's baseline spending, not
       // discretionary goals. The button is hidden for them; this guards the
       // path anyway so a stale DOM or a keyboard route cannot remove one.
-      if(goals()[index]?.system) return;
-      const removed=deps.removeGoal(index);
+      const removed=commands.remove(viewGoalId(goal,index));
+      if(!removed) return;
       state.selectedId=null;
-      state.toast={...removed,index};
+      state.toast=removed;
       scheduleToast();
-      commit();
+      commands.publish(removed);
       return;
     }else return;
-    state.selectedId=goal.id;
-    commit();
+    const receipt=commands.update(viewGoalId(goal,index),edit);
+    if(!receipt) return;
+    acceptReceipt(receipt);
+    state.selectedId=receipt.goal.id;
+    commands.publish(receipt);
   };
 
   const inputHandler=e=>{
     const isName=e.target.matches('.gh-name-input');
     const isAmount=e.target.matches('.gh-amount-input');
     if(!isName && !isAmount) return;
-    if(!deps.guardMutation()) return;
     const selected=selectedRecord();
     if(!selected) return;
     const {goal,index}=selected;
-    prepareGoal(goal,index);
-    if(isName){
-      goal.name=e.target.value;
-      arm();
-      updateChipText(goal,goal.id);
-    }else if(isAmount){
-      liveCommas(e.target);
-      setGoalDisplayAmount(goal,parseInt(e.target.value.replace(/[^0-9]/g,''),10)||0);
-      arm();
-      updateChipText(goal,goal.id);
-    }
+    if(isAmount) liveCommas(e.target);
+    const receipt=commands.update(viewGoalId(goal,index),isName
+      ? {type:'name',value:e.target.value}
+      : {type:'amount',value:Number.parseInt(e.target.value.replace(/[^0-9]/g,''),10)||0});
+    if(!receipt) return;
+    acceptReceipt(receipt);
+    commands.publish(receipt,'arm');
+    updateChipText(receipt.goal,receipt.goal.id);
   };
 
   const changeHandler=e=>{
@@ -548,27 +517,20 @@ export function createGoalsHorizonController(deps){
       return;
     }
     if(!['once-age','start-age','end-age','once-year','start-year','end-year'].includes(field)) return;
-    if(!deps.guardMutation()) return;
     const selected=selectedRecord();
     if(!selected) return;
     const {goal,index}=selected;
-    prepareGoal(goal,index);
-    const currentSpan=span();
     const entered=parseInt(e.target.value.replace(/[^0-9]/g,''),10);
     const lens=timingLensFor(goal,index);
     const value=goalPeriodValueToAge(entered,deps.getPlan(),lens);
-    const effective=effectiveGoalForView(goal,currentSpan);
-    if(field==='once-age'||field==='once-year'){
-      goal.startsAtRetirement=false;
-      setGoalRange(goal,value,value,currentSpan.planEndAge);
-    }else if(field==='start-age'||field==='start-year'){
-      goal.startsAtRetirement=false;
-      setGoalRange(goal,value,effective.endAge,currentSpan.planEndAge,'start');
-    }else{
-      setGoalRange(goal,effective.startAge,value,currentSpan.planEndAge,'end');
-    }
-    state.selectedId=goal.id;
-    commit();
+    let receipt;
+    try { receipt=commands.update(viewGoalId(goal,index),{type:'range',edge:field.split('-')[0],value}); }
+    catch(error){ e.target.setCustomValidity?.(error.message); e.target.reportValidity?.(); return; }
+    if(!receipt) return;
+    e.target.setCustomValidity?.('');
+    acceptReceipt(receipt);
+    state.selectedId=receipt.goal.id;
+    commands.publish(receipt);
   };
 
   const pointerDownHandler=e=>{
@@ -584,35 +546,23 @@ export function createGoalsHorizonController(deps){
     if(!rect?.width) return;
     e.preventDefault();
     const currentSpan=span();
-    const effective=effectiveGoalForView(goal,currentSpan);
-    state.drag={ id,index,goal,startX:e.clientX,startAge:+effective.startAge,endAge:+effective.endAge,dragged:false,armed:false,rect,currentSpan,chip };
+    const token=commands.beginMove(id);
+    if(!token) return;
+    state.drag={ id,index,goal,startX:e.clientX,dragged:false,rect,currentSpan,chip,token };
     const move=event=>{
       const drag=state.drag;
       if(!drag) return;
       const dx=event.clientX-drag.startX;
       if(!drag.dragged && Math.abs(dx)<=4) return;
-      let firstMove=false;
-      if(!drag.armed){
-        if(!deps.guardMutation()) return;
-        const list=goals();
-        const index=goalIndexByViewId(list,drag.id);
-        if(index<0) return;
-        drag.goal=list[index];
-        drag.index=index;
-        drag.armed=true;
-        firstMove=true;
-      }
-      drag.dragged=true;
-      drag.chip.classList.add('is-dragging');
-      drag.goal.startsAtRetirement=false;
-      drag.goal.startAge=drag.startAge;
-      drag.goal.endAge=drag.endAge;
       const years=Math.round(dx/(drag.rect.width/(drag.currentSpan.axisMax-drag.currentSpan.axisMin)));
-      shiftGoal(drag.goal,years,{dragMin:drag.currentSpan.axisMin,planEndAge:drag.currentSpan.planEndAge});
-      if(!drag.goal.id) prepareGoal(drag.goal,drag.index);
-      drag.id=drag.goal.id;
-      updateGoalGeometry(drag.goal,drag.id,drag.currentSpan);
-      if(firstMove) arm();
+      const receipt=commands.move(drag.token,years);
+      if(!receipt) return;
+      drag.receipt=receipt; drag.dragged=true;
+      drag.chip.classList.add('is-dragging');
+      acceptReceipt(receipt);
+      drag.id=receipt.goal.id;
+      updateGoalGeometry(receipt.goal,drag.id,drag.currentSpan);
+      if(receipt.firstMove) commands.publish(receipt,'arm');
     };
     const up=()=>{
       const drag=state.drag;
@@ -621,7 +571,7 @@ export function createGoalsHorizonController(deps){
       window.removeEventListener('pointercancel',up);
       state.drag=null;
       if(!drag) return;
-      if(drag.dragged){ commit(); return; }
+      if(drag.dragged){ commands.publish(drag.receipt); return; }
       state.selectedId=drag.id;
       state.addOpen=false;
       rerender();
@@ -634,6 +584,8 @@ export function createGoalsHorizonController(deps){
   function bind(element){
     root=element;
     abortController?.abort();
+    mobile.unbind();
+    if(renderedMobile){ mobile.bind(root); return; }
     abortController=new AbortController();
     const options={signal:abortController.signal};
     root.addEventListener('click',clickHandler,options);
@@ -642,5 +594,10 @@ export function createGoalsHorizonController(deps){
     root.addEventListener('pointerdown',pointerDownHandler,options);
   }
 
+  mobileMedia?.addEventListener('change', () => {
+    // Keep raw text, caret and gesture ownership until the current editor closes.
+    if(mobile.isEditing() || state.selectedId || state.drag) return;
+    rerender();
+  });
   return { render, bind };
 }

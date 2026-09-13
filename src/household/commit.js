@@ -6,11 +6,14 @@ import { createFamilyActions } from './editor/familyActions.js';
 import { createTaxActions } from './editor/taxActions.js';
 import { birthDateValidityControl, clearBirthDateValidity } from './editor/valueControls.js';
 import { createHouseholdInlineErrors } from '../../ui/householdInlineErrors.js';
+import { createHouseholdExplicitSave } from './editor/explicitSave.js';
 export function bindHouseholdEditor({
   root,
   wizardRoot,
   transientState,
   guardPlanMutation,
+  isSaveFailed = () => false,
+  retrySave = () => false,
   commitWizardEdit,
   preflightWizardEdit = () => true,
   syncHousehold,
@@ -20,6 +23,7 @@ export function bindHouseholdEditor({
 }) {
   if (!root || !wizardRoot) return;
   const inlineErrors = createHouseholdInlineErrors(wizardRoot);
+  const explicitSave = createHouseholdExplicitSave({ root, transientState, retrySave, syncHousehold });
   function reportError(error, control = null) {
     const message = error instanceof Error ? error.message : String(error);
     wizardRoot.dataset.validationCode = error?.code || 'WIZARD_EDIT_REJECTED';
@@ -36,12 +40,23 @@ export function bindHouseholdEditor({
         target.setCustomValidity(message);
       }
       const inline = inlineErrors.report(target, message);
-      target.focus();
+      const sourceGroup = target.closest?.('[data-income-source-group]')?.dataset.incomeSourceGroup;
+      const sourceAction = target.disabled && sourceGroup
+        ? [...wizardRoot.querySelectorAll('[data-income-source-group]')]
+          .filter(group => group.dataset.incomeSourceGroup === sourceGroup)
+          .map(group => group.querySelector('button')).find(Boolean) : null;
+      const focusTarget = sourceAction || target;
+      for(let parent = focusTarget.parentElement; parent && parent !== wizardRoot; parent = parent.parentElement){
+        if(parent.matches('details')) parent.open = true;
+      }
+      focusTarget.focus();
+      if(sourceAction) sourceAction.scrollIntoView({ block: 'center' });
       if (!inline && typeof target.reportValidity === 'function') target.reportValidity();
     }
     syncHeaderStatus(message);
   }
   function commit(command, control = null, returnResult = false) {
+    if(transientState.explicitSavePending) return false;
     if (!guardPlanMutation()) return false;
     try {
       const result = commitWizardEdit(command);
@@ -62,10 +77,10 @@ export function bindHouseholdEditor({
         wizardRoot.setAttribute?.('aria-busy', 'false');
         wizardRoot.dataset.validationCode = 'WIZARD_REFRESH_FAILED';
         syncHeaderStatus('Edit applied, but the screen could not refresh');
-        return returnResult ? result : true;
+        return returnResult ? { ...result, saveFailed: isSaveFailed() } : true;
       }
       delete wizardRoot.dataset.validationCode;
-      return returnResult ? result : true;
+      return returnResult ? { ...result, saveFailed: isSaveFailed() } : true;
     } catch (error) {
       reportError(error, control);
       return false;
@@ -88,12 +103,14 @@ export function bindHouseholdEditor({
       syncHousehold
     }),
     ...createNetWorthMutationsActions({
+      explicitSave,
       guardPlanMutation,
       transientState,
       syncHousehold,
       commit
     }),
     ...createFamilyActions({
+      explicitSave,
       guardPlanMutation,
       preflightWizardEdit,
       reportError,
@@ -113,6 +130,7 @@ export function bindHouseholdEditor({
   root.addEventListener('focusout', inputHandlers.focusout);
   root.addEventListener('change', inputHandlers.change);
   root.addEventListener('keydown', event => {
+    if(transientState.explicitSavePending) return;
     const onFamily = wizardRoot.dataset.wizardStep === 'family';
     if(event.key === 'Escape' && onFamily && transientState.financePending){
       event.preventDefault();
@@ -147,10 +165,13 @@ export function bindHouseholdEditor({
     if (!action) return;
     if (action.disabled || action.getAttribute('aria-disabled') === 'true') return;
     const kind = action.dataset.hhAction;
+    if(transientState.explicitSavePending && !['net-worth-save-entry', 'commit-finance-entry'].includes(kind)) return;
     if (Object.hasOwn(actionHandlers, kind)) actionHandlers[kind](action);
   });
   globalThis.document?.addEventListener('click', event => {
+    if(transientState.explicitSavePending) return;
     if(wizardRoot.dataset.wizardStep !== 'family') return;
+    if(wizardRoot.dataset.mobileInputs === 'true') return;
     if(!transientState.financeOwner) return;
     if(event.target.closest?.('[data-finances-rail]')){
       return;
@@ -159,4 +180,8 @@ export function bindHouseholdEditor({
     transientState.financeTypeId = null;
     syncHousehold({ financeOnly: true });
   });
+  globalThis.document?.addEventListener('click', event => {
+    if(!transientState.explicitSavePending || !event.target.closest?.('.htab')) return;
+    event.preventDefault(); event.stopImmediatePropagation();
+  }, true);
 }

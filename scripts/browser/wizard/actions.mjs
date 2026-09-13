@@ -1,6 +1,24 @@
 // Wizard browser contract: actions.
 import { WIZARD_STEP_IDS, ROOT_SELECTOR } from './selectors.mjs';
 import { requireCondition, countMatches, requireUnique } from './assertions.mjs';
+export async function clickPlanningTab(page, destination){
+  const selector = `.htab[data-page="${destination}"]`;
+  await page.waitForFunction(() => {
+    const root = document.querySelector('[data-hh-wizard-root]');
+    const mobile = matchMedia('(max-width: 760px), (max-width: 1023px) and (max-height: 500px)').matches;
+    return !root || root.dataset.mobileInputs === String(mobile);
+  });
+  if(!await page.$eval(selector, node => node.getClientRects().length > 0)){
+    await page.click('[data-hh-mobile-navigation]');
+  }
+  await page.waitForSelector(selector, { visible: true });
+  await page.waitForFunction(target => {
+    const node = document.querySelector(target); return node && !node.disabled;
+  }, {}, selector);
+  await page.click(selector);
+  if(destination === 'scenarios') await waitForPlanCalculation(page);
+  await page.waitForFunction(name => document.querySelector('.page.on')?.dataset.page === name, {}, destination);
+}
 export async function wizardState(page) {
   return page.evaluate(rootSelector => {
     const root = document.querySelector(rootSelector);
