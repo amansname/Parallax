@@ -16,6 +16,7 @@ export async function clickPlanningTab(page, destination){
     const node = document.querySelector(target); return node && !node.disabled;
   }, {}, selector);
   await page.click(selector);
+  if(destination === 'scenarios') await waitForPlanCalculation(page);
   await page.waitForFunction(name => document.querySelector('.page.on')?.dataset.page === name, {}, destination);
 }
 export async function wizardState(page) {
