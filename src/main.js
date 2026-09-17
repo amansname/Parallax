@@ -1,11 +1,11 @@
 import { installScenariosView } from '../ui/scenariosController.js';
 import { defaultLevers, syncPension, defaultScenarios, leversToOverrides, planForScenario, levRange, leverConfigs } from './scenarios/scenarioConfiguration.js';
-import { normalizeHistoricalStrategy, computeHistoricalStress, retireNowClone } from './scenarios/historicalStress.js';
-import { scenarioProjectionIssueMessage, scenarioRunFailureMessage } from './scenarios/projectionMessages.js';
+import { normalizeHistoricalStrategy, retireNowClone } from './scenarios/historicalStress.js';
+import { createScenarioRunController } from './scenarios/createScenarioRunController.js';
+import { syncScenarioRunStatus } from '../ui/scenarioRunStatus.js';
 import { insertGoalAt, removeGoalAt } from './goals/scenarioGoalOverrides.js';
 import { liveCommas } from '../ui/moneyInput.js';
 import { resolveInputs, generateReturnPath, resetSeed, pathDigest, PROJECTION_EXECUTION_LIMITS, defaultPlan as plan } from '../engine.js';
-import { runFederalFundingSimulation } from './planning/tax/runMonteCarloWithFederalFunding.js';
 import { runHistoricalPathWithFederalTax } from './planning/tax/runHistoricalPathWithFederalTax.js';
 import { seqChartSvg } from '../ui/charts.js';
 import { escHtml } from '../ui/dom.js';
@@ -48,7 +48,7 @@ import {
   withoutRemovedScenarioLevers,
 } from './scenarios/scenarioLevers.js';
 import { installDesignSystemPrimitives } from '../ui/designSystemPrimitives.js';
-import { scenarios, sharedPaths, plansDirty, baseSnapshot, pathReplay, refreshPathSeed, cashFlowPathSelection, saveCashFlowPathSelection, uiState } from './state.js';
+import { scenarios, sharedPaths, plansDirty, baseSnapshot, pathReplay, refreshPathSeed, cashFlowPathSelection, saveCashFlowPathSelection, uiState, onScenarioInputsInvalidated } from './state.js';
 /* ╔══════════════════════════════════════════════════════════════╗
    ║  PARALLAX V2 — LEGACY COMPOSITION ROOT (UI + ENGINES)       ║
    ╚══════════════════════════════════════════════════════════════╝ */
@@ -171,7 +171,7 @@ function syncRecoveryControls(){
     '#np-content .row-x','#np-content [data-add]','#np-content [data-act]','#scn-add','#scn-view [data-lever-key]','#scn-view .cmp-lev-in',
     '#scn-view .cmp-goal-in','#scn-view .scol__menu'
   ];
-  if(isHouseholdStorageBlocked()) selectors.push('#run-btn','#hh-menu-btn','#hh-switch','#cashflow-path-mode','#seq-select','#seq-chips button');
+  if(isHouseholdStorageBlocked()) selectors.push('#run-btn','#scn-run-action','#hh-menu-btn','#hh-switch','#cashflow-path-mode','#seq-select','#seq-chips button');
   document.querySelectorAll(selectors.join(',')).forEach(el => {
     if('disabled' in el) el.disabled=true;
     el.setAttribute('aria-disabled','true');
@@ -651,7 +651,6 @@ bindHouseholdEditor({
   liveCommas,
 });
 
-let running=false;
 const scenarioInputsByResult = new WeakMap();
 // One household-session market bundle. It is generated after household load
 // and survives every ordinary edit and Scenario run so comparisons use the
@@ -684,103 +683,28 @@ function ensureSharedPaths(resolvedInputs=null){
   return sharedPaths;
 }
 
+const scenarioRunController = createScenarioRunController({
+  getPlan: () => plan, getScenarios: () => scenarios, canRun: canRunEngine,
+  prepareScenario: scenario => ({
+    plan: planForScenario(scenario.lev), overrides: leversToOverrides(scenario.lev),
+  }),
+  ensurePaths: ensureSharedPaths, inputsByResult: scenarioInputsByResult,
+  markCurrent: () => { uiState.plansDirty = false; },
+  onState(state, message){
+    syncScenarioRunStatus(state, message);
+    syncHeaderStatus(message);
+    syncRecoveryControls();
+  },
+  onResults(){
+    buildSeqSelect();
+    if($('.page.on')?.dataset.page === 'sequencing') runSeq();
+    window.ScenariosUI?.sync();
+  },
+});
+onScenarioInputsInvalidated(() => scenarioRunController.invalidate());
 function runAll(){
-  if(!canRunEngine()) return;
-  if(running) return; running=true;
-  const btn=$('#run-btn'); btn.disabled=true; syncHeaderStatus('Running…');
-  setTimeout(()=>{
-    try{
-      // SHARED PATHS: one bundle of return paths, reused across scenarios AND
-      // across Runs. Within a Run, every column sees the SAME markets (any
-      // difference between columns is the DECISION). Across Runs, the bundle
-      // is cached so identical inputs give an identical % — no noise drift.
-      const preflight = resolveInputs(plan, {});
-      if(preflight.simulationAvailable === false){
-        scenarios.forEach(s=>{ s.res=null; s.runError=null; });
-        buildSeqSelect();
-        if(window.ScenariosUI) window.ScenariosUI.sync();
-        syncHeaderStatus('Plan updated · using available inputs');
-        uiState.plansDirty = false;
-        btn.disabled=false; running=false; return;
-      }
-      const horizon = preflight.horizonYears;
-      const iters = plan.simulation.iterations;
-      // Degenerate plan guard: a non-positive horizon (plan-end age at/below
-      // current age) can't be simulated. Surface a clear reason and bail
-      // WITHOUT nuking the last good results, so the views don't go blank.
-      if(!(horizon > 0)){
-        syncHeaderStatus('Check plan: end age must be after current age');
-        btn.disabled=false; running=false; return;
-      }
-      ensureSharedPaths(preflight);
-      // Isolate each scenario: one bad column (e.g. an out-of-range saved lever)
-      // must not abort the whole Run and blank every other column + the cash
-      // flow drawer. Failed scenarios get res=null and are skipped downstream.
-      let failed=0;
-      const baseTaxYear = Number.isInteger(plan.meta?.planningAsOfYear)
-        ? plan.meta.planningAsOfYear
-        : new Date().getFullYear();
-      scenarios.forEach(s=>{
-        try{
-          const p=planForScenario(s.lev);
-          const ov=leversToOverrides(s.lev);
-          const sharedTypicalIndex = scenarios.find(candidate => candidate.base)?.res?.paths?.p50?.simIndex;
-          const taxOptions = {
-            baseTaxYear,
-            scenarioId: s.name,
-            filingStatus: p.meta?.filingStatus,
-            accountDiagnosticsSimIndices: !s.base && Number.isInteger(sharedTypicalIndex) ? [sharedTypicalIndex] : [],
-          };
-          // One converged federal run now supplies probability, paths, taxes,
-          // withdrawals, and balances together. A failed convergence is a
-          // failed scenario; never fall back to a hybrid shortcut display.
-          const result = runFederalFundingSimulation(
-            p,
-            ov,
-            sharedPaths,
-            taxOptions
-          );
-          scenarioInputsByResult.set(result, Object.freeze({
-            plan: p,
-            overrides: Object.freeze({ ...ov }),
-          }));
-          // The engine now fails CLOSED instead of throwing, so the catch below
-          // no longer fires for these. Without this branch s.runError would stay
-          // null and the column would silently show a bare dash again.
-          if(result.projectionStatus === 'unavailable'){
-            s.res = result;                 // keep diagnostic rows
-            s.runError = scenarioProjectionIssueMessage(result);
-            failed++;
-            console.error('Scenario unavailable:', s.name, result.issue, 'age', result.issueAge);
-            return;
-          }
-          s.res = result;
-          s.runError = null;
-          // Historical Stress (Focus rail): engine-derived per-scenario eras.
-          // Isolated so a stress hiccup never blanks the scenario's main result.
-          try{ s.res.stress = computeHistoricalStress(s, p, ov); }
-          catch(stressErr){ s.res.stress = []; console.warn('Historical stress failed:', s.name, stressErr); }
-        }catch(err){
-          s.res=null;
-          s.runError=scenarioRunFailureMessage(err);
-          failed++;
-          console.error('Scenario failed:', s.name, err);
-        }
-      });
-      buildSeqSelect();
-      if($('.page.on')?.dataset.page === 'sequencing') runSeq();
-      if(window.ScenariosUI) window.ScenariosUI.sync();   // one authoritative Scenarios renderer
-      const firstFailure = scenarios.find(s => s.runError)?.runError;
-      syncHeaderStatus(failed
-        ? `Partial run · ${failed} scenario${failed>1?'s':''} could not run${firstFailure ? `: ${firstFailure}` : ''}`
-        : 'Plan updated · using available inputs');
-      uiState.plansDirty = false;
-    }catch(e){
-      syncHeaderStatus(`Check plan: ${scenarioRunFailureMessage(e)}`);
-      console.error(e);
-    }
-    btn.disabled=false; running=false;
-  },20);
+  if(!plansDirty) uiState.plansDirty = true;
+  return scenarioRunController.run();
 }
 
 const GRID='var(--grid)', AXIS_INK='rgba(127,119,114,.72)';
@@ -831,7 +755,12 @@ function buildSeqChips(){
 function runSeq(){
   if(!canRunEngine()){ renderBlockedRecoverySurfaces(); return; }
   const sel=$('#seq-select'); const s=scenarios.find(x=>x.name===sel.value)||scenarios[0];
-  if(!s) return;
+  if(!s?.res || s.runError){
+    $('#seq-svg').innerHTML='';
+    $('#seq-prints').innerHTML='';
+    $('#seq-sub').textContent=s?.runError || 'Run this plan to build historical paths.';
+    return;
+  }
   // Sequence the chosen scenario FAITHFULLY: allocation via the plan clone, every
   // other lever via the same overrides mapping the Scenarios tab uses.
   const p=planForScenario(s.lev);
@@ -868,8 +797,14 @@ $$('.htab').forEach(t=>t.onclick=()=>{
   document.body.classList.toggle('scn-active', t.dataset.page==='scenarios');
   // Returning to Scenarios after a base-plan edit re-runs the engine so the
   // columns reflect the new source; otherwise just redraw.
-  if(t.dataset.page==='scenarios'){ if(plansDirty && canRunEngine()){ uiState.plansDirty=false; runAll(); } }
-  if(t.dataset.page==='sequencing' && canRunEngine()) runSeq();
+  if(t.dataset.page==='scenarios'){
+    if(plansDirty && canRunEngine()) runAll();
+    window.ScenariosUI?.sync();
+  }
+  if(t.dataset.page==='sequencing' && canRunEngine()){
+    if(plansDirty) runAll();
+    runSeq();
+  }
   if(t.dataset.page==='net-worth') renderInputs();
   if(t.dataset.page==='household') syncHousehold();
   if(t.dataset.page==='tax-buckets') taxBuckets.sync();
@@ -918,7 +853,8 @@ $('#cashflow-path-mode').onchange=e=>{
    The PROD object is the only coupling to production; it reads module symbols
    through explicit dependencies; imported state retains live bindings.
    =========================================================================== */
-installScenariosView({ addScenario, cashFlowController, saveScenarios, runAll, guardPlanMutation, isHouseholdStorageBlocked, renderBlockedRecoverySurfaces, syncRecoveryControls, syncCashFlowPathControls, removeScenario });
+installScenariosView({ addScenario, cashFlowController, saveScenarios, runAll, requestStress: scenarioRunController.requestStress, guardPlanMutation, isHouseholdStorageBlocked, renderBlockedRecoverySurfaces, syncRecoveryControls, syncCashFlowPathControls, removeScenario });
+$('#scn-run-action').onclick=()=>scenarioRunController.running ? scenarioRunController.cancel() : runAll();
 
 syncPathControls();
 renderInputs();
@@ -931,7 +867,7 @@ if(isHouseholdStorageBlocked()){
 if(canRunEngine()){
   refreshPathSeed();
   reseedScenarios({ markDirty: false });   // align baseline levers with hydrated plan (saved levers can be stale)
-  runAll();   // first iteration runs immediately so the tool opens populated
+  scenarioRunController.invalidate('ready', 'Ready · run to calculate');
 }
 document.body.classList.toggle('scn-active', document.querySelector('.page.on')?.dataset.page==='scenarios');
 syncHeaderCluster();

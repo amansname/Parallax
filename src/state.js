@@ -5,12 +5,21 @@ import {
 
 export let scenarios;
 export let sharedPaths = null;
-export let plansDirty = false;
+export let plansDirty = true;
 export let baseSnapshot;
+
+const scenarioInputListeners = new Set();
+export function onScenarioInputsInvalidated(listener) {
+  scenarioInputListeners.add(listener);
+  return () => scenarioInputListeners.delete(listener);
+}
+function invalidateScenarioInputs() {
+  for (const listener of scenarioInputListeners) listener();
+}
 
 export const uiState = {
   get scenarios(){ return scenarios; },
-  set scenarios(value){ scenarios = value; },
+  set scenarios(value){ scenarios = value; invalidateScenarioInputs(); },
   addScenario(value){ scenarios.push(value); },
   removeScenarioAt(index){ scenarios.splice(index, 1); },
 
@@ -19,7 +28,7 @@ export const uiState = {
   appendSharedPath(value){ sharedPaths.push(value); },
 
   get plansDirty(){ return plansDirty; },
-  set plansDirty(value){ plansDirty = value; },
+  set plansDirty(value){ plansDirty = value; if(value) invalidateScenarioInputs(); },
   get baseSnapshot(){ return baseSnapshot; },
   set baseSnapshot(value){ baseSnapshot = value; },
 };
@@ -48,7 +57,7 @@ export function generateFreshPathSeed({
       cryptoApi.getRandomValues(values);
       return normalizePathSeed(values[0]);
     }
-  }catch{}
+  }catch{ /* Optional crypto API: retain the random-source fallback below. */ }
 
   const sample = Number(random());
   const bounded = Number.isFinite(sample)
@@ -68,7 +77,7 @@ export function createPathReplaySession({
     if(Object.prototype.hasOwnProperty.call(saved, 'seed')){
       storage?.setItem(PATH_KEY, JSON.stringify({ mode }));
     }
-  }catch{}
+  }catch{ /* Optional replay preferences: retain the default session mode. */ }
 
   let sessionSeed = null;
   const pathReplay = {
@@ -91,7 +100,7 @@ export function createPathReplaySession({
   function savePathReplay(){
     try{
       storage?.setItem(PATH_KEY, JSON.stringify({ mode: pathReplay.mode }));
-    }catch{}
+    }catch{ /* Replay preference writes do not block the current session. */ }
   }
 
   return Object.freeze({
@@ -131,7 +140,7 @@ export function saveCashFlowPathSelection(){
     localStorage.setItem(CASH_FLOW_PATH_KEY, JSON.stringify({
       id: cashFlowPathSelection.id,
     }));
-  }catch{}
+  }catch{ /* Cash Flow selection remains usable without preference storage. */ }
 }
 
 const scenariosUiValues = {

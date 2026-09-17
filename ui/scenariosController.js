@@ -15,6 +15,7 @@ export function installScenariosView(dependencies) {
     cashFlowController,
     saveScenarios,
     runAll,
+    requestStress,
     guardPlanMutation,
     isHouseholdStorageBlocked,
     renderBlockedRecoverySurfaces,
@@ -63,7 +64,7 @@ export function installScenariosView(dependencies) {
     levers: s => leversFor(s),
     goals: s => goalsVM(s),
     stress: s => s.res && s.res.stress || [],
-    // populated by computeHistoricalStress in runAll (engine-derived)
+    // Populated on demand from the worker's canonical historical run.
     cashFlowResult: s => cashFlowController.resultForScenario(s),
     typicalPathFederalTax: s => s.res && s.res.typicalPathFederalTax,
     householdName: () => plan.meta && (plan.meta.primaryName || plan.meta.household) || ''
@@ -453,6 +454,8 @@ export function installScenariosView(dependencies) {
       view.innerHTML = scn ? renderCashflowView(scn, list) : '';
       mountPathControls(scn.raw);
     } else if (state.view === 'focus') {
+      const focused = list.find(s => s.id === state.focusedId) || baseline || list[0];
+      if (document.querySelector('.page.on')?.dataset.page === 'scenarios') requestStress(focused?.raw);
       view.innerHTML = renderFocusView(list, baseline, state.focusedId, state.showRange);
     } else {
       view.innerHTML = renderCompareView(list, baseline);

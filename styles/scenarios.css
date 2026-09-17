@@ -29,6 +29,18 @@
   padding: var(--sp-8) 40px 80px; /* geometry: reference canvas gutter */
 }
 
+.scn-calculation {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-4);
+  color: var(--muted);
+  font-size: var(--fs-body);
+}
+.scn-calculation[hidden] { display: none; }
+.scn-calculation .btn { flex-shrink: 0; }
+
 /* ── toolbar ─────────────────────────────────────────────────────────────── */
 .page[data-page="scenarios"] .toolbar {
   display: flex;

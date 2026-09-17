@@ -5,6 +5,7 @@ import { verifyTaxBuckets } from './browser/static-contracts.mjs';
 import { createBrowserSession } from './browser/browser-session.mjs';
 import { createPlannerDiagnostics } from './browser/withdrawal-diagnostics.mjs';
 import { verifyStartup } from './browser/startup.mjs';
+import { verifyStartupResponsiveness } from './browser/startup-responsiveness.mjs';
 import { verifyDesign } from './browser/design.mjs';
 import { verifySavedWages } from './browser/withdrawal-wages.mjs';
 import { enterWithdrawalFixture } from './browser/withdrawal-fixture.mjs';
@@ -159,6 +160,10 @@ try {
     stableClick
   }));
   if(runsGroup('entry')){
+  await step('opening and real worker calculations stay responsive', () => verifyStartupResponsiveness({
+    browser, url: `http://127.0.0.1:${PORT}/`,
+    artifactId: VERIFIED_ARTIFACT.manifest.artifactId, outputDir: OUT,
+  }));
   await step('Mobile Household: inline validation, focus, canonical save and responsive parity', () => verifyMobileHousehold({
     browser, url: `http://127.0.0.1:${PORT}/`, screenshotDir: OUT,
   }));

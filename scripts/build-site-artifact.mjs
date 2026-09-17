@@ -6,6 +6,7 @@ import {
 } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { versionModuleImports } from './version-module-imports.mjs';
 import {
   MANIFEST_FILE,
   SITE_METADATA_FILE,
@@ -99,7 +100,9 @@ export function buildSiteArtifact({ commit = 'HEAD', output = DEFAULT_SITE_ROOT 
     .filter(entry => entry.path !== 'index.html')
     .map(entry => ({
       path: entry.path,
-      bytes: bindArtifactId(entry.bytes, artifactId),
+      bytes: entry.path.endsWith('.js')
+        ? versionModuleImports(bindArtifactId(entry.bytes, artifactId), entry.path, artifactId, modulePaths)
+        : bindArtifactId(entry.bytes, artifactId),
     }));
   artifactEntries.push(
     { path: 'app.html', bytes: appHtml },

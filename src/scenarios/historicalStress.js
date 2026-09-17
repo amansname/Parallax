@@ -1,7 +1,6 @@
-import { runSimulation, resolveInputs, RISK_PROFILES, defaultPlan as plan } from '../../engine.js';
+import { resolveInputs, RISK_PROFILES } from '../../engine.js';
 import { runHistoricalPathWithFederalTax } from '../planning/tax/runHistoricalPathWithFederalTax.js';
 import { buildRetirementEntryPlan, deriveRetirementEntryAccounts } from './buildRetirementEntryPlan.js';
-import { sharedPaths } from '../state.js';
 
 /* ── Historical Stress (Focus rail) ───────────────────────────────────────
    Five canonical sequence-of-returns eras (design handoff → Focus → Historical
@@ -52,7 +51,7 @@ function eraPasses(h) {
 // scenario's freshly-computed envelope so the retirement entry balance matches
 // the Scenarios / Sequencing tabs exactly (one shared-path truth, not a re-roll).
 export function computeHistoricalStress(s, p, ov) {
-  const curAge = plan.household.primary.currentAge;
+  const curAge = p.household.primary.currentAge;
   const retAge = resolveInputs(p, ov).retirementAge;
   const accumYears = Math.max(0, retAge - curAge);
   const rp = retireNowClone(p, ov, curAge, retAge, accumYears, s.res);
@@ -92,9 +91,11 @@ export function computeHistoricalStress(s, p, ov) {
 // and taxable basis, scaled to the engine envelope's median entry balance.
 // Every real market then runs from this one shared, tax-coherent starting point.
 export function retireNowClone(p, ov, curAge, retAge, accumYears, analysis) {
-  // Reuse the chosen scenario's computed result so Sequencing never re-rolls
-  // its market entry state. Fall back only before that scenario has run.
-  const result = analysis || runSimulation(p, ov, sharedPaths);
+  // Pending or stale scenarios must never start a second synchronous simulation.
+  if (!analysis || analysis.projectionStatus === 'unavailable') {
+    throw new Error('Run this plan before preparing its historical paths.');
+  }
+  const result = analysis;
   const resolved = resolveInputs(p, ov);
   const entryAccounts = deriveRetirementEntryAccounts(result, accumYears, resolved.accounts, resolved.projectionAccounts);
   return buildRetirementEntryPlan(p, {
