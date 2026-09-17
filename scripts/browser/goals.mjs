@@ -1,6 +1,7 @@
 // Existing browser assertions; run by scripts/verify.mjs in campaign order.
 import { join } from 'node:path';
-import { waitForWizard, waitForPlanCalculation } from '../wizard-browser-contract.mjs';
+import { waitForWizard } from '../wizard-browser-contract.mjs';
+import { waitForPlanCalculation } from './wizard/actions.mjs';
 import { goToWizardStep } from '../wizard-browser-contract.mjs';
 import { selectHouseholdVisible } from '../wizard-browser-contract.mjs';
 async function ensureGoalChooserOpen(page) {
