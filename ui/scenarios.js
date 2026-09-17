@@ -316,6 +316,10 @@ export function renderFocus(scns, baseline, focusedId, showRange, {
           stressRows +
         '</div>'
       );
+    } else if (f.raw?.res?.stressState === 'running' || f.raw?.res?.stressState === 'error') {
+      stressBlock = '<div class="stress-rail"><div class="stress-rail__head"><span class="eyebrow">Historical Stress</span></div>'
+        + '<div class="stress-rail__row" role="status">'
+        + esc(f.raw.res.stressError || 'Calculating historical stress…') + '</div></div>';
     } else if (f.stress.length > 0) {
       // Partial: some eras failed after the riskProfile guard — report, don't show incomplete card.
       console.warn('Historical Stress incomplete: got ' + f.stress.length + ' of ' + stressEraCount + ' eras for scenario "' + f.name + '". Check browser console for per-era errors.');
@@ -325,6 +329,9 @@ export function renderFocus(scns, baseline, focusedId, showRange, {
           '<div class="stress-rail__row" style="color:var(--acc);font-size:11px;padding:8px 0;">Stress data incomplete (' + f.stress.length + '/' + stressEraCount + ' eras) — re-run the plan to resolve.</div>' +
         '</div>'
       );
+    } else if (f.raw?.res?.stressState === 'complete') {
+      stressBlock = '<div class="stress-rail"><div class="stress-rail__head"><span class="eyebrow">Historical Stress</span></div>'
+        + '<div class="stress-rail__row" role="status">Historical stress unavailable. Run the plan to retry.</div></div>';
     }
 
     const rangeBlock = (showRange && f.range) ? (

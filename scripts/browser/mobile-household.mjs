@@ -229,7 +229,15 @@ async function verifyAutoSaveRecovery(page, householdId, artifactId, screenshotD
     return scenarios.map(scenario => scenario.res);
   }, artifactId);
   let priorResults = await captureResults();
-  const runtime = () => page.evaluate(async (version, earlier) => {
+  const workerProbe = await page.evaluateHandle(() => {
+    const original = window.Worker;
+    let starts = 0;
+    window.Worker = new Proxy(original, {
+      construct(target, args) { starts++; return Reflect.construct(target, args); },
+    });
+    return { count: () => starts, restore: () => { window.Worker = original; } };
+  });
+  const runtime = () => page.evaluate(async (version, earlier, probe) => {
     const moduleUrl = path => {
       const url = new URL(path, location.href);
       url.searchParams.set('v', version);
@@ -244,6 +252,9 @@ async function verifyAutoSaveRecovery(page, householdId, artifactId, screenshotD
       levers: state.scenarios.map(scenario => scenario.lev.retireAge),
       dirty: state.uiState.plansDirty,
       oldResults: state.scenarios.map((scenario, index) => scenario.res === earlier[index]),
+      resultsCleared: state.scenarios.map(scenario => scenario.res === null),
+      workerStarts: probe.count(),
+      calculationState: document.documentElement.dataset.scenarioRunState,
       results: state.scenarios.map(scenario => ({
         successRate: scenario.res?.successRate ?? null,
         runError: scenario.runError || null,
@@ -257,7 +268,7 @@ async function verifyAutoSaveRecovery(page, householdId, artifactId, screenshotD
       scenarioVisible: getComputedStyle(document.querySelector('.page[data-page="scenarios"]')).display !== 'none',
       probabilities: [...document.querySelectorAll('#scn-view .scol__prob')].map(node => node.textContent.trim()),
     };
-  }, artifactId, priorResults);
+  }, artifactId, priorResults, workerProbe);
   // Test-context hook: fail only this write, leaving reads and every other key intact.
   const restoreStorage = await page.evaluateHandle(() => {
     const original = Storage.prototype.setItem;
@@ -286,7 +297,13 @@ async function verifyAutoSaveRecovery(page, householdId, artifactId, screenshotD
     assert.equal(await page.$eval(retirement, control => control.value), '67');
     assert.equal(await page.$eval(retirement, control => control.getAttribute('aria-invalid')), null);
     assert.equal(failed.dirty, true);
-    assert.deepEqual(failed.oldResults, [true, true, true], 'A Family edit unexpectedly ran the engine');
+    // Accepted live edits now clear obsolete projections immediately, even
+    // when persistence fails. Clearing is not a new calculation.
+    assert.deepEqual(failed.resultsCleared, [true, true, true]);
+    assert.equal(failed.workerStarts, 0, 'A Family edit unexpectedly ran the engine');
+    assert.equal(failed.calculationState, 'stale');
+    assert.deepEqual(failed.results.map(result => result.runError),
+      Array(3).fill('Inputs changed · run to update'));
     assert.equal(failed.headerState, 'needs-run');
     assert.equal(failed.activePage, 'household');
     assert.equal(failed.scenarioVisible, false, 'Stale scenario results are displayed as the active surface');
@@ -346,7 +363,9 @@ async function verifyAutoSaveRecovery(page, householdId, artifactId, screenshotD
     assert.equal(stale.retirement, 68);
     assert.equal(stale.status, 'Saved automatically · open Scenarios');
     assert.equal(stale.dirty, true, 'Saved inputs must not make prior engine results current');
-    assert.deepEqual(stale.oldResults, [true, true, true]);
+    assert.deepEqual(stale.resultsCleared, [true, true, true]);
+    assert.equal(stale.workerStarts, failureAfterRun.workerStarts, 'Saving recovery started a calculation');
+    assert.equal(stale.calculationState, 'stale');
     assert.equal(stale.headerState, 'needs-run');
     assert.equal(stale.scenarioVisible, false);
 
@@ -374,6 +393,8 @@ async function verifyAutoSaveRecovery(page, householdId, artifactId, screenshotD
     }, null, 2));
   }finally{
     await priorResults.dispose();
+    await page.evaluate(probe => probe.restore(), workerProbe);
+    await workerProbe.dispose();
   }
 }
 

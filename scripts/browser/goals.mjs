@@ -1,6 +1,7 @@
 // Existing browser assertions; run by scripts/verify.mjs in campaign order.
 import { join } from 'node:path';
 import { waitForWizard } from '../wizard-browser-contract.mjs';
+import { waitForPlanCalculation } from './wizard/actions.mjs';
 import { goToWizardStep } from '../wizard-browser-contract.mjs';
 import { selectHouseholdVisible } from '../wizard-browser-contract.mjs';
 async function ensureGoalChooserOpen(page) {
@@ -298,6 +299,9 @@ export async function verifyGoalsDrag({ stableClick, page, withdrawalPlannerFixt
     }, scenarioColumnCount);
   }
   try {
+    // The calculation runs independently of rendering. Give it the existing
+    // calculation budget before asserting the completed financial presentation.
+    await waitForPlanCalculation(page);
     await page.waitForFunction(expected => {
       const toggle = document.querySelector('#scn-view [data-goals-toggle]');
       const names = document.querySelectorAll('#scn-view .goal-detail__name');
