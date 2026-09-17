@@ -34,11 +34,20 @@ export async function verifyStartupResponsiveness({ browser, url, artifactId, ou
           this.record.kind = message.batch?.kind || 'scenarios';
           return super.postMessage(message, ...args);
         }
-        terminate() { this.record.terminated = true; return super.terminate(); }
+        terminate() {
+          this.record.terminated = true;
+          this.record.durationMs = performance.now() - this.record.started;
+          return super.terminate();
+        }
       };
     });
     await page.goto(url, { waitUntil: 'load' });
     await waitForWizard(page, { householdId: 'joe-household' });
+    // The original boot schedules its blocking run after the wizard renders.
+    // Wait for its completion, or the candidate's explicit idle-ready state.
+    await page.waitForFunction(() => document.documentElement.dataset.scenarioRunState === 'ready'
+      || (!document.querySelector('#run-btn')?.disabled && document.querySelector('#status')?.textContent.startsWith('Plan updated')),
+    { timeout: 30000 });
     evidence.opening = await page.evaluate(() => ({
       readyMs: performance.now(),
       state: document.documentElement.dataset.scenarioRunState || '',
@@ -53,6 +62,7 @@ export async function verifyStartupResponsiveness({ browser, url, artifactId, ou
     await page.click('#hh-menu-btn');
     await page.click('.htab[data-page="scenarios"]');
     await page.waitForFunction(() => document.documentElement.dataset.scenarioRunState === 'running');
+    assert.deepEqual(await page.$$eval('#scn-calculation button', buttons => buttons.map(b => b.textContent)), ['Cancel']);
     const interactionStart = Date.now();
     await page.click('.htab[data-page="household"]');
     await page.click('#hh-menu-btn');
@@ -109,6 +119,7 @@ export async function verifyStartupResponsiveness({ browser, url, artifactId, ou
     assert.ok(evidence.calculation.results.every(s => s.available && !s.stress));
     assert.ok(evidence.calculation.longestTaskMs < 1000, 'UI blocked during worker calculation');
     assert.ok(evidence.calculation.workers.every(w => w.url.endsWith('?v=' + artifactId) && w.terminated));
+    assert.equal(await page.$eval('#scn-calculation', panel => panel.hidden), true);
     evidence.parity = await page.evaluate(async id => {
       const { scenarios, sharedPaths } = await import('/src/state.js?v=' + id);
       const { defaultPlan: plan } = await import('/engine.js?v=' + id);
@@ -127,9 +138,22 @@ export async function verifyStartupResponsiveness({ browser, url, artifactId, ou
       });
     }, artifactId);
     assert.ok(evidence.parity.every(s => s.identical), 'Worker output differs from canonical 1000-path calculation');
+    // A historical-only network failure must leave a visible way to recover.
+    await page.setRequestInterception(true);
+    let blockStress = true;
+    page.on('request', request => {
+      if (blockStress && request.url().includes('/planning/scenarioWorker.js')) request.abort();
+      else request.continue();
+    });
     await page.click('#scn-seg-focus');
+    await page.waitForFunction(() => document.querySelector('.stress-rail')?.textContent.includes('could not run'));
+    assert.equal(await page.$eval('#scn-calculation', panel => panel.hidden), false);
+    assert.deepEqual(await page.$$eval('#scn-calculation button', buttons => buttons.map(b => b.textContent)), ['Run']);
+    blockStress = false;
+    await page.click('#scn-run-action');
     await page.waitForFunction(() => document.querySelectorAll('.stress-rail__result').length === 5, { timeout: 30000 });
     evidence.historical = await page.$$eval('.stress-rail__row', rows => rows.map(row => row.textContent.trim()));
+    assert.deepEqual(await page.$$eval('.stress-rail__year', years => years.map(year => year.textContent)), ['1966', '1973', '2000', '2008', '1970s']);
     assert.equal(await page.evaluate(() => window.observedWorkers.at(-1).kind), 'stress');
     await page.screenshot({ path: join(outputDir, 'startup-focus.png') });
     assert.deepEqual(errors, []);

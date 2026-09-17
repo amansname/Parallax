@@ -4,7 +4,7 @@ import { defaultPlan } from '../../engine.js';
 import { createSelectableDefaultHouseholds } from '../../ui/householdFactories.js';
 import { createScenarioRunController } from './createScenarioRunController.js';
 
-function fixture() {
+function fixture(options = {}) {
   const plan = createSelectableDefaultHouseholds(defaultPlan, 2026).find(record => record.meta.householdId === 'joe-household');
   let scenarios = [{ name: 'Joe', base: true, res: { old: true } }];
   const jobs = [], states = [];
@@ -19,6 +19,7 @@ function fixture() {
     // Deliberately does not implement cancellation: the controller must also
     // reject a stale completion at the state boundary.
     client: { cancel() {}, run: batch => new Promise((resolve, reject) => jobs.push({ batch, resolve, reject })) },
+    ...options,
   });
   return { controller, jobs, states, plan, inputs, get scenarios() { return scenarios; },
     replace() { scenarios = [{ name: 'New household', base: true }]; controller.invalidate(); },
@@ -43,6 +44,25 @@ test('an edit cancels visible results and late completion cannot overwrite a new
   assert.equal(f.marked, 1);
   assert.equal(f.states.at(-1).state, 'complete');
   assert.equal(f.inputs.get(f.scenarios[0].res).plan.meta.householdId, f.plan.meta.householdId);
+});
+
+test('historical-only failures restore a visible retry state while retaining the current projection', async () => {
+  for (const stressResponse of [
+    { error: { message: 'module unavailable' } },
+    { result: { stress: [] } },
+    { result: { stress: [{ year: 1966 }] } },
+  ]) {
+    const f = fixture({ createStressClient: () => ({ cancel() {}, run: async () => [stressResponse] }) });
+    const run = f.controller.run();
+    f.jobs[0].resolve([{ result: { paths: { p50: {} }, envelope: [] } }]);
+    await run;
+    const projection = f.scenarios[0].res;
+    await f.controller.requestStress(f.scenarios[0]);
+    assert.equal(f.scenarios[0].res, projection);
+    assert.equal(projection.stressState, 'error');
+    assert.equal(f.states.at(-1).state, 'error');
+    assert.match(f.states.at(-1).message, /Run the plan to retry/);
+  }
 });
 
 test('repeated navigation does not restart an unchanged in-flight calculation', async () => {

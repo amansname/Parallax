@@ -2,6 +2,7 @@ import { resolveInputs } from '../../engine.js';
 import { scenarioWorkerError } from '../planning/runScenarioBatch.js';
 import { createScenarioWorkerClient } from './createScenarioWorkerClient.js';
 import { scenarioProjectionIssueMessage, scenarioRunFailureMessage } from './projectionMessages.js';
+import { STRESS_ERAS } from './historicalStress.js';
 
 export function createScenarioRunController({
   getPlan, getScenarios, canRun, prepareScenario, ensurePaths, inputsByResult,
@@ -121,12 +122,16 @@ export function createScenarioRunController({
       }] });
       if (current !== generation || scenario.res !== result) return;
       if (response.error) throw new Error(response.error.message);
+      if (response.result.stress?.length !== STRESS_ERAS.length) {
+        throw new Error(`Expected ${STRESS_ERAS.length} historical periods; received ${response.result.stress?.length || 0}`);
+      }
       result.stress = response.result.stress;
       result.stressState = 'complete';
     } catch (error) {
       if (current !== generation || scenario.res !== result) return;
       result.stressState = 'error';
       result.stressError = `Historical stress could not run: ${error.message}. Run the plan to retry.`;
+      onState('error', result.stressError);
     } finally {
       stressJobs.delete(job);
       if (current === generation && scenario.res === result) onResults();
