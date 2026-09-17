@@ -5,7 +5,11 @@ import {
 } from '../../ui/householdWizard.js';
 import { escHtml } from '../../ui/dom.js';
 import { refreshHouseholdFamilyFields, replaceHouseholdFinanceRail } from '../../ui/householdFamilyUpdates.js';
+import { refreshHouseholdTaxFields, restoreHouseholdTaxFocus } from '../../ui/householdTaxUpdates.js';
+import { syncHouseholdTaxChoices } from '../../ui/householdTaxChoices.js';
 import { renderHouseholdCommitNotice } from '../../ui/householdCommitNotice.js';
+import { createHouseholdPendingSavePresentation } from '../../ui/householdPendingSave.js';
+import { createHouseholdMobilePresentation } from '../../ui/householdMobile.js';
 import { getWizardAccountTypes } from './accountTypes.js';
 import {
   buildWizardIncomeTaxSummary,
@@ -44,6 +48,12 @@ export function createHouseholdWizardController({
   let renderRevision = 0;
   let wizard;
   let refreshFailed = false;
+  let previousTaxView = null;
+  let pointerActive = false;
+  let deferredTaxRender = false;
+  let pointerFrame = null;
+  const mobilePresentation = createHouseholdMobilePresentation();
+  const syncPendingSave = createHouseholdPendingSavePresentation();
   const financeOverlayMedia = globalThis.matchMedia?.('(max-width: 1023px)');
 
   const state = {
@@ -61,9 +71,12 @@ export function createHouseholdWizardController({
     taxView: 'simplified',
     optionalTaxItems: new Set(),
     optionalMenuOpen: false,
+    explicitSavePending: null,
   };
 
   const uiState = {
+    get explicitSavePending(){ return state.explicitSavePending; },
+    set explicitSavePending(value){ state.explicitSavePending = value; },
     get refreshFailed(){ return refreshFailed; },
     set refreshFailed(value){ refreshFailed = value === true; syncCommitNotice(); },
     get stepId(){ return stepId; },
@@ -144,6 +157,7 @@ export function createHouseholdWizardController({
 
   function resetForPlan(){
     refreshFailed = false;
+    state.explicitSavePending = null;
     stepId = 'family';
     state.taxView = 'simplified';
     state.optionalTaxItems.clear();
@@ -201,6 +215,14 @@ export function createHouseholdWizardController({
       renderBlockedRecoverySurfaces();
       return;
     }
+    // A blur commit can reveal a new tax row above the pressed target. Finish
+    // that pointer gesture before changing its geometry or replacing chrome.
+    if(pointerActive && stepId === 'tax' && root.dataset.wizardStep === 'tax'
+        && root.dataset.householdId === getActiveHouseholdId()){
+      deferredTaxRender = true;
+      return;
+    }
+    deferredTaxRender = false;
     root.dataset.wizardReady = 'false';
     root.setAttribute('aria-busy', 'true');
     const plan = getPlan();
@@ -250,14 +272,23 @@ export function createHouseholdWizardController({
       root.dataset.householdId = '';
       root.dataset.wizardReady = 'true';
       root.setAttribute('aria-busy', 'false');
+      mobilePresentation.sync(root);
+      syncPendingSave(root, null);
       syncCommitNotice();
       syncRecoveryControls();
       return;
     }
 
     const householdWizard = ensureWizard();
-    view.innerHTML = householdWizard.render(stepId);
-    if(footer) footer.innerHTML = householdWizard.footer(stepId);
+    const taxView = stepId === 'tax' ? householdWizard.renderTaxView() : null;
+    const html = taxView ? taxView.html : householdWizard.render(stepId);
+    const sameTaxHousehold = stepId === 'tax' && root.dataset.householdId === activeId;
+    const taxUpdate = sameTaxHousehold ? refreshHouseholdTaxFields(view, previousTaxView, taxView) : null;
+    if(!taxUpdate) view.innerHTML = html;
+    previousTaxView = taxView;
+    if(footer && (root.dataset.wizardStep !== stepId || !footer.firstElementChild)){
+      footer.innerHTML = householdWizard.footer(stepId);
+    }
 
     for(const step of HOUSEHOLD_WIZARD_STEPS){
       const button = document.querySelector(`[data-hh-wizard-nav="${step.id}"]`);
@@ -271,6 +302,7 @@ export function createHouseholdWizardController({
     }
     updateSidebar(plan);
     finishRender(root, activeId);
+    restoreHouseholdTaxFocus(taxUpdate, root);
   }
 
   function finishRender(root, activeId, { familyRefreshed = true } = {}){
@@ -281,17 +313,22 @@ export function createHouseholdWizardController({
     root.dataset.householdId = activeId;
     root.dataset.wizardReady = String(!refreshFailed);
     root.setAttribute('aria-busy', 'false');
+    mobilePresentation.sync(root);
+    syncPendingSave(root, state.explicitSavePending);
     syncCommitNotice();
     syncRecoveryControls();
+    syncHouseholdTaxChoices(root);
   }
 
   function syncCommitNotice(){
     renderHouseholdCommitNotice(document.querySelector('[data-hh-wizard-root]'), {
       activeHouseholdId: getActiveHouseholdId(), saveFailed: getSaveFailed(), refreshFailed,
+      explicitSavePending: state.explicitSavePending,
     });
   }
 
   function setStep(nextStepId){
+    if(state.explicitSavePending) return false;
     if(!STEP_IDS.includes(nextStepId)) return false;
     stepId = nextStepId;
     resetTransient();
@@ -312,16 +349,36 @@ export function createHouseholdWizardController({
   }
 
   function bindRail(){
-    financeOverlayMedia?.addEventListener('change', event => {
-      if(!event.matches) return;
-      const focusedInRail = document.activeElement?.closest?.('[data-finances-rail]');
-      uiState.financeRailOpen = false;
-      uiState.financeOwner = null;
-      uiState.financeTypeId = null;
-      if(stepId !== 'family' || !getActiveHouseholdId()) return;
-      sync({ financeOnly: true });
-      if(focusedInRail) $('[data-hh-action="toggle-finances-rail"]')?.focus();
-    });
+    document.addEventListener('pointerdown', event => {
+      pointerActive = Boolean(event.target.closest?.('[data-hh-wizard-root]'));
+    }, true);
+    const finishPointer = () => {
+      if(!pointerActive || pointerFrame !== null) return;
+      // The next paint follows pointer-up, click, and native details toggling.
+      // This is an interaction boundary, not a timeout used to hide a race.
+      pointerFrame = requestAnimationFrame(() => {
+        pointerFrame = null;
+        pointerActive = false;
+        if(deferredTaxRender){
+          try { sync(); }
+          catch(error){
+            refreshFailed = true;
+            const root = document.querySelector('[data-hh-wizard-root]');
+            if(root){
+              root.dataset.wizardReady = 'false';
+              root.dataset.validationCode = 'WIZARD_REFRESH_FAILED';
+              root.setAttribute('aria-busy', 'false');
+            }
+            syncCommitNotice();
+            console.error('Household screen could not refresh after the edit:', error);
+          }
+        }
+      });
+    };
+    document.addEventListener('pointerup', finishPointer, true);
+    document.addEventListener('pointercancel', finishPointer, true);
+    // Responsive CSS changes the rail's placement. Resizing never discards its
+    // active owner, entry type or raw draft (including the tablet boundary).
     document.querySelectorAll('[data-hh-wizard-nav]').forEach(button =>
       button.addEventListener('click', () => setStep(button.dataset.hhWizardNav)));
     const menuButton = $('#hh-menu-btn');

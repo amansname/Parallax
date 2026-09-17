@@ -4,11 +4,17 @@ export function createNetWorthMutationsActions({
   guardPlanMutation,
   transientState,
   syncHousehold,
-  commit
+  commit,
+  explicitSave = { accept: () => true, retry: () => null }
 }) {
   return {
     'net-worth-save-entry': action => {
       if (!guardPlanMutation()) return;
+      const retried = explicitSave.retry('net-worth');
+      if(retried){
+        if(retried.saved){ transientState.netWorthDraft = null; syncHousehold(); }
+        return;
+      }
       const currentDraft = transientState.netWorthDraft;
       if (!currentDraft || !currentDraft.type && !currentDraft.custom) return;
       const draft = currentDraft.categoryId === 'mortgage' && currentDraft.link === '' && action.dataset.netWorthResolvedLinkAvailable === 'true' ? {
@@ -19,10 +25,18 @@ export function createNetWorthMutationsActions({
       } : currentDraft;
       if (!draft.name && !hasDigits(draft.value)) return;
       const restoreDraft = () => {
+        if(transientState.netWorthDraft === draft) return;
         transientState.netWorthDraft = draft;
         syncHousehold();
       };
-      transientState.netWorthDraft = null;
+      const finishDraft = result => {
+        if(!explicitSave.accept(result, 'net-worth')) return;
+        transientState.netWorthDraft = null;
+        syncHousehold();
+      };
+      // Keep the mounted editor and its validation message until the command
+      // succeeds. Recreating it on rejection discards the visible error.
+      transientState.netWorthDraft = draft;
       transientState.netWorthMoreOpen = false;
       const isCanonicalAccount = (draft.categoryId === 'bank' || draft.categoryId === 'investment') && draft.accountTypeId && draft.shellOnly !== true;
       if (isCanonicalAccount && (!draft.owner || !draft.owners.includes(draft.owner))) {
@@ -59,7 +73,7 @@ export function createNetWorthMutationsActions({
           restoreDraft();
           return;
         }
-        syncHousehold();
+        finishDraft(result);
         return;
       }
       if (draft.categoryId === 'property') {
@@ -75,7 +89,7 @@ export function createNetWorthMutationsActions({
           restoreDraft();
           return;
         }
-        syncHousehold();
+        finishDraft(result);
         return;
       }
       if (draft.categoryId === 'mortgage' && draft.link !== '' && draft.linkAvailable === true && hasDigits(draft.value)) {
@@ -92,14 +106,14 @@ export function createNetWorthMutationsActions({
           restoreDraft();
           return;
         }
-        syncHousehold();
+        finishDraft(result);
         return;
       }
       if (draft.categoryId === 'mortgage') {
         restoreDraft();
         return;
       }
-      if (!commit({
+      const result = commit({
         scope: 'net-worth',
         action: 'add-shell-entry',
         entry: {
@@ -111,11 +125,12 @@ export function createNetWorthMutationsActions({
           tax: draft.categoryId === 'investment' ? draft.canonicalTax : '',
           value: draft.value
         }
-      }, action)) {
+      }, action, true);
+      if (!result) {
         restoreDraft();
         return;
       }
-      syncHousehold();
+      finishDraft(result);
       return;
     },
     'net-worth-remove-entry': action => {

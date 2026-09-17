@@ -69,10 +69,11 @@ export function renderHouseholdFinancesRail(ctx){
             <span aria-hidden="true">$</span>
             <input type="text" inputmode="decimal" autocomplete="off"
               data-finance-amount aria-label="${esc(selectedType.label)} annual amount"
+              ${mode === 'income' && selectedType.id === 'social_security' ? 'data-finance-social-security' : ''}
               value="${selectedAmountValue}"
               size="${Math.max(1, selectedAmountValue.length)}"
               placeholder="0">
-            <span aria-hidden="true">/yr</span>
+            <span aria-hidden="true" data-finance-unit-label>/yr</span>
             <button type="button" data-hh-action="commit-finance-entry"
               aria-label="Save ${esc(selectedType.label)}">↵</button>
           </div>
@@ -112,7 +113,7 @@ export function renderHouseholdFinancesRail(ctx){
       <aside class="hh-finances-rail${open ? ' is-open' : ''}${hasOwner ? ' has-owner' : ''}"
         data-finances-rail aria-label="Savings and Income">
         <header class="hh-finances-rail-head">
-          <span>Savings and Income</span>
+          <span data-mobile-label="Income & savings">Savings and Income</span>
           <button type="button" class="hh-finances-rail-toggle"
             data-hh-action="toggle-finances-rail" aria-expanded="${open ? 'true' : 'false'}"
             aria-controls="hh-finances-rail-body"

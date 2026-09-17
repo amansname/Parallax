@@ -111,20 +111,13 @@ export async function verifySavingsReplacement({ page, stableReload, screenshotD
   await assertReview(page);
   assert.deepEqual(await readSaved(page, id), before, 'review must not save');
   const viewport = page.viewport();
-  let previousWidth = viewport.width;
+  const reviewBeforeResize = await page.$('[data-savings-replacement]');
   for(const [width, height] of [[1920, 1080], [1279, 900], [760, 900]]){
     await page.setViewport({ width, height, deviceScaleFactor: 1 });
-    if(width <= 1023 && previousWidth > 1023){
-      // Entering the overlay layout closes transient finance state. Reopen
-      // explicitly to verify the same confirmation controls at this width.
-      await page.waitForFunction(() => document.querySelector('[data-hh-action="toggle-finances-rail"]')?.getAttribute('aria-expanded') === 'false');
-      assert.deepEqual(await readSaved(page, id), before, 'responsive closure must not save');
-      await page.click(action('toggle-finances-rail'));
-      await openEntry(page);
-      await enterAmount(page, 500);
-      await assertReview(page);
-    }
-    previousWidth = width;
+    assert.equal(await page.evaluate(panel => panel === document.querySelector('[data-savings-replacement]'), reviewBeforeResize), true);
+    assert.equal(await page.$eval(action('toggle-finances-rail'), node => node.getAttribute('aria-expanded')), 'true');
+    await assertReview(page);
+    assert.deepEqual(await readSaved(page, id), before, 'resizing a pending review must preserve household and scenario bytes');
     const geometry = await page.evaluate(() => {
       const panel = document.querySelector('[data-savings-replacement]');
       const rect = panel.getBoundingClientRect();
@@ -135,10 +128,6 @@ export async function verifySavingsReplacement({ page, stableReload, screenshotD
           const child = el.getBoundingClientRect();
           return child.left >= rect.left && child.right <= rect.right;
         }),
-        clickable: [...panel.querySelectorAll('button')].every(el => {
-          const r = el.getBoundingClientRect();
-          return el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));
-        }),
       };
     });
     assert.equal(geometry.bodySize, '14px');
@@ -146,9 +135,18 @@ export async function verifySavingsReplacement({ page, stableReload, screenshotD
     const expectedButtonHeight = width <= 760 || (width <= 1023 && height <= 500) ? 44 : 40;
     assert.deepEqual(geometry.buttonHeights, [expectedButtonHeight, expectedButtonHeight]);
     assert.equal(geometry.contained, true);
-    assert.equal(geometry.clickable, true, `confirmation controls must be reachable at ${width}x${height}`);
+    for(const button of await page.$$('[data-savings-replacement] button')){
+      await button.evaluate(node => node.scrollIntoView({ block: 'center', inline: 'nearest' }));
+      const clickable = await button.evaluate(node => {
+        const rect = node.getBoundingClientRect();
+        return rect.top >= 0 && rect.bottom <= innerHeight
+          && node.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
+      });
+      assert.equal(clickable, true, `confirmation controls must be reachable at ${width}x${height}`);
+    }
     if(screenshotDir) await page.screenshot({ path: join(screenshotDir, `savings-review-${width}.png`) });
   }
+  await reviewBeforeResize.dispose();
   await page.setViewport(viewport);
   await page.click(action('cancel-savings-replacement'));
   await page.waitForFunction(() => document.activeElement?.matches('[data-finance-amount]'));

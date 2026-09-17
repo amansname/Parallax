@@ -35,8 +35,8 @@ export function renderHouseholdWizardFamily(ctx){
             data-hh-action="remove-spouse">Remove co-client</button>
         ` : ''}
         <div class="hh-person-fields">
-          <label class="hh-field hh-field--wide">
-            <span>Legal name</span>
+          <label class="hh-field hh-field--wide hh-field--name">
+            <span data-mobile-label="Name">Legal name</span>
             <input type="text" value="${esc(name)}"
               data-hh-field="${owner}.legalName"
               data-wizard-scope="family" data-wizard-field="${nameField}">
@@ -46,10 +46,10 @@ export function renderHouseholdWizardFamily(ctx){
             ${renderBirthDateField({ owner, iso: birthDate, esc })}
           </label>
           <div class="hh-field hh-field--age">
-            <span>Age</span>
+            <span data-mobile-label="Current age">Age</span>
             <output data-hh-age="${owner}">${age == null ? '—' : esc(age)}</output>
           </div>
-          <label class="hh-field">
+          <label class="hh-field hh-field--status">
             <span>Status</span>
             <select data-hh-field="${owner}.status"
               data-wizard-scope="family" data-wizard-field="${owner}.status">
@@ -60,21 +60,21 @@ export function renderHouseholdWizardFamily(ctx){
               ], status)}
             </select>
           </label>
-          <label class="hh-field">
-            <span>Retires at</span>
+          <label class="hh-field hh-field--retirement">
+            <span data-mobile-label="Retirement age">Retires at</span>
             <input type="number" min="45" max="90" value="${fieldValue(person.retirementAge)}"
               data-hh-field="${owner}.retirementAge"
               data-wizard-scope="family" data-wizard-field="${owner}.retirementAge">
           </label>
-          <label class="hh-field">
-            <span>Social Security</span>
+          <label class="hh-field hh-field--social-security">
+            <span data-mobile-label="Social Security claim age">Social Security</span>
             <input type="number" min="62" max="70"
               value="${fieldValue(plan.income?.socialSecurity?.[ssKey]?.claimAge)}"
               data-hh-field="${owner}.socialSecurityAge"
               data-wizard-scope="family" data-wizard-field="${owner}.socialSecurityAge">
           </label>
-          <label class="hh-field">
-            <span>Live to age</span>
+          <label class="hh-field hh-field--plan-end">
+            <span data-mobile-label="Plan through age">Live to age</span>
             <input type="number" min="45" max="125" value="${fieldValue(person.planEndAge)}"
               data-hh-field="${owner}.planEndAge"
               data-wizard-scope="family" data-wizard-field="${owner}.planEndAge">
@@ -95,8 +95,10 @@ export function renderHouseholdWizardFamily(ctx){
         ${personCard('client')}
         ${hasSpouse ? personCard('spouse') : ''}
       </div>
+      ${hasSpouse ? '' : '<button type="button" class="hh-mobile-add-spouse" data-hh-action="add-spouse">+ Spouse</button>'}
 
       <section class="hh-form-section">
+        <h2 class="hh-mobile-section-title">Filing and residence</h2>
         <div class="hh-family-filing">
           <label class="hh-field">
             <span>Filing status</span>

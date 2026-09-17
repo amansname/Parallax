@@ -2,6 +2,7 @@
 import { waitForWizard } from '../wizard-browser-contract.mjs';
 import { goToWizardStep } from '../wizard-browser-contract.mjs';
 import { openNetWorthCategory } from '../wizard-browser-contract.mjs';
+import { waitForPlanCalculation } from './wizard/actions.mjs';
 export async function verifyReadOnlyPersistence({
   page,
   stableReload,
@@ -361,6 +362,23 @@ export async function verifyReadOnlyPersistence({
   await assertPinned('Tax fields and completion');
   await assertBytesUnchanged('Tax fields and completion');
 
+  const taxViewport = page.viewport();
+  await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 1 });
+  await page.waitForSelector('[data-mobile-tax-choice="itemized"]');
+  const mobileDeduction = await page.evaluate(() => {
+    const select = document.querySelector('[data-tax-field="deductionMode"]');
+    const buttons = [...document.querySelectorAll('[data-mobile-tax-choice]')];
+    const before = select.value;
+    buttons.find(button => button.dataset.mobileTaxChoice === 'itemized').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    return { count: buttons.length, disabled: buttons.every(button => button.disabled), before, after: select.value };
+  });
+  if(mobileDeduction.count !== 4 || !mobileDeduction.disabled || mobileDeduction.before !== mobileDeduction.after){
+    throw new Error(`read-only mobile deduction choices changed state: ${JSON.stringify(mobileDeduction)}`);
+  }
+  await assertBytesUnchanged('mobile deduction choices');
+  await page.setViewport(taxViewport);
+  await page.waitForFunction(() => !document.querySelector('.hh-mobile-tax'));
+
   // New Household is a mutation and must remain inert.
   const optionCountBefore = await page.$$eval('#hh-switch option', els => els.length);
   await page.evaluate(() => document.querySelector('#hh-new')?.dispatchEvent(new MouseEvent('click', {
@@ -457,6 +475,7 @@ export async function verifyReadOnlyPersistence({
       bubbles: true
     }));
   });
+  await waitForPlanCalculation(page);
   await waitForWizard(page, {
     afterRevision: beforeNow,
     householdId: 'now-household'
@@ -472,6 +491,7 @@ export async function verifyReadOnlyPersistence({
   await assertBytesUnchanged('switch to Now');
   const beforeOther = await page.$eval('[data-hh-wizard-root]', element => Number(element.dataset.renderRevision));
   await page.select('#hh-switch', 'other');
+  await waitForPlanCalculation(page);
   await waitForWizard(page, {
     afterRevision: beforeOther,
     householdId: 'other'
@@ -520,6 +540,7 @@ export async function verifyReadOnlyPersistence({
       bubbles: true
     }));
   });
+  await waitForPlanCalculation(page);
   await waitForWizard(page, {
     afterRevision: beforeFuture,
     householdId: 'future-household'

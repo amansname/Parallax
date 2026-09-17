@@ -1,0 +1,56 @@
+.gh-page.gm-page { display: block; width: 100%; min-height: 0; padding: 0; background: var(--page); }
+.gm-page, .gm-page * { box-sizing: border-box; }
+.gm-page .gh-sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+.gm-page button, .gm-page input, .gm-page select { font: inherit; color: var(--ink); }
+.gm-page button { cursor: pointer; }
+.gm-page button:disabled { cursor: default; opacity: .55; }
+.gm-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 16px 24px 12px; }
+.gm-heading h1 { margin: 0; font-size: 26px; line-height: 1.3; font-weight: 400; letter-spacing: -.5px; }
+.gm-heading > span { font-size: 13px; color: var(--body); }
+.gm-add-label { margin: 0 24px 8px; color: var(--body); font-size: 12px; line-height: 1.4; }
+.gm-page .gm-categories { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; padding: 4px 24px 12px; border-bottom: 1px solid var(--rule); }
+.gm-page .gm-categories button { display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 0; min-height: 48px; height: auto; gap: 3px; padding: 5px 2px; border: 1px solid transparent; border-radius: 6px; background: none; font-size: 11px; line-height: 1.3; color: var(--body); white-space: normal; }
+.gm-page .gm-categories button span { max-width: 100%; overflow-wrap: anywhere; }
+.gm-page .gm-categories button[aria-pressed="true"] { border-color: var(--body); color: var(--ink); }
+.gm-page .gm-categories img { width: 19px; height: 19px; }
+.gm-list { padding: 0 24px 24px; }
+.gm-row { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; min-height: 80px; padding: 10px 0; border-bottom: 1px solid var(--rule); }
+.gm-page .gm-open { display: flex; align-items: center; justify-content: flex-start; flex: 1 1 8em; min-width: 0; min-height: 44px; gap: 12px; text-align: left; padding: 0; background: none; border: 0; }
+.gm-open > img { width: 38px; height: 38px; padding: 7px; flex-shrink: 0; background: var(--panel); border: 1px solid var(--edge); border-radius: 8px; }
+.gm-open > span { min-width: 0; }
+.gm-open strong { display: block; font-size: 14px; font-weight: 400; overflow-wrap: anywhere; }
+.gm-open small { display: block; font-size: 11px; line-height: 1.4; color: var(--body); margin-top: 4px; }
+.gm-inline-amount { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; max-width: 50%; margin-left: auto; font-size: 16px; }
+.gm-amount-value { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 1ch; max-width: calc(100% - 1em); font-variant-numeric: tabular-nums; }
+.gm-amount-value > span { grid-area: 1 / 1; min-width: 0; overflow: hidden; visibility: hidden; white-space: pre; padding: 4px 0; }
+.gm-inline-amount input { grid-area: 1 / 1; width: 0; min-width: 100%; min-height: 44px; padding: 4px 0; text-align: right; border: 0; border-radius: 0; background: none; }
+.gm-inline-amount small { width: 100%; font-size: 11px; color: var(--body); text-align: right; }
+.gm-detail-heading { display: flex; align-items: center; justify-content: space-between; min-height: 56px; padding: 6px 16px; border-bottom: 1px solid var(--rule); }
+.gm-detail-heading h1 { margin: 0; font-size: 18px; line-height: 1.25; font-weight: 500; }
+.gm-detail-heading > button, .gm-detail-heading > span { width: 44px; min-height: 44px; flex-shrink: 0; }
+.gm-detail-heading > button { border: 0; padding: 0; background: none; font-size: 28px; }
+.gm-editor-body { padding: 18px 24px 12px; }
+.gm-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; margin: 0 0 16px; }
+.gm-field > span:first-child { font-size: 14px; line-height: 20px; color: var(--body); }
+.gm-page .gm-field > input, .gm-page .gm-field > select { width: 100%; min-width: 0; min-height: 44px; height: auto; font-size: 16px; line-height: 1.5; border: 1px solid var(--edge); border-radius: 6px; padding: 8px 12px; background: var(--panel); box-shadow: none; }
+.gm-page .gm-money { display: flex; align-items: center; gap: 4px; font-size: 28px; }
+.gm-page .gm-money input { flex: 1; width: 0; min-height: 44px; padding: 0; border: 0; border-bottom: 1px solid var(--rule); font-size: inherit; background: none; box-shadow: none; }
+.gm-segments { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; margin-bottom: 16px; }
+.gm-segments button { flex: 1 1 5em; min-width: 0; min-height: 44px; padding: 6px 8px; border: 1px solid var(--rule); border-radius: 6px; background: none; font-size: 14px; line-height: 1.3; white-space: normal; }
+.gm-segments button[aria-pressed="true"] { border-color: var(--body); background: var(--sel); }
+.gm-period-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 14px; margin: 20px 0 12px; }
+.gm-period-heading .gm-segments { margin: 0; }
+.gm-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 8em), 1fr)); gap: 12px; }
+.gm-footer { display: flex; flex-wrap: wrap; gap: 12px; padding: 12px 24px; }
+.gm-footer button { min-height: 48px; padding: 10px 16px; border: 0; border-radius: 6px; background: none; font-size: 16px; }
+.gm-footer .gm-save { flex: 1; background: var(--acc); color: var(--page); }
+.gm-delete { display: block; margin: 0 24px 24px; padding: 8px 0; min-height: 44px; border: 0; background: none; color: var(--neg); font-size: 14px; }
+.gm-empty, .gm-error, .gm-undo { margin: 16px 24px; font-size: 14px; line-height: 1.5; }
+.gm-page .gm-error { color: var(--neg); }
+.gm-save-recovery { margin: 16px 24px; color: var(--neg); font-size: 16px; line-height: 1.5; }
+.gm-save-recovery button { min-height: 44px; padding: 8px 16px; border: 1px solid var(--acc); border-radius: 6px; background: none; }
+.gm-undo { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.gm-undo button { min-height: 44px; padding: 8px 12px; border: 1px solid var(--rule); background: none; }
+.gm-page :is(input, select, button):focus-visible { outline: 1px solid var(--acc); outline-offset: 2px; }
+.gm-page [hidden] { display: none; }
+body:has(.page.on [data-mobile-goals="editor"]) .app-header { display: none; }
