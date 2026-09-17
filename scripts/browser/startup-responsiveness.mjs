@@ -26,6 +26,7 @@ export async function verifyStartupResponsiveness({ browser, url, artifactId, ou
       const NativeWorker = window.Worker;
       window.Worker = class extends NativeWorker {
         constructor(workerUrl, options) {
+          if (window.rejectNewWorkers) throw new Error('Injected worker startup failure');
           super(workerUrl, options);
           this.record = { url: String(workerUrl), started: performance.now(), terminated: false };
           window.observedWorkers.push(this.record);
@@ -138,18 +139,14 @@ export async function verifyStartupResponsiveness({ browser, url, artifactId, ou
       });
     }, artifactId);
     assert.ok(evidence.parity.every(s => s.identical), 'Worker output differs from canonical 1000-path calculation');
-    // A historical-only network failure must leave a visible way to recover.
-    await page.setRequestInterception(true);
-    let blockStress = true;
-    page.on('request', request => {
-      if (blockStress && request.url().includes('/planning/scenarioWorker.js')) request.abort();
-      else request.continue();
-    });
+    // A historical-only worker startup failure must leave a visible recovery.
+    // Page request interception does not cover a worker's own network target.
+    await page.evaluate(() => { window.rejectNewWorkers = true; });
     await page.click('#scn-seg-focus');
     await page.waitForFunction(() => document.querySelector('.stress-rail')?.textContent.includes('could not run'));
     assert.equal(await page.$eval('#scn-calculation', panel => panel.hidden), false);
     assert.deepEqual(await page.$$eval('#scn-calculation button', buttons => buttons.map(b => b.textContent)), ['Run']);
-    blockStress = false;
+    await page.evaluate(() => { window.rejectNewWorkers = false; });
     await page.click('#scn-run-action');
     await page.waitForFunction(() => document.querySelectorAll('.stress-rail__result').length === 5, { timeout: 30000 });
     evidence.historical = await page.$$eval('.stress-rail__row', rows => rows.map(row => row.textContent.trim()));
