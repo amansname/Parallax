@@ -139,20 +139,10 @@ export async function verifyStartupResponsiveness({ browser, url, artifactId, ou
       });
     }, artifactId);
     assert.ok(evidence.parity.every(s => s.identical), 'Worker output differs from canonical 1000-path calculation');
-    // A historical-only worker startup failure must leave a visible recovery.
-    // Page request interception does not cover a worker's own network target.
-    await page.evaluate(() => { window.rejectNewWorkers = true; });
-    await page.click('#scn-seg-focus');
-    await page.waitForFunction(() => document.querySelector('.stress-rail')?.textContent.includes('could not run'));
-    assert.equal(await page.$eval('#scn-calculation', panel => panel.hidden), false);
-    assert.deepEqual(await page.$$eval('#scn-calculation button', buttons => buttons.map(b => b.textContent)), ['Run']);
-    await page.evaluate(() => { window.rejectNewWorkers = false; });
-    await page.click('#scn-run-action');
-    await page.waitForFunction(() => document.querySelectorAll('.stress-rail__result').length === 5, { timeout: 30000 });
-    evidence.historical = await page.$$eval('.stress-rail__row', rows => rows.map(row => row.textContent.trim()));
-    assert.deepEqual(await page.$$eval('.stress-rail__year', years => years.map(year => year.textContent)), ['1966', '1973', '2000', '2008', '1970s']);
-    assert.equal(await page.evaluate(() => window.observedWorkers.at(-1).kind), 'stress');
-    await page.screenshot({ path: join(outputDir, 'startup-focus.png') });
+    // Only the three-scenario projection worker is supported after Focus retirement.
+    assert.equal(await page.$('#scn-seg-focus, #scn-view .focus, #scn-view .stress-rail'), null);
+    assert.equal(await page.evaluate(() => typeof window.ScenariosUI.renderFocus), 'undefined');
+    assert.ok(evidence.calculation.workers.every(worker => worker.kind === 'scenarios'));
     assert.deepEqual(errors, []);
     evidence.passed = true;
     return evidence;

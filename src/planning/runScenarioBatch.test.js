@@ -3,8 +3,7 @@ import assert from 'node:assert/strict';
 import { defaultPlan, generateReturnPath, resetSeed, resolveInputs } from '../../engine.js';
 import { createSelectableDefaultHouseholds } from '../../ui/householdFactories.js';
 import { runFederalFundingSimulation } from './tax/runMonteCarloWithFederalFunding.js';
-import { runScenarioBatch, runHistoricalStressBatch } from './runScenarioBatch.js';
-import { computeHistoricalStress, STRESS_ERAS } from '../scenarios/historicalStress.js';
+import { runScenarioBatch } from './runScenarioBatch.js';
 
 test('worker batch retains complete canonical results and baseline account-detail selection', () => {
   const records = createSelectableDefaultHouseholds(defaultPlan, 2026);
@@ -31,12 +30,4 @@ test('worker batch retains complete canonical results and baseline account-detai
   assert.deepEqual(output[1].result, expectedAlternative);
   assert.match(output[2].error.message, /filing status|filingStatus/i);
   assert.equal(output[0].result.stress, undefined);
-  const historical = [];
-  runHistoricalStressBatch({ entries: [{
-    ...entries[0],
-    analysis: { envelope: expectedBase.envelope, paths: { p50: expectedBase.paths.p50 } },
-  }] }, response => historical.push(structuredClone(response)));
-  const expectedStress = computeHistoricalStress({ name: entries[0].name, res: expectedBase }, plan, {});
-  assert.equal(expectedStress.length, STRESS_ERAS.length);
-  assert.deepEqual(historical[0].result.stress, expectedStress);
 });

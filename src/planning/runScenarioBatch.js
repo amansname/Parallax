@@ -1,5 +1,4 @@
 import { runFederalFundingSimulation } from './tax/runMonteCarloWithFederalFunding.js';
-import { computeHistoricalStress } from '../scenarios/historicalStress.js';
 
 export function scenarioWorkerError(error) {
   return {
@@ -21,19 +20,6 @@ export function runScenarioBatch({ entries, returnPaths, baseTaxYear }, emit) {
       });
       if (entry.base) baselineTypicalIndex = result.paths?.p50?.simIndex;
       emit({ index, result });
-    } catch (error) {
-      emit({ index, error: scenarioWorkerError(error) });
-    }
-  }
-}
-
-export function runHistoricalStressBatch({ entries }, emit) {
-  for (const [index, entry] of entries.entries()) {
-    try {
-      const stress = computeHistoricalStress(
-        { name: entry.name, res: entry.analysis }, entry.plan, entry.overrides,
-      );
-      emit({ index, result: { stress } });
     } catch (error) {
       emit({ index, error: scenarioWorkerError(error) });
     }

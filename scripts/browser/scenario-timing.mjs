@@ -249,14 +249,19 @@ export async function verifyPlanningAgeLimits({
     visible: true,
     timeout: 8000
   });
-  await page.click('#scn-seg-focus');
-  await page.waitForFunction(() => !!document.querySelector('#scn-view .focus .viability__text'), {
-    timeout: 8000
-  });
-  const viability = await page.$eval('#scn-view .focus .viability__text', element => element.textContent.trim());
-  if (viability !== 'Funds last to age 100') {
-    throw new Error(`entered planning age did not cap the Focus result: "${viability}"`);
+  await page.click('#scn-cash-toggle');
+  await page.waitForFunction(() => document.querySelectorAll('#scn-view .cf-row').length > 0, { timeout: 30000 });
+  const lastAges = await page.$$eval('#scn-view .cf-row', rows => ({
+    timeline: Number(rows.at(-1).dataset.age),
+    living: Number(rows.at(-1).dataset.livingAge),
+  }));
+  // The surviving spouse reaches 100 four years after the primary's age-100
+  // timeline point. Keep both the engine timeline and visible living age exact.
+  if (lastAges.timeline !== 104 || lastAges.living !== 100) {
+    throw new Error(`entered planning ages did not cap Cash Flow: ${JSON.stringify(lastAges)}`);
   }
+  await page.click('#scn-seg-compare');
+  await page.waitForSelector('#scn-view .compare', { visible: true, timeout: 8000 });
 }
 export async function verifyRetiredAgeLever({
   stableEvaluate,

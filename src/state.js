@@ -144,23 +144,17 @@ export function saveCashFlowPathSelection(){
 }
 
 const scenariosUiValues = {
-  view: 'compare',
   cashActive: false,
   focusedId: null,
-  showRange: true,
   goalsExpanded: true,
   cashFromRetirement: false,
 };
 
 export const scenariosUiState = {
-  get view(){ return scenariosUiValues.view; },
-  set view(value){ scenariosUiValues.view = value; },
   get cashActive(){ return scenariosUiValues.cashActive; },
   set cashActive(value){ scenariosUiValues.cashActive = value; },
   get focusedId(){ return scenariosUiValues.focusedId; },
   set focusedId(value){ scenariosUiValues.focusedId = value; },
-  get showRange(){ return scenariosUiValues.showRange; },
-  set showRange(value){ scenariosUiValues.showRange = value; },
   get goalsExpanded(){ return scenariosUiValues.goalsExpanded; },
   set goalsExpanded(value){ scenariosUiValues.goalsExpanded = value; },
   get cashFromRetirement(){ return scenariosUiValues.cashFromRetirement; },

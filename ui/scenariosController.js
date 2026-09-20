@@ -1,10 +1,9 @@
-// Installs the existing Compare, Focus, and Cash Flow view layer once.
+// Installs the existing Compare and Cash Flow view layer once.
 import { scenarios, uiState, scenariosUiState as state } from '../src/state.js';
 import { defaultPlan as plan } from '../engine.js';
 import { resolveGoalSpan, resolveEffectiveGoal, resolveScenarioHouseholdRetirementAge, goalHasFutureWorkingYears } from '../src/goals/horizonModel.js';
 import { leverConfigs, levRange, syncPension } from '../src/scenarios/scenarioConfiguration.js';
-import { num as scenarioNum, toneForProb, renderCompare, renderFocus, wdColor } from './scenarios.js';
-import { STRESS_ERAS } from '../src/scenarios/historicalStress.js';
+import { num as scenarioNum, toneForProb, renderCompare, wdColor } from './scenarios.js';
 import { renderCashflow } from './cashflow.js';
 import { liveCommas } from './moneyInput.js';
 export function installScenariosView(dependencies) {
@@ -15,7 +14,6 @@ export function installScenariosView(dependencies) {
     cashFlowController,
     saveScenarios,
     runAll,
-    requestStress,
     guardPlanMutation,
     isHouseholdStorageBlocked,
     renderBlockedRecoverySurfaces,
@@ -45,26 +43,9 @@ export function installScenariosView(dependencies) {
       const e = s.res && s.res.envelope;
       return e && e.length ? e[e.length - 1].p50 : null;
     },
-    range: s => {
-      const t = s.res && s.res.terminal;
-      if (!t) return null;
-      const e = s.res.envelope,
-        p50 = e && e.length ? e[e.length - 1].p50 : t.p50 != null ? t.p50 : null;
-      const lo = t.p10,
-        hi = t.p90;
-      const medianPct = lo != null && hi != null && hi > lo && p50 != null ? Math.max(0, Math.min(100, (p50 - lo) / (hi - lo) * 100)) : 50;
-      return {
-        lo,
-        hi,
-        medianPct
-      };
-    },
-    viability: s => viabilityString(s),
     isBaseline: s => !!s.base,
     levers: s => leversFor(s),
     goals: s => goalsVM(s),
-    stress: s => s.res && s.res.stress || [],
-    // Populated on demand from the worker's canonical historical run.
     cashFlowResult: s => cashFlowController.resultForScenario(s),
     typicalPathFederalTax: s => s.res && s.res.typicalPathFederalTax,
     householdName: () => plan.meta && (plan.meta.primaryName || plan.meta.household) || ''
@@ -85,27 +66,7 @@ export function installScenariosView(dependencies) {
   // Cash-flow table WD column: slate under 5%, then coral/rust only — no amber
   // or gold tones (those compete with accent gold elsewhere in the UI).
 
-  const CHECK = (sw, s) => '<svg width="' + s + '" height="' + s + '" viewBox="0 0 15 15" fill="none"><path d="M3 7.5 L6 10.5 L12 4" stroke="#8fa57e" stroke-width="' + sw + '" stroke-linecap="round" stroke-linejoin="round"></path></svg>';
   const DOWN_TRI = '<svg width="8" height="8" viewBox="0 0 9 9" fill="#c0795f"><path d="M4.5 8 L0.5 2 L8.5 2 Z"></path></svg>';
-
-  // Age-specific viability string per the design spec:
-  //   "Funds last to age X"     — plan survives the median path
-  //   "Shortfall risk after age X" — median path depletes before plan end
-  // Reads the typical (p50) path from the scenario's already-computed results.
-  // Pure presentation: no engine math, no re-simulation.
-  function viabilityString(s) {
-    if (!s.res) return '';
-    const planEnd = resolveGoalSpan(plan).planEndAge;
-    // Use the p50 (typical) path index from the scenario's own result set so
-    // the viability string is consistent with the rest of the Focus panel.
-    const p50Idx = s.res.paths && s.res.paths.p50 && s.res.paths.p50.simIndex != null ? s.res.paths.p50.simIndex : 0;
-    const sim = (Array.isArray(s.res.sims) ? s.res.sims.find(x => x.simIndex === p50Idx) : null) || (Array.isArray(s.res.sims) ? s.res.sims[0] : null);
-    if (!sim) return '';
-    if (sim.failed && sim.depletionAge) {
-      return 'Shortfall risk after age ' + sim.depletionAge;
-    }
-    return 'Funds last to age ' + planEnd;
-  }
 
   /* ---- adapter helpers (production shapes → view-models) ------------------- */
   // Lever keys shown, in a stable order across all scenarios (so Compare aligns).
@@ -239,7 +200,7 @@ export function installScenariosView(dependencies) {
 
   // Lever step: reuses the existing production mutation and immediately
   // refreshes the saved scenario results.
-  function stepFocusLever(ci, key, dir) {
+  function stepScenarioLever(ci, key, dir) {
     if (!guardPlanMutation()) return;
     const cfg = leverConfigs().find(c => c.key === key);
     if (!cfg || cfg.control) return;
@@ -288,7 +249,7 @@ export function installScenariosView(dependencies) {
       syncScenariosView();
       return;
     }
-    const ci = select.dataset.scnId != null && select.dataset.scnId !== '' ? parseInt(select.dataset.scnId, 10) : parseInt(state.focusedId, 10);
+    const ci = parseInt(select.dataset.scnId, 10);
     const cfg = leverConfigs().find(candidate => candidate.key === select.dataset.leverKey && candidate.control === 'select');
     const sc = scenarios[ci];
     if (!cfg || !sc?.lev || !cfg.options.some(option => option.value === select.value)) {
@@ -366,9 +327,6 @@ export function installScenariosView(dependencies) {
       isBaseline: PROD.isBaseline(s),
       levers: PROD.levers(s),
       goals: PROD.goals(s),
-      range: PROD.range(s),
-      viability: PROD.viability(s),
-      stress: PROD.stress(s),
       raw: s
     };
   }
@@ -381,17 +339,6 @@ export function installScenariosView(dependencies) {
       goalsExpandedState: state.goalsExpanded,
       esc,
       downTri: DOWN_TRI
-    });
-  }
-
-  /* ---- FOCUS ------------------------------------------------------------- */
-
-  function renderFocusView(scns, baseline, focusedId, showRange) {
-    return renderFocus(scns, baseline, focusedId, showRange, {
-      esc,
-      fmtMoney,
-      checkIcon: CHECK,
-      stressEraCount: STRESS_ERAS.length
     });
   }
 
@@ -453,10 +400,6 @@ export function installScenariosView(dependencies) {
       const scn = list.find(s => s.id === state.focusedId) || baseline || list[0];
       view.innerHTML = scn ? renderCashflowView(scn, list) : '';
       mountPathControls(scn.raw);
-    } else if (state.view === 'focus') {
-      const focused = list.find(s => s.id === state.focusedId) || baseline || list[0];
-      if (document.querySelector('.page.on')?.dataset.page === 'scenarios') requestStress(focused?.raw);
-      view.innerHTML = renderFocusView(list, baseline, state.focusedId, state.showRange);
     } else {
       view.innerHTML = renderCompareView(list, baseline);
     }
@@ -467,19 +410,12 @@ export function installScenariosView(dependencies) {
   function syncToolbar() {
     const inCash = state.cashActive;
     const segC = $id('scn-seg-compare'),
-      segF = $id('scn-seg-focus'),
       chip = $id('scn-cash-toggle');
     if (segC) {
-      const on = !inCash && state.view === 'compare';
+      const on = !inCash;
       segC.classList.toggle('is-active', on);
       segC.classList.toggle('is-selected', on);
       segC.setAttribute('aria-selected', on ? 'true' : 'false');
-    }
-    if (segF) {
-      const on = !inCash && state.view === 'focus';
-      segF.classList.toggle('is-active', on);
-      segF.classList.toggle('is-selected', on);
-      segF.setAttribute('aria-selected', on ? 'true' : 'false');
     }
     if (chip) {
       chip.classList.toggle('is-on', inCash);
@@ -498,13 +434,6 @@ export function installScenariosView(dependencies) {
   function bindViewEvents() {
     const view = $id('scn-view');
     if (!view) return;
-    view.querySelectorAll('[data-pick]').forEach(el => {
-      el.addEventListener('click', () => {
-        state.focusedId = el.dataset.pick;
-        PROD.setSelectedId(state.focusedId);
-        syncScenariosView();
-      });
-    });
     const cashSelect = view.querySelector('[data-cash-select]');
     if (cashSelect) cashSelect.addEventListener('change', () => {
       state.focusedId = cashSelect.value;
@@ -517,12 +446,11 @@ export function installScenariosView(dependencies) {
       state.cashFromRetirement = !state.cashFromRetirement;
       syncScenariosView();
     });
-    // Always-visible +/- buttons in Compare (discrete levers) and Focus (all levers).
-    // data-lever-key + data-dir + optional data-scn-id → stepFocusLever.
+    // Always-visible +/- buttons in Compare. Each carries its scenario ID.
     view.querySelectorAll('button[data-lever-key][data-dir]').forEach(el => {
       el.addEventListener('click', () => {
-        const ci = el.dataset.scnId != null && el.dataset.scnId !== '' ? parseInt(el.dataset.scnId, 10) : parseInt(state.focusedId, 10);
-        stepFocusLever(ci, el.dataset.leverKey, +el.dataset.dir);
+        const ci = parseInt(el.dataset.scnId, 10);
+        stepScenarioLever(ci, el.dataset.leverKey, +el.dataset.dir);
         syncScenariosView();
       });
     });
@@ -666,16 +594,9 @@ export function installScenariosView(dependencies) {
   }
   function bindToolbarOnce() {
     const segC = $id('scn-seg-compare'),
-      segF = $id('scn-seg-focus'),
       chip = $id('scn-cash-toggle');
     if (segC) segC.addEventListener('click', () => {
       state.cashActive = false;
-      state.view = 'compare';
-      syncScenariosView();
-    });
-    if (segF) segF.addEventListener('click', () => {
-      state.cashActive = false;
-      state.view = 'focus';
       syncScenariosView();
     });
     if (chip) chip.addEventListener('click', () => {
@@ -703,7 +624,6 @@ export function installScenariosView(dependencies) {
   window.ScenariosUI = {
     sync: syncScenariosView,
     renderCompare: renderCompareView,
-    renderFocus: renderFocusView,
     renderCashflow: renderCashflowView
   };
   init();

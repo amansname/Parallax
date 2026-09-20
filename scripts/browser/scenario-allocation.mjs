@@ -299,17 +299,12 @@ export async function verifyScenarioAllocation({
       timeout: 10000
     });
   }
-  await page.click('#scn-seg-focus');
-  await page.waitForSelector('#scn-view .focus', {
-    visible: true,
-    timeout: 10000
-  });
-  const focusContract = await page.evaluate(() => {
+  const compareContract = await page.evaluate(() => {
     const bodyFontSize = getComputedStyle(document.documentElement).getPropertyValue('--fs-body').trim();
     const bodyFontWeight = getComputedStyle(document.documentElement).getPropertyValue('--fw-body').trim();
     const bodyLineHeight = getComputedStyle(document.documentElement).getPropertyValue('--lh-body').trim();
     const bodyLetterSpacing = getComputedStyle(document.documentElement).getPropertyValue('--ls-body').trim();
-    const editorTypography = [...document.querySelectorAll('#scn-view .assum__value, #scn-view .assum__select')].map(element => {
+    const editorTypography = [...document.querySelectorAll('#scn-view .cmp-lev-val, #scn-view .cmp-lev-select')].map(element => {
       const style = getComputedStyle(element);
       return {
         fontSize: style.fontSize,
@@ -325,11 +320,11 @@ export async function verifyScenarioAllocation({
       bodyLetterSpacing,
       editorTypography,
       removedDecisionControlCount: document.querySelectorAll('#scn-view [data-lever-key="sellAge"], #scn-view [data-key="sellAge"]').length,
-      removedDecisionLabelCount: [...document.querySelectorAll('#scn-view .assum__label')].filter(element => /^Sell\s/i.test(element.textContent.trim())).length
+      removedDecisionLabelCount: [...document.querySelectorAll('#scn-view .lever__name')].filter(element => /^Sell\s/i.test(element.textContent.trim())).length
     };
   });
-  if (focusContract.removedDecisionControlCount !== 0 || focusContract.removedDecisionLabelCount !== 0 || focusContract.editorTypography.length === 0 || focusContract.editorTypography.some(role => role.fontSize !== focusContract.bodyFontSize || role.fontWeight !== focusContract.bodyFontWeight || role.lineHeight !== `${Number.parseFloat(focusContract.bodyFontSize) * Number.parseFloat(focusContract.bodyLineHeight)}px` || (Number.parseFloat(focusContract.bodyLetterSpacing) === 0 ? !['normal', '0px'].includes(role.letterSpacing) : role.letterSpacing !== focusContract.bodyLetterSpacing))) {
-    throw new Error(`scenario Focus controls violate the removed-decision/type contract: ${JSON.stringify(focusContract)}`);
+  if (compareContract.removedDecisionControlCount !== 0 || compareContract.removedDecisionLabelCount !== 0 || compareContract.editorTypography.length === 0 || compareContract.editorTypography.some(role => role.fontSize !== compareContract.bodyFontSize || role.fontWeight !== compareContract.bodyFontWeight || role.lineHeight !== `${Number.parseFloat(compareContract.bodyFontSize) * Number.parseFloat(compareContract.bodyLineHeight)}px` || (Number.parseFloat(compareContract.bodyLetterSpacing) === 0 ? !['normal', '0px'].includes(role.letterSpacing) : role.letterSpacing !== compareContract.bodyLetterSpacing))) {
+    throw new Error(`scenario Compare controls violate the removed-decision/type contract: ${JSON.stringify(compareContract)}`);
   }
   await page.click('#scn-seg-compare');
   await page.waitForSelector('#scn-view .compare', {

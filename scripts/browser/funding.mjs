@@ -314,26 +314,6 @@ export async function verifyFundingAcrossGoals({
   if (compareFunding.goalNames !== 1 || compareFunding.columns !== 3 || compareFunding.disclosures !== compareFunding.columns + 1) {
     throw new Error(`Compare does not disclose goal funding truth exactly once per plan: ${JSON.stringify(compareFunding)}`);
   }
-  await stableClick('#scn-seg-focus');
-  await page.waitForSelector('#scn-view .focus', {
-    visible: true,
-    timeout: 8000
-  });
-  const focusFunding = await page.evaluate(name => {
-    const rows = [...document.querySelectorAll('#scn-view .goal-row')].filter(row => row.querySelector('.goal-row__name')?.textContent.trim() === name);
-    const row = rows[0];
-    return {
-      rows: rows.length,
-      metas: row?.querySelectorAll('.goal-row__meta').length || 0,
-      states: row?.querySelectorAll('.goal-state').length || 0,
-      meta: row?.querySelector('.goal-row__meta')?.textContent || '',
-      state: row?.querySelector('.goal-state')?.textContent.trim() || '',
-      inertSwitches: document.querySelectorAll('#scn-view .goal-toggle,[role="switch"].goal-toggle').length
-    };
-  }, goalName);
-  if (focusFunding.rows !== 1 || focusFunding.metas !== 1 || focusFunding.states !== 1 || !/portfolio funded before retirement/i.test(focusFunding.meta) || focusFunding.state !== 'Active' || focusFunding.inertSwitches !== 0) {
-    throw new Error(`Focus does not disclose read-only goal funding truth: ${JSON.stringify(focusFunding)}`);
-  }
   await setCashFlow(page, true);
   await page.evaluate(() => {
     const toggle = document.querySelector('#scn-view .cf-ret-toggle');
@@ -535,13 +515,6 @@ export async function verifyTaxFundedProbability({
   });
   if (compareProb !== expected) throw new Error(`Compare probability ${compareProb} does not match tax-funded ${expected}`);
   if (compareProb === oldShortcut) throw new Error(`Compare still shows shortcut-only probability ${oldShortcut}`);
-  await page.click('#scn-seg-focus');
-  await sleep(400);
-  const focus = await page.evaluate(() => ({
-    hero: Number.parseFloat(document.querySelector('#scn-view .hero__numeral')?.textContent || ''),
-    rail: Number.parseFloat([...document.querySelectorAll('#scn-view .rail-card')].find(card => /Baseline/i.test(card.textContent || ''))?.querySelector('.rail-card__prob')?.textContent || '')
-  }));
-  if (focus.hero !== expected || focus.rail !== expected) throw new Error(`Focus probabilities do not match tax-funded ${expected}: ${JSON.stringify(focus)}`);
   await setCashFlow(page, true);
   await waitCashRows(page, 1);
   const cashFlowProbability = await page.evaluate(() => ({

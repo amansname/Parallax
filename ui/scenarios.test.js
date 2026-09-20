@@ -1,43 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { renderCompare, renderFocus } from './scenarios.js';
+import { renderCompare } from './scenarios.js';
 
 const esc = value => String(value);
-const deps = {
-  esc,
-  fmtMoney: value => `$${Number(value).toLocaleString('en-US')}`,
-  checkIcon: () => 'check',
-  stressEraCount: 0,
-};
-
-test('Focus renders goal state as read-only status instead of an inert switch', () => {
-  const scenario = {
-    id: 'baseline',
-    name: 'Baseline',
-    isBaseline: true,
-    prob: 80,
-    probStr: '80.0',
-    tone: '#8fa57e',
-    median: '$0',
-    viability: 'Review',
-    levers: [],
-    goals: [
-      { name: 'Travel', amount: 10_000, cadence: '/yr', meta: 'age 65-70', on: true },
-      { name: 'Gift', amount: 0, cadence: 'disabled', meta: 'at age 75', on: false },
-    ],
-    stress: [],
-    range: null,
-  };
-
-  const html = renderFocus([scenario], scenario, scenario.id, false, deps);
-
-  assert.doesNotMatch(html, /class="goal-toggle"|role="switch"/);
-  assert.match(html, /class="goal-state goal-state--on">Active<\/span>/);
-  assert.match(html, /class="goal-state goal-state--off">Off<\/span>/);
-});
-
-test('Compare and Focus preserve the direction of probability deltas versus Baseline', () => {
+test('Compare preserves the direction of probability deltas versus Baseline', () => {
   const scenarios = [
     { id: 'baseline', name: 'Baseline', isBaseline: true, prob: 70, probStr: '70.0' },
     { id: 'better', name: 'Better', isBaseline: false, prob: 80, probStr: '80.0' },
@@ -59,16 +26,11 @@ test('Compare and Focus preserve the direction of probability deltas versus Base
   const compare = renderCompare(scenarios, baseline, {
     plan: {}, planEndAge: 95, goalsExpandedState: false, esc, downTri: '▼',
   });
-  const focus = renderFocus(scenarios, baseline, baseline.id, false, deps);
 
   assert.ok(compare.includes('<span class="tag-delta">+10.0 pts</span>'));
   assert.ok(compare.includes('<span class="tag-delta">▼10.0 pts</span>'));
   assert.ok(compare.includes('<span class="tag-delta">0.0 pts</span>'));
-  assert.ok(focus.includes('<span class="rail-card__tag rail-card__tag--delta">+10.0 pts</span>'));
-  assert.ok(focus.includes('<span class="rail-card__tag rail-card__tag--delta">−10.0 pts</span>'));
-  assert.ok(focus.includes('<span class="rail-card__tag rail-card__tag--delta">0.0 pts</span>'));
-  assert.ok(focus.includes('<span class="rail-card__tag rail-card__tag--delta"></span>'));
-  for(const html of [compare, focus]){
+  for(const html of [compare]){
     assert.ok(!html.includes('NaN pts'));
     assert.ok(!html.includes('−0.0 pts'));
     assert.ok(!html.includes('▼0.0 pts'));
@@ -144,7 +106,7 @@ test('Compare presents the through-plan-end sentinel as the actual plan-end age'
   assert.match(html, /data-goal-field="endAge" value="95"/);
 });
 
-test('Compare and Focus render the canonical allocation model as an in-place selector', () => {
+test('Compare renders the canonical allocation model as an in-place selector', () => {
   const allocation = {
     key: 'allocationPresetId',
     label: 'Allocation',
@@ -176,12 +138,9 @@ test('Compare and Focus render the canonical allocation model as an in-place sel
   const compare = renderCompare([scenario], scenario, {
     plan: {}, planEndAge: 95, goalsExpandedState: false, esc, downTri: '',
   });
-  const focus = renderFocus([scenario], scenario, scenario.id, false, deps);
 
   assert.match(compare, /class="cmp-lev-select"/);
   assert.match(compare, /data-scn-id="0" data-lever-key="allocationPresetId"/);
   assert.match(compare, /<option value="balanced" selected>Balanced<\/option>/);
   assert.doesNotMatch(compare, /data-lever-key="allocationPresetId"[^>]*data-dir/);
-  assert.match(focus, /class="assum__select"/);
-  assert.match(focus, /<option value="aggressive">Aggressive<\/option>/);
 });
