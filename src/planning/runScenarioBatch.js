@@ -1,4 +1,5 @@
 import { runFederalFundingSimulation } from './tax/runMonteCarloWithFederalFunding.js';
+import { registerTransientProjectionAccountState } from '../household/transientProjectionAccountState.js';
 
 export function scenarioWorkerError(error) {
   return {
@@ -9,11 +10,11 @@ export function scenarioWorkerError(error) {
 
 // Execute the existing canonical calculation, in the same scenario order.
 // The baseline-selected path remains the account-detail anchor for alternatives.
-export function runScenarioBatch({ entries, returnPaths, baseTaxYear }, emit) {
-  let baselineTypicalIndex;
+export function runScenarioBatch({ entries, returnPaths, baseTaxYear, baselineTypicalIndex }, emit) {
   for (const [index, entry] of entries.entries()) {
     if (entry.error) { emit({ index, error: entry.error }); continue; }
     try {
+      if (entry.projectionAccountState !== undefined) registerTransientProjectionAccountState(entry.plan, entry.projectionAccountState);
       const result = runFederalFundingSimulation(entry.plan, entry.overrides, returnPaths, {
         baseTaxYear, scenarioId: entry.name, filingStatus: entry.plan.meta?.filingStatus,
         accountDiagnosticsSimIndices: !entry.base && Number.isInteger(baselineTypicalIndex) ? [baselineTypicalIndex] : [],

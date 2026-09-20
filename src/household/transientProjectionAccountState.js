@@ -30,3 +30,13 @@ export function registerTransientProjectionAccountState(plan, states){
 export function readTransientProjectionAccountState(plan, id){
   return stateByPlan.get(plan)?.get(id) ?? null;
 }
+
+/** Explicit transport snapshot; never attach calculation overrides to saved facts. */
+export function snapshotTransientProjectionAccountState(plan){
+  return Array.from(stateByPlan.get(plan) || [], ([id, state]) => ({
+    id,
+    ...(state.basis !== undefined ? { basis: state.basis } : {}),
+    ...(state.investmentAllocation !== undefined
+      ? { investmentAllocation: cloneInvestmentAllocation(state.investmentAllocation) } : {}),
+  }));
+}
