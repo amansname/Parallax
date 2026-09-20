@@ -2,6 +2,8 @@ import { resolveInputs } from '../../engine.js';
 import { scenarioWorkerError } from '../planning/runScenarioBatch.js';
 import { createScenarioWorkerClient } from './createScenarioWorkerClient.js';
 import { scenarioProjectionIssueMessage, scenarioRunFailureMessage } from './projectionMessages.js';
+import { scenarioRunKey } from './scenarioRunKey.js';
+import { snapshotTransientProjectionAccountState } from '../household/transientProjectionAccountState.js';
 
 export function createScenarioRunController({
   getPlan, getScenarios, canRun, prepareScenario, ensurePaths, inputsByResult,
@@ -10,6 +12,8 @@ export function createScenarioRunController({
 }) {
   let generation = 0;
   let running = false;
+  let cachedPaths, cachedHousehold, cachedBaseline;
+  const completed = new Map();
   function clearResults(message) {
     for (const scenario of getScenarios()) {
       scenario.res = null;
@@ -55,12 +59,41 @@ export function createScenarioRunController({
         try { return { name: scenario.name, base: scenario.base, ...prepareScenario(scenario) }; }
         catch (error) { return { name: scenario.name, base: scenario.base, error: scenarioWorkerError(error) }; }
       });
-      const results = await client.run({ entries, returnPaths,
-        baseTaxYear: Number.isInteger(plan.meta?.planningAsOfYear) ? plan.meta.planningAsOfYear : new Date().getFullYear(),
+      const baseTaxYear = Number.isInteger(plan.meta?.planningAsOfYear) ? plan.meta.planningAsOfYear : new Date().getFullYear();
+      // Include the source levers as well: allocation presets can be attached
+      // to the prepared plan through transient (non-enumerable) account state.
+      const keys = entries.map((entry, index) => entry.error ? null : scenarioRunKey({
+        entry, levers: scenarios[index].lev, projectionAccountState: snapshotTransientProjectionAccountState(entry.plan),
+      }, baseTaxYear));
+      // Alternatives retain account detail for the baseline-selected path. A
+      // baseline change invalidates the entire set, even if an alternative's
+      // own inputs did not change. Never mix generations after a partial run.
+      const baselineKey = entries[0]?.base && entries.filter(entry => entry.base).length === 1 ? keys[0] : null;
+      const household = plan.meta?.householdId;
+      if (!baselineKey || cachedPaths !== returnPaths || cachedHousehold !== household || cachedBaseline !== baselineKey) completed.clear();
+      cachedPaths = returnPaths;
+      cachedHousehold = household;
+      cachedBaseline = baselineKey;
+      for (const scenario of completed.keys()) if (!scenarios.includes(scenario)) completed.delete(scenario);
+      const baseline = completed.get(scenarios[0]);
+      if (!baseline || baseline.key !== baselineKey) completed.clear();
+      const results = [];
+      const pending = [];
+      for (const [index, scenario] of scenarios.entries()) {
+        const hit = completed.get(scenario);
+        if (keys[index] && hit?.key === keys[index]) results[index] = { result: hit.result };
+        else {
+          completed.delete(scenario);
+          pending.push(index);
+        }
+      }
+      const responses = pending.length ? await client.run({ entries: pending.map(index => entries[index]), returnPaths,
+        baseTaxYear, baselineTypicalIndex: baseline?.result.paths?.p50?.simIndex,
       }, (done, total) => {
         if (current === generation) onState('running', `Running… ${done} of ${total} scenarios`);
-      });
+      }) : [];
       if (current !== generation) return;
+      for (const [index, response] of responses.entries()) results[pending[index]] = response;
       let failed = 0;
       for (const [index, response] of results.entries()) {
         const scenario = scenarios[index];
@@ -82,6 +115,7 @@ export function createScenarioRunController({
           continue;
         }
         scenario.runError = null;
+        if (keys[index]) completed.set(scenario, { key: keys[index], result });
       }
       markCurrent();
       const firstFailure = scenarios.find(scenario => scenario.runError)?.runError;

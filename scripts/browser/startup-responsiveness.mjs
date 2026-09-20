@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { verifyScenarioReuse } from './scenario-reuse.mjs';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { waitForWizard } from '../wizard-browser-contract.mjs';
@@ -33,6 +34,7 @@ export async function verifyStartupResponsiveness({ browser, url, artifactId, ou
         }
         postMessage(message, ...args) {
           this.record.kind = message.batch?.kind || 'scenarios';
+          this.record.names = message.batch?.entries.map(entry => entry.name);
           return super.postMessage(message, ...args);
         }
         terminate() {
@@ -139,6 +141,7 @@ export async function verifyStartupResponsiveness({ browser, url, artifactId, ou
       });
     }, artifactId);
     assert.ok(evidence.parity.every(s => s.identical), 'Worker output differs from canonical 1000-path calculation');
+    evidence.reuse = await verifyScenarioReuse(page, artifactId);
     // Only the three-scenario projection worker is supported after Focus retirement.
     assert.equal(await page.$('#scn-seg-focus, #scn-view .focus, #scn-view .stress-rail'), null);
     assert.equal(await page.evaluate(() => typeof window.ScenariosUI.renderFocus), 'undefined');

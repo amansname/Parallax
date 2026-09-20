@@ -1,3 +1,5 @@
+import { snapshotTransientProjectionAccountState } from '../household/transientProjectionAccountState.js';
+
 function superseded() {
   const error = new Error('Calculation superseded by newer inputs');
   error.name = 'AbortError';
@@ -57,7 +59,9 @@ export function createScenarioWorkerClient({ createWorker = defaultWorker } = {}
         job.finish(new Error(`Calculation worker could not run: ${event.message || 'worker startup failed'}`));
       };
       worker.onmessageerror = () => job.finish(new Error('Calculation worker response could not be read'));
-      try { worker.postMessage({ requestId, batch }); }
+      try { worker.postMessage({ requestId, batch: { ...batch, entries: batch.entries.map(entry => ({
+        ...entry, projectionAccountState: snapshotTransientProjectionAccountState(entry.plan),
+      })) } }); }
       catch (error) { job.finish(new Error(`Calculation worker inputs could not be sent: ${error.message}`)); }
     });
   }
