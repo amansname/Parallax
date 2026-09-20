@@ -40,29 +40,10 @@ test('an edit cancels visible results and late completion cannot overwrite a new
   f.jobs[1].resolve([{ result: { identity: 'new' } }]);
   await nextRun;
   assert.equal(f.scenarios[0].res.identity, 'new');
-  assert.equal(f.scenarios[0].res.stress, undefined, 'historical stress must remain lazy');
+  assert.equal(f.scenarios[0].res.stress, undefined, 'retired Focus stress is not calculated');
   assert.equal(f.marked, 1);
   assert.equal(f.states.at(-1).state, 'complete');
   assert.equal(f.inputs.get(f.scenarios[0].res).plan.meta.householdId, f.plan.meta.householdId);
-});
-
-test('historical-only failures restore a visible retry state while retaining the current projection', async () => {
-  for (const stressResponse of [
-    { error: { message: 'module unavailable' } },
-    { result: { stress: [] } },
-    { result: { stress: [{ year: 1966 }] } },
-  ]) {
-    const f = fixture({ createStressClient: () => ({ cancel() {}, run: async () => [stressResponse] }) });
-    const run = f.controller.run();
-    f.jobs[0].resolve([{ result: { paths: { p50: {} }, envelope: [] } }]);
-    await run;
-    const projection = f.scenarios[0].res;
-    await f.controller.requestStress(f.scenarios[0]);
-    assert.equal(f.scenarios[0].res, projection);
-    assert.equal(projection.stressState, 'error');
-    assert.equal(f.states.at(-1).state, 'error');
-    assert.match(f.states.at(-1).message, /Run the plan to retry/);
-  }
 });
 
 test('repeated navigation does not restart an unchanged in-flight calculation', async () => {

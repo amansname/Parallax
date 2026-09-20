@@ -840,20 +840,20 @@ $('#cashflow-path-mode').onchange=e=>{
   if(window.ScenariosUI) window.ScenariosUI.sync();
 };
 // Cash Flow is now an explicit view inside the ScenariosUI view layer (the
-// Compare/Focus/Cash-Flow renderer at the end of this script). The old
+// Compare/Cash-Flow renderer at the end of this script). The old
 // cf-mode sidebar (cfMode / cfPrimary / cfCompare / renderCfSidebar / setCfMode
 // + #cf-mode-btn) was removed with its markup; the toolbar's Cash Flow chip and
 // the per-view scenario selector replace it.
 
 /* ===========================================================================
-   ScenariosUI — the single Scenarios view layer (Compare / Focus / Cash Flow).
+   ScenariosUI — the single Scenarios view layer (Compare / Cash Flow).
    Presentation only: it formats and selects numbers PRODUCTION already produced
    (scenarios, s.res, s.lev, path replay, s.res.pathFederalTax). It never
    computes a planning/projection/RMD/withdrawal/success-rate/tax number.
    The PROD object is the only coupling to production; it reads module symbols
    through explicit dependencies; imported state retains live bindings.
    =========================================================================== */
-installScenariosView({ addScenario, cashFlowController, saveScenarios, runAll, requestStress: scenarioRunController.requestStress, guardPlanMutation, isHouseholdStorageBlocked, renderBlockedRecoverySurfaces, syncRecoveryControls, syncCashFlowPathControls, removeScenario });
+installScenariosView({ addScenario, cashFlowController, saveScenarios, runAll, guardPlanMutation, isHouseholdStorageBlocked, renderBlockedRecoverySurfaces, syncRecoveryControls, syncCashFlowPathControls, removeScenario });
 $('#scn-run-action').onclick=()=>scenarioRunController.running ? scenarioRunController.cancel() : runAll();
 
 syncPathControls();

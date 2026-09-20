@@ -7,7 +7,6 @@ const PANEL_SELECTORS = [
   '.gh-add-panel',
   '.compare',
   '.cf-panel',
-  '.focus__panel',
   '.taw-card--inputs',
   '.taw-card',
   '.seq-chart',
@@ -18,7 +17,6 @@ const RAISED_PANEL_SELECTORS = [
   '.nw-tile',
   '.gh-band',
   '.gh-starter',
-  '.rail-card',
 ];
 
 const FIELD_SELECTORS = [
@@ -40,8 +38,6 @@ const CHIP_SELECTORS = [
   '.tag-ref',
   '.tag-delta',
   '.cell__delta',
-  '.badge-editing',
-  '.goal-state',
   '.gh-chip',
   '.seq-chip',
   '.cf-scenario-picker',
@@ -51,7 +47,6 @@ const CHIP_SELECTORS = [
 
 const STEPPER_BUTTON_SELECTORS = [
   '.cmp-step-btn',
-  '.stepper-btn',
   '.gh-money-row > button',
   '.gh-once-age button',
   '.gh-category',

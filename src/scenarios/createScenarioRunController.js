@@ -2,17 +2,14 @@ import { resolveInputs } from '../../engine.js';
 import { scenarioWorkerError } from '../planning/runScenarioBatch.js';
 import { createScenarioWorkerClient } from './createScenarioWorkerClient.js';
 import { scenarioProjectionIssueMessage, scenarioRunFailureMessage } from './projectionMessages.js';
-import { STRESS_ERAS } from './historicalStress.js';
 
 export function createScenarioRunController({
   getPlan, getScenarios, canRun, prepareScenario, ensurePaths, inputsByResult,
   onState, onResults, markCurrent,
   client = createScenarioWorkerClient(),
-  createStressClient = createScenarioWorkerClient,
 }) {
   let generation = 0;
   let running = false;
-  const stressJobs = new Set();
   function clearResults(message) {
     for (const scenario of getScenarios()) {
       scenario.res = null;
@@ -23,8 +20,6 @@ export function createScenarioRunController({
     generation++;
     running = false;
     client.cancel();
-    for (const job of stressJobs) job.cancel();
-    stressJobs.clear();
     clearResults(message);
     onState(state, message);
     onResults();
@@ -105,40 +100,8 @@ export function createScenarioRunController({
       if (current === generation) running = false;
     }
   }
-  async function requestStress(scenario) {
-    const result = scenario?.res;
-    const inputs = result && inputsByResult.get(result);
-    if (!inputs || result.projectionStatus === 'unavailable' || result.stressState) return;
-    const current = generation;
-    const job = createStressClient();
-    stressJobs.add(job);
-    result.stressState = 'running';
-    try {
-      // Historical handoff reads only the selected path and envelope. Carry
-      // their exact engine output without copying the full Monte Carlo batch.
-      const [response] = await job.run({ kind: 'stress', entries: [{
-        name: scenario.name, ...inputs,
-        analysis: { paths: { p50: result.paths.p50 }, envelope: result.envelope },
-      }] });
-      if (current !== generation || scenario.res !== result) return;
-      if (response.error) throw new Error(response.error.message);
-      if (response.result.stress?.length !== STRESS_ERAS.length) {
-        throw new Error(`Expected ${STRESS_ERAS.length} historical periods; received ${response.result.stress?.length || 0}`);
-      }
-      result.stress = response.result.stress;
-      result.stressState = 'complete';
-    } catch (error) {
-      if (current !== generation || scenario.res !== result) return;
-      result.stressState = 'error';
-      result.stressError = `Historical stress could not run: ${error.message}. Run the plan to retry.`;
-      onState('error', result.stressError);
-    } finally {
-      stressJobs.delete(job);
-      if (current === generation && scenario.res === result) onResults();
-    }
-  }
   return {
-    run, invalidate, requestStress,
+    run, invalidate,
     cancel: () => invalidate('cancelled', 'Calculation cancelled · run to update'),
     get running() { return running; },
   };

@@ -1,5 +1,6 @@
 // Existing browser assertions; run by scripts/verify.mjs in campaign order.
 import { join } from 'node:path';
+import assert from 'node:assert/strict';
 import { waitForWizard } from '../wizard-browser-contract.mjs';
 import { selectHouseholdVisible } from '../wizard-browser-contract.mjs';
 export async function verifyCompareView({
@@ -125,55 +126,44 @@ export async function verifyCompareView({
     fullPage: true
   });
 }
-export async function verifyFocusView({
-  page,
-  OUT
-}) {
-  await page.click('#scn-seg-focus');
-  await new Promise(r => setTimeout(r, 400));
-  const m = await page.evaluate(() => {
-    const v = document.querySelector('#scn-view');
-    return {
-      focus: !!v?.querySelector('.focus'),
-      heroRing: !!v?.querySelector('.hero .ring__arc'),
-      heroNumeral: v?.querySelector('.hero__numeral')?.textContent || '',
-      steppers: v?.querySelectorAll('.assum__stepper .stepper-btn[data-lever-key]').length || 0,
-      goalRows: v?.querySelectorAll('.goal-row').length || 0,
-      railCards: v?.querySelectorAll('.rail-card[data-pick]').length || 0,
-      railFocus: !!v?.querySelector('.rail-card__tag--focus'),
-      segActive: document.querySelector('#scn-seg-focus')?.classList.contains('is-active') || false
-    };
-  });
-  if (!m.focus) throw new Error('Focus view did not render');
-  if (!m.heroRing) throw new Error('Focus hero ring missing');
-  if (!/\d/.test(m.heroNumeral)) throw new Error(`Focus hero probability not populated: "${m.heroNumeral}"`);
-  if (m.steppers < 2) throw new Error(`Focus lever steppers missing (${m.steppers})`);
-  if (m.goalRows < 1) throw new Error(`Focus goals list rendered no rows (${m.goalRows})`);
-  if (m.railCards < 1) throw new Error(`Focus scenario rail rendered no cards (${m.railCards})`);
-  if (!m.railFocus) throw new Error('Focus rail did not mark the in-focus scenario');
-  if (!m.segActive) throw new Error('Focus segment did not mark itself active');
-
-  // A lever stepper saves and runs automatically. Step up then back down so
-  // the scenario's levers and results are left exactly as found.
-  const focusedLeverBefore = await page.$eval('#scn-view .assum__stepper', element => element.textContent.replace(/\s+/g, ' ').trim());
-  await page.evaluate(() => document.querySelector('#scn-view .assum__stepper .stepper-btn[data-dir="1"]')?.click());
-  await page.waitForFunction(before => {
-    const current = document.querySelector('#scn-view .assum__stepper')?.textContent.replace(/\s+/g, ' ').trim() || '';
-    return current !== before && /Plan updated/i.test(document.querySelector('#status')?.textContent || '');
-  }, {
-    timeout: 30000
-  }, focusedLeverBefore);
-  await page.evaluate(() => document.querySelector('#scn-view .assum__stepper .stepper-btn[data-dir="-1"]')?.click());
-  await page.waitForFunction(before => {
-    const current = document.querySelector('#scn-view .assum__stepper')?.textContent.replace(/\s+/g, ' ').trim() || '';
-    return current === before && /Plan updated/i.test(document.querySelector('#status')?.textContent || '');
-  }, {
-    timeout: 30000
-  }, focusedLeverBefore);
-  await page.screenshot({
-    path: join(OUT, '03b-scenarios-focus.png'),
-    fullPage: true
-  });
+export async function verifyScenarioNavigation({ page, OUT }) {
+  const toolbar = await page.$$eval('.page[data-page="scenarios"] .toolbar button', buttons => buttons.map(button => ({
+    id: button.id, label: button.textContent.replace(/\s+/g, ' ').trim(),
+  })));
+  assert.deepEqual(toolbar, [
+    { id: 'scn-seg-compare', label: 'Compare' },
+    { id: 'scn-cash-toggle', label: 'Cash Flow' },
+    { id: 'scn-add', label: '+ Add' },
+  ]);
+  assert.equal(await page.$('#scn-seg-focus'), null);
+  assert.equal(await page.evaluate(() => typeof window.ScenariosUI.renderFocus), 'undefined');
+  const before = await page.$$eval('#scn-view .scol', columns => columns.map(column => ({
+    name: column.querySelector('.scol__name').textContent,
+    probability: column.querySelector('.scol__prob').textContent,
+    median: column.querySelector('.scol__median').textContent,
+  })));
+  await page.click('#scn-cash-toggle');
+  await page.waitForFunction(() => document.querySelectorAll('#scn-view .cf-row').length > 0
+    && document.querySelector('#scn-cash-toggle').getAttribute('aria-checked') === 'true', { timeout: 30000 });
+  assert.equal(await page.$eval('#scn-seg-compare', button => button.getAttribute('aria-selected')), 'false');
+  const ledger = await page.$$eval('#scn-view .cf-row', rows => rows.map(row => ({
+    age: Number(row.dataset.age), ending: Number(row.dataset.endingBalance),
+  })));
+  assert.ok(ledger.length > 0 && ledger.every(row => Number.isFinite(row.age) && Number.isFinite(row.ending)));
+  // Returning via the remaining Compare control must preserve all displayed results.
+  await page.focus('#scn-seg-compare');
+  await page.keyboard.press('Enter');
+  await page.waitForSelector('#scn-view .compare', { visible: true, timeout: 8000 });
+  assert.equal(await page.$eval('#scn-seg-compare', button => button.getAttribute('aria-selected')), 'true');
+  assert.equal(await page.$eval('#scn-cash-toggle', button => button.getAttribute('aria-checked')), 'false');
+  const after = await page.$$eval('#scn-view .scol', columns => columns.map(column => ({
+    name: column.querySelector('.scol__name').textContent,
+    probability: column.querySelector('.scol__prob').textContent,
+    median: column.querySelector('.scol__median').textContent,
+  })));
+  assert.deepEqual(after, before);
+  assert.equal(await page.$('#scn-view .focus, #scn-view .stress-rail, #scn-view [data-pick]'), null);
+  await page.screenshot({ path: join(OUT, '03b-scenarios-navigation.png'), fullPage: true });
 }
 export async function verifyZeroBaseSavings({
   page,

@@ -121,7 +121,7 @@
   <section class="page" data-page="scenarios">
     <!-- =====================================================================
          Scenarios redesign (production port of the canonical handoff).
-         Presentation only: the ScenariosUI view layer renders Compare / Focus /
+         Presentation only: the ScenariosUI view layer renders Compare /
          Cash Flow into #scn-view from PRODUCTION engine state. The old band /
          levers / tax / cash-flow grids and their renderers were replaced.
          No logo/orb, no global header, no outer glass shell here ΓÇö production
@@ -129,14 +129,12 @@
          ===================================================================== -->
     <div class="scn-stage">
 
-      <!-- Toolbar: title + segmented Compare/Focus + Cash Flow toggle + actions -->
+      <!-- Toolbar: title + Compare return control + Cash Flow toggle + actions -->
       <header class="toolbar">
         <div class="toolbar__left">
           <div class="seg px-seg" role="tablist" aria-label="Scenario view">
             <button class="seg__btn is-active" id="scn-seg-compare" type="button"
                     role="tab" aria-selected="true" aria-controls="scn-view">Compare</button>
-            <button class="seg__btn" id="scn-seg-focus" type="button"
-                    role="tab" aria-selected="false" aria-controls="scn-view">Focus</button>
           </div>
         </div>
         <div class="toolbar__actions">

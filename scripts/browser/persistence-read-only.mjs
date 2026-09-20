@@ -417,10 +417,8 @@ export async function verifyReadOnlyPersistence({
   // The direct value assignment above can change a disabled DOM input even
   // when the application correctly rejects the event. Re-render from model
   // state before asserting that no in-memory scenario value changed.
-  await stableClick('#scn-seg-focus');
-  await sleep(200);
   await stableClick('#scn-seg-compare');
-  await sleep(300);
+  await page.waitForFunction(value => document.querySelector('#scn-view .cmp-lev-in')?.value === value, { timeout: 8000 }, scenarioBefore.firstLever);
   const scenarioAfter = await page.evaluate(() => ({
     names: [...document.querySelectorAll('#scn-view .scol__name')].map(el => el.textContent.trim()),
     menu: !!document.querySelector('#scn-view .scol__pop, #scn-view .scol__rename'),

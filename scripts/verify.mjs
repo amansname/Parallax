@@ -19,7 +19,7 @@ import { verifyScenarioAllocation } from './browser/scenario-allocation.mjs';
 import { verifyRetirementRelativeGoals } from './browser/scenario-timing.mjs';
 import { verifyStarterGoals } from './browser/goals.mjs';
 import { verifyCompareView } from './browser/scenario-views.mjs';
-import { verifyFocusView } from './browser/scenario-views.mjs';
+import { verifyScenarioNavigation } from './browser/scenario-views.mjs';
 import { verifyZeroBaseSavings } from './browser/scenario-views.mjs';
 import { verifyPlanningAgeLimits } from './browser/scenario-timing.mjs';
 import { verifyCashFlow } from './browser/cashflow/campaign.mjs';
@@ -291,7 +291,7 @@ try {
     cashFlowSessionSnapshot,
     OUT
   }));
-  await step('scenarios Focus view: hero ring, lever steppers, goals, rail', () => verifyFocusView({
+  await step('scenarios navigation: Compare and Cash Flow, Focus retired', () => verifyScenarioNavigation({
     page,
     OUT
   }));
@@ -303,7 +303,7 @@ try {
     stableClick,
     OUT
   }));
-  await step('entered planning ages cap Goals and Focus results', () => verifyPlanningAgeLimits({
+  await step('entered planning ages cap Goals and Cash Flow results', () => verifyPlanningAgeLimits({
     page,
     withdrawalPlannerFixtureHouseholdId,
     stableReload,
