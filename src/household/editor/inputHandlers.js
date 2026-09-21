@@ -1,6 +1,7 @@
 import { deleteBirthDateDigit, formatBirthDateEntry, birthDateCaretAfterDigits, readBirthDateGroup } from '../birthDateInput.js';
 import { clearBirthDateValidity, formatCommittedTaxAmount, valueFromControl, syncBirthDateDisplay } from './valueControls.js';
 import { updateNetWorthDraft } from './netWorthDraft.js';
+import { formatFinanceAmountInput } from '../../../ui/householdFinanceUnits.js';
 export function createHouseholdInputHandlers({
   transientState,
   liveCommas,
@@ -28,6 +29,7 @@ export function createHouseholdInputHandlers({
       }));
     },
     'input': event => {
+      if(transientState.explicitSavePending) return;
       const birthDateDisplay = event.target.closest?.('[data-birth-date-display]');
       if (birthDateDisplay) {
         const selectionStart = birthDateDisplay.selectionStart ?? birthDateDisplay.value.length;
@@ -63,7 +65,8 @@ export function createHouseholdInputHandlers({
         if (event.target.dataset.signed !== 'true') liveCommas(event.target);
       }
       if (event.target.matches?.('[data-finance-amount]')) {
-        liveCommas(event.target);
+        if(event.target.matches('[data-finance-social-security]')) formatFinanceAmountInput(event.target);
+        else liveCommas(event.target);
         event.target.size = Math.max(1, event.target.value.length);
       }
     },
@@ -76,15 +79,20 @@ export function createHouseholdInputHandlers({
     'focusout': event => {
       // Replacing the wizard view blurs its focused control while the old DOM is
       // being removed. Do not turn that teardown blur into a nested edit/render.
-      if (root.dataset.wizardReady === 'false') return;
+      if (root.dataset.wizardReady === 'false' || root.dataset.presentationMoving === 'true') return;
       const control = event.target.closest?.('.hh-tax-amount');
       if (control) formatCommittedTaxAmount(control);
       if (!control || control.dataset.householdCommittedValue === control.value) return;
+      // Native change already rejected this raw edit. Repeating that rejection
+      // on blur would steal focus from the next control. Typing clears invalid.
+      if(control.getAttribute('aria-invalid') === 'true') return;
       control.dispatchEvent(new Event('change', {
         bubbles: true
       }));
     },
     'change': event => {
+      if(transientState.explicitSavePending) return;
+      if(root.dataset.presentationMoving === 'true') return;
       const netWorthDraft = event.target.closest?.('[data-net-worth-draft]');
       if (netWorthDraft) {
         updateNetWorthDraft(transientState, netWorthDraft);

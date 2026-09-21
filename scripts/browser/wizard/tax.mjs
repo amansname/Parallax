@@ -1,6 +1,24 @@
 // Wizard browser contract: tax.
 import { requireCondition, requireUnique } from './assertions.mjs';
 import { wizardState, waitForWizard, goToWizardStep, setWizardValue, reloadWizard } from './actions.mjs';
+async function typeTaxAmount(page, selector, value) {
+  const before = await wizardState(page);
+  await page.click(selector);
+  await page.keyboard.down('Control');
+  await page.keyboard.press('A');
+  await page.keyboard.up('Control');
+  await page.keyboard.type(String(value));
+  await page.keyboard.press('Tab');
+  await waitForWizard(page, { step: 'tax', afterRevision: before.revision });
+}
+async function requireSavedIrmaaMagi(page, label) {
+  const amount = await page.evaluate(() => {
+    const db = JSON.parse(localStorage.getItem('parallax.households.v1') || 'null');
+    const active = localStorage.getItem('parallax.activeHouseholdId');
+    return db?.[active]?.incomeTax?.irmaa?.lookbackByTaxYear?.[2024]?.magi;
+  });
+  requireCondition(amount === 218000, `${label} changed saved IRMAA MAGI: ${JSON.stringify(amount)}`);
+}
 export async function verifyPlanningSourceAndTaxFlow(page) {
   await goToWizardStep(page, 'tax');
   const initialWages = await page.evaluate(() => {
@@ -40,13 +58,15 @@ export async function verifyPlanningSourceAndTaxFlow(page) {
     };
   });
   requireCondition(irmaaInputs.sectionCount === 1 && JSON.stringify(irmaaInputs.years) === JSON.stringify(['2024', '2025']) && JSON.stringify(irmaaInputs.magiFields) === JSON.stringify(['irmaa.lookback.2024.magi', 'irmaa.lookback.2025.magi']) && irmaaInputs.filingFields === 0 && JSON.stringify(irmaaInputs.filingFieldNames) === JSON.stringify(['', '']) && irmaaInputs.viewToggleCount === 0 && irmaaInputs.view === 'detailed' && irmaaInputs.summaryBoxes === 5 && irmaaInputs.frameGeometry.every(frame => frame.left === '0px' && frame.right === '0px' && frame.radius === '0px') && irmaaInputs.controlWidths.length === 4 && irmaaInputs.controlWidths[0] >= 288 && irmaaInputs.controlWidths[0] <= 290 && irmaaInputs.controlWidths[1] >= 288 && irmaaInputs.controlWidths[1] <= 290 && irmaaInputs.controlWidths.slice(2).every(width => width >= 127 && width <= 129) && Math.abs(irmaaInputs.controlWidths[2] - irmaaInputs.controlWidths[3]) <= 1 && !irmaaInputs.outputCopy, `Tax IRMAA lookback is not input-only: ${JSON.stringify(irmaaInputs)}`);
-  await setWizardValue(page, '[data-tax-field="irmaa.lookback.2024.magi"]', '218000');
+  await typeTaxAmount(page, '[data-tax-field="irmaa.lookback.2024.magi"]', '218000');
   const persistedIrmaaInput = await page.$eval('[data-tax-field="irmaa.lookback.2024.magi"]', control => control.value);
   requireCondition(persistedIrmaaInput === '218,000', `IRMAA lookback MAGI did not survive the production edit path: "${persistedIrmaaInput}"`);
+  await requireSavedIrmaaMagi(page, 'Real keyboard edit');
   await reloadWizard(page);
   await goToWizardStep(page, 'tax');
   const reloadedIrmaaInput = await page.$eval('[data-tax-field="irmaa.lookback.2024.magi"]', control => control.value);
   requireCondition(reloadedIrmaaInput === '218,000', `IRMAA lookback MAGI did not survive reload: "${reloadedIrmaaInput}"`);
+  await requireSavedIrmaaMagi(page, 'Reload');
   await goToWizardStep(page, 'summary');
   const derivedSummary = await page.evaluate(() => {
     const table = document.querySelector('table[data-summary-irmaa]');
@@ -80,8 +100,8 @@ export async function verifyPlanningSourceAndTaxFlow(page) {
   }));
   requireCondition(taxUi.confirmationCount === 0, `Tax confirmation checkbox should be removed: ${JSON.stringify(taxUi)}`);
   await goToWizardStep(page, 'tax');
-  await setWizardValue(page, '[data-tax-field="income.wages.client"]', '81000');
-  await setWizardValue(page, '[data-tax-field="income.wages.spouse"]', '39000');
+  await typeTaxAmount(page, '[data-tax-field="income.wages.client"]', '81000');
+  await typeTaxAmount(page, '[data-tax-field="income.wages.spouse"]', '39000');
   const unifiedTax = await page.evaluate(() => ({
     view: document.querySelector('[data-hh-wizard-screen="tax"]')?.dataset.taxView || '',
     clientWages: document.querySelector('[data-tax-field="income.wages.client"]')?.value || '',

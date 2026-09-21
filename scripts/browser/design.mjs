@@ -1,5 +1,6 @@
 // Existing browser assertions; run by scripts/verify.mjs in campaign order.
 import { goToWizardStep } from '../wizard-browser-contract.mjs';
+import { clickPlanningTab } from './wizard/actions.mjs';
 export async function verifyDesign({
   VERIFIED_ARTIFACT,
   page,
@@ -163,7 +164,7 @@ export async function verifyDesign({
     page: 'household',
     ready: '[data-wizard-ready="true"]'
   }]) {
-    await stableClick(`.htab[data-page="${contract.page}"]`);
+    await clickPlanningTab(page, contract.page);
     await page.waitForFunction(({
       pageName,
       selector

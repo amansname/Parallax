@@ -1,3 +1,5 @@
+import { renderHouseholdMobileSummary } from './householdMobileSummary.js';
+
 export function renderHouseholdWizardSummary(ctx){
   const {
     esc,
@@ -20,6 +22,7 @@ export function renderHouseholdWizardSummary(ctx){
       <header class="hh-screen-intro">
         <span class="t-eyebrow">Step 04</span>
       </header>
+      ${renderHouseholdMobileSummary(ctx)}
       <section class="hh-summary-metrics">
         <div class="hh-summary-metric hh-summary-metric--hero" data-summary-metric="portfolio">
           <span>Portfolio</span>

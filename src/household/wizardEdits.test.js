@@ -2,6 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ACCOUNT_SCHEMA_VERSION } from './accountTypes.js';
 import { bindHouseholdEditor } from './commit.js';
+import { createHouseholdExplicitSave } from './editor/explicitSave.js';
+import { createNetWorthMutationsActions } from './editor/netWorthMutationsActions.js';
+import { createFamilyActions } from './editor/familyActions.js';
 import { createAccount } from './createAccount.js';
 import {
   snapshotLegacyRiskProfileAllocation,
@@ -64,6 +67,78 @@ function plan(){
       deductionMode: 'auto',
     },
   };
+}
+
+function failedExplicitSaveFixture(transientState){
+  let value = plan(); value.properties = [];
+  let saved = JSON.stringify(value);
+  let available = false;
+  let commandCalls = 0; let persistenceCalls = 0;
+  const root = { dataset: { householdId: value.meta.householdId } };
+  const persist = () => { persistenceCalls++; if(available) saved = JSON.stringify(value); return available; };
+  const boundary = createHouseholdWizardCommitBoundary({ getPlan: () => value, replacePlan: next => { value = next; }, afterCommit: persist });
+  const explicitSave = createHouseholdExplicitSave({ root, transientState, retrySave: persist, syncHousehold(){} });
+  return { explicitSave, boundary, get value(){ return value; }, get saved(){ return saved; },
+    get commandCalls(){ return commandCalls; }, get persistenceCalls(){ return persistenceCalls; },
+    set available(next){ available = next; },
+    commit(command){ commandCalls++; return { ...boundary.commit(command), saveFailed: !available }; } };
+}
+
+for(const [categoryId, type, accountTypeId, collection] of [
+  ['investment', 'Traditional IRA', 'traditional_ira', value => value.portfolio.extraAccounts],
+  ['property', 'Primary home', '', value => value.properties],
+  ['insurance', 'Whole life', '', value => value.netWorth.shellEntries],
+]){
+  test(`failed ${categoryId} Save retries persistence without replaying the applied create`, () => {
+    const state = { netWorthDraft: { categoryId, type, accountTypeId, name: 'Saved entry', value: '$50,000',
+      owner: 'client', owners: ['client'], allocationPresetId: accountTypeId ? 'balanced' : '', shellOnly: !accountTypeId } };
+    const originalDraft = structuredClone(state.netWorthDraft);
+    const f = failedExplicitSaveFixture(state); const originalBytes = f.saved;
+    const actions = createNetWorthMutationsActions({ transientState: state, guardPlanMutation: () => true,
+      commit: f.commit, explicitSave: f.explicitSave, syncHousehold(){} });
+    for(let attempt = 0; attempt < 3; attempt++){
+      actions['net-worth-save-entry']({ dataset: {} });
+      assert.equal(collection(f.value).length, 1);
+      assert.equal(f.commandCalls, 1);
+      assert.equal(f.saved, originalBytes);
+      assert.deepEqual(state.netWorthDraft, originalDraft);
+      assert.equal(state.explicitSavePending.kind, 'net-worth');
+    }
+    f.available = true; actions['net-worth-save-entry']({ dataset: {} });
+    assert.equal(collection(JSON.parse(f.saved)).length, 1);
+    assert.equal(f.commandCalls, 1); assert.equal(f.persistenceCalls, 4);
+    assert.equal(state.netWorthDraft, null); assert.equal(state.explicitSavePending, null);
+  });
+}
+
+for(const [mode, typeId, amount] of [['income', 'social_security', 30000], ['savings', '401k', 0]]){
+  test(`failed finance ${mode} Save retries current-plan persistence even for a no-op`, () => {
+    const state = { financeOwner: 'client', financeMode: mode, financeTypeId: typeId };
+    const f = failedExplicitSaveFixture(state);
+    const originalBytes = f.saved;
+    const control = { value: String(amount), dataset: { financeUnit: 'year' } };
+    const action = { closest: () => ({ dataset: { financeOwner: 'client' }, querySelector: () => control }) };
+    const oldFrame = globalThis.requestAnimationFrame;
+    globalThis.requestAnimationFrame = () => 0;
+    try{
+      const actions = createFamilyActions({ transientState: state, guardPlanMutation: () => true,
+        preflightWizardEdit: f.boundary.preflight, commit: f.commit, explicitSave: f.explicitSave,
+        reportError: error => { throw error; }, syncHousehold(){} });
+      actions['commit-finance-entry'](action);
+      assert.equal(state.explicitSavePending.kind, 'finance');
+      assert.equal(state.financeOwner, 'client');
+      assert.equal(state.financeDraft.amount, String(amount));
+      actions['commit-finance-entry'](action);
+      assert.equal(f.commandCalls, 1); assert.equal(f.saved, originalBytes);
+      f.available = true; actions['commit-finance-entry'](action);
+      assert.equal(f.commandCalls, 1);
+      assert.equal(state.explicitSavePending, null); assert.equal(state.financeOwner, null);
+      assert.equal(JSON.parse(f.saved).income.socialSecurity.primary.pia, mode === 'income' ? amount : 0);
+      if(mode === 'savings') assert.equal(f.boundary.revision, 0);
+    }finally{
+      if(oldFrame) globalThis.requestAnimationFrame = oldFrame; else delete globalThis.requestAnimationFrame;
+    }
+  });
 }
 
 test('zero for a nonexistent savings entry never commits or reseeds scenarios', () => {
@@ -211,6 +286,7 @@ test('wizard teardown blur does not dispatch a nested Tax edit', () => {
   const control = {
     value: '125,000',
     dataset: { householdCommittedValue: '120,000' },
+    getAttribute(){ return null; },
     closest(selector){ return selector === '.hh-tax-amount' ? this : null; },
     dispatchEvent(){ dispatched += 1; },
   };

@@ -4,6 +4,7 @@ import { waitForWizard } from '../wizard-browser-contract.mjs';
 import { waitForPlanCalculation } from './wizard/actions.mjs';
 import { goToWizardStep } from '../wizard-browser-contract.mjs';
 import { selectHouseholdVisible } from '../wizard-browser-contract.mjs';
+import { waitForPlanCalculation } from './wizard/actions.mjs';
 async function ensureGoalChooserOpen(page) {
   const expanded = await page.$eval(
     '.gh-add-toggle',
@@ -285,6 +286,7 @@ export async function verifyGoalsDrag({ stableClick, page, withdrawalPlannerFixt
   await assertFixtureTiming('after Goals drag');
   const laneCount = await page.evaluate(() => document.querySelectorAll('.gh-lane').length);
   await stableClick('button[data-page="scenarios"]');
+  await waitForPlanCalculation(page);
   await page.waitForSelector('#scn-view', {
     visible: true,
     timeout: 15000

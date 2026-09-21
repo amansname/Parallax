@@ -65,15 +65,18 @@ async function requirePersonRelations(page, selected){
 }
 
 async function requireReachableForm(page){
+  const hitTarget = async selector => {
+    await page.$eval(selector, node => node.scrollIntoView({ block: 'center' }));
+    return page.$eval(selector, node => {
+      const rect = node.getBoundingClientRect();
+      return node.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
+    });
+  };
+  assert.equal(await hitTarget(primary), true, 'The selected member name is not reachable');
+  assert.equal(await hitTarget('#hh-menu-btn'), true, 'The household menu is not reachable');
   const state = await page.evaluate(() => {
-    const input = document.querySelector('[data-hh-field="client.legalName"]');
-    const rect = input.getBoundingClientRect();
-    const menu = document.querySelector('#hh-menu-btn');
-    const menuRect = menu.getBoundingClientRect();
     return {
       expanded: document.querySelector('[data-hh-action="toggle-finances-rail"]').getAttribute('aria-expanded'),
-      hit: document.elementFromPoint((rect.left + rect.right) / 2, (rect.top + rect.bottom) / 2) === input,
-      menuHit: menu.contains(document.elementFromPoint(menuRect.x + menuRect.width / 2, menuRect.y + menuRect.height / 2)),
       overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       controlHeight: document.querySelector('[data-hh-action="toggle-finances-rail"]').getBoundingClientRect().height,
       mobile: matchMedia('(max-width: 760px), (max-width: 1023px) and (max-height: 500px)').matches,
@@ -82,8 +85,6 @@ async function requireReachableForm(page){
     };
   });
   assert.equal(state.expanded, 'false');
-  assert.equal(state.hit, true);
-  assert.equal(state.menuHit, true);
   assert.ok(state.overflow <= 1);
   // Approved first mobile slice raises touch controls; tablet/desktop stay 40px.
   assert.equal(state.controlHeight, state.mobile ? 44 : 40);
@@ -177,7 +178,18 @@ export async function verifyFamilyEditing({ browser, url, screenshotDir }){
     assert.equal(await page.$eval(spouse, element => element.value), 'Editing Spouse');
     assert.equal(await page.$eval('[data-hh-field="client.status"]', element => element.value), 'retired');
     assert.equal(await page.$eval('[data-hh-field="client.retirementAge"]', element => element.value), '66');
+    const beforeTabletResize = await page.evaluate(() => ({
+      open: document.querySelector('[data-hh-action="toggle-finances-rail"]').getAttribute('aria-expanded'),
+      owner: document.querySelector('[data-finance-entry-panel]')?.dataset.financeOwner,
+      saved: JSON.stringify(Object.entries(localStorage).sort(([a], [b]) => a.localeCompare(b))),
+    }));
     await page.setViewport({ width: 1023, height: 900, deviceScaleFactor: 1 });
+    assert.deepEqual(await page.evaluate(() => ({
+      open: document.querySelector('[data-hh-action="toggle-finances-rail"]').getAttribute('aria-expanded'),
+      owner: document.querySelector('[data-finance-entry-panel]')?.dataset.financeOwner,
+      saved: JSON.stringify(Object.entries(localStorage).sort(([a], [b]) => a.localeCompare(b))),
+    })), beforeTabletResize, 'Resizing must preserve the finance editor and saved data');
+    await page.click(toggle);
     await page.waitForFunction(() => document.querySelector('[data-hh-action="toggle-finances-rail"]')?.getAttribute('aria-expanded') === 'false');
     await requireReachableForm(page);
 
@@ -189,6 +201,17 @@ export async function verifyFamilyEditing({ browser, url, screenshotDir }){
     await requireReachableForm(narrow);
     await narrow.screenshot({ path: join(screenshotDir, 'family-editing-390.png') });
     await selectHouseholdVisible(narrow, id);
+    const beforeMemberSwitch = await narrow.evaluate(() => JSON.stringify(Object.entries(localStorage).sort(([a], [b]) => a.localeCompare(b))));
+    assert.deepEqual(await narrow.$$eval('[data-mobile-person]', nodes => nodes.map(node => [node.dataset.mobilePerson, node.textContent])),
+      [['client', 'Editing Client'], ['spouse', 'Editing Spouse']]);
+    for(const owner of ['spouse', 'client']){
+      await narrow.click(`[data-mobile-person="${owner}"]`);
+      assert.deepEqual(await narrow.evaluate(() => ({
+        selected: [...document.querySelectorAll('[data-mobile-person][aria-pressed="true"]')].map(node => node.dataset.mobilePerson),
+        visible: [...document.querySelectorAll('[data-person-owner]')].filter(node => node.getClientRects().length > 0).map(node => node.dataset.personOwner),
+      })), { selected: [owner], visible: [owner] });
+    }
+    assert.equal(await narrow.evaluate(() => JSON.stringify(Object.entries(localStorage).sort(([a], [b]) => a.localeCompare(b)))), beforeMemberSwitch);
     await requireReachableForm(narrow);
     await narrow.setViewport({ width: 760, height: 900, deviceScaleFactor: 1 });
     await requireReachableForm(narrow);

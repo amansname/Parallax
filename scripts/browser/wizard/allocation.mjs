@@ -139,11 +139,9 @@ export async function verifyAssetAllocationPersistenceFlow(page) {
       const containerRect = container?.getBoundingClientRect();
       return Boolean(elementRect && containerRect && elementRect.right > containerRect.left && elementRect.left < containerRect.right);
     };
-    if (options) options.scrollLeft = 0;
     const firstReachable = intersectsHorizontally(first, options);
     firstInput?.focus();
     const firstFocusable = document.activeElement === firstInput;
-    if (options) options.scrollLeft = options.scrollWidth;
     const lastReachable = intersectsHorizontally(last, options);
     lastInput?.focus();
     const lastFocusable = document.activeElement === lastInput;
@@ -153,6 +151,10 @@ export async function verifyAssetAllocationPersistenceFlow(page) {
       selectorScrollWidth: options?.scrollWidth || 0,
       selectorClientWidth: options?.clientWidth || 0,
       selectorOverflowX: options ? getComputedStyle(options).overflowX : '',
+      allOptionsFit: labels.every(label => {
+        const rect = label.getBoundingClientRect();
+        return rect.left >= 0 && rect.right <= innerWidth && rect.height >= 44;
+      }),
       firstReachable,
       lastReachable,
       firstFocusable,
@@ -161,7 +163,12 @@ export async function verifyAssetAllocationPersistenceFlow(page) {
       lastDisabled: lastInput?.disabled === true
     };
   });
-  requireCondition(mobileSelector.documentScrollWidth <= mobileSelector.documentClientWidth + 1 && mobileSelector.selectorScrollWidth > mobileSelector.selectorClientWidth && ['auto', 'scroll'].includes(mobileSelector.selectorOverflowX) && mobileSelector.firstReachable && mobileSelector.lastReachable && mobileSelector.firstFocusable && mobileSelector.lastFocusable && !mobileSelector.firstDisabled && !mobileSelector.lastDisabled, `Mobile allocation selector containment failed: ${JSON.stringify(mobileSelector)}`);
+  requireCondition(mobileSelector.documentScrollWidth <= mobileSelector.documentClientWidth + 1 && mobileSelector.selectorScrollWidth <= mobileSelector.selectorClientWidth + 1 && mobileSelector.selectorOverflowX === 'visible' && mobileSelector.allOptionsFit && mobileSelector.firstReachable && mobileSelector.lastReachable && mobileSelector.firstFocusable && mobileSelector.lastFocusable && !mobileSelector.firstDisabled && !mobileSelector.lastDisabled, `Mobile allocation selector containment failed: ${JSON.stringify(mobileSelector)}`);
+  for(const position of ['first', 'last']){
+    const selector = `.nw-allocation-option:${position}-child`;
+    await page.click(selector);
+    requireCondition(await page.$eval(`${selector} input`, node => node.checked), `The ${position} mobile allocation option did not select`);
+  }
   if (viewportBefore) await page.setViewport(viewportBefore);
   await clickWizardAction(page, '[data-hh-action="net-worth-cancel-draft"]');
   await restoreStorage(page, storageBefore);

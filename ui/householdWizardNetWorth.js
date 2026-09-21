@@ -4,14 +4,9 @@ import {
   identifyInvestmentAllocation,
 } from '../src/household/investmentAllocation.js';
 import { NET_WORTH_ONLY_TREATMENT } from '../src/household/netWorthRecords.js';
+import { BANK_TYPE_IDS, householdNetWorthTotals } from '../src/household/netWorthTotals.js';
 
 const ALL_OWNERS = Object.freeze(['client', 'spouse', 'joint']);
-const BANK_TYPE_IDS = new Set([
-  'checking',
-  'savings',
-  'money_market',
-  'certificate_of_deposit',
-]);
 const ASSET_ALLOCATION_PRESET_IDS = new Set(
   ASSET_ALLOCATION_PRESETS.map(preset => preset.id),
 );
@@ -523,44 +518,12 @@ export function renderHouseholdWizardNetWorth(ctx){
     });
   }
 
-  const shellTotals = Object.fromEntries(CATEGORIES.map(category => [category.id, 0]));
-  for(const entry of shellEntries){
-    if(entry?.categoryId in shellTotals){
-      shellTotals[entry.categoryId] += number(entry.value);
-    }
-  }
-  const canonicalBankTotal = accounts
-    .filter(account => BANK_TYPE_IDS.has(account.typeId))
-    .reduce((sum, account) => sum + number(account.balance), 0);
-  const portfolioTotal = number(taxBucketSnapshot.totalBalance);
-  const canonicalInvestmentTotal = Math.max(0, portfolioTotal - canonicalBankTotal);
-  const canonicalPropertyTotal = properties
-    .reduce((sum, property) => sum + number(property?.value), 0);
-  const canonicalMortgageTotal = properties
-    .reduce((sum, property) => sum + number(property?.mortgage?.balance), 0);
-  const basePortfolioTotal = Object.values(plan.portfolio?.accounts || {})
-    .reduce((sum, sleeve) => sum + number(sleeve?.balance), 0);
-  const categoryAmounts = {
-    bank: canonicalBankTotal + shellTotals.bank,
-    investment: canonicalInvestmentTotal + shellTotals.investment,
-    property: canonicalPropertyTotal + shellTotals.property,
-    insurance: shellTotals.insurance,
-    card: shellTotals.card,
-    mortgage: canonicalMortgageTotal + shellTotals.mortgage,
-    loan: shellTotals.loan,
-  };
+  const { categoryAmounts, basePortfolioTotal, netWorthTotal } = householdNetWorthTotals(plan, taxBucketSnapshot);
   const presence = Object.fromEntries(CATEGORIES.map(category => [
     category.id,
     entriesByCategory[category.id].length > 0
       || (category.id === 'investment' && basePortfolioTotal > 0),
   ]));
-  const assetTotal = CATEGORIES
-    .filter(category => category.group === 'Assets')
-    .reduce((sum, category) => sum + number(categoryAmounts[category.id]), 0);
-  const liabilityTotal = CATEGORIES
-    .filter(category => category.group === 'Liabilities')
-    .reduce((sum, category) => sum + number(categoryAmounts[category.id]), 0);
-  const netWorthTotal = assetTotal - liabilityTotal;
   const hasWiredData = Object.values(presence).some(Boolean);
   const amountForCategory = categoryId =>
     presence[categoryId] ? money(categoryAmounts[categoryId]) : '—';
@@ -584,6 +547,7 @@ export function renderHouseholdWizardNetWorth(ctx){
               </span>
               <span class="nw-tile-copy">
                 <strong>${category.label}</strong>
+                <small class="nw-mobile-count">${entriesByCategory[category.id].length ? `${entriesByCategory[category.id].length} ${entriesByCategory[category.id].length === 1 ? 'entry' : 'entries'}` : hasEntries ? 'Saved balances' : 'Add account'}</small>
                 <span>${amountForCategory(category.id)}</span>
               </span>
             </button>
